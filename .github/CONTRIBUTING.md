@@ -2,7 +2,7 @@
 
 보안 문제는 이슈 대신 [SECURITY.md](SECURITY.md)의 비공개 신고로 알려 주세요. 이 저장소의 모든 공간에는 [행동 강령](CODE_OF_CONDUCT.md)이 적용됩니다.
 
-Kari는 유지 관리자 한 사람이 검토하고 병합합니다.
+Kari는 유지 관리자 한 사람이 검토하고 병합합니다. 모든 이슈와 PR은 유지 관리자의 검토를 거칩니다.
 
 ## 기여의 순서
 
@@ -23,9 +23,22 @@ Kari는 유지 관리자 한 사람이 검토하고 병합합니다.
 
 필요한 도구와 명령은 [Docs/contributing/build-and-test.md](../Docs/contributing/build-and-test.md), 고칠 곳은 [Docs/contributing/code-map.md](../Docs/contributing/code-map.md), 구조는 [Docs/architecture/](../Docs/architecture/)에 있습니다.
 
-## 가지 이름
+## 가지
 
-뜻이 드러나게 `fix/…`, `feat/…`, `docs/…`, `chore/…`로 짓습니다. 예: `fix/table-header-repeat`.
+- 오래 두는 가지는 `main` 하나입니다. `main`은 언제나 빌드되고 시험을 통과하는 상태입니다.
+- 작업은 `main`에서 딴 짧은 가지에서 합니다. 이슈 하나에 가지 하나, PR 하나입니다. 병합되면 가지는 자동으로 지워집니다.
+- 이름은 뜻이 드러나게 종류를 앞에 붙입니다.
+
+| 앞머리 | 쓰는 때 | 예 |
+|---|---|---|
+| `feat/` | 새 기능 | `feat/table-sort` |
+| `fix/` | 버그 수정 | `fix/table-header-repeat` |
+| `docs/` | 문서만 | `docs/install-guide` |
+| `test/` | 시험만 | `test/docx-export` |
+| `chore/` | 빌드, CI, 의존성, 정리 | `chore/ci-cache` |
+
+- `main`에는 PR로만 들어갑니다. 유지 관리자도 같은 순서(이슈 → 가지 → PR)로 일합니다.
+- 릴리스 태그(`v*`)는 유지 관리자만 만듭니다. 릴리스용 가지는 두지 않습니다.
 
 ## 코드 지침
 
