@@ -137,14 +137,35 @@ enum MenuBarFix {
 /// 그래서 사람이 친 키처럼 다음 차례에 macOS의 key equivalent 순서(창의 보기 → 주 메뉴)를 지난다.
 /// 메뉴 고르기와 조합 글도 채널의 응답을 보낸 뒤 다음 차례에 한다(사람의 입력은 채널 처리 도중에 오지 않는다).
 enum MenuTest {
+  /// 키가 지난 길: 앱이 키를 꺼낸 때의 상태(앞에 있는지, 키 창, 첫 응답자)와 키로 불린 메뉴 항목. `route`가 비운다.
+  private static var route: [String] = []
+  private static var watchers: [Any] = []
+
   static func register(_ messenger: FlutterBinaryMessenger) {
     guard ProcessInfo.processInfo.environment["KARI_MENU_TEST"] == "1" else { return }
+    if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { e in
+      let responder = e.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "-"
+      route.append(
+        "key active=\(NSApp.isActive) keyWindow=\(NSApp.keyWindow != nil) responder=\(responder)")
+      return e
+    }) {
+      watchers.append(m)
+    }
+    watchers.append(
+      NotificationCenter.default.addObserver(
+        forName: NSMenu.didSendActionNotification, object: nil, queue: nil
+      ) { n in
+        route.append("menu \((n.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
+      })
     let channel = FlutterMethodChannel(name: "kari/menu-test", binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       let args = call.arguments as? [String: Any] ?? [:]
       switch call.method {
       case "menus":
         result((NSApp.mainMenu?.items ?? []).map(describe))
+      case "route":
+        result(route)
+        route = []
       case "key":
         result(key(args))
       case "select":
@@ -157,7 +178,7 @@ enum MenuTest {
         DispatchQueue.main.async { menu.performActionForItem(at: idx) }
       case "compose":
         // 입력기의 조합 중인 글(marked text)을 Flutter의 입력 채널에 넣는다.
-        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+        activate()
         let window = NSApp.keyWindow ?? NSApp.windows.first
         guard let client = window?.firstResponder as? NSTextInputClient else {
           result(false)
@@ -194,9 +215,14 @@ enum MenuTest {
     ]
   }
 
-  /// 키 하나(누름, 뗌)와 수정 키를 놓는 변화를 보낸다. 앱이 앞에 있지 않으면 앞으로 가져온다(키는 앞 창에만 간다).
+  /// 앱을 앞으로 가져온다(키와 입력기는 앞 창에만 간다). 배경에서 도는 시험이면 가져오지 않는다.
+  private static func activate() {
+    if !NSApp.isActive && !MainFlutterWindow.background { NSApp.activate(ignoringOtherApps: true) }
+  }
+
+  /// 키 하나(누름, 뗌)와 수정 키를 놓는 변화를 보낸다.
   private static func key(_ a: [String: Any]) -> Bool {
-    if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+    activate()
     guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return false }
     window.makeKey()
     var flags: NSEvent.ModifierFlags = []
@@ -249,7 +275,27 @@ class MainFlutterWindow: NSWindow {
   /// 주 메뉴가 바뀌는 것을 본다(MenuBarFix).
   private var menuWatch: NSKeyValueObservation?
 
+  /// 실제 앱 시험을 사용자의 작업을 가리지 않고 돌린다(`KARI_TEST_BACKGROUND=1`): Dock에 뜨지 않고, 스스로
+  /// 앞으로 나오지 않고, 창은 다른 창들 뒤에 둔다. 없으면 보통 앱과 같다.
+  static let background = ProcessInfo.processInfo.environment["KARI_TEST_BACKGROUND"] == "1"
+
+  override func makeKeyAndOrderFront(_ sender: Any?) {
+    if Self.background { orderBack(sender) } else { super.makeKeyAndOrderFront(sender) }
+  }
+
+  override func orderFront(_ sender: Any?) {
+    if Self.background { orderBack(sender) } else { super.orderFront(sender) }
+  }
+
   override func awakeFromNib() {
+    if Self.background {
+      // 앱이 다 뜨기 전(주 nib를 읽는 중)에 정해야 Dock에 뜨지 않는다. 창이 뜬 뒤에는 활성화를 아예 막는다:
+      // flutter 도구는 앱에 붙은 뒤 `open`으로 앱을 앞으로 가져오고, accessory 앱은 밖에서 활성화될 수 있다.
+      // prohibited로 시작하면 창이 뜨지 않으므로 창이 뜬 다음 차례에 바꾼다(바꿔도 떠 있는 창은 그대로다).
+      // 한계: 이 코드보다 먼저 macOS가 앱을 보통 앱으로 등록하므로, 뜨는 순간 Dock에 잠깐 보일 수 있다.
+      NSApp.setActivationPolicy(.accessory)
+      DispatchQueue.main.async { NSApp.setActivationPolicy(.prohibited) }
+    }
     let flutterViewController = FlutterViewController()
     self.contentViewController = flutterViewController
     // 화면 배치가 지키는 가장 작은 창 크기(app/test/design_test.dart의 1024×700).

@@ -25,6 +25,10 @@ import 'package:kari/library.dart';
 import 'package:kari/main.dart';
 import 'package:kari/screens/paper.dart';
 
+/// 앱이 앞으로 나오지 않고 창이 다른 창들 뒤에 있다(KARI_TEST_BACKGROUND=1, MainFlutterWindow.swift).
+/// 창이 보여야만 되는 시험(그려진 프레임을 재는 입력 지연, 문서 창에 붙어 뜨는 인쇄·공유 창)은 건너뛴다.
+final background = Platform.environment['KARI_TEST_BACKGROUND'] == '1';
+
 /// 창이 가려지면(다른 창 뒤, 다른 데스크톱 공간, 전체 화면 앱) macOS가 화면 갱신 신호를 멈추고, 그러면
 /// 실제 앱 시험의 pump가 그 신호를 기다리며 끝나지 않는다. [f]가 300ms 안에 끝나지 않으면 그동안 프레임을
 /// 손으로 돌린다(위젯 트리는 갱신되고, 그림은 화면에 나가지 않는다). 앱 코드는 건드리지 않는다.
@@ -873,8 +877,8 @@ void main() {
   // 창이 떠 있는 동안 임시 PDF가 있고, 닫으면(취소든 공유든) 없어진다.
   // 인쇄 창의 취소는 손쉬운 사용으로 누를 수 있다. 공유 창은 Esc로만 닫혀 사람이 볼 때만 돈다(KARI_SHARE_CHECK=1).
   for (final (what, skip) in [
-    ('인쇄', false),
-    ('공유', Platform.environment['KARI_SHARE_CHECK'] == null),
+    ('인쇄', background),
+    ('공유', background || Platform.environment['KARI_SHARE_CHECK'] == null),
   ]) {
     testWidgets('$what 창이 PDF를 만들어 뜨고, 닫으면 임시 PDF가 없다', skip: skip, (
       tester,
@@ -953,11 +957,13 @@ void main() {
 
   testWidgets(
     '두 쪽 문서에서 한글 200자를 조합하며 넣을 때 입력에서 화면까지 p95 33ms 이하',
+    skip: background,
     (tester) => typingLatency(tester),
   );
 
   testWidgets(
     '200%에서 두 쪽 문서에 한글 200자를 조합하며 넣을 때 입력에서 화면까지 p95 33ms 이하',
+    skip: background,
     (tester) => typingLatency(tester, zoom: 2),
   );
 }

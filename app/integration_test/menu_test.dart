@@ -10,6 +10,9 @@
 // 보는 것: 메뉴 막대가 붙어 있다(제목, 단축키, 도움말 메뉴, 체크). 메뉴에 단축키가 있는 문서 명령을 키로 누르면
 // 명령이 한 번 나간다(⌘Q, ⌘H, ⌥⌘H, ⌘M, ⌃⌘F처럼 앱을 끄거나 가리는 macOS 항목은 빼고). 한글 조합 중 ⌘B, ⌘Z.
 // 메뉴 항목을 고르면(performActionForItem) 동작한다. 메뉴 막대를 붙인 채 입력에서 화면까지 p95 33ms.
+// 키마다 기록에 KARI_COUNT(명령이 나간 횟수)와 KARI_ROUTE(앱이 키를 꺼냈을 때의 상태, 키로 불린 메뉴 항목,
+// Flutter가 받은 누름)를 남긴다. 한 키가 틀려도 멈추지 않고 끝에서 한꺼번에 견준다.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -68,7 +71,26 @@ const codes = {
   '\r': 36, '\u{1b}': 53,
 };
 
+/// Flutter가 받은 누름(논리 키와 그때 눌린 수정 키). [press]가 기록에 남기고 비운다.
+final flutterKeys = <String>[];
+
+bool logKey(KeyEvent e) {
+  final k = HardwareKeyboard.instance;
+  if (e is KeyDownEvent) {
+    flutterKeys.add(
+      [
+        e.logicalKey.keyLabel,
+        if (k.isMetaPressed) 'meta',
+        if (k.isShiftPressed) 'shift',
+        if (k.isAltPressed) 'alt',
+      ].join('+'),
+    );
+  }
+  return false;
+}
+
 /// 앱 안에서 키 하나를 누르고 뗀다. [shifted]는 Shift와 함께 친 글자(⇧⌘> 의 '>').
+/// 실제 자판처럼 charactersIgnoringModifiers에도 Shift를 친 글자가 들어간다(AppKit은 Shift만은 빼지 않는다).
 Future<void> press(
   WidgetTester tester,
   String key, {
@@ -80,14 +102,20 @@ Future<void> press(
   // 어디까지 갔는지 남긴다(앱이 도중에 멈추면 기록에 마지막 키가 보인다).
   // ignore: avoid_print
   print('KARI_STEP key $key shift=$shift alt=$alt cmd=$cmd');
+  final chars = shifted ?? (shift ? key.toUpperCase() : key);
   final ok = await menuTest.invokeMethod<bool>('key', {
     'code': codes[key],
-    'chars': shifted ?? (shift ? key.toUpperCase() : key),
-    'plain': key,
+    'chars': chars,
+    'plain': chars,
     'mods': [if (cmd) 'cmd', if (shift) 'shift', if (alt) 'alt'],
   });
   expect(ok, isTrue, reason: '키를 보내지 못했다(앱 창이 없다)');
   await pump(tester, const Duration(milliseconds: 200));
+  // 키가 지난 길: 앱이 꺼냈을 때의 상태, 키로 불린 메뉴 항목, Flutter가 받은 누름.
+  final route = await menuTest.invokeListMethod<String>('route');
+  // ignore: avoid_print
+  print('KARI_ROUTE key ${jsonEncode(key)} app=$route flutter=$flutterKeys');
+  flutterKeys.clear();
 }
 
 void main() {
@@ -101,6 +129,7 @@ void main() {
     (_) {},
   );
   SystemChannels.lifecycle.setMessageHandler((_) async => null);
+  HardwareKeyboard.instance.addHandler(logKey);
 
   /// 자료 폴더를 새로 만들어 앱을 띄우고(메뉴 막대는 앱의 기본값) 새 문서를 연다. 시스템 클립보드와 인쇄 창은 가로챈다.
   Future<(Library, Counting, int, List<String>)> start(
@@ -187,12 +216,25 @@ void main() {
       '글',
     );
 
-    // 키마다 몇 번 나갔는지. 하나가 틀려도 끝까지 보고 마지막에 한꺼번에 견준다.
+    // 키마다 몇 번 나갔는지. 하나가 틀리거나 멈춰도 끝까지 보고 마지막에 한꺼번에 견준다.
     final counted = <String, int>{};
+    final problems = <String>[];
     int cmds(String k) => engine.calls
         .where((c) => c['m'] == 'edit.cmd' && cmdOf(c)['k'] == k)
         .length;
     int calls(String m) => engine.calls.where((c) => c['m'] == m).length;
+
+    /// [f]가 실패해도 멈추지 않고 적어 둔다.
+    Future<void> soft(String what, FutureOr<void> Function() f) async {
+      try {
+        await f();
+      } catch (e) {
+        problems.add('$what: $e');
+        // ignore: avoid_print
+        print('KARI_FAIL $what $e');
+      }
+    }
+
     Future<void> once(
       String what,
       Future<void> Function() act,
@@ -201,41 +243,39 @@ void main() {
     }) async {
       engine.calls.clear();
       files.clear();
-      await act();
-      // 결과가 오지 않아도(키가 앱에 닿지 않음) 멈추지 않고 0번으로 센다.
-      if (done != null) {
-        try {
-          await until(tester, done, what);
-        } on TestFailure {
-          // 아래에서 센 수가 0이다.
-        }
-      }
-      await pump(tester, const Duration(milliseconds: 300));
+      // 결과가 오지 않아도(키가 앱에 닿지 않음) 멈추지 않고 그때까지 센 수를 남긴다.
+      await soft(what, () async {
+        await act();
+        if (done != null) await until(tester, done, what);
+      });
+      await soft(what, () => pump(tester, const Duration(milliseconds: 300)));
       counted[what] = count();
       // ignore: avoid_print
       print('KARI_COUNT $what ${counted[what]}');
     }
 
-    Future<void> esc() async {
+    Future<void> esc() => soft('Esc', () async {
       await press(tester, '\u{1b}', cmd: false);
       await until(
         tester,
         () async => FocusManager.instance.primaryFocus?.debugLabel == '문서 본문',
         '종이의 초점',
       );
-    }
+    });
 
     // 모두 선택하고 글자·문단 모양.
     await once('⌘A', () => press(tester, 'a'), () => cmds('selectAll'));
     for (final k in ['b', 'i', 'u']) {
       await once('⌘$k', () => press(tester, k), () => cmds('toggle'));
     }
-    await until(
-      tester,
-      () async => session.state!.marks.contains('bold'),
-      '굵게',
-    );
-    expect(menuItem(await menus(), ['서식', '굵게'])['on'], isTrue, reason: '체크');
+    await soft('굵게 체크', () async {
+      await until(
+        tester,
+        () async => session.state!.marks.contains('bold'),
+        '굵게',
+      );
+      expect(menuItem(await menus(), ['서식', '굵게'])['on'], isTrue);
+    });
     await once(
       '⇧⌘X',
       () => press(tester, 'x', shift: true),
@@ -258,7 +298,11 @@ void main() {
         () => cmds('setPara'),
       );
     }
-    expect(menuItem(await menus(), ['서식', '정렬', '양쪽'])['on'], isTrue);
+    await soft(
+      '양쪽 체크',
+      () async =>
+          expect(menuItem(await menus(), ['서식', '정렬', '양쪽'])['on'], isTrue),
+    );
     await once('⌘\\', () => press(tester, '\\'), () => cmds('clearChar'));
     // 되돌리기·다시 하기
     await once('⌘Z', () => press(tester, 'z'), () => calls('edit.undo'));
@@ -283,10 +327,14 @@ void main() {
           )
           .length,
     );
-    await until(tester, () async => session.state!.imeText.isNotEmpty, '붙인 글');
+    await soft(
+      '붙인 글',
+      () =>
+          until(tester, () async => session.state!.imeText.isNotEmpty, '붙인 글'),
+    );
     // 쪽 나누기와 그 되돌리기
     await once('⌘↩', () => press(tester, '\r'), () => cmds('pageBreak'));
-    await press(tester, 'z');
+    await soft('⌘Z', () => press(tester, 'z'));
     // 찾기 막대, 바꾸기, 다음·이전 찾기
     await once(
       '⌘F',
@@ -294,7 +342,10 @@ void main() {
       () => find.byType(FindBar).evaluate().length,
       done: () async => find.byType(FindBar).evaluate().isNotEmpty,
     );
-    await tester.enterText(find.byType(TextField).last, '메뉴');
+    await soft(
+      '찾을 글',
+      () => tester.enterText(find.byType(TextField).last, '메뉴'),
+    );
     await esc();
     await once(
       '⌥⌘F',
@@ -331,10 +382,41 @@ void main() {
       () => press(tester, 'o', alt: true),
       () => library.get<bool>(Setting.outline) != outline ? 1 : 2,
     );
-    expect(find.byType(OutlinePanel), outline ? findsNothing : findsOneWidget);
-    await press(tester, 'o', alt: true);
-    expect(library.get<bool>(Setting.outline), outline);
-    // 확대·축소: 한 단계씩.
+    await soft('개요 다시 끄기', () async {
+      expect(
+        find.byType(OutlinePanel),
+        outline ? findsNothing : findsOneWidget,
+      );
+      await press(tester, 'o', alt: true);
+      expect(library.get<bool>(Setting.outline), outline);
+    });
+    // 실제 크기: 150%에서 한 번에 100%로.
+    await once('⌘0', () async {
+      session.zoomTo(1.5);
+      await until(tester, () async => session.state?.zoom == 1.5, '150%');
+      engine.calls.clear();
+      await press(tester, '0');
+    }, () => calls('edit.zoom'));
+    // 인쇄: 채널(kari/files의 print)은 가로채 인쇄 창을 띄우지 않고, 부른 횟수만 센다.
+    await once(
+      '⌘P',
+      () => press(tester, 'p'),
+      () => files.where((f) => f == 'print').length,
+      done: () async => files.contains('print'),
+    );
+    await soft('⌘P의 PDF', () async {
+      expect(calls('doc.exportPdf'), 1);
+      await until(
+        tester,
+        () async => FocusManager.instance.primaryFocus?.debugLabel == '문서 본문',
+        '종이의 초점',
+      );
+    });
+    // 확대·축소: 한 단계씩(100%에서).
+    await soft('100%', () async {
+      session.zoomTo(1);
+      await until(tester, () async => session.state?.zoom == 1, '100%');
+    });
     await once(
       '⌘+',
       () => press(tester, '='),
@@ -347,25 +429,6 @@ void main() {
       () => calls('edit.zoom'),
       done: () async => session.state?.zoom == 1,
     );
-    await once('⌘0', () async {
-      session.zoomTo(1.5);
-      await until(tester, () async => session.state?.zoom == 1.5, '150%');
-      engine.calls.clear();
-      await press(tester, '0');
-    }, () => calls('edit.zoom'));
-    // 인쇄(창은 가로챈다)
-    await once(
-      '⌘P',
-      () => press(tester, 'p'),
-      () => files.where((f) => f == 'print').length,
-      done: () async => files.contains('print'),
-    );
-    expect(calls('doc.exportPdf'), 1);
-    await until(
-      tester,
-      () async => FocusManager.instance.primaryFocus?.debugLabel == '문서 본문',
-      '종이의 초점',
-    );
     // 새 문서(마지막: 화면이 새 문서로 간다)
     final docs = library.docs.length;
     await once(
@@ -374,7 +437,9 @@ void main() {
       () => calls('docs.create'),
       done: () async => library.docs.length == docs + 1,
     );
-    expect(id, isNot(library.docs.first.id));
+    await soft('새 문서', () => expect(id, isNot(library.docs.first.id)));
+    // ignore: avoid_print
+    print('KARI_COUNTS ${jsonEncode(counted)}');
     expect(
       {
         for (final e in counted.entries)
@@ -383,6 +448,7 @@ void main() {
       isEmpty,
       reason: '키 한 번에 명령 한 번',
     );
+    expect(problems, isEmpty);
   });
 
   testWidgets('한글 조합 중 ⌘B와 ⌘Z는 조합을 확정하고 한 번만 듣는다', (tester) async {
