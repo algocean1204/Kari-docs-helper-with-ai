@@ -419,6 +419,8 @@ fn quality_ask() {
     let mut final_bad = 0;
     let mut repeats = 0;
     let mut leaks = 0;
+    // 겨냥과 어긋난 질문(겨냥 글과 겹침이 거의 없고 핵심 낱말도 없다): 첫 응답과 최종.
+    let (mut off_first, mut off_final) = (0, 0);
     let mut questions = Vec::new();
     for (i, (cid, f, kind, intent, pressure)) in ASKS.iter().enumerate().take(limit) {
         let c = pack.concept(cid).unwrap();
@@ -511,7 +513,13 @@ fn quality_ask() {
         if leak > ask::LEAK {
             leaks += 1;
         }
-        eprintln!("[{cid} {f} {kind} {pressure}] (겨냥 글 겹침 {leak:.2}) {q}");
+        let off = aim.as_deref().is_some_and(|a| ask::off_aim(&q, a));
+        off_final += usize::from(off);
+        off_first += usize::from(aim.as_deref().is_some_and(|a| ask::off_aim(fq, a)));
+        eprintln!(
+            "[{cid} {f} {kind} {pressure}] (겨냥 글 겹침 {leak:.2}{}) {q}",
+            if off { ", 겨냥과 어긋남" } else { "" }
+        );
         questions.push(q);
     }
     let recs = live.recs.borrow();
@@ -522,6 +530,7 @@ fn quality_ask() {
         json!({
             "provider": live.provider, "model": info.id, "effort": effort.as_str(), "samples": questions.len(), "calls": recs.len(),
             "firstBroken": first_bad, "finalBroken": final_bad, "exactRepeats": repeats, "leaks": leaks,
+            "offAimFirst": off_first, "offAim": off_final,
             "msP50": pct(&ms, 50.0), "msP95": pct(&ms, 95.0),
             "costPerCall": cost / recs.len().max(1) as f64, "cost": cost,
             "thinkingPerCall": recs.iter().map(|r| r.got.thinking).sum::<u64>() as f64 / recs.len().max(1) as f64,

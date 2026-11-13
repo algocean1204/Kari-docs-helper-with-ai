@@ -146,7 +146,8 @@ pub fn scripted(call: &Call) -> Result<Got, AiError> {
                 .chars()
                 .rev()
                 .collect();
-            json!({"question": format!("{n}번 질문: {name} {} {} {}?",
+            // "내용"은 시험용 체크포인트 글에 모두 있는 낱말이라, 겨냥과 어긋난 질문으로 걸리지 않게 넣는다.
+            json!({"question": format!("{n}번 질문: {name} 내용 {} {} {}?",
                 d["face"].as_str().unwrap_or("-"),
                 d["type"].as_str().unwrap(), d["intent"].as_str().unwrap())})
         }
@@ -157,7 +158,11 @@ pub fn scripted(call: &Call) -> Result<Got, AiError> {
                 .unwrap()
                 .iter()
                 .filter(|p| p["text"].as_str().unwrap().contains("인덱스"))
-                .map(|p| json!({"para": p["id"], "quote": "인덱스", "concepts": ["db.index"], "kind": "used"}))
+                .map(|p| {
+                    // 문단에 "[문제]"가 있으면 겪은 문제 주장이다.
+                    let kind = if p["text"].as_str().unwrap().contains("[문제]") { "problem" } else { "used" };
+                    json!({"para": p["id"], "quote": "인덱스", "concepts": ["db.index"], "kind": kind})
+                })
                 .collect();
             json!({ "claims": claims })
         }

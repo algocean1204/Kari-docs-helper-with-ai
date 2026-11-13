@@ -10,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::ask::{self, Asked};
-use crate::extract;
+use crate::extract::{self, ClaimKind};
 use crate::grade::{self, Verdict};
 use crate::pack::{Concept, Face, Pack};
-use crate::pick::{self, Facts, Intent, Phase, QType, Status, TypeCtx};
+use crate::pick::{self, Decision, Facts, Intent, Phase, QType, Status, TypeCtx, DIG};
 use crate::plan::{self, PlanIn};
 use crate::report;
 use crate::score;
@@ -278,6 +278,7 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         conflict: conflict.is_some(),
         probe: caught.is_some(),
         open_musts: next_aim(s, c, face).is_some(),
+        dig: dig_next(s, &id, face),
         used: &used,
         count: &count,
     };
@@ -311,6 +312,10 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
                 x.turn, x.before, x.now
             )
         }),
+        // 겪은 문제를 깊이 파는 사다리: 그 이력서 주장을 짚어 묻는다(근거 요구는 사다리 안에서만).
+        QType::Why | QType::Alt | QType::Redo => dig_claim(s, &id),
+        // 반례 확인의 근거 요구는 오개념을 묻는 자리라 사다리 재료를 주지 않는다.
+        QType::Evidence if slot.phase == Phase::Follow && used(QType::Why) => dig_claim(s, &id),
         _ => None,
     };
     // 한 번 더는 바로 앞 턴의 겨냥을 그대로 쓴다(반쯤 맞힌 것을 한 번 더).
@@ -336,6 +341,29 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         aim,
     });
     Ok(Next::Go(Node::Ask))
+}
+
+/// 이 개념의 이력서 주장 가운데 겪은 문제(`problem`)의 인용.
+fn dig_claim(s: &Session, id: &str) -> Option<String> {
+    s.claims
+        .iter()
+        .find(|x| x.kind == ClaimKind::Problem && x.concepts.iter().any(|c| c == id))
+        .map(|x| x.quote.clone())
+}
+
+/// 이 면에서 겪은 문제를 깊이 파는 사다리의 다음 단계(`DIG`의 순서에서 아직 안 물은 첫 단계).
+/// 그 개념에 겪은 문제 주장이 있어야 하고, 사다리는 개념마다 한 번이라 다른 면에서 이미 했으면 없다.
+fn dig_next(s: &Session, id: &str, face: Face) -> Option<QType> {
+    dig_claim(s, id)?;
+    let asked = |on_face: bool, t: QType| {
+        s.turns
+            .iter()
+            .any(|x| x.concept == id && (x.face == Some(face)) == on_face && x.kind == t)
+    };
+    if asked(false, QType::Why) {
+        return None;
+    }
+    DIG.into_iter().find(|t| !asked(true, *t))
 }
 
 /// 질문이 겨냥할 필수 체크포인트(`pick::aim`).
@@ -538,6 +566,12 @@ fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
     let ri = run_index(s, &t.concept, face)
         .ok_or_else(|| Error::Invalid("묻지 않은 면입니다.".into()))?;
     let c = concept(pack, &t.concept)?;
+    // 겪은 문제를 깊이 파는 사다리가 이 면에서 시작됐다(첫 단계 "왜"를 물었다)와 물을 단계가 남았는지.
+    let in_ladder = phase == Phase::Follow
+        && s.turns
+            .iter()
+            .any(|x| x.concept == t.concept && x.face == Some(face) && x.kind == QType::Why);
+    let more = in_ladder && dig_next(s, &t.concept, face).is_some();
     let ids: Vec<&str> = c
         .checkpoints(face)
         .iter()
@@ -603,7 +637,22 @@ fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
             }
         }
     };
-    let d = pick::decide(phase, run.status, &facts);
+    let mut d = pick::decide(phase, run.status, &facts);
+    if in_ladder {
+        if t.kind == QType::Why {
+            // 첫 단계가 꼬리질문의 몫이다: 버텼으면 확인됨이고, 남은 단계를 이어서 묻는다.
+            if d.status == Status::Confirmed && more {
+                d.next = Some(Phase::Follow);
+            }
+        } else if run.status == Status::Confirmed {
+            // 이어지는 단계는 면의 상태를 바꾸지 않는다(주장 방어로만 기록한다). 버티면 다음 단계, 못 버티면 거기서 끝.
+            let held = facts.defended.is_some_and(|x| x >= score::DEFENDED);
+            d = Decision {
+                status: Status::Confirmed,
+                next: (held && more).then_some(Phase::Follow),
+            };
+        }
+    }
     run.status = d.status;
     run.first_passed |= d.status == Status::FirstPass;
     let met = musts

@@ -145,7 +145,7 @@ fn i3_one_question_per_turn_and_no_repeats() {
         if c.what == "ask" {
             calls.set(calls.get() + 1);
             return Ok(Got {
-                text: r#"{"question": "늘 같은 질문인가요?"}"#.into(),
+                text: r#"{"question": "늘 같은 내용인가요?"}"#.into(),
                 ..Got::default()
             });
         }
