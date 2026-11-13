@@ -83,6 +83,7 @@ flowchart BT
 |---|---|---|
 | `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
 | `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
+| `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소) → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
@@ -127,6 +128,8 @@ sequenceDiagram
 4. 커서는 엔진이 그리지 않고 앱이 텍스처 위에 올린다.
 
 그리기는 명령 잠금을 잡지 않고, 편집 세션의 앞 사본 잠금만 짧게 잡는다 → [layout-and-editing.md](layout-and-editing.md).
+
+캔버스 문서도 같은 C 함수와 텍스처로 그린다. `kari_edit_gen`과 `kari_edit_render`는 문서 번호로 흐름 세션을 먼저, 없으면 캔버스 세션을 찾는다. 캔버스 세션은 보기(배율과 스크롤)를 스스로 가지므로 `scroll_x`, `scroll_y`는 쓰지 않고, `scale`은 레티나 배율(논리 화소당 화소)이다. 장면 위에 고른 상자와 손잡이도 엔진이 같은 버퍼에 덧그린다.
 
 ## 플랫폼 채널
 

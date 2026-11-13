@@ -152,6 +152,12 @@ impl Images {
         self.remember(asset.to_string(), image)
     }
 
+    /// 그림의 화소 크기 (가로, 세로). 읽거나 풀지 못하면 `None`.
+    pub fn size(&mut self, asset: &str) -> Option<(u32, u32)> {
+        self.get(asset)
+            .map(|i| (i.width() as u32, i.height() as u32))
+    }
+
     /// 화면 화소 크기(`w`×`h`)로 미리 줄이거나 늘린 그림. 그릴 때마다 보간하지 않고 그대로 옮겨 그리게 한다
     /// (그림 10장을 매 프레임 보간하면 그리기가 두 배 넘게 느려졌다). 크기가 바뀌면(화면 배율) 새로 만든다.
     pub fn sized(&mut self, asset: &str, w: i32, h: i32) -> Option<Image> {

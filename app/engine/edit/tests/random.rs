@@ -5,6 +5,7 @@
 //! 문자열을 섞는다. 실패하면 그 문서의 마지막 명령들을 찍는다. 여기서는 `selected_text`가 문서의 글과 맞는지,
 //! 거절과 밖의 변경(되돌리기) 뒤에도 맞는지를 더 본다.
 
+mod canvas_t;
 mod common;
 
 use common::*;
@@ -566,6 +567,17 @@ fn 무작위_명령_20000개() {
     );
 }
 
+#[test]
+fn 무작위_캔버스_끌기() {
+    let t = canvas_t::walk::run(0x5EED_CAFE_F00D_0006);
+    eprintln!("캔버스 무작위: {t:?}");
+    // 이 씨앗이 갈래를 고루 지나는지(다른 씨앗은 불일치만 본다).
+    assert!(
+        t.moves > 20 && t.resizes > 20 && t.undos > 20 && t.marquees > 20 && t.stale > 20,
+        "{t:?}"
+    );
+}
+
 /// 반례 찾기용: `KARI_SEEDS=N`이면 씨앗 N개를 더 돈다(병렬). 씨앗은 실패 문구의 스레드 이름에 나온다.
 #[test]
 fn 무작위_여러_씨앗() {
@@ -578,7 +590,10 @@ fn 무작위_여러_씨앗() {
             let seed = 0x3000 + i * 7919;
             std::thread::Builder::new()
                 .name(format!("씨앗 {seed:#x}"))
-                .spawn_scoped(s, move || commands(seed))
+                .spawn_scoped(s, move || {
+                    commands(seed);
+                    canvas_t::walk::run(seed);
+                })
                 .unwrap();
         }
     });

@@ -2,9 +2,11 @@
 //!
 //! `kari_call`, `kari_free`가 JSON 요청을 받아 JSON 응답을 돌려준다. 화면 스레드는 명령 잠금을 잡지 않는
 //! C 함수(`kari_font_add`, `kari_edit_gen`, `kari_edit_render`, `kari_edit_render_at`)을 바로 부른다.
+//! `canvas.*`는 캔버스 문서의 편집 세션이다(`edit.*`과 같은 모양). 그리기와 바뀜 번호는 같은 C 함수가 문서 번호로 세션을 찾는다.
 //! `ai.*`와 `iv.*`는 네트워크를 기다리므로, `doc.exportPdf`는 배치와 파일 쓰기가 길므로 명령 잠금을 스스로 짧게 잡는다.
 
 mod ai;
+mod canvas;
 mod cmd;
 mod dashboard;
 mod docx;
@@ -59,6 +61,8 @@ fn handle(request: Option<&str>) -> Res {
     let mut state = library::engine();
     if m.starts_with("edit.") {
         edit::dispatch(&mut state, m, &Args(a))
+    } else if m.starts_with("canvas.") {
+        canvas::dispatch(&mut state, m, &Args(a))
     } else {
         library::dispatch(&mut state, m, &Args(a))
     }
