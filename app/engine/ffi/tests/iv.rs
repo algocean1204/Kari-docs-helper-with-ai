@@ -420,12 +420,12 @@ mod hooked {
         );
         let v = ok(
             "iv.answer",
-            json!({"id": id, "text": "제 메일 kim@example.com로 [전부]"}),
+            json!({"id": id, "text": "제 메일 kim@example.com로 연락 주세요"}),
         );
         assert_eq!(v["turn"], 2);
         assert_eq!(
             v["history"][0]["answer"],
-            "제 메일 kim@example.com로 [전부]"
+            "제 메일 kim@example.com로 연락 주세요"
         );
 
         // 엔진을 닫았다 열어 이어 간다.

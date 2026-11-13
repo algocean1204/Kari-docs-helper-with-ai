@@ -90,7 +90,25 @@ pub fn repeated(q: &str, asked: &[&str]) -> bool {
     asked.iter().any(|a| squash(a) == q)
 }
 
-/// 질문 하나를 받는다. `data`는 자료 구역에 넣을 값, `asked`는 이미 낸 질문들(가린 글).
+/// 질문이 겨냥 글을 그대로 옮겼다고 보는 기준(`leaks`가 이 값을 넘으면). 체크포인트 글의 구절을 옮긴 글과 같은 주제를
+/// 묻기만 한 질문을 가르는 값이다(체크포인트 글에는 "…점을 설명한다" 같은 꼬리가 있어 옮긴 글도 값이 낮게 나온다).
+pub const LEAK: f64 = 0.25;
+
+/// 질문이 겨냥 글(채점 기준)을 얼마나 그대로 옮겼나: 공백과 문장부호를 지운 뒤, 겨냥 글의 글자 3-gram 가운데
+/// 질문에 그대로 있는 것의 비율. 겨냥 글이 세 글자보다 짧으면 0.
+// 한계: 글자가 같은 것만 센다, 뜻을 바꿔 말한 누설은 잡지 못한다
+pub fn leaks(question: &str, aim: &str) -> f64 {
+    let letters = |s: &str| -> Vec<char> { s.chars().filter(|c| c.is_alphanumeric()).collect() };
+    let a = letters(aim);
+    let q: String = letters(question).into_iter().collect();
+    let grams: Vec<String> = a.windows(3).map(|w| w.iter().collect()).collect();
+    if grams.is_empty() {
+        return 0.0;
+    }
+    grams.iter().filter(|g| q.contains(g.as_str())).count() as f64 / grams.len() as f64
+}
+
+/// 질문 하나를 받는다. `data`는 자료 구역에 넣을 값(`aim`이 있으면 그 글을 옮겼는지 본다), `asked`는 이미 낸 질문들(가린 글).
 pub fn ask(
     model: &mut Model,
     what: &'static str,
@@ -104,9 +122,10 @@ pub fn ask(
         user: prompt::user("정해진 의도와 유형으로 질문 하나를 만든다.", data),
         schema: prompt::ask_schema(),
     };
+    let leaked = |q: &str| data["aim"].as_str().is_some_and(|a| leaks(q, a) > LEAK);
     let first: Raw = call_json(model, &call, log)?;
     let q = first.question.trim().to_string();
-    if !broken(&q) && !repeated(&q, asked) {
+    if !broken(&q) && !repeated(&q, asked) && !leaked(&q) {
         return Ok(Asked::Question(q));
     }
     call.user = format!("{}\n{}", prompt::RETRY_NOTE, call.user);
@@ -233,6 +252,67 @@ mod tests {
             script(&["x", "{\"q\":1}"], &[]).0,
             Err(Error::Shape(_))
         ));
+    }
+
+    #[test]
+    fn leak_boundary() {
+        // 열 글자: 3-gram 여덟 개.
+        let aim = "가나다라마바사아자차";
+        assert_eq!(leaks("가나다라?", aim), 0.25, "둘");
+        assert!(
+            leaks("가나다라?", aim) <= LEAK,
+            "기준과 같으면 새지 않은 것"
+        );
+        assert_eq!(leaks("가나다라마?", aim), 0.375, "셋");
+        assert!(leaks("가나다라마?", aim) > LEAK);
+        assert_eq!(leaks(aim, aim), 1.0);
+        assert_eq!(leaks("인덱스는 어떻게 동작하나요?", aim), 0.0);
+        // 공백과 문장부호는 보지 않는다.
+        assert_eq!(leaks("가 나, 다-라!", "가나다라"), 1.0);
+        assert_eq!(leaks("가나?", "가나"), 0.0, "세 글자보다 짧은 겨냥 글");
+        // 체크포인트 글을 그대로 옮긴 질문은 걸리고, 같은 주제를 묻기만 한 질문은 걸리지 않는다.
+        let cp = "B-트리는 루트에서 모든 리프까지의 깊이가 같은 균형 트리이고, 데이터가 늘어도 깊이가 아주 느리게 자란다는 점을 설명한다";
+        assert!(
+            leaks(
+                "모든 리프까지의 깊이가 같은 균형 트리이고 데이터가 늘어도 깊이가 아주 느리게 자란다는 점을 떠올려 보시면 어떨까요?",
+                cp
+            ) > LEAK
+        );
+        assert!(
+            leaks(
+                "B-트리 인덱스에서 원하는 키를 찾을 때 몇 번 내려가면 되는지는 무엇이 정하나요?",
+                cp
+            ) <= LEAK
+        );
+    }
+
+    #[test]
+    fn a_leaking_question_is_asked_again_once() {
+        let aim = "가나다라마바사아자차카타";
+        let data = serde_json::json!({ "aim": aim });
+        let run = |replies: [&str; 2]| {
+            let mut n = 0;
+            let mut model = |_: &Call| {
+                n += 1;
+                Ok(crate::Got {
+                    text: q(replies[n - 1]),
+                    ..Default::default()
+                })
+            };
+            let r = ask(&mut model, "ask", &data, &[], &mut Vec::new());
+            (r, n)
+        };
+        let ok = |s: &str| Ok(Asked::Question(s.to_string()));
+        assert_eq!(run(["무엇인가요?", "x"]), (ok("무엇인가요?"), 1));
+        assert_eq!(
+            run(["가나다라마바사?", "다른 질문?"]),
+            (ok("다른 질문?"), 2)
+        );
+        // 또 새면 두 번째 것을 쓴다(세는 것은 부르는 쪽).
+        assert_eq!(
+            run(["가나다라마바사?", "사아자차카타?"]),
+            (ok("사아자차카타?"), 2)
+        );
     }
 
     #[test]

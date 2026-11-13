@@ -418,6 +418,7 @@ fn quality_ask() {
     let mut first_bad = 0;
     let mut final_bad = 0;
     let mut repeats = 0;
+    let mut leaks = 0;
     let mut questions = Vec::new();
     for (i, (cid, f, kind, intent, pressure)) in ASKS.iter().enumerate().take(limit) {
         let c = pack.concept(cid).unwrap();
@@ -465,7 +466,16 @@ fn quality_ask() {
             )),
             _ => None,
         };
-        let missing = (*kind == "hint").then(|| c.checkpoints(face)[1].text.clone());
+        // 엔진처럼 심화·주제 전환·힌트에만 겨냥(첫 필수, 힌트는 둘째 체크포인트)을 준다.
+        let aim = match *kind {
+            "hint" => Some(c.checkpoints(face)[1].text.clone()),
+            "switch" | "deepen" => c
+                .checkpoints(face)
+                .iter()
+                .find(|x| x.must)
+                .map(|x| x.text.clone()),
+            _ => None,
+        };
         let data = json!({
             "intent": intent,
             "concept": {"name": c.name, "summary": c.summary},
@@ -475,7 +485,7 @@ fn quality_ask() {
             "history": history,
             "claims": claims,
             "material": material,
-            "missing": missing,
+            "aim": aim,
         });
         let before = live.recs.borrow().len();
         let what = if *kind == "hint" { "hint" } else { "ask" };
@@ -497,7 +507,11 @@ fn quality_ask() {
         if ask::broken(&q) {
             final_bad += 1;
         }
-        eprintln!("[{cid} {f} {kind} {pressure}] {q}");
+        let leak = aim.as_deref().map_or(0.0, |a| ask::leaks(&q, a));
+        if leak > ask::LEAK {
+            leaks += 1;
+        }
+        eprintln!("[{cid} {f} {kind} {pressure}] (겨냥 글 겹침 {leak:.2}) {q}");
         questions.push(q);
     }
     let recs = live.recs.borrow();
@@ -507,7 +521,7 @@ fn quality_ask() {
         "ASK {}",
         json!({
             "provider": live.provider, "model": info.id, "effort": effort.as_str(), "samples": questions.len(), "calls": recs.len(),
-            "firstBroken": first_bad, "finalBroken": final_bad, "exactRepeats": repeats,
+            "firstBroken": first_bad, "finalBroken": final_bad, "exactRepeats": repeats, "leaks": leaks,
             "msP50": pct(&ms, 50.0), "msP95": pct(&ms, 95.0),
             "costPerCall": cost / recs.len().max(1) as f64, "cost": cost,
             "thinkingPerCall": recs.iter().map(|r| r.got.thinking).sum::<u64>() as f64 / recs.len().max(1) as f64,

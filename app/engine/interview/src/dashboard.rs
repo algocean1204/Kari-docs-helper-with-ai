@@ -111,6 +111,7 @@ fn latest<'a>(done: &[&'a Session], concept: &str) -> Option<Outcome<'a>> {
 }
 
 /// 그 면접에서 개념의 빠진 필수 내용 첫 줄: 확인되지 않은 면을 낮은 단부터 보고, 필수를 먼저.
+/// 리포트와 같이, 질문이 겨냥한 기록이 있는 면은 겨냥한 것만 본다(묻지 않은 것을 까닭으로 들지 않게).
 fn reason(s: &Session, concept: &str, pack: &Pack) -> Option<String> {
     let c = pack.concept(concept)?;
     let mut runs: Vec<_> = s
@@ -124,7 +125,9 @@ fn reason(s: &Session, concept: &str, pack: &Pack) -> Option<String> {
             c.checkpoints(r.face)
                 .iter()
                 .find(|cp| {
-                    cp.must == must && r.best.get(&cp.id) != Some(&crate::grade::Verdict::Met)
+                    cp.must == must
+                        && (r.aimed.is_empty() || r.aimed.contains(&cp.id))
+                        && r.best.get(&cp.id) != Some(&crate::grade::Verdict::Met)
                 })
                 .map(|cp| cp.text.clone())
         })
@@ -280,6 +283,7 @@ mod tests {
             improvements: vec![],
             corrections: vec![],
             strengths: vec![],
+            defense: vec![],
             table: rows
                 .iter()
                 .map(|(c, target, reach, faces)| Row {
@@ -443,8 +447,23 @@ mod tests {
             caught: vec![],
             probed: false,
             followed: false,
+            aimed: vec![],
+            first_passed: false,
         });
         s.posting = Some("p1".into());
+        // 겨냥한 기록이 있으면 겨냥한 것만 까닭으로 든다(리포트와 같은 기준).
+        let musts: Vec<_> = pack()
+            .concept("db.index")
+            .unwrap()
+            .checkpoints(Face::Principle)
+            .iter()
+            .filter(|c| c.must)
+            .cloned()
+            .collect();
+        let mut aimed = s.clone();
+        aimed.faces.last_mut().unwrap().aimed = vec![musts[1].id.clone()];
+        let d = build(&[aimed], &[1], |_| vec![claim("n1", &["db.index"])], pack());
+        assert_eq!(d.focus[0].reason.as_deref(), Some(musts[1].text.as_str()));
         let d = build(
             &[s, open],
             &[1],

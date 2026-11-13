@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::grade::Verdict;
 use crate::pack::Face;
-use crate::pick::Status;
+use crate::pick::{QType, Status};
 
 const DAY_MS: f64 = 86_400_000.0;
 /// 숙련도 증거가 반으로 줄어드는 날 수.
@@ -46,6 +46,54 @@ pub fn face_score<'a>(
     } else {
         sum / n as f64
     }
+}
+
+/// 필수 전부의 점수와 겨냥한 것들만의 점수 가운데 큰 값. 겨냥이 없으면 필수 전부의 점수.
+/// 겨냥은 놓쳤지만 다른 필수를 넓게 말한 답이 떨어지지 않게 큰 값을 쓴다.
+pub fn with_aim(musts: &[&str], aimed: &[&str], verdict: impl Fn(&str) -> Option<Verdict>) -> f64 {
+    let all = face_score(musts.iter().copied(), &verdict);
+    if aimed.is_empty() {
+        all
+    } else {
+        all.max(face_score(aimed.iter().copied(), &verdict))
+    }
+}
+
+type Axis = (&'static str, &'static str);
+
+const SPECIFIC: Axis = ("d.specific", "수치나 구체적인 사례를 댄다");
+const METHOD: Axis = (
+    "d.method",
+    "그 수치를 어떻게 쟀는지, 무엇을 보고 알았는지 말한다",
+);
+const LIMIT: Axis = ("d.limit", "한계나 조건, 다시 한다면 바꿀 점을 말한다");
+const OWN: Axis = ("d.own", "본인이 한 일과 팀이 한 일을 구분해 말한다");
+const STANCE: Axis = (
+    "d.stance",
+    "입장을 분명히 하고 그 근거를 댄다. 근거 없이 물러서거나 같은 말을 되풀이하면 충족이 아니다",
+);
+
+/// 주장 방어 축(id, 채점 기준) 전부. 면의 체크포인트 뒤에 붙여 같은 채점 호출로 본다.
+/// 면 점수와 체크포인트마다의 가장 좋은 판정에는 넣지 않는다.
+pub const DEFENSE: [Axis; 5] = [SPECIFIC, METHOD, LIMIT, OWN, STANCE];
+
+/// 방어 점수가 이 값 이상이면 꼬리질문을 버틴 것으로 본다(축 셋에서 둘 met, 넷에서 둘 met과 하나 partial).
+pub const DEFENDED: f64 = 0.6;
+
+/// 질문 유형이 보는 방어 축. 근거 요구는 수치·측정·한계, 본인 기여는 거기에 본인 몫, 반박은 입장·수치·한계.
+/// 그 밖의 유형은 면의 체크포인트로만 본다.
+pub fn defense_axes(kind: QType) -> &'static [Axis] {
+    match kind {
+        QType::Evidence => &[SPECIFIC, METHOD, LIMIT],
+        QType::Contribution => &[SPECIFIC, METHOD, LIMIT, OWN],
+        QType::Rebut => &[STANCE, SPECIFIC, LIMIT],
+        _ => &[],
+    }
+}
+
+/// 방어 축의 글(리포트에 싣는다).
+pub fn axis_text(id: &str) -> Option<&'static str> {
+    DEFENSE.iter().find(|a| a.0 == id).map(|a| a.1)
 }
 
 /// 개념의 도달 단: 그 개념이 가진 면(낮은 단부터, 선택 면 `principle` 포함) 가운데 낮은 단부터 이어서 확인된 가장 높은 단. 첫 면이 확인되지 않았으면 0.
@@ -151,6 +199,58 @@ mod tests {
         };
         assert_eq!(face_score(["a", "b", "c", "d"], v), 1.5 / 4.0);
         assert_eq!(face_score([], v), 0.0);
+    }
+
+    #[test]
+    fn aim_score_is_the_larger_one() {
+        let v = |id: &str| match id {
+            "a" => Some(Met),
+            "b" => Some(Partial),
+            _ => None,
+        };
+        let musts = ["a", "b", "c"];
+        assert_eq!(with_aim(&musts, &[], v), 0.5, "겨냥이 없으면 필수 전부");
+        assert_eq!(with_aim(&musts, &["a"], v), 1.0, "겨냥한 것을 말함");
+        assert_eq!(with_aim(&musts, &["b"], v), 0.5);
+        assert_eq!(
+            with_aim(&musts, &["c"], v),
+            0.5,
+            "겨냥은 놓쳤어도 필수 전부의 값보다 낮아지지 않는다"
+        );
+        assert_eq!(with_aim(&musts, &["a", "c"], v), 0.5);
+    }
+
+    #[test]
+    fn defense_axes_by_kind() {
+        let ids = |k| defense_axes(k).iter().map(|x| x.0).collect::<Vec<_>>();
+        assert_eq!(ids(QType::Evidence), ["d.specific", "d.method", "d.limit"]);
+        assert_eq!(
+            ids(QType::Contribution),
+            ["d.specific", "d.method", "d.limit", "d.own"]
+        );
+        assert_eq!(ids(QType::Rebut), ["d.stance", "d.specific", "d.limit"]);
+        for k in [
+            QType::Switch,
+            QType::Deepen,
+            QType::Scenario,
+            QType::Tradeoff,
+            QType::Summary,
+            QType::Hint,
+            QType::Conflict,
+        ] {
+            assert!(ids(k).is_empty(), "{k:?}");
+        }
+        assert_eq!(axis_text("d.stance"), Some(STANCE.1));
+        assert_eq!(axis_text("x"), None);
+        // 방어 점수 = (met + 0.5 × partial) / 축 수. 기준 0.6: 셋에서 둘 met, 넷에서 둘 met과 하나 partial.
+        let v = |id: &str| match id {
+            "d.specific" | "d.method" => Some(Met),
+            "d.limit" => Some(Partial),
+            _ => Some(Unmet),
+        };
+        assert!(face_score(ids(QType::Evidence), v) >= DEFENDED);
+        assert!(face_score(ids(QType::Contribution), v) >= DEFENDED);
+        assert!(face_score(ids(QType::Rebut), v) < DEFENDED, "0.5");
     }
 
     #[test]

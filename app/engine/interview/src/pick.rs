@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::plan::Pressure;
+use crate::score::DEFENDED;
 
 /// 면에 대해 지금 묻는 질문의 단계.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,12 +93,18 @@ impl QType {
 pub struct Facts {
     /// "모르겠습니다"
     pub skipped: bool,
-    /// 이 턴의 판정만으로 낸 면 점수
+    /// 이 턴의 판정만으로 낸 면 점수: 필수 전부의 점수와 이 턴이 겨냥한 것의 점수 가운데 큰 값
     pub turn_score: f64,
-    /// 체크포인트마다 가장 좋은 판정으로 낸 면 점수(이 턴 포함)
+    /// 체크포인트마다 가장 좋은 판정으로 낸 면 점수(이 턴 포함, 필수 전부)
     pub face_score: f64,
-    /// 그 턴에 새로 met이 된 체크포인트가 있다(필수든 아니든)
+    /// 가장 좋은 판정으로 낸 "이 면에서 겨냥한 것들"의 점수(겨냥이 없으면 0). 한 번 더는 이것과 `face_score`의 큰 값으로 본다
+    pub aim_score: f64,
+    /// 방어 축을 본 턴(근거 요구, 본인 기여, 반박)의 방어 점수
+    pub defended: Option<f64>,
+    /// 그 턴에 새로 met이 된 필수 체크포인트가 있다
     pub new_met: bool,
+    /// 30초 요약 턴이다(꼬리질문은 이 턴의 필수 점수로 본다)
+    pub summary: bool,
     /// 이 턴에 반대 진술(contra)이나 확인된 모순이 있다
     pub contra: bool,
     /// 이 턴에 오개념이 잡혔다
@@ -153,10 +160,18 @@ pub fn decide(phase: Phase, before: Status, f: &Facts) -> Decision {
         First if f.turn_score >= PASS => d(FirstPass, Some(Follow)),
         First if f.turn_score >= RETRY => d(Pending, Some(Retry)),
         First => d(Failed, None),
-        Retry if f.face_score >= PASS && !f.open_contra => d(FirstPass, Some(Follow)),
+        Retry if f.face_score.max(f.aim_score) >= PASS && !f.open_contra => {
+            d(FirstPass, Some(Follow))
+        }
         Retry => d(Failed, None),
         Follow => {
-            let held = f.new_met || f.face_score >= 0.75;
+            // 유형마다 기준 하나: 방어 축을 본 턴은 방어 점수, 요약은 이 턴의 필수 점수, 그 밖은 필수가 새로 met.
+            // 누적 점수나 겨냥한 것만의 점수는 보지 않는다(첫 질문을 통과했으면 꼬리질문이 저절로 통과된다).
+            let held = match f.defended {
+                Some(x) => x >= DEFENDED,
+                None if f.summary => f.turn_score >= PASS,
+                None => f.new_met,
+            };
             match (held && !f.open_contra, f.hinted) {
                 (false, _) => d(Failed, None),
                 // 힌트를 쓴 면은 첫 통과까지만 간다.
@@ -181,6 +196,8 @@ pub struct TypeCtx<'a> {
     pub conflict: bool,
     /// 잡힌 오개념에 반례 질문(`probe`)이 있다
     pub probe: bool,
+    /// 이 면에 아직 met이 아닌 필수 체크포인트가 남았다
+    pub open_musts: bool,
     /// (이 개념, 이 면, 유형)으로 이미 물었는가
     pub used: &'a dyn Fn(QType) -> bool,
     /// 이 세션에서 그 유형을 쓴 횟수
@@ -207,10 +224,16 @@ pub fn choose(phase: Phase, intent: Intent, c: &TypeCtx) -> Option<QType> {
         } else {
             QType::Deepen
         }),
-        Phase::Retry => match c.pressure {
-            Pressure::Coaching => first_free(&[QType::Hint, QType::Evidence, QType::Deepen]),
-            _ => first_free(&[QType::Evidence, QType::Deepen]),
-        },
+        // 근거 요구는 꼬리질문과 반례·모순 확인에만 둔다(한 번 더는 빠진 내용을 다시 묻는 자리다).
+        // 한 번 더는 면마다 한 번뿐이라 심화는 같은 유형을 앞서 썼어도 낸다(올리거나 내린 면은 첫 질문이 심화다).
+        // 같은 글의 질문은 반복 검사가 막는다.
+        Phase::Retry => Some(
+            if c.pressure == Pressure::Coaching && !(c.used)(QType::Hint) {
+                QType::Hint
+            } else {
+                QType::Deepen
+            },
+        ),
         Phase::Probe => {
             let mut list = Vec::new();
             if c.conflict {
@@ -226,8 +249,10 @@ pub fn choose(phase: Phase, intent: Intent, c: &TypeCtx) -> Option<QType> {
             let ok = |t: QType| {
                 !(c.used)(t)
                     && match t {
-                        QType::Scenario => c.scenario,
-                        QType::Tradeoff => c.tradeoff,
+                        // 필수를 겨냥하는 유형은 남은 필수가 있을 때만. 없으면 근거·기여·반박·요약에서 고른다.
+                        QType::Deepen => c.open_musts,
+                        QType::Scenario => c.open_musts && c.scenario,
+                        QType::Tradeoff => c.open_musts && c.tradeoff,
                         QType::Contribution => c.claim,
                         QType::Rebut => c.pressure != Pressure::Coaching,
                         _ => true,
@@ -243,6 +268,15 @@ pub fn choose(phase: Phase, intent: Intent, c: &TypeCtx) -> Option<QType> {
                 .min_by_key(|t| (c.count)(*t))
         }
     }
+}
+
+/// 질문이 겨냥할 필수 체크포인트: 팩의 순서로 보아 아직 met이 아니고 이 면에서 아직 겨냥하지 않은 첫 번째,
+/// 없으면 아직 met이 아닌 첫 번째, 그것도 없으면 없음.
+pub fn aim<'a>(musts: &[&'a str], met: impl Fn(&str) -> bool, aimed: &[String]) -> Option<&'a str> {
+    let open = || musts.iter().copied().filter(|id| !met(id));
+    open()
+        .find(|id| !aimed.iter().any(|a| a == id))
+        .or_else(|| open().next())
 }
 
 #[cfg(test)]
@@ -346,6 +380,16 @@ mod tests {
                 d(Failed, None),
             ),
             (
+                "한 번 더: 겨냥한 것을 말했으면 필수 전부가 낮아도 첫 통과",
+                Retry,
+                Pending,
+                Facts {
+                    aim_score: 1.0,
+                    ..facts(1.0, 0.34)
+                },
+                d(FirstPass, Some(Follow)),
+            ),
+            (
                 "한 번 더에서 모르겠습니다",
                 Retry,
                 Pending,
@@ -369,9 +413,9 @@ mod tests {
                 },
                 d(Failed, None),
             ),
-            // 꼬리질문
+            // 꼬리질문: 유형마다 기준 하나
             (
-                "새로 met이 된 체크포인트가 있으면(필수 아닌 것도): 확인됨",
+                "필수가 새로 met: 확인됨",
                 Follow,
                 FirstPass,
                 Facts {
@@ -381,24 +425,72 @@ mod tests {
                 d(Confirmed, None),
             ),
             (
-                "면 점수 0.75 이상: 확인됨",
-                Follow,
-                FirstPass,
-                facts(0.0, 0.75),
-                d(Confirmed, None),
-            ),
-            (
-                "면 점수 1(새로 met 없음): 확인됨",
+                "누적 점수가 높아도 새로 met이 없으면 실패",
                 Follow,
                 FirstPass,
                 facts(1.0, 1.0),
+                d(Failed, None),
+            ),
+            (
+                "겨냥한 것만의 점수로는 꼬리질문을 버티지 않는다",
+                Follow,
+                FirstPass,
+                Facts {
+                    aim_score: 1.0,
+                    ..facts(1.0, 0.34)
+                },
+                d(Failed, None),
+            ),
+            (
+                "방어 점수 0.6 이상: 확인됨",
+                Follow,
+                FirstPass,
+                Facts {
+                    defended: Some(0.6),
+                    ..facts(0.0, 0.34)
+                },
                 d(Confirmed, None),
             ),
             (
-                "못 버팀(새 met 없고 0.75 미만): 실패",
+                "방어 점수 0.6 미만: 실패",
                 Follow,
                 FirstPass,
-                facts(0.5, 0.74),
+                Facts {
+                    defended: Some(0.5),
+                    ..facts(0.0, 1.0)
+                },
+                d(Failed, None),
+            ),
+            (
+                "방어 축을 본 턴은 새로 met이 있어도 방어 점수로만 본다",
+                Follow,
+                FirstPass,
+                Facts {
+                    defended: Some(0.34),
+                    new_met: true,
+                    ..facts(1.0, 1.0)
+                },
+                d(Failed, None),
+            ),
+            (
+                "요약: 이 턴의 필수 점수 0.6 이상이면 확인됨",
+                Follow,
+                FirstPass,
+                Facts {
+                    summary: true,
+                    ..facts(0.6, 0.6)
+                },
+                d(Confirmed, None),
+            ),
+            (
+                "요약: 0.6 미만이면 실패",
+                Follow,
+                FirstPass,
+                Facts {
+                    summary: true,
+                    new_met: true,
+                    ..facts(0.5, 1.0)
+                },
                 d(Failed, None),
             ),
             (
@@ -540,6 +632,7 @@ mod tests {
             claim: true,
             conflict: false,
             probe: false,
+            open_musts: true,
             used,
             count,
         }
@@ -553,8 +646,8 @@ mod tests {
         assert_eq!(choose(First, Intent::Switch, &c), Some(QType::Switch));
         assert_eq!(choose(First, Intent::Raise, &c), Some(QType::Deepen));
         assert_eq!(choose(First, Intent::Lower, &c), Some(QType::Deepen));
-        // 한 번 더: 코칭은 힌트, 그 밖은 근거 요구.
-        assert_eq!(choose(Retry, Intent::Keep, &c), Some(QType::Evidence));
+        // 한 번 더: 코칭은 힌트, 그 밖은 심화(근거 요구는 쓰지 않는다).
+        assert_eq!(choose(Retry, Intent::Keep, &c), Some(QType::Deepen));
         let coach = ctx(Pressure::Coaching, &none, &zero);
         assert_eq!(choose(Retry, Intent::Keep, &coach), Some(QType::Hint));
         // 실전은 반박을 먼저.
@@ -583,12 +676,60 @@ mod tests {
         p.conflict = true;
         assert_eq!(choose(Probe, Intent::Keep, &p), Some(QType::Conflict));
         // (개념, 면, 유형)이 같은 질문은 다시 내지 않는다.
-        let used_ev = |t: QType| t == QType::Evidence;
-        let c5 = ctx(Pressure::Standard, &used_ev, &zero);
+        let used_hint = |t: QType| t == QType::Hint;
+        let c5 = ctx(Pressure::Coaching, &used_hint, &zero);
         assert_eq!(choose(Retry, Intent::Keep, &c5), Some(QType::Deepen));
+        // 한 번 더의 심화는 같은 유형을 앞서 썼어도 낸다(올린 면의 첫 질문이 심화).
+        let used_deepen = |t: QType| t == QType::Deepen;
+        let c7 = ctx(Pressure::Standard, &used_deepen, &zero);
+        assert_eq!(choose(Retry, Intent::Keep, &c7), Some(QType::Deepen));
         let used_all = |_: QType| true;
         let c6 = ctx(Pressure::Standard, &used_all, &zero);
-        assert_eq!(choose(Retry, Intent::Keep, &c6), None);
+        assert_eq!(choose(Retry, Intent::Keep, &c6), Some(QType::Deepen));
+        let c8 = ctx(Pressure::Coaching, &used_all, &zero);
+        assert_eq!(choose(Retry, Intent::Keep, &c8), Some(QType::Deepen));
         assert_eq!(choose(Probe, Intent::Keep, &c6), None);
+        // 남은 필수가 없으면 꼬리질문으로 심화·시나리오·트레이드오프를 고르지 않는다.
+        for pressure in [Pressure::Coaching, Pressure::Standard, Pressure::Real] {
+            let mut done = ctx(pressure, &none, &zero);
+            done.open_musts = false;
+            let got = choose(Follow, Intent::Keep, &done);
+            assert!(
+                !matches!(got, Some(QType::Deepen | QType::Scenario | QType::Tradeoff)),
+                "{pressure:?}: {got:?}"
+            );
+            assert!(got.is_some());
+        }
+        let mut done = ctx(Pressure::Standard, &none, &zero);
+        done.open_musts = false;
+        assert_eq!(choose(Follow, Intent::Keep, &done), Some(QType::Evidence));
+        let only_summary = |t: QType| t != QType::Summary;
+        done.used = &only_summary;
+        assert_eq!(choose(Follow, Intent::Keep, &done), Some(QType::Summary));
+    }
+
+    #[test]
+    fn aim_order() {
+        let musts = ["a", "b", "c"];
+        let none = |_: &str| false;
+        let aimed = |ids: &[&str]| ids.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(aim(&musts, none, &[]), Some("a"), "팩의 순서로 첫째");
+        assert_eq!(
+            aim(&musts, |id| id == "a", &[]),
+            Some("b"),
+            "met은 건너뛴다"
+        );
+        assert_eq!(
+            aim(&musts, none, &aimed(&["a"])),
+            Some("b"),
+            "겨냥한 것은 건너뛴다"
+        );
+        assert_eq!(
+            aim(&musts, |id| id == "c", &aimed(&["a", "b"])),
+            Some("a"),
+            "모두 겨냥했으면 met이 아닌 첫째"
+        );
+        assert_eq!(aim(&musts, |_| true, &[]), None, "모두 met");
+        assert_eq!(aim(&[], none, &[]), None, "필수가 없다");
     }
 }

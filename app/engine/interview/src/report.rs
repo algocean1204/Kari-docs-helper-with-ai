@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::grade::Verdict;
 use crate::pack::{Checkpoint, Face, Pack, Source};
-use crate::pick::Status;
+use crate::pick::{Phase, Status};
 use crate::score;
 use crate::state::{FaceRun, Session, Turn};
 use crate::CallLog;
@@ -32,6 +32,9 @@ pub struct Improvement {
     pub question: String,
     pub quote: String,
     pub missing: Vec<Missing>,
+    /// 겨냥한 필수를 모두 말했지만 방어 축으로 보는 꼬리질문에서 떨어진 면: 그 답에서 빠진 축의 글
+    #[serde(default)]
+    pub axes: Vec<String>,
     pub next: String,
 }
 
@@ -53,6 +56,24 @@ pub struct Strength {
     pub face: Face,
     pub face_name: String,
     pub quote: Option<String>,
+}
+
+/// 주장 방어의 축 하나: 채점 기준, 판정, 인용(unmet이면 없다).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Axis {
+    pub id: String,
+    pub text: String,
+    pub verdict: Verdict,
+    pub quote: Option<String>,
+}
+
+/// 방어 축으로 채점한 턴(근거 요구, 본인 기여, 반박) 하나의 주장 방어.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Defense {
+    pub concept: String,
+    pub name: String,
+    pub question: String,
+    pub axes: Vec<Axis>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -109,6 +130,9 @@ pub struct Report {
     pub corrections: Vec<Correction>,
     /// 잘한 점: 확인된 면 최대 2개
     pub strengths: Vec<Strength>,
+    /// 주장 방어: 방어 축으로 채점한 턴마다(앞서 저장한 리포트에는 없다)
+    #[serde(default)]
+    pub defense: Vec<Defense>,
     /// 주제별 표
     pub table: Vec<Row>,
     /// 다음에 다시 낼 개념(도달 단이 목표에 못 미친 것)
@@ -179,13 +203,15 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
             })
             .max_by_key(|q| q.chars().count())
     };
-    // 빠진 체크포인트: 필수를 먼저(같은 갈래 안에서는 팩의 순서).
+    // 빠진 체크포인트: 필수를 먼저(같은 갈래 안에서는 팩의 순서). 질문이 겨냥한 기록이 있으면 겨냥한 것만 본다
+    // (묻지 않은 것을 고치라고 하지 않게). 겨냥 기록이 없는 세션은 면의 체크포인트 전부를 본다.
     let missing_cps = |r: &FaceRun| -> Vec<&Checkpoint> {
         let mut list: Vec<&Checkpoint> = pack
             .concept(&r.concept)
             .map(|c| {
                 c.checkpoints(r.face)
                     .iter()
+                    .filter(|cp| r.aimed.is_empty() || r.aimed.contains(&cp.id))
                     .filter(|cp| r.best.get(&cp.id) != Some(&Verdict::Met))
                     .collect()
             })
@@ -227,25 +253,73 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
             .collect();
         picked.push((r, list));
     }
+    // 답의 앞부분(확인된 인용이 없을 때).
+    let head = |t: &Turn| {
+        t.answer
+            .as_deref()
+            .map(|a| back(a).chars().take(HEAD).collect())
+    };
     let improvements = picked
         .into_iter()
         .map(|(r, missing)| {
-            let first = turns_of(s, r).next();
-            let quote = longest(r).map(|q| back(&q)).unwrap_or_else(|| {
-                turns_of(s, r)
-                    .find_map(|t| t.answer.as_deref())
-                    .map(|a| back(a).chars().take(HEAD).collect())
-                    .unwrap_or_else(|| "모르겠습니다".to_string())
-            });
+            // 빠진 필수가 없으면 떨어진 자리는 방어 축으로 보는 꼬리질문(근거 요구, 본인 기여, 반박)이다:
+            // 그 질문과 답, 빠진 축을 싣는다. 모르겠습니다로 넘겼으면 그 유형의 축 전부가 빠진 것이다.
+            let defense = turns_of(s, r)
+                .filter(|t| missing.is_empty() && t.phase == Some(Phase::Follow))
+                .filter(|t| !score::defense_axes(t.kind).is_empty())
+                .filter_map(|t| {
+                    if t.skipped {
+                        let axes = score::defense_axes(t.kind)
+                            .iter()
+                            .map(|a| a.1.to_string())
+                            .collect();
+                        return Some((t, None, axes));
+                    }
+                    let g = t.graded.as_ref()?;
+                    let axes: Vec<String> = g
+                        .checks
+                        .iter()
+                        .filter(|c| c.verdict != Verdict::Met)
+                        .filter_map(|c| score::axis_text(&c.id).map(str::to_string))
+                        .collect();
+                    Some((t, Some(g), axes))
+                })
+                .last();
+            let (question, quote, axes) = match defense {
+                Some((t, g, axes)) => {
+                    let quote = g
+                        .and_then(|g| {
+                            g.checks
+                                .iter()
+                                .filter_map(|c| c.quote.as_deref())
+                                .max_by_key(|q| q.chars().count())
+                        })
+                        .map(back)
+                        .or_else(|| head(t))
+                        .unwrap_or_else(|| "모르겠습니다".to_string());
+                    (back(&t.question), quote, axes)
+                }
+                None => {
+                    let quote = longest(r).map(|q| back(&q)).unwrap_or_else(|| {
+                        turns_of(s, r)
+                            .find_map(head)
+                            .unwrap_or_else(|| "모르겠습니다".to_string())
+                    });
+                    let first = turns_of(s, r).next();
+                    let question = first.map(|t| back(&t.question)).unwrap_or_default();
+                    (question, quote, Vec::new())
+                }
+            };
             Improvement {
                 concept: r.concept.clone(),
                 name: name(&r.concept),
                 face: r.face,
                 face_name: r.face.ko().to_string(),
                 status: r.status,
-                question: first.map(|t| back(&t.question)).unwrap_or_default(),
+                question,
                 quote,
                 missing,
+                axes,
                 next: next_action(r.face, &name(&r.concept)),
             }
         })
@@ -298,6 +372,33 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
         });
     }
 
+    let defense = s
+        .turns
+        .iter()
+        .filter_map(|t| {
+            let g = t.graded.as_ref()?;
+            let axes: Vec<Axis> = g
+                .checks
+                .iter()
+                .filter_map(|c| {
+                    Some(Axis {
+                        id: c.id.clone(),
+                        text: score::axis_text(&c.id)?.to_string(),
+                        verdict: c.verdict,
+                        quote: c.quote.as_deref().map(back),
+                    })
+                })
+                .collect();
+            // 방어 축 없이 채점한 턴(앞서 저장한 세션)은 싣지 않는다.
+            (!axes.is_empty()).then(|| Defense {
+                concept: t.concept.clone(),
+                name: name(&t.concept),
+                question: back(&t.question),
+                axes,
+            })
+        })
+        .collect();
+
     let mut table = Vec::new();
     let mut again = Vec::new();
     for p in &s.plan {
@@ -339,6 +440,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
         improvements,
         corrections,
         strengths,
+        defense,
         table,
         again,
         session: Summary {
