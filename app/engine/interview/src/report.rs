@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::grade::Verdict;
 use crate::pack::{Checkpoint, Face, Pack, Source};
-use crate::pick::{Phase, Status};
+use crate::pick::{Phase, QType, Status};
 use crate::score;
 use crate::state::{FaceRun, Session, Turn};
 use crate::CallLog;
@@ -35,6 +35,9 @@ pub struct Improvement {
     /// 겨냥한 필수를 모두 말했지만 방어 축으로 보는 꼬리질문에서 떨어진 면: 그 답에서 빠진 축의 글
     #[serde(default)]
     pub axes: Vec<String>,
+    /// 빠진 필수가 없는 카드가 왜 여기 있는가(꼬리질문까지 가지 못함, 힌트를 써서 첫 통과에 그침, 요약이나 반례 확인이나 꼬리질문에서 떨어짐). 없으면 빈 글
+    #[serde(default)]
+    pub note: String,
     pub next: String,
 }
 
@@ -261,33 +264,158 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
     };
     let improvements = picked
         .into_iter()
-        .map(|(r, missing)| {
-            // 빠진 필수가 없으면 떨어진 자리는 방어 축으로 보는 꼬리질문(근거 요구, 본인 기여, 반박)이다:
-            // 그 질문과 답, 빠진 축을 싣는다. 모르겠습니다로 넘겼으면 그 유형의 축 전부가 빠진 것이다.
-            let defense = turns_of(s, r)
-                .filter(|t| missing.is_empty() && t.phase == Some(Phase::Follow))
-                .filter(|t| !score::defense_axes(t.kind).is_empty())
-                .filter_map(|t| {
-                    if t.skipped {
-                        let axes = score::defense_axes(t.kind)
+        .map(|(r, mut missing)| {
+            let c = pack.concept(&r.concept);
+            let last = turns_of(s, r)
+                .filter(|t| t.answer.is_some() || t.skipped)
+                .last();
+            let as_missing = |cp: &&Checkpoint| Missing {
+                text: cp.text.clone(),
+                source: cp.source.clone(),
+            };
+            let cps: Vec<&Checkpoint> = c
+                .map(|c| c.checkpoints(r.face).iter().collect())
+                .unwrap_or_default();
+            let mut axes: Vec<String> = Vec::new();
+            let mut note = String::new();
+            // 카드가 싣는 질문과 답의 턴. 없으면 그 면의 첫 질문.
+            let mut at: Option<&Turn> = None;
+            // 틀리게 말한 것: 잡힌 오개념의 바른 설명, 반대로 말한 체크포인트.
+            let wrong = || -> Vec<Missing> {
+                let mut v: Vec<Missing> = r
+                    .caught
+                    .iter()
+                    .filter_map(|id| c?.misconceptions.iter().find(|m| &m.id == id))
+                    .map(|m| Missing {
+                        text: m.fix.clone(),
+                        source: m.source.clone(),
+                    })
+                    .collect();
+                v.extend(
+                    cps.iter()
+                        .filter(|cp| r.best.get(&cp.id) == Some(&Verdict::Contra))
+                        .map(as_missing),
+                );
+                v
+            };
+            // 이 턴에서 met이 아닌 필수(모르겠습니다로 넘겼으면 필수 전부).
+            let unmet_musts = |t: &Turn| -> Vec<Missing> {
+                let met = |id: &str| {
+                    t.graded
+                        .as_ref()
+                        .and_then(|g| g.checks.iter().find(|c| c.id == id))
+                        .is_some_and(|c| c.verdict == Verdict::Met)
+                };
+                cps.iter()
+                    .filter(|cp| cp.must && !met(&cp.id))
+                    .map(as_missing)
+                    .collect()
+            };
+            // 이 턴의 답에서 틀린 내용이 잡혔다(반대 진술, 오개념, 앞 답과의 모순).
+            let said_wrong = |t: &Turn| {
+                t.graded.as_ref().is_some_and(|g| {
+                    !g.misconceptions.is_empty()
+                        || g.conflict.is_some()
+                        || g.checks.iter().any(|k| {
+                            k.verdict == Verdict::Contra && cps.iter().any(|cp| cp.id == k.id)
+                        })
+                })
+            };
+            let answered_follow = turns_of(s, r)
+                .any(|t| t.phase == Some(Phase::Follow) && (t.answer.is_some() || t.skipped));
+            // 빠진 필수가 없는 카드는 떨어진 자리나 끝난 자리를 보고 쓴다. 카드마다 그 질문과 답, 결과 줄, 빠진 내용을 싣는다.
+            // 빠진 것은 묻고 확인한 것에서만 센다(겨냥하지 않은 체크포인트를 고치라고 하지 않는다).
+            if missing.is_empty() {
+                match (r.status, last) {
+                    // 반례 확인에서 떨어짐: 바로잡지 못한 오개념의 바른 설명, 반대로 말한 체크포인트.
+                    (Status::Failed, Some(t)) if t.phase == Some(Phase::Probe) => {
+                        at = Some(t);
+                        note = "반례 확인에서 바로잡지 못했습니다.".to_string();
+                        missing = wrong();
+                    }
+                    // 30초 요약에서 떨어짐: 이 턴에서 met이 아닌 필수.
+                    (Status::Failed, Some(t))
+                        if t.phase == Some(Phase::Follow) && t.kind == QType::Summary =>
+                    {
+                        at = Some(t);
+                        note = "30초 요약에서 떨어졌습니다.".to_string();
+                        missing = unmet_musts(t);
+                    }
+                    // 방어 축으로 보는 꼬리질문에서 떨어짐(근거 요구, 본인 기여, 반박): 그 질문과 답, 빠진 축.
+                    // 모르겠습니다로 넘겼으면 그 유형의 축 전부가 빠진 것이다.
+                    (Status::Failed, Some(t))
+                        if t.phase == Some(Phase::Follow)
+                            && !score::defense_axes(t.kind).is_empty() =>
+                    {
+                        at = Some(t);
+                        note = match t.kind {
+                            QType::Contribution => "본인 기여를 묻는 꼬리질문에서 떨어졌습니다.",
+                            QType::Rebut => "반박하는 꼬리질문에서 떨어졌습니다.",
+                            _ => "근거를 묻는 꼬리질문에서 떨어졌습니다.",
+                        }
+                        .to_string();
+                        axes = match t.graded.as_ref().filter(|_| !t.skipped) {
+                            Some(g) => g
+                                .checks
+                                .iter()
+                                .filter(|c| c.verdict != Verdict::Met)
+                                .filter_map(|c| score::axis_text(&c.id).map(str::to_string))
+                                .collect(),
+                            None => score::defense_axes(t.kind)
+                                .iter()
+                                .map(|a| a.1.to_string())
+                                .collect(),
+                        };
+                    }
+                    // 첫 통과로 끝났고 꼬리질문 답에서 틀린 내용이 잡혔는데 반례 확인을 마치지 못했다.
+                    (Status::FirstPass, Some(t))
+                        if t.phase == Some(Phase::Follow) && said_wrong(t) =>
+                    {
+                        at = Some(t);
+                        note = "꼬리질문 답에서 틀린 내용이 잡혔는데 반례 확인을 마치지 못해 첫 통과까지만 인정됐습니다."
+                            .to_string();
+                        missing = wrong();
+                    }
+                    // 첫 통과로 끝났고 꼬리질문은 버텼지만 힌트를 썼다: 그 턴에서 빠진 것만 싣는다.
+                    (Status::FirstPass, Some(t)) if t.phase == Some(Phase::Follow) => {
+                        at = Some(t);
+                        note = "힌트를 써서 첫 통과까지만 인정됐습니다.".to_string();
+                        if t.kind == QType::Summary {
+                            missing = unmet_musts(t);
+                        } else if let Some(g) = t.graded.as_ref().filter(|_| !score::defense_axes(t.kind).is_empty()) {
+                            axes = g
+                                .checks
+                                .iter()
+                                .filter(|c| c.verdict != Verdict::Met)
+                                .filter_map(|c| score::axis_text(&c.id).map(str::to_string))
+                                .collect();
+                        }
+                    }
+                    // 꼬리질문에 답한 뒤 반례 확인에서 고쳐 끝났다.
+                    (Status::FirstPass, Some(t))
+                        if t.phase == Some(Phase::Probe) && answered_follow =>
+                    {
+                        at = Some(t);
+                        note = "꼬리질문 뒤 반례 확인에서 고쳤지만 첫 통과까지만 인정됐습니다."
+                            .to_string();
+                    }
+                    // 첫 통과 뒤 꼬리질문에 답하지 못하고 끝났다(시간이 끝남, 낼 유형이 없음): 이어서 물을 근거 요구의 축.
+                    (Status::FirstPass, _) => {
+                        note = "꼬리질문까지 가지 못했습니다.".to_string();
+                        axes = score::defense_axes(QType::Evidence)
                             .iter()
                             .map(|a| a.1.to_string())
                             .collect();
-                        return Some((t, None, axes));
                     }
-                    let g = t.graded.as_ref()?;
-                    let axes: Vec<String> = g
-                        .checks
-                        .iter()
-                        .filter(|c| c.verdict != Verdict::Met)
-                        .filter_map(|c| score::axis_text(&c.id).map(str::to_string))
-                        .collect();
-                    Some((t, Some(g), axes))
-                })
-                .last();
-            let (question, quote, axes) = match defense {
-                Some((t, g, axes)) => {
-                    let quote = g
+                    // 그 밖의 실패: 틀리게 말한 것만. 없으면 빈 채로 둔다.
+                    _ => missing = wrong(),
+                }
+            }
+            let (question, quote) = match at {
+                Some(t) => {
+                    let quote = t
+                        .graded
+                        .as_ref()
                         .and_then(|g| {
                             g.checks
                                 .iter()
@@ -297,7 +425,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
                         .map(back)
                         .or_else(|| head(t))
                         .unwrap_or_else(|| "모르겠습니다".to_string());
-                    (back(&t.question), quote, axes)
+                    (back(&t.question), quote)
                 }
                 None => {
                     let quote = longest(r).map(|q| back(&q)).unwrap_or_else(|| {
@@ -306,8 +434,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
                             .unwrap_or_else(|| "모르겠습니다".to_string())
                     });
                     let first = turns_of(s, r).next();
-                    let question = first.map(|t| back(&t.question)).unwrap_or_default();
-                    (question, quote, Vec::new())
+                    (first.map(|t| back(&t.question)).unwrap_or_default(), quote)
                 }
             };
             Improvement {
@@ -320,6 +447,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
                 quote,
                 missing,
                 axes,
+                note,
                 next: next_action(r.face, &name(&r.concept)),
             }
         })

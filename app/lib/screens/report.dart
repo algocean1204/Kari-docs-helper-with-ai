@@ -523,8 +523,8 @@ class _SourceLine extends StatelessWidget {
   }
 }
 
-/// 고칠 것 하나(개념과 면은 바깥의 제목이 보인다): 질문, 내 답, 다음에 말할 것(빠진 체크포인트, 필수가 먼저)과 출처, 다음 행동.
-/// 빠진 체크포인트 없이 근거를 묻는 꼬리질문에서 떨어진 면은 그 답에서 빠진 축이 다음에 말할 것이다.
+/// 고칠 것 하나(개념과 면은 바깥의 제목이 보인다): 질문, 내 답, 어떻게 됐는지(있을 때), 다음에 말할 것(빠진 체크포인트, 필수가 먼저)과 출처, 다음 행동.
+/// 빠진 체크포인트가 없는 면(방어 축으로 보는 꼬리질문에서 떨어짐, 꼬리질문까지 가지 못함)은 빠진 축이 다음에 말할 것이다.
 class _Fix extends StatelessWidget {
   const _Fix({required this.fix});
 
@@ -534,11 +534,13 @@ class _Fix extends StatelessWidget {
   Widget build(BuildContext context) {
     final missing = (fix['missing'] as List? ?? const []).cast<Json>();
     final axes = (fix['axes'] as List? ?? const []).cast<String>();
+    final note = fix['note'] as String? ?? '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Part(name: '질문', text: fix['question'] as String? ?? ''),
         _Part(name: '내 답', text: fix['quote'] as String? ?? ''),
+        if (note.isNotEmpty) _Part(name: '결과', text: note),
         for (final (i, m) in missing.indexed) ...[
           _Part(name: i == 0 ? '다음에 말할 것' : '', text: m['text'] as String),
           _SourceLine(source: m['source'] as Json),

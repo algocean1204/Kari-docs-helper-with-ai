@@ -391,9 +391,13 @@ void main() {
         ),
         findsWidgets,
       );
-      // 근거를 묻는 꼬리질문에서 떨어진 면의 카드도 다음에 말할 것(빠진 축)이 비지 않는다.
+      // 빠진 필수가 없는 면(꼬리질문까지 가지 못함, 반례 확인에서 떨어짐)의 카드도 어떻게 됐는지(결과)와
+      // 다음에 말할 것(빠진 축이나 바른 설명)이 비지 않는다.
       await tap(tester, rest);
       expect(find.text('다음에 말할 것'), findsNWidgets(2));
+      expect(find.text('결과'), findsNWidgets(2));
+      expect(find.text(keepAll('반례 확인에서 바로잡지 못했습니다.')), findsOneWidget);
+      expect(find.text(keepAll('꼬리질문까지 가지 못했습니다.')), findsOneWidget);
       expect(find.text(keepAll('수치나 구체적인 사례를 댄다')), findsOneWidget);
       expect(find.text(keepAll('한계나 조건, 다시 한다면 바꿀 점을 말한다')), findsOneWidget);
       // 나머지 묶음은 제목과 개수만 보이고 누르면 펼친다.
