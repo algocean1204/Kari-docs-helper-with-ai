@@ -11,9 +11,9 @@ use parley::LayoutContext;
 use crate::fonts::Fonts;
 use crate::layouter::{IdMap, Layouter};
 use crate::page::shift;
-use crate::para::{build_from, Cx};
+use crate::para::{build_from, Cx, ParaBox};
 use crate::style::{color, Align, LineSpacing, ParaFormat};
-use crate::{Cap, Item, Join, Seg, Stroke};
+use crate::{Cap, Item, Join, Overlay, Seg, Stroke};
 
 mod pick;
 pub use pick::{apply, inv, mul, Affine, NodeGeo, Pick};
@@ -35,13 +35,22 @@ pub struct Scene {
     pub boards: Vec<Board>,
 }
 
-/// 배치한 글 상자(노드 좌표계). 자동 크기를 푼 너비와 높이도 든다.
-#[derive(Clone, Debug)]
+/// 배치한 글 상자(노드 좌표계). 자동 크기를 푼 너비와 높이도 든다. 문단 배치(`pb`)를 그대로 두어
+/// 위치 질의(`scene/text.rs`)가 흐름과 같은 줄 표를 쓴다.
 pub(crate) struct TextBox {
     items: Vec<Item>,
     w: f32,
     h: f32,
+    /// 첫 줄 위의 여백(세로 맞춤).
+    y0: f32,
+    pb: ParaBox,
 }
+
+/// 글 상자를 다시 배치할지 가르는 값: 노드의 rev와 그 상자에 끼운 조합 글(자리, 글).
+pub(crate) type BoxKey = (u64, Option<(usize, String)>);
+
+mod text;
+pub use text::{TextRect, TextStep};
 
 /// 중첩 깊이의 한계. 이보다 깊은 노드는 그리지 않는다(재귀가 스택을 넘지 않게).
 const MAX_DEPTH: usize = 64;
@@ -63,7 +72,8 @@ struct Ctx<'a> {
     fonts: &'a mut Fonts,
     lcx: &'a mut LayoutContext<u32>,
     gen: &'a mut u64,
-    boxes: &'a mut IdMap<(u64, TextBox)>,
+    boxes: &'a mut IdMap<(BoxKey, TextBox)>,
+    overlay: Option<&'a Overlay>,
     image_size: &'a dyn Fn(&str) -> Option<(u32, u32)>,
 }
 
@@ -82,6 +92,7 @@ impl Layouter {
             lcx: &mut self.lcx,
             gen: &mut self.gen,
             boxes: &mut self.boxes,
+            overlay: self.text_overlay.as_ref(),
             image_size,
         };
         let mut boards = Vec::new();
@@ -94,6 +105,11 @@ impl Layouter {
         }
         self.boxes.retain(|id, _| doc.node(id).is_some());
         Scene { boards }
+    }
+
+    /// 글 상자에 끼워 배치할 조합 중인 글을 정한다(`para`는 글 상자의 노드 id). 입력기의 조합이 그 자리에서 보인다.
+    pub fn set_text_overlay(&mut self, overlay: Option<Overlay>) {
+        self.text_overlay = overlay;
     }
 }
 
@@ -637,14 +653,19 @@ impl Ctx<'_> {
 
     /// 글 상자의 (너비, 높이). 노드가 바뀌었으면 다시 배치한다.
     fn text_size(&mut self, n: &Node) -> (f32, f32) {
-        if let Some((rev, b)) = self.boxes.get(&n.id) {
-            if *rev == n.rev {
+        let ov = self
+            .overlay
+            .filter(|o| o.para == n.id && !o.text.is_empty())
+            .map(|o| (o.at, o.text.clone()));
+        let key: BoxKey = (n.rev, ov);
+        if let Some((k, b)) = self.boxes.get(&n.id) {
+            if *k == key {
                 return (b.w, b.h);
             }
         }
         let b = self.text_box(n);
         let size = (b.w, b.h);
-        self.boxes.insert(n.id.clone(), (n.rev, b));
+        self.boxes.insert(n.id.clone(), (key, b));
         size
     }
 
@@ -734,7 +755,7 @@ impl Ctx<'_> {
                 pf.clone(),
                 id,
                 (width, WIDE),
-                None,
+                this.overlay,
                 *this.gen,
             )
         };
@@ -757,11 +778,23 @@ impl Ctx<'_> {
             (false, Some("BOTTOM")) => h - content,
             _ => 0.0,
         };
+        let y0 = y;
         let mut items = Vec::new();
-        for line in &pb.lines {
-            items.extend(line.items.iter().map(|it| shift(it, 0.0, y)));
+        // 줄의 항목은 상자 좌표로 옮겨 이 상자에 모으므로 문단 배치에는 남기지 않는다.
+        for line in &mut pb.lines {
+            items.extend(
+                std::mem::take(&mut line.items)
+                    .iter()
+                    .map(|it| shift(it, 0.0, y)),
+            );
             y += line.height;
         }
-        TextBox { items, w, h }
+        TextBox {
+            items,
+            w,
+            h,
+            y0,
+            pb,
+        }
     }
 }

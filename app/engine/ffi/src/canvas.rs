@@ -13,10 +13,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{strip_revs, Document, Guard, Kind};
-use kari_edit::{boards, label_rect, CanvasEditor, End, Phase, Pointer};
+use kari_edit::{boards, label_rect, CanvasEditor, End, Phase, Pointer, TextCmd};
 use kari_layout::{Layouter, Scene};
 use kari_render::{
-    draw_canvas, draw_canvas_overlay, CanvasView, Faces, Frame, Images, IMAGE_BUDGET,
+    draw_canvas, draw_canvas_overlay, draw_canvas_text, CanvasView, Faces, Frame, Images,
+    IMAGE_BUDGET,
 };
 use kari_store::{Actor, DocId, Error, Library, Meta, OpenDoc, Outcome};
 
@@ -24,6 +25,8 @@ use crate::cmd::color;
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::library::{on, Engine};
 use crate::session::{self, next_gen};
+
+mod edit;
 
 static SESSIONS: Mutex<Option<HashMap<DocId, Arc<CSession>>>> = Mutex::new(None);
 
@@ -53,11 +56,28 @@ pub(crate) struct CFront {
 }
 
 impl CFront {
-    /// 문서가 바뀌었거나 선택·보기 밖의 것이 바뀌었을 때 장면과 편집 표시를 다시 만든다.
+    /// 문서가 바뀌었거나 선택·보기 밖의 것이 바뀌었을 때 장면과 편집 표시를 다시 만든다. 조합 중인 글은 그 글 상자에 끼워 배치한다.
     fn relayout(&mut self) {
+        self.lay.set_text_overlay(self.ed.overlay());
         let images = RefCell::new(&mut self.images);
         self.scene = self.lay.scene(&self.doc, &|h| images.borrow_mut().size(h));
         self.rechrome();
+    }
+
+    /// `rebuild`하되 편집기(선택, 글 상자 편집)는 그대로 둔다. 끌기 미리 보기를 버리고 새 노드를 만드는 묶음을 적용하기 전에 쓴다
+    /// (새 노드는 아직 문서에 없어 `rebuild`가 선택에서 빼 버린다).
+    fn rebuild_keep(&mut self, back: &Document) {
+        let ed = self.ed.clone();
+        self.rebuild(back);
+        self.ed = ed;
+        // 끌기 미리 보기는 버렸으므로 끌기도 접는다(남기면 다음 입력이 없는 미리 보기 노드를 지우려 한다).
+        self.ed.cancel_drag();
+        // 장면은 `rebuild`가 이미 다시 냈다. 조합 글이 있었으면 그 글 상자만 다시 배치해야 하므로 장면도 다시 낸다.
+        if self.ed.overlay().is_some() {
+            self.relayout();
+        } else {
+            self.rechrome();
+        }
     }
 
     fn rechrome(&mut self) {
@@ -113,6 +133,9 @@ impl CFront {
 pub(crate) struct CSession {
     front: Mutex<CFront>,
     gen: AtomicU64,
+    /// 묶기 번호의 기준. 세션마다 1부터 매기는 번호가 앞 세션의 묶음과 이어지지 않게 한다(흐름 세션과 같다).
+    // 한계: 세션 하나가 묶기 번호를 2^20개 넘게 쓰면 다음 세션의 번호와 겹칠 수 있다, 그만큼 쓰면 기준을 넓힌다
+    group_base: u64,
 }
 
 impl CSession {
@@ -179,6 +202,7 @@ fn open(id: DocId, back: &Document, assets: PathBuf) -> Option<Arc<CSession>> {
     let s = Arc::new(CSession {
         front: Mutex::new(f),
         gen: AtomicU64::new(next_gen()),
+        group_base: back.seq() << 20,
     });
     with_sessions(|m| m.insert(id, s.clone()));
     Some(s)
@@ -244,11 +268,27 @@ pub(crate) fn render(id: DocId, frame: Frame) -> i32 {
         let (a, b) = (pt(&[m[0], m[1]]), pt(&[m[2], m[3]]));
         [a[0], a[1], b[0], b[1]]
     });
-    match draw_canvas_overlay(
-        view_frame(pixels, dims, dpr, (0.0, 0.0)),
+    if draw_canvas_overlay(
+        view_frame(&mut *pixels, dims, dpr, (0.0, 0.0)),
         &quads,
         &dots,
         marquee,
+        1.0,
+    )
+    .is_err()
+    {
+        return 1;
+    }
+    let Some(t) = &f.chrome.text else { return 0 };
+    let quad = |q: &[[f64; 2]; 4]| [pt(&q[0]), pt(&q[1]), pt(&q[2]), pt(&q[3])];
+    let rects: Vec<[[f32; 2]; 4]> = t.rects.iter().map(quad).collect();
+    let preedit: Vec<[[f32; 2]; 4]> = t.preedit.iter().map(quad).collect();
+    let caret = t.caret.map(|c| [pt(&c[0]), pt(&c[1])]);
+    match draw_canvas_text(
+        view_frame(pixels, dims, dpr, (0.0, 0.0)),
+        &rects,
+        &preedit,
+        caret,
         1.0,
     ) {
         Ok(()) => 0,
@@ -293,7 +333,7 @@ fn state(lib: &Library, back: &OpenDoc, f: &mut CFront, gen: u64, changed: bool)
             let p = |k: &str| f.doc.prop(i, k).cloned().unwrap_or(Value::Null);
             Some(json!({
                 "id": i, "type": g.kind, "parent": g.parent, "x": p(kx), "y": p(ky), "w": g.w, "h": g.h,
-                "rotation": g.rotation, "quad": g.quad(),
+                "rotation": g.rotation, "quad": g.quad(), "props": edit::node_info(&f.doc, i),
             }))
         })
         .collect();
@@ -334,6 +374,8 @@ fn state(lib: &Library, back: &OpenDoc, f: &mut CFront, gen: u64, changed: bool)
         "handles": handles,
         "marquee": f.chrome.marquee.map(screen_rect),
         "dragging": f.ed.dragging(),
+        "tool": f.ed.tool().map(|t| t.name()),
+        "text": edit::text_state(f, &v),
     }))
 }
 
@@ -431,7 +473,7 @@ fn finish(
 ) -> Result<bool, Fail> {
     let mut f = s.lock(back.doc());
     if f.dirty {
-        f.rebuild(back.doc());
+        f.rebuild_keep(back.doc());
     }
     let batch = Value::Array(ops);
     let applied = if batch.as_array().is_some_and(Vec::is_empty) {
@@ -481,12 +523,22 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
     let d = back(&mut e.docs, id)?;
     let mut f = s.lock(d.doc());
     let p = pointer(a, &f.view)?;
+    // 조합 중에 누르면 입력기가 끝내지 못한 조합 글을 먼저 확정한다(조합 글을 잃지 않게). 앞 사본을 새로 만들면
+    // 조합이 버려지므로 그보다 먼저 한다.
+    if let (true, Some(c)) = (
+        matches!(p.phase, Phase::Down | Phase::Double),
+        f.ed.composing().map(str::to_string),
+    ) {
+        drop(f);
+        edit::run_text(&mut e.lib, d, s, &TextCmd::CommitCompose(c), 0)?;
+        f = s.lock(d.doc());
+    }
     // 떼는 신호 없이 끊긴 끌기 뒤에 새 입력이 오면, 새 끌기를 만들기 전에 앞 사본에서 미리 본 것을 버린다
     // (뒤에 하면 다시 만든 앞 사본이 방금 만든 끌기까지 지운다).
     if matches!(p.phase, Phase::Down | Phase::Double) && f.dirty {
         f.rebuild(d.doc());
     }
-    let out = {
+    let mut out = {
         let f = &mut *f;
         f.ed.pointer(&f.doc, &mut f.lay, p)
     };
@@ -494,12 +546,24 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
         f.rebuild(d.doc());
     }
     let mut changed = false;
+    // 글 상자 편집을 끝내며 지우는 빈 글 상자를 먼저 커밋한다.
+    if !out.pre.is_empty() {
+        drop(f);
+        changed = finish(
+            &mut e.lib,
+            d,
+            s,
+            std::mem::take(&mut out.pre),
+            "빈 글 상자 지우기",
+        )?;
+        f = s.lock(d.doc());
+    }
     // 지나가기는 보이는 것을 바꾸지 않는다: 바뀜 번호를 올리지 않아 화면이 다시 그려지지 않는다.
     let hover = p.phase == Phase::Hover;
     match out.end {
         End::Commit(label) => {
             drop(f);
-            changed = finish(&mut e.lib, d, s, out.ops, label)?;
+            changed |= finish(&mut e.lib, d, s, out.ops, label)?;
             f = s.lock(d.doc());
         }
         _ if !out.ops.is_empty() => {
@@ -518,6 +582,7 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
     let gen = s.gen.load(Ordering::Acquire);
     let mut v = state(&e.lib, d, &mut f, gen, changed)?;
     v["handle"] = out.handle.map_or(Value::Null, |h| json!(h));
+    v["refused"] = out.refused.map_or(Value::Null, |r| json!(r));
     Ok(v)
 }
 
@@ -550,6 +615,9 @@ pub(crate) fn dispatch(state_: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             s.bump();
         }
         "canvas.pointer" => return pointer_cmd(e, id, &s, a),
+        "canvas.cmd" | "canvas.text" | "canvas.ime" | "canvas.copy" => {
+            return edit::dispatch(e, id, &s, m, a)
+        }
         _ => return Err(bad(format!("모르는 이름입니다: {m}"))),
     }
     let d = back(&mut e.docs, id)?;

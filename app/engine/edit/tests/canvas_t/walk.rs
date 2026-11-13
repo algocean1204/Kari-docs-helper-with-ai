@@ -1,6 +1,9 @@
-//! 캔버스 무작위 걷기: 무작위 문서에 누르기·끌기(옮기기, 크기)·영역 고르기·두 번 누름·취소·되돌리기·다시 하기를 섞는다.
+//! 캔버스 무작위 걷기: 무작위 문서에 누르기·끌기(옮기기, 크기)·영역 고르기·두 번 누름·취소·되돌리기·다시 하기와
+//! 만들기·지우기·복제·속성 바꾸기·글 상자 편집을 섞는다.
 //!
-//! 모형은 편집기의 계산을 되풀이하지 않고 결과의 기하만 본다:
+//! 모형은 편집기의 계산을 되풀이하지 않고 결과만 본다:
+//! - 만들기: 놓인 자리의 부모 규칙, 크기와 끈 두 점, 하나만 골라짐. 지우기: 남은 노드 집합. 복제: 개수와 속성과 비킨 자리.
+//! - 속성: 고른 노드마다 요청한 값이 그대로 저장됨. 글 편집: 글과 커서를 따로 둔 모형(문자열과 선택)이 문서와 같음.
 //! - 옮기기: 고른 노드의 판 위 네 모서리가 포인터의 이동만큼 그대로 옮겨진다.
 //! - 크기: 한 노드는 새 상자의 네 모서리가 `기준점 ~ 포인터`로 이루어진 시작 지역 좌표계의 상자와 같은 점들이다
 //!   (뒤집힘 여부와 상관없이). 선은 움직이지 않은 끝이 그대로이고 끝이 포인터로 간다.
@@ -11,7 +14,7 @@ use kari_doc::Document;
 use kari_edit::{End, Phase};
 use kari_layout::{apply, inv, Layouter};
 
-use super::{canvas, CanvasT};
+use super::{canvas, steps, CanvasT};
 use crate::common::{fonts, Rng};
 
 const SESSIONS: usize = 30;
@@ -26,6 +29,37 @@ pub struct Tally {
     pub undos: usize,
     pub marquees: usize,
     pub stale: usize,
+    pub creates: usize,
+    pub deletes: usize,
+    pub dups: usize,
+    pub sets: usize,
+    pub texts: usize,
+}
+
+/// 되돌리기 쌓기의 모형: 커밋마다의 해시 내력과 지금 자리.
+pub struct Hist {
+    hash: Vec<String>,
+    at: usize,
+    seen: usize,
+}
+
+impl Hist {
+    /// 새 커밋이 있으면 내력을 잇는다(다시 하기 쪽은 버린다). 한 걸음이 낸 커밋은 하나다.
+    pub fn sync(&mut self, t: &CanvasT, tag: &str) {
+        assert!(t.commits <= self.seen + 1, "{tag}: 한 걸음에 묶음 하나");
+        self.sync_all(t, tag);
+    }
+
+    /// 커밋이 여럿이어도 커밋마다의 해시로 내력을 잇는다.
+    pub fn sync_all(&mut self, t: &CanvasT, tag: &str) {
+        while self.seen < t.commits {
+            self.hash.truncate(self.at + 1);
+            self.hash.push(t.hashes[self.seen].clone());
+            self.at += 1;
+            self.seen += 1;
+        }
+        assert_eq!(t.done.len(), self.at, "{tag}: 되돌리기 쌓기 길이");
+    }
 }
 
 fn fresh() -> Layouter {
@@ -116,7 +150,7 @@ fn random_doc(r: &mut Rng) -> Document {
 }
 
 /// 판 위의 점 하나(노드 안, 손잡이, 이름표, 빈 곳 가운데에서).
-fn target(r: &mut Rng, t: &mut CanvasT) -> (f64, f64) {
+pub fn target(r: &mut Rng, t: &mut CanvasT) -> (f64, f64) {
     let ids: Vec<String> = t.back.nodes().map(|n| n.id.clone()).collect();
     match r.below(10) {
         0..=3 => {
@@ -144,7 +178,7 @@ fn target(r: &mut Rng, t: &mut CanvasT) -> (f64, f64) {
     }
 }
 
-fn near(a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
+pub fn near(a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
     (a[0] - b[0]).abs() < tol && (a[1] - b[1]).abs() < tol
 }
 
@@ -157,12 +191,15 @@ pub fn run(seed: u64) -> Tally {
         let mut t = CanvasT::new(doc, fresh);
         t.px = *r.pick(&[1.0, 0.5, 2.0, 0.1]);
         // 되돌리기 쌓기의 모형: 해시의 내력과 지금 자리
-        let mut hist = vec![start.clone()];
-        let mut at = 0;
+        let mut h = Hist {
+            hash: vec![start.clone()],
+            at: 0,
+            seen: 0,
+        };
         for step in 0..STEPS {
             let tag = format!("씨앗 {seed:#x} 문서 {session} 걸음 {step}");
             let before_commits = t.commits;
-            match r.below(100) {
+            match r.below(150) {
                 0..=44 => {
                     let p0 = target(&mut r, &mut t);
                     drag(&mut r, &mut t, p0, &mut tally, &tag);
@@ -219,23 +256,23 @@ pub fn run(seed: u64) -> Tally {
                 }
                 74..=84 => {
                     if t.undo() {
-                        assert!(at > 0, "{tag}: 되돌릴 게 없는데 되돌렸다");
-                        at -= 1;
+                        assert!(h.at >= t.steps, "{tag}: 되돌릴 게 없는데 되돌렸다");
+                        h.at -= t.steps;
                         tally.undos += 1;
-                        assert_eq!(t.back.hash(), hist[at], "{tag}: 되돌리기 모형");
+                        assert_eq!(t.back.hash(), h.hash[h.at], "{tag}: 되돌리기 모형");
                     } else {
-                        assert_eq!(at, 0, "{tag}");
+                        assert_eq!(h.at, 0, "{tag}");
                     }
                 }
                 85..=89 => {
                     if t.redo() {
-                        at += 1;
-                        assert_eq!(t.back.hash(), hist[at], "{tag}: 다시 하기 모형");
+                        h.at += t.steps;
+                        assert_eq!(t.back.hash(), h.hash[h.at], "{tag}: 다시 하기 모형");
                     } else {
-                        assert_eq!(at, hist.len() - 1, "{tag}");
+                        assert_eq!(h.at, h.hash.len() - 1, "{tag}");
                     }
                 }
-                _ => {
+                90..=99 => {
                     // 끌기 도중 취소
                     let p0 = target(&mut r, &mut t);
                     let h0 = t.back.hash();
@@ -247,19 +284,12 @@ pub fn run(seed: u64) -> Tally {
                     assert_eq!(t.back.hash(), h0, "{tag}: 취소는 문서를 안 바꾼다");
                     assert_eq!(t.commits, before_commits);
                 }
+                _ => steps::edit_step(&mut r, &mut t, &mut h, &mut tally, &tag),
             }
-            // 새 커밋이 있으면 내력을 잇는다(다시 하기 쪽은 버린다)
+            // 새 커밋이 있으면 내력을 잇는다(다시 하기 쪽은 버린다). 편집 걸음은 명령마다 이미 이었다.
             // 되돌리기와 다시 하기는 `commits`를 늘리지 않는다. 늘었다면 끌기의 커밋이다.
-            assert!(
-                t.commits <= before_commits + 1,
-                "{tag}: 한 걸음에 묶음 하나"
-            );
-            if t.commits > before_commits {
-                hist.truncate(at + 1);
-                hist.push(t.back.hash());
-                at += 1;
-                assert_eq!(t.done.len(), at, "{tag}: 되돌리기 쌓기 길이");
-            }
+            h.sync(&t, &tag);
+            let _ = before_commits;
             assert!(t.back.check().is_empty(), "{tag}: {:?}", t.back.check());
             if !t.dirty {
                 assert_eq!(t.front.hash(), t.back.hash(), "{tag}: 두 사본의 해시");
@@ -282,7 +312,7 @@ pub fn run(seed: u64) -> Tally {
         // 끝까지 되돌리면 처음 해시
         while t.undo() {}
         assert_eq!(t.back.hash(), start, "{session}번째 문서를 끝까지 되돌렸다");
-        tally.commits += hist.len() - 1;
+        tally.commits += h.hash.len() - 1;
     }
     tally
 }

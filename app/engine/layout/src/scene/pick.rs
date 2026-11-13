@@ -359,13 +359,14 @@ impl<'a> Ctx<'a> {
 }
 
 impl Layouter {
-    fn pick_ctx<'a>(&'a mut self, doc: &'a Document) -> Ctx<'a> {
+    pub(super) fn pick_ctx<'a>(&'a mut self, doc: &'a Document) -> Ctx<'a> {
         Ctx {
             doc,
             fonts: &mut self.fonts,
             lcx: &mut self.lcx,
             gen: &mut self.gen,
             boxes: &mut self.boxes,
+            overlay: self.text_overlay.as_ref(),
             image_size: &|_| None,
         }
     }

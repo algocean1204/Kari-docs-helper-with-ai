@@ -568,12 +568,16 @@ fn 무작위_명령_20000개() {
 }
 
 #[test]
-fn 무작위_캔버스_끌기() {
+fn 무작위_캔버스_편집() {
     let t = canvas_t::walk::run(0x5EED_CAFE_F00D_0006);
     eprintln!("캔버스 무작위: {t:?}");
     // 이 씨앗이 갈래를 고루 지나는지(다른 씨앗은 불일치만 본다).
     assert!(
         t.moves > 20 && t.resizes > 20 && t.undos > 20 && t.marquees > 20 && t.stale > 20,
+        "{t:?}"
+    );
+    assert!(
+        t.creates > 20 && t.deletes > 10 && t.dups > 10 && t.sets > 20 && t.texts > 20,
         "{t:?}"
     );
 }

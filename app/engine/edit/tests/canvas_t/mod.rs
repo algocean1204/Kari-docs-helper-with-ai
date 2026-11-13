@@ -5,9 +5,10 @@
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{strip_revs, Document, Guard, Kind};
-use kari_edit::{CanvasEditor, End, Out, Phase, Pointer};
+use kari_edit::{CPlan, CanvasCmd, CanvasEditor, End, Out, Phase, Pointer, TextCmd};
 use kari_layout::Layouter;
 
+pub mod steps;
 pub mod walk;
 
 pub struct CanvasT {
@@ -19,9 +20,17 @@ pub struct CanvasT {
     pub commits: usize,
     /// 앞 사본에 끌기 미리 보기가 있다.
     pub dirty: bool,
-    /// 커밋마다 (역연산, 기록된 op). 되돌리기와 다시 하기를 흉내 낸다.
-    pub done: Vec<(Vec<Value>, Vec<Value>)>,
-    pub undone: Vec<(Vec<Value>, Vec<Value>)>,
+    /// 커밋마다 (역연산, 기록된 op, 묶기 번호). 되돌리기와 다시 하기를 흉내 낸다. 같은 묶기 번호가 이어지면 한 단위다.
+    pub done: Vec<(Vec<Value>, Vec<Value>, Option<u64>)>,
+    pub undone: Vec<(Vec<Value>, Vec<Value>, Option<u64>)>,
+    /// 마지막 되돌리기·다시 하기가 걷거나 다시 한 커밋의 수(같은 묶기 번호는 한 단위).
+    pub steps: usize,
+    /// 커밋마다 그 뒤의 뒤 사본 해시(커밋 번호 순).
+    pub hashes: Vec<String>,
+    /// 명령에 주는 시각(ms).
+    pub now: u64,
+    /// 끌기 미리 보기 말고 `command`와 `text`가 낸 마지막 계획.
+    pub last: Option<CPlan>,
     /// 화면 논리 화소 하나의 판 단위 길이.
     pub px: f64,
     fresh: fn() -> Layouter,
@@ -68,6 +77,10 @@ impl CanvasT {
             dirty: false,
             done: Vec::new(),
             undone: Vec::new(),
+            steps: 0,
+            hashes: Vec::new(),
+            now: 0,
+            last: None,
             px: 1.0,
             fresh,
         }
@@ -80,7 +93,94 @@ impl CanvasT {
         self.dirty = false;
     }
 
+    /// 미리 보기를 버리되 편집기(선택, 글 상자 편집)는 그대로 둔다.
+    fn reset_keep(&mut self) {
+        let ed = self.ed.clone();
+        self.reset();
+        self.ed = ed;
+    }
+
+    /// 묶음 하나를 앞 사본과 뒤 사본에 적용해 커밋 하나로 센다(엔진 경계의 `commit`과 같은 순서).
+    fn commit(&mut self, ops: &[Value], group: Option<u64>) {
+        if self.dirty {
+            self.reset_keep();
+        }
+        if ops.is_empty() {
+            return;
+        }
+        let batch = Value::Array(ops.to_vec());
+        self.front
+            .apply_unbounded(&batch, Guard::default())
+            .unwrap_or_else(|e| panic!("{e}: {batch}"));
+        let a = self.back.apply_unbounded(&batch, Guard::default()).unwrap();
+        assert_eq!(self.front.hash(), self.back.hash(), "두 사본의 해시");
+        assert!(self.back.check().is_empty(), "{:?}", self.back.check());
+        if !a.ops.is_empty() {
+            self.commits += 1;
+            self.hashes.push(self.back.hash());
+            self.done.push((a.inverse, a.ops, group));
+            self.undone.clear();
+        }
+    }
+
+    /// 이름과 인자로 부르는 명령 하나. 미리 보기(`Set`의 `preview`)는 앞 사본에만 적용한다.
+    pub fn cmd(&mut self, c: CanvasCmd) -> CPlan {
+        let preview = matches!(c, CanvasCmd::Set { preview: true, .. });
+        if self.dirty && !preview {
+            self.reset_keep();
+        }
+        // 미리 보기가 아닌 명령 앞에서는 조합 중인 글을 먼저 확정한다(엔진 경계와 같다).
+        if let (false, Some(comp)) = (preview, self.ed.composing().map(str::to_string)) {
+            self.text(TextCmd::CommitCompose(comp));
+        }
+        let before = self.ed.clone();
+        self.lay.set_text_overlay(self.ed.overlay());
+        let plan = self.ed.command(&self.front, &mut self.lay, &c, self.now);
+        self.settle(plan, before)
+    }
+
+    /// 글 상자 안 명령 하나. 조합 중에 다른 명령이 오면 조합을 먼저 확정한다(`again`).
+    pub fn text(&mut self, c: TextCmd) -> CPlan {
+        let mut out = None;
+        for _ in 0..3 {
+            if self.dirty {
+                self.reset_keep();
+            }
+            let before = self.ed.clone();
+            self.lay.set_text_overlay(self.ed.overlay());
+            let plan = self.ed.text(&self.front, &mut self.lay, &c, self.now);
+            let again = plan.again;
+            out = Some(self.settle(plan, before));
+            if !again {
+                break;
+            }
+        }
+        out.unwrap()
+    }
+
+    fn settle(&mut self, plan: CPlan, before: CanvasEditor) -> CPlan {
+        if plan.refused.is_some() {
+            self.ed = before;
+        } else if plan.preview {
+            self.front
+                .apply_trusted(&Value::Array(plan.ops.clone()))
+                .unwrap();
+            self.dirty = true;
+        } else {
+            self.commit(&plan.ops, plan.group);
+        }
+        self.lay.set_text_overlay(self.ed.overlay());
+        self.last = Some(plan.clone());
+        plan
+    }
+
+    /// 시각을 앞으로 보낸다.
+    pub fn tick(&mut self, ms: u64) {
+        self.now += ms;
+    }
+
     pub fn pointer(&mut self, phase: Phase, x: f64, y: f64, shift: bool, meta: bool) -> Out {
+        self.lay.set_text_overlay(self.ed.overlay());
         let p = Pointer {
             phase,
             x,
@@ -94,30 +194,23 @@ impl CanvasT {
         if matches!(phase, Phase::Down | Phase::Double) && self.dirty {
             self.reset();
         }
+        // 조합 중에 누르면 조합 글을 먼저 확정한다.
+        if let (true, Some(c)) = (
+            matches!(phase, Phase::Down | Phase::Double),
+            self.ed.composing().map(str::to_string),
+        ) {
+            self.text(TextCmd::CommitCompose(c));
+            self.lay.set_text_overlay(self.ed.overlay());
+        }
         let out = self.ed.pointer(&self.front, &mut self.lay, p);
         if out.end == End::Cancel && self.dirty {
             self.reset();
         }
+        if !out.pre.is_empty() {
+            self.commit(&out.pre, None);
+        }
         match out.end {
-            End::Commit(_) => {
-                if self.dirty {
-                    self.reset();
-                }
-                if !out.ops.is_empty() {
-                    let batch = Value::Array(out.ops.clone());
-                    self.front
-                        .apply_unbounded(&batch, Guard::default())
-                        .unwrap();
-                    let a = self.back.apply_unbounded(&batch, Guard::default()).unwrap();
-                    assert_eq!(self.front.hash(), self.back.hash(), "두 사본의 해시");
-                    assert!(self.back.check().is_empty());
-                    if !a.ops.is_empty() {
-                        self.commits += 1;
-                        self.done.push((a.inverse, a.ops));
-                        self.undone.clear();
-                    }
-                }
-            }
+            End::Commit(_) => self.commit(&out.ops, None),
             End::None if !out.ops.is_empty() => {
                 self.front
                     .apply_trusted(&Value::Array(out.ops.clone()))
@@ -126,6 +219,7 @@ impl CanvasT {
             }
             _ => {}
         }
+        self.lay.set_text_overlay(self.ed.overlay());
         out
     }
 
@@ -158,26 +252,42 @@ impl CanvasT {
         self.ed.selection().iter().map(String::as_str).collect()
     }
 
+    /// 되돌리기 한 번: 같은 묶기 번호로 이어진 커밋은 함께 되돌린다.
     pub fn undo(&mut self) -> bool {
-        let Some((inv, ops)) = self.done.pop() else {
+        let Some(group) = self.done.last().map(|d| d.2) else {
             return false;
         };
-        self.back.apply_trusted(&Value::Array(inv.clone())).unwrap();
-        self.undone.push((inv, ops));
+        self.steps = 0;
+        loop {
+            let (inv, ops, g) = self.done.pop().unwrap();
+            self.steps += 1;
+            self.back.apply_trusted(&Value::Array(inv.clone())).unwrap();
+            self.undone.push((inv, ops, g));
+            if group.is_none() || self.done.last().is_none_or(|d| d.2 != group) {
+                break;
+            }
+        }
         self.reset();
         true
     }
 
     pub fn redo(&mut self) -> bool {
-        let Some((inv, ops)) = self.undone.pop() else {
+        let Some(group) = self.undone.last().map(|d| d.2) else {
             return false;
         };
-        let a = self
-            .back
-            .apply_trusted(&Value::Array(strip_revs(&ops)))
-            .unwrap();
-        self.done.push((a.inverse, a.ops));
-        let _ = inv;
+        self.steps = 0;
+        loop {
+            let (_, ops, g) = self.undone.pop().unwrap();
+            self.steps += 1;
+            let a = self
+                .back
+                .apply_trusted(&Value::Array(strip_revs(&ops)))
+                .unwrap();
+            self.done.push((a.inverse, a.ops, g));
+            if group.is_none() || self.undone.last().is_none_or(|d| d.2 != group) {
+                break;
+            }
+        }
         self.reset();
         true
     }
