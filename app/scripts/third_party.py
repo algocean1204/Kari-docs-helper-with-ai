@@ -15,6 +15,7 @@
 """
 
 import argparse
+import difflib
 import hashlib
 import json
 import re
@@ -326,9 +327,15 @@ def main():
     args = ap.parse_args()
     text, trouble, missing, kinds = build()
     if args.check:
-        same = OUT.is_file() and OUT.read_text() == text
-        print("최신" if same else f"다시 만들어야 함: {SELF}")
-        return 0 if same else 1
+        old = OUT.read_text() if OUT.is_file() else ""
+        if old == text:
+            print("최신")
+            return 0
+        print(f"다시 만들어야 함: {SELF}")
+        # 무엇이 다른지 앞의 몇 줄을 보여 준다(판이 바뀐 의존성, 찾지 못한 라이선스 글).
+        diff = difflib.unified_diff(old.splitlines(), text.splitlines(), "지금 파일", "다시 만든 것", lineterm="", n=0)
+        print(*[line[:200] for _, line in zip(range(60), diff)], sep="\n")
+        return 1
     OUT.write_text(text)
     print(f"{OUT.relative_to(ROOT)}: 항목 {sum(kinds.values())}개")
     for k, v in sorted(kinds.items(), key=lambda kv: -kv[1]):
