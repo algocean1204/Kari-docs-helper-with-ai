@@ -15,6 +15,9 @@ concurrency:
 
 env:
   FLUTTER_VERSION: 3.38.2
+  # 러너의 디스크가 작다. 증분 빌드 자료와 시험 빌드의 디버그 정보를 만들지 않는다.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
   repo:
@@ -51,6 +54,7 @@ jobs:
           cargo fmt --all --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
+          df -h . | tail -1
       - name: 지식 팩과 그 문서의 표
         run: |
           python3 app/scripts/pack_check.py
@@ -109,6 +113,9 @@ jobs:
     steps:
       - name: 모든 검사 통과
         run: |
-          [ "${{ needs.repo.result }}" = success ] && [ "${{ needs.engine.result }}" = success ] && [ "${{ needs.app.result }}" = success ]
+          # 하나씩 본다(&&로 이으면 가운데 것이 실패해도 셸이 멈추지 않는다).
+          for result in "${{ needs.repo.result }}" "${{ needs.engine.result }}" "${{ needs.app.result }}"; do
+            [ "$result" = success ] || exit 1
+          done
           # macos는 비공개 저장소에서 건너뛴다.
           case "${{ needs.macos.result }}" in success|skipped) ;; *) exit 1 ;; esac
