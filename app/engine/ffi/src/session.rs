@@ -27,7 +27,7 @@ static SESSIONS: Mutex<Option<HashMap<DocId, Arc<Session>>>> = Mutex::new(None);
 /// 바뀜 번호의 출처. 모든 세션이 함께 써서, 세션을 다시 열어도 앱이 그린 번호가 되풀이되지 않는다.
 static GEN: AtomicU64 = AtomicU64::new(0);
 
-fn next_gen() -> u64 {
+pub(crate) fn next_gen() -> u64 {
     GEN.fetch_add(1, Ordering::Relaxed) + 1
 }
 
@@ -48,13 +48,18 @@ pub(crate) fn font_add(bytes: &[u8]) -> bool {
     true
 }
 
-fn fonts(files: &[Arc<Vec<u8>>]) -> Fonts {
+pub(crate) fn fonts(files: &[Arc<Vec<u8>>]) -> Fonts {
     let mut f = Fonts::new();
     for b in files {
         // 넣을 때 읽어 봤으므로 실패하지 않는다.
         let _ = f.add(b.to_vec());
     }
     f
+}
+
+/// 지금까지 넘긴 글꼴 파일들.
+pub(crate) fn font_files() -> Vec<Arc<Vec<u8>>> {
+    lock(&FONTS).clone()
 }
 
 /// 지금까지 넘긴 글꼴로 만든 글꼴 모음. 넘긴 것이 없으면 `None`.
@@ -334,10 +339,12 @@ pub(crate) fn get(id: DocId) -> Option<Arc<Session>> {
 
 pub(crate) fn remove(id: DocId) {
     with_sessions(|m| m.remove(&id));
+    crate::canvas::remove(id);
 }
 
 pub(crate) fn clear() {
     with_sessions(|m| m.clear());
+    crate::canvas::clear();
 }
 
 /// 03의 이름이 뒤 사본을 바꿨을 때 앞 사본이 따라가게 한다. 세션이 없으면 아무것도 하지 않는다.
@@ -346,11 +353,12 @@ pub(crate) fn external(id: DocId, back: &Document, ops: &[Value]) {
         s.lock(back).follow(back, ops, None);
         s.bump();
     }
+    crate::canvas::external(id, back, ops);
 }
 
 /// 바뀜 번호. 세션이 없으면 0.
 pub(crate) fn gen(id: DocId) -> u64 {
-    get(id).map_or(0, |s| s.gen.load(Ordering::Acquire))
+    get(id).map_or_else(|| crate::canvas::gen(id), |s| s.gen.load(Ordering::Acquire))
 }
 
 /// 마지막 명령이 앞 사본 잠금을 잡은 시간(ns). 세션이 없으면 0.
@@ -360,7 +368,9 @@ pub(crate) fn held_ns(id: DocId) -> u64 {
 
 /// 화면 스레드의 그리기. 0 성공, 1 틀린 버퍼나 값, 2 세션 없음, 3 앞 사본이 망가짐(다음 명령이 고친다).
 pub(crate) fn render(id: DocId, frame: Frame) -> i32 {
-    let Some(s) = get(id) else { return 2 };
+    let Some(s) = get(id) else {
+        return crate::canvas::render(id, frame);
+    };
     let Ok(mut guard) = s.front.lock() else {
         return 3;
     };

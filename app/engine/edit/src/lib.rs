@@ -3,6 +3,7 @@
 //! 문서를 직접 바꾸지 않고 저장, 화면, 스레드, 시계를 모른다. 시각은 인자로 받는다.
 
 mod auto;
+mod canvas;
 mod case;
 mod clip;
 mod command;
@@ -23,6 +24,10 @@ mod table_look;
 mod text;
 mod utf16;
 
+pub use canvas::{
+    boards, label_rect, BoardRect, CanvasEditor, Chrome, End, Handle, Out, Phase, Pointer, DRAG_PX,
+    HANDLE_HIT_PX, LABEL_GAP, LABEL_H, LABEL_MIN_W, SLOP_PX,
+};
 pub use clip::{FragCell, FragPara, FragRow, FragTable, Fragment, MAX_FRAGMENT};
 pub use editor::{Editor, Plan};
 pub use find::{count, find, Counts, Found, Hit, MAX_HITS};

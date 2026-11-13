@@ -15,6 +15,9 @@ use crate::para::{build_from, Cx};
 use crate::style::{color, Align, LineSpacing, ParaFormat};
 use crate::{Cap, Item, Join, Seg, Stroke};
 
+mod pick;
+pub use pick::{apply, inv, mul, Affine, NodeGeo, Pick};
+
 /// 대지 하나의 표시 목록. `x`, `y`는 판 위의 자리(`cx`, `cy`), 항목은 대지 왼쪽 위 기준이다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Board {
@@ -97,8 +100,13 @@ impl Layouter {
 /// 노드의 변환 행렬 [a, b, c, d, e, f]: 노드 좌표 p → 부모 좌표 C + R·F·(p - c).
 /// c는 노드 상자의 가운데, C는 부모 안에서 그 가운데의 자리, F는 뒤집기, R은 시계 방향 `rot`도 회전이다.
 fn matrix(x: f64, y: f64, w: f64, h: f64, rot: f64, flip: (bool, bool)) -> [f32; 6] {
+    matrix64(x, y, w, h, rot, flip).map(|v| v as f32)
+}
+
+/// `matrix`의 f64 값. 누른 자리 찾기와 편집이 좌표를 되돌릴 때 f32 오차를 문서에 싣지 않게 한다.
+pub(crate) fn matrix64(x: f64, y: f64, w: f64, h: f64, rot: f64, flip: (bool, bool)) -> [f64; 6] {
     if rot == 0.0 && flip == (false, false) {
-        return [1.0, 0.0, 0.0, 1.0, x as f32, y as f32];
+        return [1.0, 0.0, 0.0, 1.0, x, y];
     }
     // 90도 곱절에서 sin·cos이 1e-17쯤 남지 않게 아홉 자리에서 반올림한다.
     let snap = |v: f64| (v * 1e9).round() / 1e9;
@@ -111,12 +119,12 @@ fn matrix(x: f64, y: f64, w: f64, h: f64, rot: f64, flip: (bool, bool)) -> [f32;
     let (a, b, cc, d) = (c * fx, s * fx, -s * fy, c * fy);
     let (hx, hy) = (w / 2.0, h / 2.0);
     [
-        a as f32,
-        b as f32,
-        cc as f32,
-        d as f32,
-        (x + hx - (a * hx + cc * hy)) as f32,
-        (y + hy - (b * hx + d * hy)) as f32,
+        a,
+        b,
+        cc,
+        d,
+        x + hx - (a * hx + cc * hy),
+        y + hy - (b * hx + d * hy),
     ]
 }
 

@@ -4,9 +4,11 @@
 
 mod geo;
 mod image;
+mod view;
 
 pub use geo::{Geo, PAD, ZOOM_MAX, ZOOM_MIN};
 pub use image::{prepare_image, Images, Loader, Prepared, IMAGE_BUDGET, MAX_BYTES, MAX_SIDE};
+pub use view::{CanvasView, CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN};
 
 use kari_layout::{Cap, FontId, Item, Join, Layout, Rect, Seg, SLANT};
 use skia_safe::{
@@ -24,6 +26,9 @@ const SHADOW_ALPHA: u8 = 41;
 const PAPER_RADIUS: f32 = 2.0;
 /// 그림을 읽지 못했을 때의 회색 상자(배치의 자리 표시 색과 같다).
 const MISSING: [u8; 4] = [0xE6, 0xE6, 0xE6, 0xFF];
+/// 캔버스의 고른 상자 선 굵기와 손잡이 한 변(논리 화소).
+const LINE_PX: f32 = 1.5;
+const HANDLE_PX: f32 = 8.0;
 /// 조합 밑줄의 두께(논리 화소).
 const PREEDIT_LINE: f32 = 1.5;
 /// 표 눈금선: 옅은 회색 점선(논리 화소 2 그리고 2 비움, 굵기 1화소).
@@ -107,7 +112,8 @@ struct Target<'a> {
     height: i32,
 }
 
-fn target(frame: Frame, bg: [u8; 4]) -> Result<Target, &'static str> {
+/// `bg`가 없으면 바탕을 지우지 않고 그 위에 덧그린다.
+fn target(frame: Frame, bg: Option<[u8; 4]>) -> Result<Target, &'static str> {
     let Frame {
         pixels,
         width,
@@ -138,7 +144,9 @@ fn target(frame: Frame, bg: [u8; 4]) -> Result<Target, &'static str> {
     let mut surface = surfaces::wrap_pixels(&info, &mut pixels[..need], Some(stride), None)
         .ok_or("화소 버퍼를 감싸지 못했습니다.")?;
     let canvas = surface.canvas();
-    canvas.clear(color(bg));
+    if let Some(bg) = bg {
+        canvas.clear(color(bg));
+    }
     canvas.scale((scale, scale));
     canvas.translate((-scroll_x, -scroll_y));
     Ok(Target {
@@ -158,7 +166,7 @@ pub fn draw(
     scene: &Scene,
     images: &mut Images,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, scene.colors.bg)?;
+    let mut t = target(frame, Some(scene.colors.bg))?;
     let (scale, scroll_y, height) = (t.scale, t.scroll_y, t.height);
     let canvas = t.surface.canvas();
     let g = scene.geo;
@@ -202,13 +210,55 @@ pub fn draw_canvas(
     bg: [u8; 4],
     images: &mut Images,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, bg)?;
+    let mut t = target(frame, Some(bg))?;
     let canvas = t.surface.canvas();
     for b in &scene.boards {
         canvas.save();
         canvas.translate((b.x, b.y));
         draw_items(canvas, faces, images, &b.items);
         canvas.restore();
+    }
+    Ok(())
+}
+
+/// 캔버스 위에 편집 표시를 덧그린다(`draw_canvas`를 부른 같은 화소 버퍼에, 바탕을 지우지 않고). 좌표는 `frame`의 좌표계다
+/// (엔진 경계는 화면 논리 화소로 넘겨 먼 판 좌표의 f32 오차를 피한다). 선 굵기와 손잡이는 논리 화소로 일정하고,
+/// `px`는 그 좌표계에서 논리 화소 하나의 길이다(화면 논리 화소 좌표면 1).
+/// `quads`는 고른 노드의 네 모서리, `dots`는 손잡이 가운데, `marquee`는 `[x0, y0, x1, y1]`.
+pub fn draw_canvas_overlay(
+    frame: Frame,
+    quads: &[[[f32; 2]; 4]],
+    dots: &[[f32; 2]],
+    marquee: Option<[f32; 4]>,
+    px: f32,
+) -> Result<(), &'static str> {
+    let mut t = target(frame, None)?;
+    let canvas = t.surface.canvas();
+    let blue = [0x0D, 0x99, 0xFF, 0xFF];
+    let line = |w: f32| {
+        let mut p = fill(blue);
+        p.set_style(PaintStyle::Stroke).set_stroke_width(w * px);
+        p
+    };
+    for q in quads {
+        let mut b = PathBuilder::new();
+        b.move_to(Point::new(q[0][0], q[0][1]));
+        for p in &q[1..] {
+            b.line_to(Point::new(p[0], p[1]));
+        }
+        b.close();
+        canvas.draw_path(&b.detach(), &line(LINE_PX));
+    }
+    if let Some(m) = marquee {
+        let r = sk_rect(m[0], m[1], m[2] - m[0], m[3] - m[1]);
+        canvas.draw_rect(r, &fill([0x0D, 0x99, 0xFF, 0x1A]));
+        canvas.draw_rect(r, &line(1.0));
+    }
+    let half = HANDLE_PX / 2.0 * px;
+    for d in dots {
+        let r = sk_rect(d[0] - half, d[1] - half, 2.0 * half, 2.0 * half);
+        canvas.draw_rect(r, &fill([255, 255, 255, 255]));
+        canvas.draw_rect(r, &line(1.0));
     }
     Ok(())
 }

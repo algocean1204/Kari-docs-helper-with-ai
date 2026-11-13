@@ -19,7 +19,7 @@ use std::fmt;
 pub use fonts::Fonts;
 pub use layouter::Layouter;
 pub use layouter::{ordered_text, BULLETS};
-pub use scene::{Board, Scene};
+pub use scene::{apply, inv, mul, Affine, Board, NodeGeo, Pick, Scene};
 pub use style::{char_style, CharStyle, List, ListKind, Side, Vertical, SIDES};
 pub use table::{cell_lines, cell_of, flow_paras, resolve, table_grid, Anchor, Grid, Line};
 
