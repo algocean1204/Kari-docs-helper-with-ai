@@ -926,3 +926,340 @@ fn x11_표의_변_맞춤_행_높이() {
     let xml = part(&path, "word/document.xml");
     assert!(!xml.contains("<w:tcBorders>") && !xml.contains("<w:jc w:val=\"center\"/></w:tblPr>"));
 }
+
+/// 문단의 테두리(변마다 굵기·색·글과의 거리)와 바탕이 직접 서식과 스타일 모두에서 DOCX로 간다.
+/// 스타일의 선·바탕을 문단에서 끈 것, 가로줄, 기본 스타일(부제, 제목 3)의 Word 이름도 본다.
+#[test]
+fn x12_문단의_테두리와_바탕() {
+    let side = |w: f64, c: &str, g: f64| json!({"weight": w, "color": c, "gap": g});
+    let blue = "#336699FF";
+    let d = doc_with(
+        json!({"styles": {"boxed": {"name": "상자", "based": "body", "pf": {
+            "border": {"top": side(1.0, blue, 2.0), "bottom": side(1.0, blue, 2.0),
+                "left": side(0.5, blue, 4.0), "right": side(0.5, blue, 4.0)},
+            "shade": "#EEF2F7FF"}}}}),
+        &[
+            json!({"style": "boxed", "runs": [{"t": "상자 글"}]}),
+            // 스타일의 위 선과 바탕을 문단에서 끈다.
+            json!({"style": "boxed", "runs": [{"t": "끈 글"}], "pf": {"border": {"top": {"weight": 0}}, "shade": "#00000000"}}),
+            // 색이 없으면 본문 기본색, 굵기와 거리는 위쪽 끝, 반투명 바탕.
+            json!({"runs": [{"t": "직접"}], "pf": {"border": {"left": {"weight": 6, "gap": 31}}, "shade": "#FF000080"}}),
+            // 가로줄: 아래 선만 있는 빈 문단.
+            json!({"runs": [{"t": ""}], "pf": {"border": {"bottom": side(0.5, "#1E1E1EFF", 1.0)}}}),
+            json!({"style": "subtitle", "runs": [{"t": "부제 글"}]}),
+            json!({"style": "h3", "runs": [{"t": "제목 3 글"}]}),
+        ],
+    );
+    let (out, path) = write("x12.docx", &d, &no_assets);
+    assert_eq!(out.lost, ["반투명 색 1곳(흰 바탕에 섞은 색으로)"]);
+    check_package(&path);
+    let line = |s: &str, sz: u32, space: u32, color: &str| {
+        format!(r#"<w:{s} w:val="single" w:sz="{sz}" w:space="{space}" w:color="{color}"/>"#)
+    };
+    let st = part(&path, "word/styles.xml");
+    let boxed = format!(
+        r#"<w:pBdr>{}{}{}{}</w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="EEF2F7"/>"#,
+        line("top", 8, 2, "336699"),
+        line("left", 4, 4, "336699"),
+        line("bottom", 8, 2, "336699"),
+        line("right", 4, 4, "336699")
+    );
+    assert!(
+        st.contains(&format!(r#"<w:style w:type="paragraph" w:styleId="K-boxed"><w:name w:val="상자"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr>{boxed}"#)),
+        "{st}"
+    );
+    // 저장된 스타일 표에 없는 기본 스타일도 Word의 이름으로 나간다.
+    for s in [
+        r#"<w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/>"#,
+        r#"<w:style w:type="paragraph" w:styleId="Heading6"><w:name w:val="heading 6"/>"#,
+    ] {
+        assert!(st.contains(s), "styles.xml에 없음: {s}");
+    }
+    let xml = part(&path, "word/document.xml");
+    let has = |s: &str| assert!(xml.contains(s), "document.xml에 없음: {s}\n{xml}");
+    has(r#"<w:p><w:pPr><w:pStyle w:val="K-boxed"/></w:pPr><w:r><w:t xml:space="preserve">상자 글"#);
+    has(&format!(
+        r#"<w:pStyle w:val="K-boxed"/><w:pBdr><w:top w:val="nil"/>{}{}{}</w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="auto"/></w:pPr>"#,
+        line("left", 4, 4, "336699"),
+        line("bottom", 8, 2, "336699"),
+        line("right", 4, 4, "336699")
+    ));
+    has(&format!(
+        r#"<w:pPr><w:pBdr><w:top w:val="nil"/>{}<w:bottom w:val="nil"/><w:right w:val="nil"/></w:pBdr><w:shd w:val="clear" w:color="auto" w:fill="FF7F7F"/></w:pPr>"#,
+        line("left", 48, 31, "1E1E1E")
+    ));
+    has(&format!(
+        r#"<w:p><w:pPr><w:pBdr><w:top w:val="nil"/><w:left w:val="nil"/>{}<w:right w:val="nil"/></w:pBdr></w:pPr></w:p>"#,
+        line("bottom", 4, 1, "1E1E1E")
+    ));
+    has(r#"<w:pStyle w:val="Subtitle"/>"#);
+    has(r#"<w:pStyle w:val="Heading3"/>"#);
+    // 글은 그대로다.
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        squeeze(&textutil(&path, "txt")),
+        squeeze("상자 글 끈 글 직접 부제 글 제목 3 글")
+    );
+}
+
+/// 문서 스키마의 값 자리마다, 그 값만 다른 두 문서를 내보내 DOCX가 달라지거나 `lost`에 드는지 본다.
+/// 스키마에 새 값 자리가 생기면 아래 표에 없어 실패한다. 내보내기가 그 값을 옮기거나 `lost`에 넣고 표에 더한다.
+#[test]
+fn x13_스키마의_모든_속성이_옮겨지거나_목록에_든다() {
+    // 다른 값에서 정해지거나 배치에도 쓰이지 않아 DOCX에 따로 쓸 것이 없는 자리와 그 까닭.
+    let same = [
+        ("flow.page.preset", "용지 이름. 크기는 w, h로 옮긴다"),
+        ("flow.page.orientation", "w, h에서 정해진다"),
+        ("row.keep", "배치처럼 행을 늘 쪽에서 나누지 않는다"),
+    ];
+    let cs = [
+        ("font", json!("Pretendard"), json!("Noto Serif KR")),
+        ("size", json!(11), json!(14)),
+        ("weight", json!(400), json!(700)),
+        ("italic", json!(false), json!(true)),
+        ("underline", json!(false), json!(true)),
+        ("strike", json!(false), json!(true)),
+        ("color", json!("#000000FF"), json!("#C00000FF")),
+        ("bg", json!("#FFEB3BFF"), json!("#B3E5FCFF")),
+        ("vertical", json!("NONE"), json!("SUPER")),
+        ("spacing", json!(0), json!(1)),
+    ];
+    let mut pf: Vec<(String, Value, Value)> = [
+        ("shade", json!("#EEEEEEFF"), json!("#DDDDDDFF")),
+        ("align", json!("LEFT"), json!("CENTER")),
+        ("indent.left", json!(0), json!(10)),
+        ("indent.right", json!(0), json!(10)),
+        ("indent.first", json!(0), json!(10)),
+        ("space.before", json!(0), json!(10)),
+        ("space.after", json!(0), json!(10)),
+        ("line.unit", json!("PERCENT"), json!("PT")),
+        ("line.value", json!(150), json!(200)),
+        ("keepNext", json!(false), json!(true)),
+        ("keepLines", json!(false), json!(true)),
+        ("breakBefore", json!(false), json!(true)),
+        ("tabs[].pos", json!(10), json!(20)),
+        ("tabs[].align", json!("LEFT"), json!("RIGHT")),
+        ("tabs[].leader", json!("NONE"), json!("DOT")),
+        ("list.kind", json!("BULLET"), json!("ORDERED")),
+        ("list.level", json!(0), json!(1)),
+        ("list.start", json!(1), json!(5)),
+    ]
+    .into_iter()
+    .map(|(k, a, b)| (k.to_string(), a, b))
+    .collect();
+    for s in ["top", "bottom", "left", "right"] {
+        pf.push((format!("border.{s}.weight"), json!(1), json!(2)));
+        pf.push((
+            format!("border.{s}.color"),
+            json!("#000000FF"),
+            json!("#C00000FF"),
+        ));
+        pf.push((format!("border.{s}.gap"), json!(0), json!(3)));
+    }
+    let a = "a".repeat(64);
+    let mut cases: Vec<(String, Value, Value)> = [
+        ("flow.page.w", json!(595.28), json!(612)),
+        ("flow.page.h", json!(841.89), json!(792)),
+        ("flow.page.margin.t", json!(56.69), json!(40)),
+        ("flow.page.margin.r", json!(56.69), json!(40)),
+        ("flow.page.margin.b", json!(56.69), json!(40)),
+        ("flow.page.margin.l", json!(56.69), json!(40)),
+        ("flow.lang", json!("ko"), json!("en")),
+        ("flow.header.l", json!(""), json!("왼쪽")),
+        ("flow.header.c", json!("머리"), json!("가운데")),
+        ("flow.header.r", json!(""), json!("오른쪽")),
+        ("flow.footer.l", json!(""), json!("왼쪽")),
+        ("flow.footer.c", json!(""), json!("{쪽}")),
+        ("flow.footer.r", json!(""), json!("오른쪽")),
+        ("flow.hfSkipFirst", json!(false), json!(true)),
+        ("flow.styles.*.name", json!("사용자"), json!("다른 이름")),
+        ("flow.styles.*.based", json!("body"), json!("title")),
+        ("flow.styles.*.next", json!("body"), json!("title")),
+        ("para.style", json!("body"), json!("h1")),
+        ("para.runs[].t", json!("글"), json!("글자")),
+        (
+            "para.runs[].link",
+            json!("https://example.com/a"),
+            json!("https://example.com/b"),
+        ),
+        ("para.runs[].o.type", json!("image"), json!("field")),
+        ("para.runs[].o.asset", json!(a), json!("b".repeat(64))),
+        ("para.runs[].o.w", json!(10), json!(20)),
+        ("para.runs[].o.h", json!(10), json!(20)),
+        ("para.runs[].o.alt", json!("사진"), json!("증명사진")),
+        ("para.runs[].o.name", json!("page"), json!("pages")),
+        ("para.runs[].mark.kind", json!("INS"), json!("DEL")),
+        ("para.runs[].mark.by", json!("user"), json!("ai")),
+        ("para.runs[].mark.id", json!("m1"), json!("m2")),
+        ("table.cols[]", json!(100), json!(200)),
+        ("table.headerRows", json!(0), json!(1)),
+        ("table.align", json!("LEFT"), json!("CENTER")),
+        ("table.border.color", json!("#000000FF"), json!("#C00000FF")),
+        ("table.border.weight", json!(1), json!(2)),
+        ("row.h", json!(0), json!(30)),
+        ("cell.span.rows", json!(1), json!(2)),
+        ("cell.span.cols", json!(1), json!(2)),
+        ("cell.covered", json!(false), json!(true)),
+        ("cell.fill", json!("#FFFFFF00"), json!("#EEF2F7FF")),
+        ("cell.pad[]", json!(4), json!(8)),
+        (
+            "cell.border",
+            json!({}),
+            json!({"bottom": {"weight": 2, "color": "#C00000FF"}}),
+        ),
+        ("cell.alignV", json!("TOP"), json!("CENTER")),
+    ]
+    .into_iter()
+    .map(|(k, a, b)| (k.to_string(), a, b))
+    .collect();
+    for (k, a, b) in &cs {
+        cases.push((format!("flow.styles.*.cs.{k}"), a.clone(), b.clone()));
+        cases.push((format!("para.runs[].s.{k}"), a.clone(), b.clone()));
+    }
+    for (k, a, b) in &pf {
+        cases.push((format!("flow.styles.*.pf.{k}"), a.clone(), b.clone()));
+        cases.push((format!("para.pf.{k}"), a.clone(), b.clone()));
+    }
+
+    // 표에 있는 자리와 스키마의 자리가 같아야 한다.
+    let known: BTreeSet<String> = cases
+        .iter()
+        .map(|c| c.0.clone())
+        .chain(same.iter().map(|s| s.0.to_string()))
+        .collect();
+    let schema: BTreeSet<String> = kari_doc::prop_paths(Kind::Flow).into_iter().collect();
+    let new: Vec<_> = schema.difference(&known).collect();
+    let gone: Vec<_> = known.difference(&schema).collect();
+    assert!(
+        new.is_empty() && gone.is_empty(),
+        "DOCX 내보내기가 아직 모르는 스키마 속성: {new:?}, 스키마에 없는 표의 속성: {gone:?}"
+    );
+
+    // 그림은 이름마다 다른 PNG.
+    let read = |h: &str| (h.len() == 64).then(|| png(if h.starts_with('a') { 4 } else { 5 }, 4));
+    let base = placed(None);
+    assert!(export(&base, None, &read).lost.is_empty());
+    let mut silent = Vec::new();
+    for (path, a, b) in &cases {
+        let (x, y) = (
+            export(&placed(Some((path.as_str(), a))), None, &read),
+            export(&placed(Some((path.as_str(), b))), None, &read),
+        );
+        if x.bytes == y.bytes && y.lost.is_empty() {
+            silent.push(path.as_str());
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "DOCX에 옮겨지지도 lost에 들지도 않는 속성: {silent:?}"
+    );
+}
+
+/// [x13]의 문서: 스타일 `k`를 쓰는 문단 `p0`과 2×2 표 `t`. `leaf`가 있으면 그 자리(`para.pf.align` 꼴)에 값을 넣는다.
+/// 값 자리에 꼭 있어야 하는 형제 값(변의 굵기, 목록의 종류 등)은 함께 채운다.
+fn placed(leaf: Option<(&str, &Value)>) -> Document {
+    let mut d = doc_with(
+        json!({"header": {"c": "머리"}, "styles": {"k": {"name": "사용자", "based": "body"}}}),
+        &[json!({"style": "k", "runs": [{"t": "글"}]})],
+    );
+    apply(
+        &mut d,
+        table_ops(
+            "t",
+            json!({"cols": [100, 100]}),
+            &[
+                vec![(Some("가"), json!({})), (Some("나"), json!({}))],
+                vec![(Some("다"), json!({})), (Some("라"), json!({}))],
+            ],
+        ),
+    );
+    let Some((path, v)) = leaf else { return d };
+    let (ty, rest) = path.split_once('.').unwrap();
+    let segs: Vec<&str> = rest
+        .split('.')
+        .flat_map(|s| match s.strip_suffix("[]") {
+            Some(n) => vec![n, "[]"],
+            None => vec![s],
+        })
+        .collect();
+    let mut prop = match (ty, segs[0]) {
+        ("flow", "page") => {
+            json!({"w": 595.28, "h": 841.89, "margin": {"t": 56.69, "r": 56.69, "b": 56.69, "l": 56.69}})
+        }
+        ("flow", "header") => json!({"c": "머리"}),
+        ("flow", "styles") => json!({"k": {"name": "사용자", "based": "body"}}),
+        ("para", "runs") => match segs.get(2) {
+            Some(&"o") if segs[3] == "name" => {
+                json!([{"t": "\u{FFFC}", "o": {"type": "field", "name": "page"}}])
+            }
+            Some(&"o") => {
+                json!([{"t": "\u{FFFC}", "o": {"type": "image", "asset": "a".repeat(64), "w": 10, "h": 10, "name": "page"}}])
+            }
+            Some(&"mark") => json!([{"t": "글", "mark": {"kind": "INS", "by": "user"}}]),
+            _ => json!([{"t": "글"}]),
+        },
+        ("table", "cols") => json!([100, 100]),
+        ("table", "border") => json!({"weight": 1, "color": "#000000FF"}),
+        ("cell", "pad") => json!([4, 6, 4, 6]),
+        ("cell", "span") => json!({"rows": 1, "cols": 1}),
+        _ => json!({}),
+    };
+    if segs.len() == 1 {
+        prop = v.clone();
+    } else {
+        let mut at = &mut prop;
+        let (last, inner) = segs[1..].split_last().unwrap();
+        for s in inner {
+            at = match *s {
+                "[]" => {
+                    if at.as_array().is_none_or(Vec::is_empty) {
+                        *at = json!([{}]);
+                    }
+                    &mut at[0]
+                }
+                "*" => &mut at["k"],
+                k => {
+                    if at.get(k).is_none() {
+                        at[k] = json!({});
+                    }
+                    &mut at[k]
+                }
+            };
+        }
+        let parent = segs[..segs.len() - 1]
+            .iter()
+            .rev()
+            .find(|s| **s != "[]")
+            .copied()
+            .unwrap_or("");
+        let need = match parent {
+            "top" | "bottom" | "left" | "right" => json!({"weight": 1}),
+            "list" => json!({"kind": "ORDERED"}),
+            "line" => json!({"unit": "PERCENT", "value": 150}),
+            "tabs" => json!({"pos": 10}),
+            _ => json!({}),
+        };
+        for (k, n) in need.as_object().unwrap() {
+            if at.get(k).is_none() {
+                at[k] = n.clone();
+            }
+        }
+        match *last {
+            "[]" => at[0] = v.clone(),
+            k => at[k] = v.clone(),
+        }
+    }
+    let id = match ty {
+        "flow" => "root",
+        "para" => "p0",
+        "table" => "t",
+        "row" => "tr0",
+        _ => "tc0_0",
+    };
+    apply(
+        &mut d,
+        vec![json!({"op": "set", "id": id, "props": {segs[0]: prop}})],
+    );
+    d
+}

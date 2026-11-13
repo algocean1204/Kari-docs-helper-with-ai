@@ -37,6 +37,32 @@ pub(crate) fn schema(kind: Kind) -> &'static Schema {
     }
 }
 
+/// 스키마의 모든 값 자리(`para.pf.border.top.weight` 꼴, 정렬됨). 목록의 원소는 `[]`, 스타일 이름 같은 맵 키는 `*`.
+/// 내보내기가 모르는 속성이 생기면 시험이 알아채게 하려고 둔다.
+pub fn prop_paths(kind: Kind) -> Vec<String> {
+    fn walk(spec: &Spec, path: String, out: &mut Vec<String>) {
+        match spec {
+            Spec::Obj(fields, _) => {
+                for (k, s) in fields {
+                    walk(s, format!("{path}.{k}"), out);
+                }
+            }
+            Spec::Inline(s) | Spec::Null(s) => walk(s, path, out),
+            Spec::List(s, ..) => walk(s, format!("{path}[]"), out),
+            Spec::Map(_, s) => walk(s, format!("{path}.*"), out),
+            _ => out.push(path),
+        }
+    }
+    let mut out = Vec::new();
+    for (t, props) in &schema(kind).specs {
+        for (k, s) in props {
+            walk(s, format!("{t}.{k}"), &mut out);
+        }
+    }
+    out.sort();
+    out
+}
+
 fn opt_f64(field: &Value, key: &str) -> Option<f64> {
     field.get(key).and_then(Value::as_f64)
 }

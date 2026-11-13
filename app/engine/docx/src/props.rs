@@ -104,12 +104,13 @@ pub(crate) fn chain(styles: &Map<String, Value>, name: &str, key: &str) -> Map<S
     out
 }
 
-/// Kari의 스타일 키 → Word의 스타일 id와 이름. 본문·제목·제목 n은 Word의 기본 스타일에 맞춰
+/// Kari의 스타일 키 → Word의 스타일 id와 이름. 본문·제목·부제·제목 n은 Word의 기본 스타일에 맞춰
 /// Word의 개요와 목차가 알아보게 한다.
 pub(crate) fn style_id(key: &str) -> String {
     match key {
         "body" => "Normal".into(),
         "title" => "Title".into(),
+        "subtitle" => "Subtitle".into(),
         k => match heading(k) {
             Some(n) => format!("Heading{n}"),
             None => format!("K-{k}"),
@@ -243,6 +244,7 @@ pub(crate) fn ppr(
     m: &Map<String, Value>,
     has: &dyn Fn(&str) -> bool,
     x: &ParaExtra,
+    lost: &mut Lost,
 ) {
     if let Some(s) = &x.style {
         out.push_str(&format!(r#"<w:pStyle w:val="{}"/>"#, escaped(s)));
@@ -267,6 +269,44 @@ pub(crate) fn ppr(
             r#"<w:numPr><w:ilvl w:val="{lv}"/><w:numId w:val="{id}"/></w:numPr>"#
         ));
     }
+    let sub = |k: &str| m.get(k).and_then(Value::as_object);
+    // 네 변을 모두 적는다(선이 없는 변은 nil). 스타일의 선을 문단이 끈 변(굵기 0)도 nil이라 스타일의 선이 살아나지 않는다.
+    if has("border") {
+        let b = sub("border");
+        out.push_str("<w:pBdr>");
+        for side in ["top", "left", "bottom", "right"] {
+            let s = b.and_then(|b| b.get(side));
+            let weight = num(s.and_then(|s| s.get("weight"))).map_or(0.0, |v| v.clamp(0.0, 6.0));
+            if weight > 0.0 {
+                let [r, g, b, _] = CharStyle::default().color;
+                let color = hex(s.and_then(|s| s.get("color")), lost)
+                    .unwrap_or_else(|| format!("{r:02X}{g:02X}{b:02X}"));
+                // 굵기는 8분의 1 pt(Word가 받는 1/4 ~ 12pt), 글과의 거리는 pt.
+                // 한계: Word의 거리는 정수 pt라 소수는 반올림한다
+                let sz = (weight * 8.0).round().clamp(2.0, 96.0);
+                let gap = num(s.and_then(|s| s.get("gap"))).map_or(0.0, |v| v.clamp(0.0, 31.0));
+                out.push_str(&format!(
+                    r#"<w:{side} w:val="single" w:sz="{sz}" w:space="{}" w:color="{color}"/>"#,
+                    gap.round()
+                ));
+            } else {
+                out.push_str(&format!(r#"<w:{side} w:val="nil"/>"#));
+            }
+        }
+        out.push_str("</w:pBdr>");
+    }
+    // 투명한 바탕(스타일의 바탕을 끈 것)은 칠하지 않음(auto)이다.
+    if has("shade") {
+        let fill = if visible(m.get("shade")) {
+            hex(m.get("shade"), lost)
+        } else {
+            None
+        };
+        out.push_str(&format!(
+            r#"<w:shd w:val="clear" w:color="auto" w:fill="{}"/>"#,
+            fill.as_deref().unwrap_or("auto")
+        ));
+    }
     let tabs = if has("tabs") { tabs_of(m) } else { Vec::new() };
     if !tabs.is_empty() || !x.clear_tabs.is_empty() {
         out.push_str("<w:tabs>");
@@ -281,7 +321,6 @@ pub(crate) fn ppr(
         }
         out.push_str("</w:tabs>");
     }
-    let sub = |k: &str| m.get(k).and_then(Value::as_object);
     let (space, line) = (has("space"), has("line"));
     if space || line {
         out.push_str("<w:spacing");
@@ -377,6 +416,7 @@ pub(crate) fn styles_xml(styles: &Map<String, Value>, lang: &str, lost: &mut Los
         let name = match (key, heading(key)) {
             ("body", _) => "Normal".to_string(),
             ("title", _) => "Title".to_string(),
+            ("subtitle", _) => "Subtitle".to_string(),
             (_, Some(n)) => format!("heading {n}"),
             _ => st
                 .and_then(|s| s.get("name"))
@@ -413,7 +453,7 @@ pub(crate) fn styles_xml(styles: &Map<String, Value>, lang: &str, lost: &mut Los
             outline: heading(key),
             ..ParaExtra::default()
         };
-        ppr(&mut out, &pf, &|k| pf.contains_key(k), &x);
+        ppr(&mut out, &pf, &|k| pf.contains_key(k), &x, lost);
         out.push_str("</w:pPr><w:rPr>");
         if st.is_some() {
             rpr(&mut out, &chain(styles, key, "cs"), false, lost);

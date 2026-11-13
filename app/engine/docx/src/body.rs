@@ -209,7 +209,7 @@ impl Ctx<'_> {
             outline: None,
         };
         let mut pp = String::new();
-        ppr(&mut pp, &m, &|k| own.contains_key(k), &x);
+        ppr(&mut pp, &m, &|k| own.contains_key(k), &x, self.lost);
         let runs: &[Value] = self
             .doc
             .prop(&node.id, "runs")
@@ -663,10 +663,15 @@ pub(crate) fn package(
 ) -> Vec<(String, Vec<u8>)> {
     let root = root(doc);
     let rprop = |k: &str| root.and_then(|r| doc.prop(r, k));
-    let styles = rprop("styles")
+    // 저장된 표에 없는 기본 스타일은 스키마 기본값으로 채운다(배치와 같다).
+    let mut styles = doc
+        .default_prop("flow", "styles")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    if let Some(stored) = rprop("styles").and_then(Value::as_object) {
+        styles.extend(stored.clone());
+    }
     // 쪽(배치와 같은 기본값과 범위).
     let page = rprop("page").and_then(Value::as_object);
     let margin = page

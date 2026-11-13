@@ -21,6 +21,7 @@ use std::fmt;
 pub use apply::{strip_revs, Applied, Guard};
 pub use doc::{Document, Node};
 pub use runs::slice_runs;
+pub use schema::prop_paths;
 /// 속성 값의 타입(`Value`)을 아래 크레이트가 같은 판으로 쓰게 다시 내보낸다.
 pub use serde_json;
 pub use z::{z_between, z_n_between};

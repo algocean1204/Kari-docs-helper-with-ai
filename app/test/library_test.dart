@@ -557,6 +557,27 @@ void main() {
     tester,
   ) async {
     final rig = await pumpReal(tester, route: AppRoute.settings);
+    // 묶음 제목은 겹치지 않는다. 문서 묶음 하나에 자동 서식과 새 문서의 스타일이 차례로 있다.
+    bool isTitle(Widget w) =>
+        w is Text &&
+        w.style?.fontSize == AppText.title.fontSize &&
+        w.style?.fontWeight == AppText.title.fontWeight;
+    final titles = [
+      for (final t in tester.widgetList<Text>(find.byWidgetPredicate(isTitle)))
+        t.data,
+    ];
+    expect(titles.toSet().length, titles.length, reason: '$titles');
+    expect(titles, containsAllInOrder(['AI 연결', '문서', '개인정보']));
+    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    final docs = tester
+        .getTopLeft(
+          find.byWidgetPredicate((w) => isTitle(w) && (w as Text).data == '문서'),
+        )
+        .dy;
+    expect(top('일마다의 모델'), lessThan(docs));
+    expect(docs, lessThan(top('입력하면서 자동 서식')));
+    expect(top('입력하면서 자동 서식'), lessThan(top('새 문서의 스타일')));
+    expect(top('새 문서의 스타일'), lessThan(top('개인정보')));
     // 제공사는 Claude와 OpenAI 둘이고 둘 다 키를 넣을 수 있다.
     expect(find.text('키 없음'), findsNWidgets(2));
     expect(find.text('준비 중'), findsNothing);

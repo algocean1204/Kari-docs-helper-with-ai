@@ -149,6 +149,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? setState(() => _autoFormat = v)
                         : lib.set(Setting.autoFormat, v),
                   ),
+                  _NewStyles(library: lib),
                 ],
               ),
               _Section(
@@ -181,10 +182,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : lib.set(Setting.gaze, v),
                   ),
                 ],
-              ),
-              _Section(
-                title: '문서',
-                children: [_NewStyles(library: lib)],
               ),
             ],
           ),
