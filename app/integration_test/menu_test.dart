@@ -6,6 +6,8 @@
 // NSEvent를 만들어 앱의 이벤트 줄에 넣는다. 실제 자판처럼 수정 키를 하나씩 누르고(flagsChanged), 키를 누르고 떼고,
 // 수정 키를 놓는다. 그래서 키가 사람이 친 키와 같은 길(창의 보기가 먼저, 다루지 않은 키는 주 메뉴)을 지나고, Flutter는
 // 수정 키를 본 채로 키를 받는다. 사용자의 자판이나 다른 앱에는 가지 않는다. 조합 중인 글은 입력 채널의 setMarkedText로 넣는다.
+// 앱이 앞에 있지 않으면 macOS는 창을 건너뛰고 주 메뉴부터 묻는다. 그때에도 창이 먼저 받는 길을 보려면
+// KARI_KEY_PATH=window를 더한다(두 길 모두에서 명령은 한 번만 나가야 한다).
 // 시스템 클립보드와 인쇄 창은 가로챈다(사용자의 클립보드를 건드리지 않고, 인쇄 창을 띄우지 않는다).
 // 앱이 도중에 끝나면 그 까닭(끝내기·창 닫기·exit의 호출 스택, 도구가 보낸 SIGTERM)이
 // ~/Library/Containers/dev.clonamic.kari/Data/tmp/kari-menu-test-exit.log에 남는다.
@@ -80,7 +82,12 @@ final flutterKeys = <String>[];
 /// Flutter가 누른 수정 키를 보지 못한 채 받은 키. 끝에서 비어 있어야 한다.
 final keyProblems = <String>[];
 
-/// 수정 키 자신의 누름(`Meta Left+meta`처럼 적힌다).
+/// 키를 보내는 길. `app`(기본값)은 앱의 이벤트 줄에 넣는다. `KARI_KEY_PATH=window`는 앱이 앞에 있을 때의 차례
+/// (키 창의 보기 → 주 메뉴 → 첫 응답자)를 그대로 따라 보낸다. 앱이 앞에 있지 않으면(화면이 잠겼거나 다른 앱을
+/// 쓰는 중) `app`은 주 메뉴가 먼저 받는 길이 되므로, 창이 먼저 받는 길은 `window`로 본다.
+final keyPath = Platform.environment['KARI_KEY_PATH'] ?? 'app';
+
+/// 수정 키 자신의 누름(`Meta Left|meta`처럼 적힌다).
 final _modifierKey = RegExp(r'^(Meta|Shift|Alt|Control) ');
 
 bool logKey(KeyEvent e) {
@@ -93,7 +100,7 @@ bool logKey(KeyEvent e) {
         if (k.isShiftPressed) 'shift',
         if (k.isAltPressed) 'alt',
         if (k.isControlPressed) 'control',
-      ].join('+'),
+      ].join('|'),
     );
   }
   return false;
@@ -124,25 +131,36 @@ Future<void> press(
       if (alt) 'alt',
       if (ctrl) 'ctrl',
     ],
+    'path': keyPath,
   });
   expect(ok, isTrue, reason: '키를 보내지 못했다(앱 창이 없다)');
   await pump(tester, const Duration(milliseconds: 200));
-  // 키가 지난 길: 앱이 꺼냈을 때의 상태, 키로 불린 메뉴 항목, Flutter가 받은 누름.
-  final route = await menuTest.invokeListMethod<String>('route');
-  // ignore: avoid_print
-  print('KARI_ROUTE key ${jsonEncode(key)} app=$route flutter=$flutterKeys');
-  // 실제 자판처럼 Flutter도 키를 그 수정 키와 함께 받는다.
   final want = [
     if (cmd) 'meta',
     if (shift) 'shift',
     if (alt) 'alt',
     if (ctrl) 'control',
-  ].join('+');
-  final got = [
+  ].join('|');
+  // 키가 지난 길: 앱이 꺼냈을 때의 상태, 키로 불린 메뉴 항목, Flutter가 받은 누름.
+  // 조합 중에는 조합 글을 확정한 뒤에 키가 오므로, 누가 받을 때까지 잠깐 더 기다린다.
+  final route = <String>[];
+  List<String> got() => [
     for (final k in flutterKeys)
-      if (!_modifierKey.hasMatch(k)) k.split('+').skip(1).join('+'),
+      if (!_modifierKey.hasMatch(k)) k.split('|').skip(1).join('|'),
   ];
-  if (!got.contains(want)) keyProblems.add('$key: $flutterKeys');
+  bool viaMenu() => route.any((r) => r.startsWith('menu '));
+  for (var i = 0; ; i++) {
+    route.addAll(await menuTest.invokeListMethod<String>('route') ?? []);
+    if (got().isNotEmpty || viaMenu() || i == 10) break;
+    await pump(tester, const Duration(milliseconds: 100));
+  }
+  // ignore: avoid_print
+  print('KARI_ROUTE key ${jsonEncode(key)} app=$route flutter=$flutterKeys');
+  // Flutter가 키를 받았으면 실제 자판처럼 그 수정 키와 함께 받는다. 주 메뉴가 먼저 가져간 키와 조합 중에 입력기를
+  // 거쳐 온 키는 여기에 보이지 않는다(그 키가 들었는지는 명령이 나간 횟수로 본다).
+  if (got().isNotEmpty && !got().contains(want)) {
+    keyProblems.add('$key: $flutterKeys');
+  }
   flutterKeys.clear();
 }
 

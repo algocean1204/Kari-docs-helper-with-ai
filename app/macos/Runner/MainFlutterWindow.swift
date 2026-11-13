@@ -144,6 +144,10 @@ enum MenuTest {
   static func register(_ messenger: FlutterBinaryMessenger) {
     guard ProcessInfo.processInfo.environment["KARI_MENU_TEST"] == "1" else { return }
     recordExit()
+    // 창이 가려져 있거나 화면이 잠겨 있으면 macOS가 앱의 타이머를 늦춘다(App Nap). 시험 중에는 늦추지 않게 한다.
+    watchers.append(
+      ProcessInfo.processInfo.beginActivity(
+        options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical], reason: "menu test"))
     if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { e in
       let responder = e.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "-"
       route.append(
@@ -293,10 +297,27 @@ enum MenuTest {
       flags.subtract(f)
       events.append(event(.flagsChanged, flags, keyCode))
     }
-    for e in events {
-      guard let e else { return false }
-      NSApp.postEvent(e, atStart: false)
+    let list = events.compactMap { $0 }
+    guard list.count == events.count else { return false }
+    if a["path"] as? String == "window" {
+      // 앱이 앞에 있을 때 macOS가 키를 보내는 차례를 그대로 따른다: ⌘가 눌린 키는 키 창의 보기, 주 메뉴 차례로
+      // 묻고, 아무도 받지 않으면 창의 첫 응답자에게 간다. 화면이 잠겼거나 다른 앱이 앞에 있어 앱이 키 창을
+      // 가질 수 없을 때에도(이때 macOS는 창을 건너뛰고 주 메뉴부터 묻는다) 창이 먼저 받는 길을 본다.
+      DispatchQueue.main.async {
+        for e in list {
+          if e.type == .keyDown && e.modifierFlags.contains(.command) {
+            if window.performKeyEquivalent(with: e) {
+              route.append("window")
+              continue
+            }
+            if NSApp.mainMenu?.performKeyEquivalent(with: e) == true { continue }
+          }
+          window.sendEvent(e)
+        }
+      }
+      return true
     }
+    for e in list { NSApp.postEvent(e, atStart: false) }
     return true
   }
 
