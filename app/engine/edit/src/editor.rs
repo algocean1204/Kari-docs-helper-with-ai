@@ -17,7 +17,7 @@ use crate::fit::{first_para, fit_state, from_ops, snap};
 use crate::{Command, ImageInfo, ListKind, Overlay, Pos, Refusal, Sel};
 
 /// 이어 치는 글로 묶는 시간(ms).
-const GROUP_MS: u64 = 1500;
+pub(crate) const GROUP_MS: u64 = 1500;
 
 /// 마지막 누르기의 단위와 그때 고른 범위. 끌기가 쓴다.
 #[derive(Clone, Debug, PartialEq)]

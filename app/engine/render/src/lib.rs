@@ -263,6 +263,47 @@ pub fn draw_canvas_overlay(
     Ok(())
 }
 
+/// 글 상자 편집 표시를 덧그린다(`draw_canvas_overlay`와 같은 화소 버퍼, 같은 좌표계). `selection`은 선택한 글의 줄마다
+/// 사각형 네 모서리, `preedit`은 조합 중인 글의 자리(밑줄), `caret`은 커서의 위·아래 끝이다.
+pub fn draw_canvas_text(
+    frame: Frame,
+    selection: &[[[f32; 2]; 4]],
+    preedit: &[[[f32; 2]; 4]],
+    caret: Option<[[f32; 2]; 2]>,
+    px: f32,
+) -> Result<(), &'static str> {
+    let mut t = target(frame, None)?;
+    let canvas = t.surface.canvas();
+    let blue = [0x0D, 0x99, 0xFF, 0xFF];
+    let line = |w: f32| {
+        let mut p = fill(blue);
+        p.set_style(PaintStyle::Stroke).set_stroke_width(w * px);
+        p
+    };
+    let seg = |a: [f32; 2], b: [f32; 2]| {
+        let mut pb = PathBuilder::new();
+        pb.move_to(Point::new(a[0], a[1]));
+        pb.line_to(Point::new(b[0], b[1]));
+        pb.detach()
+    };
+    for q in selection {
+        let mut b = PathBuilder::new();
+        b.move_to(Point::new(q[0][0], q[0][1]));
+        for p in &q[1..] {
+            b.line_to(Point::new(p[0], p[1]));
+        }
+        b.close();
+        canvas.draw_path(&b.detach(), &fill([0x0D, 0x99, 0xFF, 0x40]));
+    }
+    for q in preedit {
+        canvas.draw_path(&seg(q[3], q[2]), &line(LINE_PX));
+    }
+    if let Some(c) = caret {
+        canvas.draw_path(&seg(c[0], c[1]), &line(1.0));
+    }
+    Ok(())
+}
+
 /// [a, b, c, d, e, f](x' = a·x + c·y + e, y' = b·x + d·y + f)를 Skia 행렬로.
 fn sk_matrix(&[a, b, c, d, e, f]: &[f32; 6]) -> Matrix {
     Matrix::new_all(a, c, e, b, d, f, 0.0, 0.0, 1.0)

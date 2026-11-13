@@ -1,23 +1,104 @@
 //! 글자·어절 이동과 문서 순서. 위치는 문서 글 기준이다.
+//!
+//! 문단 하나(`ParaBox`)를 받는 계산은 자유 함수(`*_in`)로 두어 흐름의 문단과 캔버스의 글 상자가 함께 쓴다.
 
 use std::cmp::Ordering;
 
+use crate::para::ParaBox;
 use crate::query::stops;
 use crate::{Layouter, Pos};
 
-impl Layouter {
-    /// 문단의 글자 묶음 경계(문서 글 기준, 오름차순).
-    fn bounds(&self, pi: usize) -> Vec<usize> {
-        let pb = self.pb(pi);
-        let mut out: Vec<usize> = (0..pb.lines.len())
-            .flat_map(|li| stops(pb, li))
-            .map(|(q, _)| pb.to_doc(q))
-            .collect();
-        out.sort_unstable();
-        out.dedup();
-        out
-    }
+/// 문단의 글자 묶음 경계(문서 글 기준, 오름차순).
+pub(crate) fn bounds_of(pb: &ParaBox) -> Vec<usize> {
+    let mut out: Vec<usize> = (0..pb.lines.len())
+        .flat_map(|li| stops(pb, li))
+        .map(|(q, _)| pb.to_doc(q))
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
 
+/// `off`보다 큰 가장 가까운 글자 경계. 문단 끝이면 `None`.
+pub(crate) fn next_in(pb: &ParaBox, off: usize) -> Option<usize> {
+    bounds_of(pb).into_iter().find(|&b| b > off)
+}
+
+/// `off`보다 작은 가장 가까운 글자 경계. 문단 처음이면 `None`.
+pub(crate) fn prev_in(pb: &ParaBox, off: usize) -> Option<usize> {
+    bounds_of(pb).into_iter().rev().find(|&b| b < off)
+}
+
+/// 다음 어절의 끝(공백을 건너뛰고 공백 아닌 글자를 건너뛴 자리). 문단 끝이면 `None`.
+pub(crate) fn next_word_in(pb: &ParaBox, off: usize) -> Option<usize> {
+    let src = &pb.src;
+    if off >= src.len() {
+        return None;
+    }
+    let rest = &src[off..];
+    let ws = rest
+        .find(|c: char| !c.is_whitespace())
+        .unwrap_or(rest.len());
+    let word = rest[ws..]
+        .find(char::is_whitespace)
+        .unwrap_or(rest.len() - ws);
+    let end = off + ws + word;
+    Some(
+        bounds_of(pb)
+            .into_iter()
+            .find(|&b| b >= end)
+            .unwrap_or(src.len()),
+    )
+}
+
+/// 앞 어절의 처음. 문단 처음이면 `None`.
+pub(crate) fn prev_word_in(pb: &ParaBox, off: usize) -> Option<usize> {
+    if off == 0 {
+        return None;
+    }
+    let head = &pb.src[..off];
+    let ws = head.trim_end().len();
+    let start = head[..ws].rfind(char::is_whitespace).map_or(0, |i| {
+        i + head[i..].chars().next().map_or(1, char::len_utf8)
+    });
+    Some(
+        bounds_of(pb)
+            .into_iter()
+            .rev()
+            .find(|&b| b <= start)
+            .unwrap_or(0),
+    )
+}
+
+/// 두 번 누른 자리의 어절(공백 아닌 글자의 연속). 공백 위면 공백의 연속.
+pub(crate) fn word_at_in(pb: &ParaBox, off: usize) -> (usize, usize) {
+    let src = &pb.src;
+    let after = src[off..].chars().next();
+    let before = src[..off].chars().next_back();
+    let space = match (before, after) {
+        (_, Some(c)) if !c.is_whitespace() => false,
+        (Some(c), _) if !c.is_whitespace() => false,
+        (None, None) => return (off, off),
+        _ => true,
+    };
+    let same = |c: char| c.is_whitespace() == space;
+    let start = src[..off]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| same(*c))
+        .last()
+        .map_or(off, |(i, _)| i);
+    let end = off
+        + src[off..]
+            .find(|c: char| !same(c))
+            .unwrap_or(src.len() - off);
+    let bounds = bounds_of(pb);
+    let s = bounds.iter().rev().find(|&&b| b <= start).copied();
+    let e = bounds.iter().find(|&&b| b >= end).copied();
+    (s.unwrap_or(0), e.unwrap_or(src.len()))
+}
+
+impl Layouter {
     /// 문서 위치로 바꾼 (문단 번호, 위치).
     fn at(&self, pos: &Pos) -> Option<(usize, usize)> {
         let (pi, q) = self.resolve(pos)?;
@@ -35,7 +116,7 @@ impl Layouter {
     /// 다음 글자(자소 묶음 단위). 문단 끝에서는 다음 문단의 처음.
     pub fn next(&self, pos: &Pos) -> Option<Pos> {
         let (pi, off) = self.at(pos)?;
-        match self.bounds(pi).into_iter().find(|&b| b > off) {
+        match next_in(self.pb(pi), off) {
             Some(b) => Some(Pos::new(&pos.para, b)),
             None => self.para_start(pi + 1),
         }
@@ -44,7 +125,7 @@ impl Layouter {
     /// 앞 글자. 문단 처음에서는 앞 문단의 끝.
     pub fn prev(&self, pos: &Pos) -> Option<Pos> {
         let (pi, off) = self.at(pos)?;
-        match self.bounds(pi).into_iter().rev().find(|&b| b < off) {
+        match prev_in(self.pb(pi), off) {
             Some(b) => Some(Pos::new(&pos.para, b)),
             None => Some(self.para_end(pi.checked_sub(1)?)),
         }
@@ -53,35 +134,19 @@ impl Layouter {
     /// 다음 어절의 끝(공백을 건너뛰고 공백 아닌 글자를 건너뛴 자리). 문단 끝에서는 다음 문단의 처음.
     pub fn next_word(&self, pos: &Pos) -> Option<Pos> {
         let (pi, off) = self.at(pos)?;
-        let src = &self.pb(pi).src;
-        if off >= src.len() {
-            return self.para_start(pi + 1);
+        match next_word_in(self.pb(pi), off) {
+            Some(b) => Some(Pos::new(&pos.para, b)),
+            None => self.para_start(pi + 1),
         }
-        let rest = &src[off..];
-        let ws = rest
-            .find(|c: char| !c.is_whitespace())
-            .unwrap_or(rest.len());
-        let word = rest[ws..]
-            .find(char::is_whitespace)
-            .unwrap_or(rest.len() - ws);
-        let end = off + ws + word;
-        let b = self.bounds(pi).into_iter().find(|&b| b >= end);
-        Some(Pos::new(&pos.para, b.unwrap_or(src.len())))
     }
 
     /// 앞 어절의 처음. 문단 처음에서는 앞 문단의 끝.
     pub fn prev_word(&self, pos: &Pos) -> Option<Pos> {
         let (pi, off) = self.at(pos)?;
-        if off == 0 {
-            return Some(self.para_end(pi.checked_sub(1)?));
+        match prev_word_in(self.pb(pi), off) {
+            Some(b) => Some(Pos::new(&pos.para, b)),
+            None => Some(self.para_end(pi.checked_sub(1)?)),
         }
-        let head = &self.pb(pi).src[..off];
-        let ws = head.trim_end().len();
-        let start = head[..ws].rfind(char::is_whitespace).map_or(0, |i| {
-            i + head[i..].chars().next().map_or(1, char::len_utf8)
-        });
-        let b = self.bounds(pi).into_iter().rev().find(|&b| b <= start);
-        Some(Pos::new(&pos.para, b.unwrap_or(0)))
     }
 
     /// 두 번 누른 자리의 어절(공백 아닌 글자의 연속). 공백 위면 공백의 연속.
@@ -89,33 +154,8 @@ impl Layouter {
         let Some((pi, off)) = self.at(pos) else {
             return (pos.clone(), pos.clone());
         };
-        let src = &self.pb(pi).src;
-        let after = src[off..].chars().next();
-        let before = src[..off].chars().next_back();
-        let space = match (before, after) {
-            (_, Some(c)) if !c.is_whitespace() => false,
-            (Some(c), _) if !c.is_whitespace() => false,
-            (None, None) => return (Pos::new(&pos.para, off), Pos::new(&pos.para, off)),
-            _ => true,
-        };
-        let same = |c: char| c.is_whitespace() == space;
-        let start = src[..off]
-            .char_indices()
-            .rev()
-            .take_while(|(_, c)| same(*c))
-            .last()
-            .map_or(off, |(i, _)| i);
-        let end = off
-            + src[off..]
-                .find(|c: char| !same(c))
-                .unwrap_or(src.len() - off);
-        let bounds = self.bounds(pi);
-        let s = bounds.iter().rev().find(|&&b| b <= start).copied();
-        let e = bounds.iter().find(|&&b| b >= end).copied();
-        (
-            Pos::new(&pos.para, s.unwrap_or(0)),
-            Pos::new(&pos.para, e.unwrap_or(src.len())),
-        )
+        let (s, e) = word_at_in(self.pb(pi), off);
+        (Pos::new(&pos.para, s), Pos::new(&pos.para, e))
     }
 
     /// 문서 순서. 배치에 없는 문단은 뒤로 보낸다(id 순).

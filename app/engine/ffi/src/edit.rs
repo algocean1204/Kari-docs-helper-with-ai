@@ -281,30 +281,61 @@ fn ime(lib: &mut Library, back: &mut OpenDoc, s: &Session, a: &Args) -> Result<D
     Ok(done)
 }
 
+/// 정리해 에셋으로 저장한 그림: 에셋 해시와 화소 크기.
+pub(crate) struct Picture {
+    pub asset: String,
+    pub px: (u32, u32),
+}
+
+/// 그림 바이트를 검사하고 정리해(20MB, PNG·JPEG로 풀림, 1px 이상, 방향을 돌리고 4,000px로 줄여 다시 담음) 에셋으로
+/// 저장한다. 흐름의 그림 넣기와 캔버스의 그림 놓기가 함께 쓴다. 받을 수 없는 그림은 안쪽 `Err`의 거절 이유.
+pub(crate) fn ingest_bytes(
+    lib: &mut Library,
+    bytes: &[u8],
+) -> Result<Result<Picture, &'static str>, Fail> {
+    let pic = match kari_render::prepare_image(bytes) {
+        Ok(p) => p,
+        Err(m) => return Ok(Err(m)),
+    };
+    let info = lib.put_asset(&pic.bytes)?;
+    Ok(Ok(Picture {
+        asset: info.hash,
+        px: (pic.width, pic.height),
+    }))
+}
+
+/// 파일에서 읽어 `ingest_bytes`로 넣는다.
+pub(crate) fn ingest_file(
+    lib: &mut Library,
+    path: &std::path::Path,
+) -> Result<Result<Picture, &'static str>, Fail> {
+    let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kari_render::MAX_BYTES as u64);
+    if too_big {
+        return Ok(Err("20MB가 넘는 그림은 넣을 수 없습니다."));
+    }
+    let Ok(bytes) = std::fs::read(path) else {
+        return Ok(Err("그림 파일을 읽지 못했습니다."));
+    };
+    ingest_bytes(lib, &bytes)
+}
+
 /// 그림 넣기. 엔진이 파일을 읽어 검사하고(20MB, PNG·JPEG로 풀림, 1px 이상), 방향을 돌리거나
 /// 줄여 다시 담은 뒤 에셋으로 저장하고 커서 자리에 개체를 넣는다. 받을 수 없는 파일은 거절 사유로 알린다.
 fn insert_image(e: &mut Engine, id: DocId, s: &Session, a: &Args) -> Result<Done, Fail> {
     let now = a.seq("now")?;
     let path = std::path::PathBuf::from(a.str("path")?);
-    let refuse = |m: &'static str| Done {
-        refused: Some(m),
-        ..Done::default()
-    };
-    let too_big = std::fs::metadata(&path).is_ok_and(|m| m.len() > kari_render::MAX_BYTES as u64);
-    if too_big {
-        return Ok(refuse("20MB가 넘는 그림은 넣을 수 없습니다."));
-    }
-    let Ok(bytes) = std::fs::read(&path) else {
-        return Ok(refuse("그림 파일을 읽지 못했습니다."));
-    };
-    let pic = match kari_render::prepare_image(&bytes) {
+    let pic = match ingest_file(&mut e.lib, &path)? {
         Ok(p) => p,
-        Err(m) => return Ok(refuse(m)),
+        Err(m) => {
+            return Ok(Done {
+                refused: Some(m),
+                ..Done::default()
+            })
+        }
     };
-    let info = e.lib.put_asset(&pic.bytes)?;
     let cmd = Command::InsertImage {
-        asset: info.hash,
-        px: (pic.width, pic.height),
+        asset: pic.asset,
+        px: pic.px,
     };
     run(&mut e.lib, back(&mut e.docs, id)?, s, &cmd, now)
 }

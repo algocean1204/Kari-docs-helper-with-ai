@@ -332,8 +332,10 @@ pub struct Layouter {
     pub(crate) fonts: Fonts,
     pub(crate) lcx: LayoutContext<u32>,
     pub(crate) cache: IdMap<(Key, ParaBox)>,
-    /// 캔버스 글 상자: 노드 id → (노드의 rev, 배치한 상자).
-    pub(crate) boxes: IdMap<(u64, crate::scene::TextBox)>,
+    /// 캔버스 글 상자: 노드 id → (노드의 rev와 끼운 조합 글, 배치한 상자).
+    pub(crate) boxes: IdMap<(crate::scene::BoxKey, crate::scene::TextBox)>,
+    /// 캔버스 글 상자에 끼워 배치할 조합 중인 글(`para`가 글 상자의 노드 id).
+    pub(crate) text_overlay: Option<Overlay>,
     pub(crate) gen: u64,
     out: Layout,
     sigs: Vec<Sig>,
@@ -386,6 +388,7 @@ impl Layouter {
             lcx: LayoutContext::new(),
             cache: IdMap::default(),
             boxes: IdMap::default(),
+            text_overlay: None,
             gen: 0,
             out: Layout::default(),
             sigs: Vec::new(),

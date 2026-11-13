@@ -75,7 +75,7 @@ pub(crate) fn line_of(pb: &ParaBox, q: usize, after_wrap: bool) -> usize {
 }
 
 /// `q` 이하의 가장 가까운 커서 자리.
-fn floor(st: &[(usize, f32)], q: usize) -> (usize, f32) {
+pub(crate) fn floor(st: &[(usize, f32)], q: usize) -> (usize, f32) {
     st.iter()
         .rev()
         .find(|s| s.0 <= q)

@@ -1,14 +1,25 @@
-//! 캔버스 문서의 고르기와 끌기. 판 좌표의 포인터 입력을 받아 선택을 바꾸고, 옮기기와 크기 바꾸기를 op 묶음으로 낸다.
+//! 캔버스 문서의 고르기와 끌기. 판 좌표의 포인터 입력을 받아 선택을 바꾸고, 옮기기와 크기 바꾸기, 만들기를 op 묶음으로 낸다.
 //!
 //! 문서를 직접 바꾸지 않고 보기(확대, 스크롤)를 모른다. 화면 화소 기준의 값(끌기 문턱, 손잡이, 선의 여유)은
 //! 입력의 `px`(화면 논리 화소 하나의 판 단위 길이)로 받는다. 끌기 중의 묶음은 시작 값에서 낸 절대 값 `set`이라
 //! 몇 번 적용해도 같은 결과다. 손을 뗄 때 내는 묶음은 시작 값과 다른 값만 담는다.
+//! 이름과 인자로 부르는 편집은 `cmd`(만들기, 지우기, 복제, 속성), 글 상자 안 편집은 `text`가 맡는다.
 
 use std::collections::HashSet;
 
 use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::Document;
 use kari_layout::{apply, inv, Affine, Layouter, NodeGeo};
+
+mod cmd;
+mod make;
+mod props;
+mod text;
+
+pub use cmd::{CPlan, CanvasCmd};
+pub use make::Tool;
+use text::TextEdit;
+pub use text::{TextChrome, TextCmd};
 
 /// 끌기로 보기 시작하는 거리(화면 논리 화소).
 pub const DRAG_PX: f64 = 3.0;
@@ -121,6 +132,10 @@ pub struct Out {
     pub selection_changed: bool,
     /// 그 자리의 크기 손잡이(`hover`와 눌렀을 때).
     pub handle: Option<&'static str>,
+    /// 이 입력을 처리하기 전에 먼저 커밋할 묶음(글 상자 편집을 끝내며 지우는 빈 글 상자).
+    pub pre: Vec<Value>,
+    /// 만들 수 없는 자리를 눌렀을 때의 이유.
+    pub refused: Option<&'static str>,
 }
 
 impl Out {
@@ -130,6 +145,8 @@ impl Out {
             end: End::None,
             selection_changed: false,
             handle: None,
+            pre: Vec::new(),
+            refused: None,
         }
     }
 }
@@ -295,6 +312,13 @@ enum Kind {
     Marquee {
         base: Vec<String>,
     },
+    /// 도구로 만들기. `added`는 끌기 미리 보기가 앞 사본에 `id` 노드를 만들어 두었는가.
+    Create {
+        tool: Tool,
+        parent: Option<String>,
+        id: String,
+        added: bool,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -305,12 +329,13 @@ struct Drag {
     starts: Vec<Start>,
 }
 
-/// 편집 표시: 고른 노드의 네 모서리, 손잡이, 영역 고르기 사각형(모두 판 좌표).
+/// 편집 표시: 고른 노드의 네 모서리, 손잡이, 영역 고르기 사각형, 글 상자 편집 표시(모두 판 좌표).
 #[derive(Clone, Debug, Default)]
 pub struct Chrome {
     pub quads: Vec<[[f64; 2]; 4]>,
     pub handles: Vec<(&'static str, [f64; 2])>,
     pub marquee: Option<[f64; 4]>,
+    pub text: Option<TextChrome>,
 }
 
 /// 대지 하나의 판 위 자리.
@@ -425,6 +450,14 @@ pub struct CanvasEditor {
     sel: Vec<String>,
     drag: Option<Drag>,
     marquee: Option<[f64; 4]>,
+    /// 만들기 도구. 없으면 고르기.
+    tool: Option<Tool>,
+    /// 편집 중인 글 상자.
+    text: Option<TextEdit>,
+    /// 글 상자 안을 누른 채 끄는 중이다.
+    text_drag: bool,
+    /// 마지막으로 매긴 묶기 번호.
+    next_group: u64,
 }
 
 impl CanvasEditor {
@@ -436,11 +469,18 @@ impl CanvasEditor {
         &self.sel
     }
 
-    /// 선택을 정한다. 문서에 없는 노드는 뺀다.
+    /// 지금 고른 만들기 도구.
+    pub fn tool(&self) -> Option<&Tool> {
+        self.tool.as_ref()
+    }
+
+    /// 선택을 정한다. 문서에 없는 노드는 뺀다. 글 상자 편집은 끝난다(빈 글 상자를 지우려면 `command`의 `EndText`).
     pub fn select(&mut self, doc: &Document, ids: Vec<String>) {
         self.sel = ids.into_iter().filter(|i| doc.node(i).is_some()).collect();
         self.drag = None;
         self.marquee = None;
+        self.text = None;
+        self.text_drag = false;
     }
 
     /// 옮기기나 크기 바꾸기가 문턱을 넘어 진행 중인가.
@@ -450,16 +490,32 @@ impl CanvasEditor {
             .is_some_and(|d| d.started && !matches!(d.kind, Kind::Marquee { .. }))
     }
 
-    /// 영역 고르기 사각형 `[x0, y0, x1, y1]`(판 좌표).
+    /// 진행 중인 끌기(옮기기, 크기, 만들기, 영역 고르기)를 접는다. 문서는 바꾸지 않는다.
+    pub fn cancel_drag(&mut self) {
+        self.drag = None;
+        self.marquee = None;
+    }
+
+    /// 영역 고르기 사각형 `[x0, y0, x1, y1]`(판 좌표). 글 상자를 끌어 만들 때는 그 상자의 자리.
     pub fn marquee(&self) -> Option<[f64; 4]> {
         self.marquee
     }
 
-    /// 문서가 밖에서 바뀌었다. 끌기를 접고 없어진 노드를 선택에서 뺀다.
+    /// 문서가 밖에서 바뀌었다. 끌기를 접고 없어진 노드를 선택에서 뺀다. 편집하던 글 상자가 남아 있으면 조합만 버리고
+    /// 커서를 글 안으로 맞춰 편집을 이어 간다.
     pub fn after_external(&mut self, doc: &Document) {
         self.drag = None;
         self.marquee = None;
+        self.text_drag = false;
         self.sel.retain(|i| doc.node(i).is_some());
+        if let Some(t) = &mut self.text {
+            if doc.node(&t.id).is_some_and(|n| n.kind == "text") {
+                t.compose = None;
+                t.fit(doc);
+            } else {
+                self.text = None;
+            }
+        }
     }
 
     fn frame(&self, doc: &Document, lay: &mut Layouter) -> Option<Frame> {
@@ -517,7 +573,8 @@ impl CanvasEditor {
                 c.quads.push(g.quad());
             }
         }
-        if let Some(f) = self.frame(doc, lay) {
+        c.text = self.text_chrome(doc, lay);
+        if let (Some(f), true) = (self.frame(doc, lay), self.text.is_none()) {
             if self.sel.len() > 1 {
                 c.quads.push(f.quad());
             }
@@ -536,6 +593,9 @@ impl CanvasEditor {
         lay: &mut Layouter,
         p: &Pointer,
     ) -> Option<(Handle, Frame)> {
+        if self.text.is_some() {
+            return None;
+        }
         let f = self.frame(doc, lay)?;
         let reach = HANDLE_HIT_PX * p.px;
         // 닿는 손잡이 가운데 가장 가까운 것(같으면 앞선 모서리). 작은 상자에서 손잡이끼리 겹쳐도 누른 쪽이 잡힌다.
@@ -562,6 +622,10 @@ impl CanvasEditor {
     /// 포인터 하나를 처리한다.
     pub fn pointer(&mut self, doc: &Document, lay: &mut Layouter, p: Pointer) -> Out {
         let mut out = Out::new();
+        // 글 상자를 편집하는 중이면 그 안의 입력은 글 위치 질의가 맡는다. 밖을 누르면 편집을 끝내고 보통 입력으로 이어 간다.
+        if self.text.is_some() && self.text_pointer(doc, lay, &p, &mut out) {
+            return out;
+        }
         match p.phase {
             Phase::Hover => out.handle = self.handle_at(doc, lay, &p).map(|(h, _)| h.name()),
             Phase::Down => self.down(doc, lay, &p, &mut out),
@@ -617,6 +681,9 @@ impl CanvasEditor {
             out.end = End::Cancel;
         }
         self.marquee = None;
+        if let Some(tool) = self.tool.clone() {
+            return self.begin_create(doc, lay, tool, p, out);
+        }
         if let Some((h, frame)) = self.handle_at(doc, lay, p) {
             out.handle = Some(h.name());
             self.drag = Some(Drag {
@@ -699,6 +766,42 @@ impl CanvasEditor {
             Kind::Resize { handle, frame } => {
                 out.ops = resize_ops(&mut d.starts, handle, &frame, (p.x, p.y), !last);
             }
+            Kind::Create {
+                tool,
+                parent,
+                id,
+                added,
+            } => {
+                let to = (p.x, p.y);
+                let made = make::create(
+                    doc,
+                    lay,
+                    &tool,
+                    parent.as_deref(),
+                    &id,
+                    (d.down, Some(to)),
+                    p.shift,
+                );
+                if let Ok(mut ops) = made {
+                    // 미리 보기는 앞 사본에 이미 만든 미리 보기 노드를 지우고 다시 만든다.
+                    if !last && added {
+                        ops.insert(0, json!({"op": "del", "id": id}));
+                    }
+                    out.ops = ops;
+                    if let Kind::Create { added, .. } = &mut d.kind {
+                        *added = true;
+                    }
+                }
+                // 글 상자는 칠이 없어 끄는 동안의 자리를 따로 보인다.
+                self.marquee = matches!(tool, Tool::Text).then(|| {
+                    [
+                        d.down.0.min(to.0),
+                        d.down.1.min(to.1),
+                        d.down.0.max(to.0),
+                        d.down.1.max(to.1),
+                    ]
+                });
+            }
             Kind::Marquee { base } => {
                 let r = [
                     d.down.0.min(p.x),
@@ -734,41 +837,94 @@ impl CanvasEditor {
             self.moved(doc, lay, p, out, true);
             let d = self.drag.take();
             self.marquee = None;
-            if let Some(Drag {
-                kind: Kind::Move { .. },
-                ..
-            }) = d
-            {
-                out.end = End::Commit("옮기기");
-            } else if let Some(Drag {
-                kind: Kind::Resize { .. },
-                ..
-            }) = d
-            {
-                out.end = End::Commit("크기 바꾸기");
+            match d.map(|d| d.kind) {
+                Some(Kind::Move { .. }) => out.end = End::Commit("옮기기"),
+                Some(Kind::Resize { .. }) => out.end = End::Commit("크기 바꾸기"),
+                Some(Kind::Create { tool, id, .. }) if !out.ops.is_empty() => {
+                    out.end = End::Commit(tool.label());
+                    out.selection_changed = true;
+                    self.created(doc, &id, &tool);
+                }
+                _ => {}
             }
             return;
         }
         let d = self.drag.take();
         self.marquee = None;
-        // 끌지 않고 뗐다: 이미 고른 것 안을 눌렀다면 그것만 고르거나(⇧면 빼기).
-        if let Some(Drag {
-            kind: Kind::Move { click: Some(id) },
-            ..
-        }) = d
-        {
-            let before = self.sel.clone();
-            if p.shift {
-                self.sel.retain(|s| *s != id);
-            } else {
-                self.sel = vec![id];
+        match d {
+            // 끌지 않고 뗐다: 이미 고른 것 안을 눌렀다면 그것만 고르거나(⇧면 빼기).
+            Some(Drag {
+                kind: Kind::Move { click: Some(id) },
+                ..
+            }) => {
+                let before = self.sel.clone();
+                if p.shift {
+                    self.sel.retain(|s| *s != id);
+                } else {
+                    self.sel = vec![id];
+                }
+                out.selection_changed = before != self.sel;
             }
-            out.selection_changed = before != self.sel;
+            // 한 번 눌렀다: 기본 크기로 놓는다.
+            Some(Drag {
+                kind: Kind::Create {
+                    tool, parent, id, ..
+                },
+                down,
+                ..
+            }) => {
+                match make::create(
+                    doc,
+                    lay,
+                    &tool,
+                    parent.as_deref(),
+                    &id,
+                    (down, None),
+                    p.shift,
+                ) {
+                    Ok(ops) => {
+                        out.ops = ops;
+                        out.end = End::Commit(tool.label());
+                        out.selection_changed = true;
+                        self.created(doc, &id, &tool);
+                    }
+                    Err(e) => out.refused = Some(e),
+                }
+            }
+            _ => {}
         }
     }
 
-    /// 두 번 누름: 고른 것이 하나이고 누른 자리의 사슬이 그것을 지나면 한 단계 들어간다(잎이면 그대로).
-    /// 아니면 보통 누름처럼 누른 것 하나를 고른다.
+    /// 도구로 만들기를 시작한다. 만들 수 없는 자리면 이유만 남기고 도구는 그대로 둔다.
+    fn begin_create(
+        &mut self,
+        doc: &Document,
+        lay: &mut Layouter,
+        tool: Tool,
+        p: &Pointer,
+        out: &mut Out,
+    ) {
+        match make::parent_for(doc, lay, &tool, (p.x, p.y)) {
+            Err(e) => out.refused = Some(e),
+            Ok(parent) => {
+                let id = make::fresh_ids(doc, 1).remove(0);
+                self.drag = Some(Drag {
+                    kind: Kind::Create {
+                        tool,
+                        parent,
+                        id,
+                        added: false,
+                    },
+                    down: (p.x, p.y),
+                    started: false,
+                    starts: Vec::new(),
+                });
+            }
+        }
+    }
+
+    /// 두 번 누름: 고른 것이 하나이고 누른 자리의 사슬이 그것을 지나면 한 단계 들어간다(잎이 글 상자면 그 안의 편집을 시작한다).
+    /// 아니면 보통 누름처럼 누른 것 하나를 고르고, 그것이 사슬의 끝인 글 상자면 편집을 시작한다.
     fn double(&mut self, doc: &Document, lay: &mut Layouter, p: &Pointer, out: &mut Out) {
         if self.drag.take().is_some_and(|d| d.started) {
             out.end = End::Cancel;
@@ -780,15 +936,33 @@ impl CanvasEditor {
         let before = self.sel.clone();
         if let [id] = self.sel.clone().as_slice() {
             if let Some(i) = pk.chain.iter().position(|c| c == id) {
-                if let Some(next) = pk.chain.get(i + 1) {
-                    self.sel = vec![next.clone()];
+                match pk.chain.get(i + 1) {
+                    Some(next) => self.sel = vec![next.clone()],
+                    None => self.enter_text(doc, lay, id, p),
                 }
                 out.selection_changed = before != self.sel;
                 return;
             }
         }
-        self.sel = vec![choose(doc, &pk.chain, &self.sel, p.meta)];
+        let id = choose(doc, &pk.chain, &self.sel, p.meta);
+        if pk.chain.last() == Some(&id) {
+            self.enter_text(doc, lay, &id, p);
+        }
+        self.sel = vec![id];
         out.selection_changed = before != self.sel;
+    }
+
+    /// 글 상자 `id`의 편집을 누른 자리에 커서를 두고 시작한다(글 상자가 아니면 아무것도 하지 않는다).
+    fn enter_text(&mut self, doc: &Document, lay: &mut Layouter, id: &str, p: &Pointer) {
+        if !doc.node(id).is_some_and(|n| n.kind == "text") {
+            return;
+        }
+        let at = lay
+            .node_geo(doc, id)
+            .and_then(|g| inv(&g.world()))
+            .map(|m| apply(&m, p.x, p.y))
+            .and_then(|q| lay.text_hit(doc, id, q[0] as f32, q[1] as f32));
+        self.begin_text(doc, id, at.or(Some((0, false))));
     }
 }
 
