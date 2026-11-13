@@ -68,11 +68,23 @@ pub enum QType {
     Hint,
     /// 모를 때 대처(채점하지 않는다)
     Cope,
+    /// 이력서에서 겪은 문제를 깊이 파는 사다리의 단계: 왜 그렇게 했나
+    Why,
+    /// 사다리의 단계: 다른 선택지는 무엇이었고 왜 이것을 골랐나
+    Alt,
+    /// 사다리의 단계: 다시 한다면 무엇을 바꾸나(무엇을 보고 알았나는 근거 요구가 맡는다)
+    Redo,
 }
+
+/// 겪은 문제를 깊이 파는 사다리의 차례: 왜 그렇게 했나 → 무엇을 보고 알았나 → 다른 선택지는 → 다시 한다면.
+pub const DIG: [QType; 4] = [QType::Why, QType::Evidence, QType::Alt, QType::Redo];
 
 impl QType {
     pub fn as_str(self) -> &'static str {
         match self {
+            QType::Why => "why",
+            QType::Alt => "alt",
+            QType::Redo => "redo",
             QType::Switch => "switch",
             QType::Deepen => "deepen",
             QType::Evidence => "evidence",
@@ -198,6 +210,8 @@ pub struct TypeCtx<'a> {
     pub probe: bool,
     /// 이 면에 아직 met이 아닌 필수 체크포인트가 남았다
     pub open_musts: bool,
+    /// 이 면에서 이력서의 겪은 문제를 깊이 파는 중이거나 이제 시작한다면 다음 단계(`DIG`의 것)
+    pub dig: Option<QType>,
     /// (이 개념, 이 면, 유형)으로 이미 물었는가
     pub used: &'a dyn Fn(QType) -> bool,
     /// 이 세션에서 그 유형을 쓴 횟수
@@ -246,6 +260,10 @@ pub fn choose(phase: Phase, intent: Intent, c: &TypeCtx) -> Option<QType> {
             first_free(&list)
         }
         Phase::Follow => {
+            // 겪은 문제를 깊이 파는 사다리는 꼬리질문의 다른 유형보다 앞이다(실전의 반박보다도).
+            if c.dig.is_some() {
+                return c.dig;
+            }
             let ok = |t: QType| {
                 !(c.used)(t)
                     && match t {
@@ -633,6 +651,7 @@ mod tests {
             conflict: false,
             probe: false,
             open_musts: true,
+            dig: None,
             used,
             count,
         }
@@ -706,6 +725,19 @@ mod tests {
         let only_summary = |t: QType| t != QType::Summary;
         done.used = &only_summary;
         assert_eq!(choose(Follow, Intent::Keep, &done), Some(QType::Summary));
+        // 겪은 문제를 깊이 파는 중이면 꼬리질문은 사다리의 다음 단계다(실전의 반박보다 앞).
+        for pressure in [Pressure::Coaching, Pressure::Standard, Pressure::Real] {
+            let mut dig = ctx(pressure, &none, &zero);
+            dig.dig = Some(QType::Alt);
+            assert_eq!(choose(Follow, Intent::Keep, &dig), Some(QType::Alt));
+            assert_ne!(choose(First, Intent::Switch, &dig), Some(QType::Alt));
+        }
+    }
+
+    #[test]
+    fn the_dig_ladder_runs_why_evidence_alt_redo() {
+        assert_eq!(DIG, [QType::Why, QType::Evidence, QType::Alt, QType::Redo]);
+        assert_eq!(DIG.map(QType::as_str), ["why", "evidence", "alt", "redo"]);
     }
 
     #[test]

@@ -47,7 +47,8 @@ mod hooked {
     /// 리포트의 다른 값(점수, 도달 단)은 시선 기록이 있든 없든 같다. 세션을 지우면 함께 지운다.
     #[test]
     fn segments_are_kept_and_reported_without_touching_scores() {
-        let srv = fake::serve(vec![page(), question()]);
+        // 질문이 겨냥한 내용과 어긋나면 한 번 다시 묻는다: 같은 질문을 두 번 받는다.
+        let srv = fake::serve(vec![page(), question(), question()]);
         let case = Case::new("gaze");
         ok("ai.deleteKey", json!({"provider": "anthropic"}));
         ok("ai.testBase", json!({"url": srv.url}));

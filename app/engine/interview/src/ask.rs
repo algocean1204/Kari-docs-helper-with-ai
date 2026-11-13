@@ -94,11 +94,14 @@ pub fn repeated(q: &str, asked: &[&str]) -> bool {
 /// 묻기만 한 질문을 가르는 값이다(체크포인트 글에는 "…점을 설명한다" 같은 꼬리가 있어 옮긴 글도 값이 낮게 나온다).
 pub const LEAK: f64 = 0.25;
 
+fn letters(s: &str) -> Vec<char> {
+    s.chars().filter(|c| c.is_alphanumeric()).collect()
+}
+
 /// 질문이 겨냥 글(채점 기준)을 얼마나 그대로 옮겼나: 공백과 문장부호를 지운 뒤, 겨냥 글의 글자 3-gram 가운데
 /// 질문에 그대로 있는 것의 비율. 겨냥 글이 세 글자보다 짧으면 0.
 // 한계: 글자가 같은 것만 센다, 뜻을 바꿔 말한 누설은 잡지 못한다
 pub fn leaks(question: &str, aim: &str) -> f64 {
-    let letters = |s: &str| -> Vec<char> { s.chars().filter(|c| c.is_alphanumeric()).collect() };
     let a = letters(aim);
     let q: String = letters(question).into_iter().collect();
     let grams: Vec<String> = a.windows(3).map(|w| w.iter().collect()).collect();
@@ -108,7 +111,47 @@ pub fn leaks(question: &str, aim: &str) -> f64 {
     grams.iter().filter(|g| q.contains(g.as_str())).count() as f64 / grams.len() as f64
 }
 
-/// 질문 하나를 받는다. `data`는 자료 구역에 넣을 값(`aim`이 있으면 그 글을 옮겼는지 본다), `asked`는 이미 낸 질문들(가린 글).
+/// 질문이 겨냥한 내용과 어긋났다고 보는 기준: 글자 3-gram 겹침(`leaks`)이 이 값보다 낮고 핵심 낱말도 하나 없다.
+pub const OFF_AIM: f64 = 0.05;
+
+/// 체크포인트 글마다 끝에 붙는 맺음말과 흔한 말. 핵심 낱말로 세지 않는다.
+const FILLER: [&str; 11] = [
+    "말한다",
+    "설명한다",
+    "점을",
+    "한다고",
+    "한다는",
+    "있다고",
+    "있다는",
+    "같은",
+    "다른",
+    "여러",
+    "다시",
+];
+
+/// 겨냥 글의 낱말(두 글자 이상, 맺음말 제외)이 질문에 하나라도 있는가. 낱말 끝의 조사를 감안해 세 글자 이상은 끝 한 글자를 뗀 앞부분으로 본다.
+fn shares_word(question: &str, aim: &str) -> bool {
+    let q: String = letters(question)
+        .into_iter()
+        .collect::<String>()
+        .to_lowercase();
+    aim.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.chars().count() >= 2 && !FILLER.contains(w))
+        .any(|w| {
+            let n = w.chars().count();
+            let stem: String = w.chars().take(if n >= 3 { n - 1 } else { n }).collect();
+            q.contains(&stem.to_lowercase())
+        })
+}
+
+/// 질문이 겨냥한 내용과 어긋났는가: 겨냥 글과 글자 3-gram 겹침이 거의 없고 핵심 낱말도 하나 없다.
+// 한계: 글자가 같은 것만 본다. 겨냥 글의 낱말을 바꿔 말하며 같은 것을 묻는 좋은 질문도 걸릴 수 있어(한 번 다시 묻는 값이 든다),
+// 낱말이 겹치지만 다른 것을 묻는 질문은 놓친다
+pub fn off_aim(question: &str, aim: &str) -> bool {
+    letters(aim).len() >= 3 && leaks(question, aim) < OFF_AIM && !shares_word(question, aim)
+}
+
+/// 질문 하나를 받는다. `data`는 자료 구역에 넣을 값(`aim`이 있으면 그 글을 옮겼는지, 겨냥과 어긋났는지 본다), `asked`는 이미 낸 질문들(가린 글).
 pub fn ask(
     model: &mut Model,
     what: &'static str,
@@ -122,10 +165,14 @@ pub fn ask(
         user: prompt::user("정해진 의도와 유형으로 질문 하나를 만든다.", data),
         schema: prompt::ask_schema(),
     };
-    let leaked = |q: &str| data["aim"].as_str().is_some_and(|a| leaks(q, a) > LEAK);
+    let bad_aim = |q: &str| {
+        data["aim"]
+            .as_str()
+            .is_some_and(|a| leaks(q, a) > LEAK || off_aim(q, a))
+    };
     let first: Raw = call_json(model, &call, log)?;
     let q = first.question.trim().to_string();
-    if !broken(&q) && !repeated(&q, asked) && !leaked(&q) {
+    if !broken(&q) && !repeated(&q, asked) && !bad_aim(&q) {
         return Ok(Asked::Question(q));
     }
     call.user = format!("{}\n{}", prompt::RETRY_NOTE, call.user);
@@ -287,6 +334,69 @@ mod tests {
     }
 
     #[test]
+    fn off_aim_needs_no_shared_word_and_almost_no_overlap() {
+        let aim = "큐가 생산자와 소비자 사이의 버퍼가 되어 몰리는 부하를 흡수하고, 소비자는 자기 속도로 처리한다고 말한다";
+        // 같은 개념의 다른 내용을 묻는다(겹치는 낱말이 없다).
+        assert!(off_aim(
+            "모놀리식 구조에서 기능 하나를 바꾸면 어떤 단위가 배포되나요?",
+            aim
+        ));
+        // 조사가 달라도 같은 낱말이면 같은 것을 묻는다.
+        assert!(!off_aim(
+            "생산자가 순간적으로 몰릴 때 소비 쪽은 어떻게 되나요?",
+            aim
+        ));
+        assert!(!off_aim("버퍼 역할이 왜 필요한가요?", aim));
+        // 맺음말(말한다, 설명한다)은 낱말로 세지 않는다.
+        assert!(off_aim("그 내용을 말한다고 보시나요?", aim));
+        // 겹침이 기준을 넘으면 낱말이 달라도 어긋남이 아니다.
+        assert!(!off_aim("가나다라마바사?", "가나다라마바사아자차"));
+        // 영문은 대소문자를 가리지 않는다.
+        assert!(!off_aim(
+            "kafka는 왜 빠른가요?",
+            "Kafka는 순차 쓰기를 쓴다고 말한다"
+        ));
+        // 세 글자보다 짧은 겨냥 글은 보지 않는다.
+        assert!(!off_aim("아무 질문?", "가나"));
+        // 겨냥(회복은 시험 요청으로 점진적으로)과 상관없는 선택을 고르게 하는 트레이드오프 질문.
+        assert!(off_aim(
+            "의존 대상마다 자원을 잘게 나누는 방식과 여러 대상이 자원을 함께 쓰는 방식 가운데 하나를 고르신다면 어느 쪽을 택하시나요?",
+            "회복은 시험 요청 몇 개로 확인한 뒤 점진적으로 되돌려, 회복 중인 서비스에 요청이 한꺼번에 몰려 다시 쓰러지지 않게 한다고 말한다"
+        ));
+    }
+
+    #[test]
+    fn an_off_aim_question_is_asked_again_once() {
+        let data = serde_json::json!({ "aim": "큐가 생산자와 소비자 사이의 버퍼가 되어 부하를 흡수한다고 말한다" });
+        let run = |replies: [&str; 2]| {
+            let mut n = 0;
+            let mut model = |_: &Call| {
+                n += 1;
+                Ok(crate::Got {
+                    text: q(replies[n - 1]),
+                    ..Default::default()
+                })
+            };
+            let r = ask(&mut model, "ask", &data, &[], &mut Vec::new());
+            (r, n)
+        };
+        let ok = |s: &str| Ok(Asked::Question(s.to_string()));
+        assert_eq!(
+            run(["생산자가 몰릴 때 소비자는 어떻게 되나요?", "x"]),
+            (ok("생산자가 몰릴 때 소비자는 어떻게 되나요?"), 1)
+        );
+        assert_eq!(
+            run(["인덱스는 왜 빠른가요?", "큐의 버퍼 역할은 무엇인가요?"]),
+            (ok("큐의 버퍼 역할은 무엇인가요?"), 2)
+        );
+        // 또 어긋나도 두 번째 것을 쓴다(더 묻지 않는다).
+        assert_eq!(
+            run(["인덱스는 왜 빠른가요?", "캐시는 왜 빠른가요?"]),
+            (ok("캐시는 왜 빠른가요?"), 2)
+        );
+    }
+
+    #[test]
     fn a_leaking_question_is_asked_again_once() {
         let aim = "가나다라마바사아자차카타";
         let data = serde_json::json!({ "aim": aim });
@@ -303,7 +413,10 @@ mod tests {
             (r, n)
         };
         let ok = |s: &str| Ok(Asked::Question(s.to_string()));
-        assert_eq!(run(["무엇인가요?", "x"]), (ok("무엇인가요?"), 1));
+        assert_eq!(
+            run(["가나다라는 무엇인가요?", "x"]),
+            (ok("가나다라는 무엇인가요?"), 1)
+        );
         assert_eq!(
             run(["가나다라마바사?", "다른 질문?"]),
             (ok("다른 질문?"), 2)

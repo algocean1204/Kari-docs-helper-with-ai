@@ -351,6 +351,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
                         note = match t.kind {
                             QType::Contribution => "본인 기여를 묻는 꼬리질문에서 떨어졌습니다.",
                             QType::Rebut => "반박하는 꼬리질문에서 떨어졌습니다.",
+                            QType::Why => "왜 그렇게 했는지 묻는 꼬리질문에서 떨어졌습니다.",
                             _ => "근거를 묻는 꼬리질문에서 떨어졌습니다.",
                         }
                         .to_string();

@@ -73,20 +73,29 @@ const STANCE: Axis = (
     "입장을 분명히 하고 그 근거를 댄다. 근거 없이 물러서거나 같은 말을 되풀이하면 충족이 아니다",
 );
 
+const ALT: Axis = (
+    "d.alt",
+    "다른 선택지를 들고 견주어, 이것을 고른 까닭을 말한다",
+);
+
 /// 주장 방어 축(id, 채점 기준) 전부. 면의 체크포인트 뒤에 붙여 같은 채점 호출로 본다.
 /// 면 점수와 체크포인트마다의 가장 좋은 판정에는 넣지 않는다.
-pub const DEFENSE: [Axis; 5] = [SPECIFIC, METHOD, LIMIT, OWN, STANCE];
+pub const DEFENSE: [Axis; 6] = [SPECIFIC, METHOD, LIMIT, OWN, STANCE, ALT];
 
 /// 방어 점수가 이 값 이상이면 꼬리질문을 버틴 것으로 본다(축 셋에서 둘 met, 넷에서 둘 met과 하나 partial).
 pub const DEFENDED: f64 = 0.6;
 
 /// 질문 유형이 보는 방어 축. 근거 요구는 수치·측정·한계, 본인 기여는 거기에 본인 몫, 반박은 입장·수치·한계.
+/// 겪은 문제를 깊이 파는 사다리: 왜 그렇게 했나는 입장·사례, 다른 선택지는 대안 비교·입장, 다시 한다면은 한계·입장.
 /// 그 밖의 유형은 면의 체크포인트로만 본다.
 pub fn defense_axes(kind: QType) -> &'static [Axis] {
     match kind {
         QType::Evidence => &[SPECIFIC, METHOD, LIMIT],
         QType::Contribution => &[SPECIFIC, METHOD, LIMIT, OWN],
         QType::Rebut => &[STANCE, SPECIFIC, LIMIT],
+        QType::Why => &[STANCE, SPECIFIC],
+        QType::Alt => &[ALT, STANCE],
+        QType::Redo => &[LIMIT, STANCE],
         _ => &[],
     }
 }
@@ -229,6 +238,9 @@ mod tests {
             ["d.specific", "d.method", "d.limit", "d.own"]
         );
         assert_eq!(ids(QType::Rebut), ["d.stance", "d.specific", "d.limit"]);
+        assert_eq!(ids(QType::Why), ["d.stance", "d.specific"]);
+        assert_eq!(ids(QType::Alt), ["d.alt", "d.stance"]);
+        assert_eq!(ids(QType::Redo), ["d.limit", "d.stance"]);
         for k in [
             QType::Switch,
             QType::Deepen,
