@@ -33,6 +33,20 @@ void main(List<String> args) async {
       }
     }
 
+    // 빌드한 기기의 경로(사용자 폴더 이름)가 라이브러리 안의 오류 문구에 남지 않게 바꿔 적는다.
+    // 뒤에 적은 것이 먼저 맞는다: 홈 폴더 → cargo 폴더 → 엔진 폴더.
+    final home =
+        Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+    final cargoHome =
+        Platform.environment['CARGO_HOME'] ??
+        (home == null ? null : '$home/.cargo');
+    env['CARGO_ENCODED_RUSTFLAGS'] = [
+      ...?Platform.environment['RUSTFLAGS']?.split(RegExp(r'\s+')),
+      if (home != null) '--remap-path-prefix=$home=/home',
+      if (cargoHome != null) '--remap-path-prefix=$cargoHome=/cargo',
+      '--remap-path-prefix=${engine.toFilePath()}=engine/',
+    ].where((f) => f.isNotEmpty).join('\x1f');
+
     await _run(
       'cargo',
       ['build', '--profile', 'dist', '-p', 'kari-ffi', '--target', target],

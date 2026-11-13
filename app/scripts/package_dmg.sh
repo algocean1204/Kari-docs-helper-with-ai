@@ -125,6 +125,12 @@ PY
 step "서명 확인"
 check_app "$APP"
 
+# 빌드한 기기의 사용자 폴더 경로가 앱 안에 남아 있으면 멈춘다(받는 사람에게 사용자 이름이 보인다).
+if LC_ALL=C grep -r -a -q -F "$HOME" "$APP/Contents"; then
+  die "앱 안에 빌드한 기기의 경로($HOME)가 남아 있습니다"
+fi
+echo "빌드한 기기의 경로: 없음"
+
 # ── 3. dmg(D3, D5) ───────────────────────────────────────────
 step "dmg를 만든다: $DMG"
 STAGE="$WORK/stage"
