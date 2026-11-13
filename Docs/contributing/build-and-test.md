@@ -26,17 +26,22 @@ cd app/engine
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo test -p kari-ffi --features test-hooks   # 가짜 AI 서버를 쓰는 경계 시험까지
 cargo build --profile dist -p kari-ffi   # 앱에 싣는 라이브러리(target/dist/)
 ```
 
+- `test-hooks`는 시험용 길(가짜 서버 주소, 메모리 키 보관)을 켠다. 앱에 싣는 빌드에는 없다.
+
 - `dist` 프로파일은 `release`에 전체 링크 최적화(`lto = "fat"`)와 기호 지우기를 더한 것이다.
-- 측정: `cargo run --release -p <크레이트> --example <이름>`. 예제는 `app/engine/<크레이트>/examples/`에 있다(`doc_bench`, `store_bench`, `layout_bench`, `edit_bench`, `ffi_bench`, `zoom_bench`). `zoom_bench`는 배율 100·200·300%에서 그리기와 명령 시간, 300%에서 큰 문서를 스크롤할 때의 메모리를 잰다.
+- 측정: `cargo run --release -p <크레이트> --example <이름>`. 예제는 `app/engine/<크레이트>/examples/`에 있다(`doc_bench`, `store_bench`, `layout_bench`, `edit_bench`, `ffi_bench`, `zoom_bench`, `outline_bench`). `zoom_bench`는 배율 100·200·300%에서 그리기와 명령 시간, 300%에서 큰 문서를 스크롤할 때의 메모리를 잰다. `outline_bench`는 제목이 많은 문서에서 글자 하나를 넣는 명령과 개요 읽기의 시간을 잰다.
 
 | 변수 | 뜻 |
 |---|---|
 | `KARI_CRASH_RUNS` | `kari-store`의 강제 종료 시험 횟수(기본 20) |
-| `KARI_SEEDS` | 무작위 시험에 더 돌릴 씨앗 수 |
+| `KARI_SEEDS` | 무작위 시험(`kari-doc`, `kari-edit`, `kari-store`의 `tests/random.rs`)에 더 돌릴 씨앗 수 |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `KARI_ENV`, `KARI_PROVIDER` | 실제 서버 시험의 키와 제공사(아래) |
+
+편집 명령을 새로 만들면 `app/engine/edit/tests/random.rs`의 `command`에 그 명령을 내는 갈래를 더하고 `r.below(N)`의 N을 늘린다. 고정 씨앗 시험은 되돌리기 이름의 가짓수(`labels.len()`)를 확인하므로, 이름이 새로 생기면 그 수도 고친다.
 
 ## 앱
 
@@ -77,11 +82,13 @@ KARI_HOME="$HOME/Library/Containers/dev.clonamic.kari/Data/tmp/kari-dev" \
 - 입력 지연 시험은 실제로 그려진 프레임을 재므로 창이 화면에 보여야 한다.
 - 인쇄 시험은 인쇄 창이 문서 창에 붙어 뜨면 멈춰 기다린다. 사람이 인쇄 창의 `취소`를 눌러야 끝난다.
 - 공유 시험은 `KARI_SHARE_CHECK=1`일 때만 돈다. 공유 메뉴가 `⋯` 단추 자리에 뜨면 사람이 Esc로 닫아야 끝난다.
+- `KARI_TEST_BACKGROUND=1`이면 앱이 Dock에 뜨지 않고 앞으로 나오지 않으며 창은 다른 창들 뒤에 있다. 창이 보여야 하는 입력 지연, 인쇄, 공유 시험은 건너뛴다.
 
 ```bash
 cd app
 flutter test integration_test/app_test.dart -d macos
 KARI_SHARE_CHECK=1 flutter test integration_test/app_test.dart -d macos   # 공유 시험까지
+KARI_TEST_BACKGROUND=1 flutter test integration_test/app_test.dart -d macos   # 앱을 앞에 띄우지 않고
 ```
 
 ## 실제 서버 시험
@@ -121,7 +128,7 @@ python3 app/scripts/third_party.py --check  # 최신인지 본다(다르면 종�
 
 ## CI
 
-`.github/workflows/ci.yml`이 `main`으로의 푸시와 모든 PR에서 Ubuntu로 돈다. 비밀값을 쓰지 않고 권한은 읽기뿐이다.
+`.github/workflows/ci.yml`이 `main`으로의 푸시와 모든 PR에서 돈다. `macos` 밖의 작업은 Ubuntu에서 돈다. 비밀값을 쓰지 않고 권한은 읽기뿐이다.
 
 | 작업 | 하는 일 |
 |---|---|

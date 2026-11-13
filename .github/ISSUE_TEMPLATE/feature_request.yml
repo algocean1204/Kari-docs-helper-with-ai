@@ -10,7 +10,7 @@ body:
     id: problem
     attributes:
       label: 무엇을 하려는데 무엇이 모자란가요
-      placeholder: 예) 이력서의 학력 표에서 열마다 폭을 다르게 두고 싶다
+      placeholder: 예) 표의 칸에 대각선을 긋고 싶다
     validations:
       required: true
   - type: textarea

@@ -1,6 +1,6 @@
 # 전체 구조
 
-Kari는 Flutter 앱(화면)과 Rust 엔진(문서 규칙, 배치, 저장, 그리기, PDF, AI 호출, 면접)으로 나뉜다. 엔진은 동적 라이브러리로 앱 프로세스 안에 실린다.
+Kari는 Flutter 앱(화면)과 Rust 엔진(문서 규칙, 배치, 저장, 그리기, 내보내기, AI 호출, 면접)으로 나뉜다. 엔진은 동적 라이브러리로 앱 프로세스 안에 실린다.
 
 ```mermaid
 flowchart LR
@@ -30,9 +30,9 @@ flowchart LR
 |---|---|---|---|
 | `kari-doc` | `app/engine/doc` | 문서 상태, op 검증·적용·역연산, 상태 해시, 스냅샷, 순서 키 | — |
 | `kari-store` | `app/engine/store` | SQLite 라이브러리: 묶음 기록, 스냅샷, 버전, 되돌리기, 에셋, 설정, 백업 | doc |
-| `kari-layout` | `app/engine/layout` | 줄 나눔, 쪽 나눔, 표, 표시 목록, 위치 질의 | doc |
-| `kari-edit` | `app/engine/edit` | 선택과 편집 명령 → op 묶음 | doc, layout |
-| `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그림, 그림 풀기, 보기 배율과 좌표 | doc, layout |
+| `kari-layout` | `app/engine/layout` | 줄 나눔, 쪽 나눔, 표와 변의 선, 문단 테두리, 표시 목록, 위치 질의 | doc |
+| `kari-edit` | `app/engine/edit` | 선택과 편집 명령(스타일, 표 모양, 자동 서식 포함) → op 묶음 | doc, layout |
+| `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그림, 그림 풀기, 보기 배율과 좌표 | layout |
 | `kari-pdf` | `app/engine/pdf` | 표시 목록을 krilla로 PDF 바이트로 | doc, layout |
 | `kari-docx` | `app/engine/docx` | 문서 모델을 Word 문서(DOCX)와 텍스트 바이트로 | doc, layout |
 | `kari-ai` | `app/engine/ai` | 키 보관, 제공사(Anthropic, OpenAI) 어댑터 | — |
@@ -82,7 +82,7 @@ flowchart BT
 | 이름 앞머리 | 처리하는 파일 | 내용 |
 |---|---|---|
 | `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
-| `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 그림, 복사, 보기 배율 |
+| `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
@@ -133,7 +133,7 @@ sequenceDiagram
 | 채널 | 방법 | 하는 일 |
 |---|---|---|
 | `kari/texture` | `create`, `dispose` | 텍스처 만들기와 풀기 |
-| `kari/files` | `savePath` | 저장 대화 상자(PDF) |
+| `kari/files` | `savePath` | 저장 대화 상자(PDF, Word 문서, 텍스트. 고를 수 있는 형식은 기본 이름의 확장자를 따른다) |
 | `kari/files` | `openPath` | 열기 대화 상자(PNG, JPEG) |
 | `kari/files` | `openUrl` | 기본 브라우저로 주소 열기(`http`, `https`, `mailto`, `tel`만) |
 | `kari/files` | `print {path, name}` | 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 실제 크기, 자동 회전 없음, 용지는 첫 쪽의 크기와 방향. 창이 닫히면 답한다(`app/macos/Runner/Printing.swift`) |

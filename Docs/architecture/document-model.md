@@ -21,9 +21,9 @@
 flowchart TD
   flow["flow (루트)<br/>page, styles, header, footer, hfSkipFirst, lang"]
   para["para<br/>runs, style, pf"]
-  table["table<br/>cols, headerRows, border"]
+  table["table<br/>cols, headerRows, align, border"]
   row["row<br/>h, keep"]
-  cell["cell<br/>span, covered, fill, pad, alignV"]
+  cell["cell<br/>span, covered, fill, pad, border, alignV"]
   flow --> para
   flow --> table --> row --> cell
   cell --> para
@@ -32,10 +32,10 @@ flowchart TD
 | 노드 | 부모 | 주요 속성 |
 |---|---|---|
 | `flow` | 없음(하나뿐) | `page`(용지, 방향, 여백), `styles`(이름 붙은 스타일), `header`·`footer`(왼쪽·가운데·오른쪽 칸의 글), `hfSkipFirst`(첫 쪽에 머리글·바닥글을 넣지 않음) |
-| `para` | `flow`, `cell` | `runs`(글), `style`(스타일 이름), `pf`(문단 모양 덮어쓰기) |
-| `table` | `flow`, `cell` | `cols`(열 폭, pt), `headerRows`(쪽마다 다시 그릴 머리 행 수), `border` |
+| `para` | `flow`, `cell` | `runs`(글), `style`(스타일 id), `pf`(문단 모양 덮어쓰기. 테두리 `border`와 바탕 `shade`를 포함) |
+| `table` | `flow`, `cell` | `cols`(열 폭, pt), `headerRows`(쪽마다 다시 그릴 머리 행 수), `align`(표 맞춤), `border`(기본 선 `{weight, color}`) |
 | `row` | `table` | `h`(최소 높이), `keep` |
-| `cell` | `row` | `span`(합친 행·열 수), `covered`(합쳐져 가려진 셀), `fill`, `pad`, `alignV` |
+| `cell` | `row` | `span`(합친 행·열 수), `covered`(합쳐져 가려진 셀), `fill`(바탕), `pad`(안쪽 여백), `border`(변마다의 선 `{top?, right?, bottom?, left?}`), `alignV` |
 
 - 표 안에 표를 넣는 명령은 거절된다.
 - 모든 행은 `cols` 길이만큼 셀을 가진다. 합쳐져 가려진 셀도 노드로 있다.
@@ -55,7 +55,7 @@ flowchart TD
 
 ### 스타일
 
-`flow.styles`에 이름 붙은 스타일이 있다: `body`(본문), `title`(제목), `h1`(제목 1), `h2`(제목 2). 스타일은 글자 모양(`cs`)과 문단 모양(`pf`)을 갖고 `based`로 다른 스타일을 이어받는다. 문단과 run은 다른 부분만 덮어쓴다.
+`flow.styles`는 스타일 id → 정의의 표다. 기본 스타일은 `body`(본문), `title`(제목), `subtitle`(부제), `h1`~`h6`(제목 1~6)이고, 사용자가 만든 스타일의 id는 `u` + 번호다. 정의는 이름(`name`), 글자 모양(`cs`), 문단 모양(`pf`), 바탕 스타일(`based`), 문단 끝에서 Enter로 만든 다음 문단의 스타일(`next`)을 가진다. 문단과 run은 다른 부분만 덮어쓴다. 고치는 규칙은 [layout-and-editing.md](layout-and-editing.md#스타일)에 있다.
 
 ## op와 묶음
 
@@ -150,7 +150,7 @@ flowchart LR
 
 | 동작 | 이름 | 규칙 |
 |---|---|---|
-| 만들기 | `docs.create` | 빈 문서와 첫 스냅샷 |
+| 만들기 | `docs.create` | 빈 문서와 첫 스냅샷. `styles`를 주면 그 스타일 표로 시작한다 |
 | 이름 바꾸기 | `docs.rename` | `doc` op 묶음 |
 | 복제 | `docs.duplicate` | 지금 상태로 새 문서. 원본 문서와 seq를 기록 |
 | 휴지통, 되살리기 | `docs.trash`, `docs.untrash` | 휴지통 시각을 쓰고 지운다 |
