@@ -1,0 +1,18 @@
+[package]
+name = "kari-pdf"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+kari-doc = { path = "../doc" }
+kari-layout = { path = "../layout" }
+# 단순 글 배치(simple-text)는 쓰지 않아 끈다. 글리프는 표시 목록에서 받는다.
+# raster-images는 그림을 넣으려고 켠다. JPEG는 다시 압축하지 않고 그대로 담는다(DCTDecode).
+krilla = { version = "0.8", default-features = false, features = ["raster-images"] }
+
+[dev-dependencies]
+# 견본 쪽의 화면 그림을 PDF와 같은 표시 목록으로 그린다(작업 공간 안의 크레이트, skia는 이미 쓰는 판).
+kari-render = { path = "../render" }
+# 시험에서 그림(PNG, JPEG)을 만든다. kari-render와 같은 판, 같은 기능이라 새로 빌드되는 것은 없다.
+skia-safe = { version = "0.157", default-features = false, features = ["binary-cache", "pdf"] }

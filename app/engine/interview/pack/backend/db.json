@@ -1,0 +1,742 @@
+{
+  "area": "db",
+  "concepts": [
+    {
+      "id": "db.index",
+      "name": "B-트리 인덱스",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": ["인덱스", "index", "B-Tree", "B+Tree", "복합 인덱스", "커버링 인덱스", "클러스터드 인덱스"],
+      "prereq": [],
+      "alt": [],
+      "summary": "B-트리 인덱스(B-tree index)는 키를 정렬된 균형 트리로 유지해, 같음·범위 조건과 정렬을 테이블 전체를 읽지 않고 처리하게 하는 자료 구조다. 읽기를 빠르게 하는 대신 쓰기마다 인덱스도 고쳐야 한다.",
+      "faces": {
+        "principle": [
+          { "id": "db.index.principle.1", "must": true,
+            "text": "B-트리는 루트에서 모든 리프까지의 깊이가 같은 균형 트리이고, 데이터가 늘어도 깊이가 아주 느리게(로그로) 자라 몇 단계만 내려가면 원하는 키를 찾는다는 점을 설명한다",
+            "source": { "title": "Markus Winand, Use The Index, Luke: The Search Tree (B-Tree)", "url": "https://use-the-index-luke.com/sql/anatomy/the-tree", "where": "The Search Tree (B-Tree) Makes the Index Fast" } },
+          { "id": "db.index.principle.2", "must": true,
+            "text": "B-트리 인덱스는 정렬할 수 있는 값의 같음과 범위 조건(<, <=, =, >=, >, BETWEEN 등)을 처리하고, 데이터를 정렬된 순서로 꺼내는 데도 쓰인다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: Index Types", "url": "https://www.postgresql.org/docs/current/indexes-types.html", "where": "11.2.1 B-Tree" } },
+          { "id": "db.index.principle.3", "must": true,
+            "text": "여러 열로 만든 복합 인덱스는 앞쪽(왼쪽) 열에 조건이 있을 때 가장 효율적이라는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Multicolumn Indexes", "url": "https://www.postgresql.org/docs/current/indexes-multicolumn.html", "where": "Multicolumn Indexes" } },
+          { "id": "db.index.principle.4", "must": false,
+            "text": "쿼리가 필요로 하는 열이 모두 인덱스에 있으면 테이블을 읽지 않고 인덱스만으로 답할 수 있다(인덱스 전용 스캔, 커버링 인덱스)는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: Index-Only Scans and Covering Indexes", "url": "https://www.postgresql.org/docs/current/indexes-index-only-scans.html", "where": "Index-Only Scans and Covering Indexes" } },
+          { "id": "db.index.principle.5", "must": false,
+            "text": "클러스터드 인덱스를 쓰는 제품(예: MySQL InnoDB)에서는 기본 키 순서의 인덱스에 행 자체가 저장되고, 보조 인덱스는 기본 키 값을 담아 그 값으로 행을 다시 찾는다는 점을 설명한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: Clustered and Secondary Indexes", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-index-types.html", "where": "Clustered and Secondary Indexes" } }
+        ],
+        "limit": [
+          { "id": "db.index.limit.1", "must": true,
+            "text": "인덱스를 만들면 데이터를 바꿀 때마다 인덱스도 함께 고쳐야 해 쓰기에 부담이 붙는다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Indexes - Introduction", "url": "https://www.postgresql.org/docs/current/indexes-intro.html", "where": "Introduction" } },
+          { "id": "db.index.limit.2", "must": true,
+            "text": "조건에 맞는 행이 테이블의 대부분이면(선택도가 낮으면) 인덱스를 거치는 것보다 순차로 읽는 편이 빨라 인덱스의 효과가 없다는 점을 말한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: How MySQL Uses Indexes", "url": "https://dev.mysql.com/doc/refman/8.4/en/mysql-indexes.html", "where": "How MySQL Uses Indexes" } },
+          { "id": "db.index.limit.3", "must": false,
+            "text": "LIKE 'foo%'처럼 앞이 고정된 패턴은 B-트리를 쓸 수 있지만 LIKE '%bar'처럼 앞이 열린 패턴은 쓸 수 없다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Index Types", "url": "https://www.postgresql.org/docs/current/indexes-types.html", "where": "11.2.1 B-Tree" } },
+          { "id": "db.index.limit.4", "must": false,
+            "text": "열에 함수를 씌운 조건(예: lower(col) = 'x')은 같은 식으로 만든 인덱스(예: PostgreSQL 식 인덱스)가 있어야 인덱스를 쓸 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Indexes on Expressions", "url": "https://www.postgresql.org/docs/current/indexes-expressional.html", "where": "Indexes on Expressions" } },
+          { "id": "db.index.limit.5", "must": false,
+            "text": "큰 테이블의 인덱스 생성은 오래 걸리고 제품과 방식에 따라 그동안 쓰기를 막을 수 있다는 점을 말한다(예: PostgreSQL 기본 CREATE INDEX는 쓰기를 막고, InnoDB 온라인 DDL은 읽기·쓰기를 허용한다)",
+            "source": { "title": "PostgreSQL 18 문서: Indexes - Introduction", "url": "https://www.postgresql.org/docs/current/indexes-intro.html", "where": "Introduction" } }
+        ],
+        "alternative": [
+          { "id": "db.index.alternative.1", "must": true,
+            "text": "같음 비교만 필요하면 해시 인덱스를 쓸 수 있지만, 범위 조건이나 정렬이 필요하면 B-트리를 써야 한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Index Types", "url": "https://www.postgresql.org/docs/current/indexes-types.html", "where": "11.2.2 Hash" } },
+          { "id": "db.index.alternative.2", "must": true,
+            "text": "배열이나 전문 검색처럼 값 하나에 여러 요소가 든 데이터에서 요소 포함 여부를 찾을 때는 역 인덱스(inverted index, 예: PostgreSQL GIN)가 맞다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Index Types", "url": "https://www.postgresql.org/docs/current/indexes-types.html", "where": "11.2.5 GIN" } },
+          { "id": "db.index.alternative.3", "must": false,
+            "text": "값이 행의 물리적 저장 순서와 잘 맞는 열(예: 시간순으로 쌓이는 기록의 시각)에는 블록 범위를 요약하는 인덱스(예: PostgreSQL BRIN)가 효과적이라는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Index Types", "url": "https://www.postgresql.org/docs/current/indexes-types.html", "where": "11.2.6 BRIN" } },
+          { "id": "db.index.alternative.4", "must": false,
+            "text": "운영 중 쓰기를 멈출 수 없으면 쓰기를 막지 않는 온라인 인덱스 생성(예: PostgreSQL CREATE INDEX CONCURRENTLY, InnoDB 온라인 DDL)을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: Online DDL Operations", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-online-ddl-operations.html", "where": "Creating or Adding a Secondary Index" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.index.m1",
+          "claim": "인덱스는 많을수록 빠르다",
+          "fix": "인덱스는 해당 조건의 조회를 빠르게 하지만, 데이터를 바꿀 때마다 모든 인덱스를 함께 고쳐야 해 쓰기가 느려진다. 쓰이지 않는 인덱스는 지운다.",
+          "probe": "초당 수천 건이 들어오는 주문 테이블에 인덱스가 12개 있다면, INSERT 한 건마다 어떤 일이 생길까요?",
+          "source": { "title": "PostgreSQL 18 문서: Indexes - Introduction", "url": "https://www.postgresql.org/docs/current/indexes-intro.html", "where": "Introduction" } },
+        { "id": "db.index.m2",
+          "claim": "인덱스가 있으면 DB는 그 조건에서 항상 그 인덱스를 쓴다",
+          "fix": "옵티마이저는 인덱스가 순차 스캔보다 효율적이라고 판단할 때만 인덱스를 쓴다. 테이블이 작거나 조건에 맞는 행이 많으면 인덱스가 있어도 순차 스캔을 고른다.",
+          "probe": "행이 100개뿐인 테이블에서 실행 계획을 보니 인덱스를 두고도 전체 스캔을 골랐다면, 잘못된 계획일까요?",
+          "source": { "title": "PostgreSQL 18 문서: Examining Index Usage", "url": "https://www.postgresql.org/docs/current/indexes-examine.html", "where": "11.12 Examining Index Usage" } }
+      ],
+      "scenarios": [
+        { "id": "db.index.s1", "text": "1억 행 주문 테이블에서 '특정 고객의 최근 주문 20건' 조회가 느리다. 인덱스는 created_at 하나뿐이다.", "faces": ["principle", "limit"] },
+        { "id": "db.index.s2", "text": "운영 중인 큰 테이블에 인덱스를 더해야 하는데 쓰기를 멈출 수 없다.", "faces": ["limit", "alternative"] },
+        { "id": "db.index.s3", "text": "status 열(값이 'ACTIVE'와 'DELETED' 둘뿐이고 대부분 ACTIVE)에 인덱스를 걸었는데 WHERE status = 'ACTIVE' 조회가 빨라지지 않는다.", "faces": ["limit"] }
+      ],
+      "tradeoffs": [
+        { "axis": "읽기 속도 대 쓰기 비용", "a": "인덱스를 더하면 해당 조건의 조회와 정렬이 빨라진다", "b": "쓰기마다 모든 인덱스를 고쳐야 해 INSERT·UPDATE가 느려지고 저장 공간이 는다" }
+      ]
+    },
+    {
+      "id": "db.tx",
+      "name": "트랜잭션과 ACID",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": ["트랜잭션", "transaction", "ACID", "원자성", "커밋", "롤백", "WAL"],
+      "prereq": [],
+      "alt": ["dist.tx"],
+      "summary": "트랜잭션(transaction)은 여러 단계를 하나의 전부 아니면 전무(all-or-nothing) 작업으로 묶는다. ACID는 원자성(atomicity), 일관성(consistency), 격리성(isolation), 지속성(durability)을 말하며, 지속성은 보통 로그 선행 기록(WAL)으로 보장한다.",
+      "faces": {
+        "principle": [
+          { "id": "db.tx.principle.1", "must": true,
+            "text": "원자성: 트랜잭션이 중간에 실패하면 그때까지의 어떤 단계도 데이터베이스에 반영되지 않는다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: Tutorial - Transactions", "url": "https://www.postgresql.org/docs/current/tutorial-transactions.html", "where": "Transactions" } },
+          { "id": "db.tx.principle.2", "must": true,
+            "text": "일관성: 트랜잭션이 성공적으로 끝나면 기본 키·외래 키 같은 무결성 제약과 업무 불변식(예: 이체 전후 잔액 합)이 지켜진 상태여야 한다는 점을 설명한다",
+            "source": { "title": "Silberschatz·Korth·Sudarshan, Database System Concepts 7판 17장 강의 자료: Transactions", "url": "https://www.db-book.com/slides-dir/PDF-dir/ch17.pdf", "where": "Example of Fund Transfer (Cont.): Consistency requirement" } },
+          { "id": "db.tx.principle.3", "must": false,
+            "text": "격리성: (READ UNCOMMITTED가 아닌 한) 진행 중인 트랜잭션의 변경은 끝나기 전까지 다른 트랜잭션에 보이지 않고, 커밋하면 한꺼번에 보인다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: Tutorial - Transactions", "url": "https://www.postgresql.org/docs/current/tutorial-transactions.html", "where": "Transactions" } },
+          { "id": "db.tx.principle.4", "must": true,
+            "text": "지속성: 커밋이 확인된 트랜잭션은 직후에 장애가 나도 잃지 않는다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: Tutorial - Transactions", "url": "https://www.postgresql.org/docs/current/tutorial-transactions.html", "where": "Transactions" } },
+          { "id": "db.tx.principle.5", "must": false,
+            "text": "로그 선행 기록(WAL, write-ahead logging)은 데이터 파일보다 변경 기록을 먼저 영구 저장하고, 장애 뒤에는 그 기록을 다시 적용(REDO)해 복구한다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 28.3 Write-Ahead Logging (WAL)", "url": "https://www.postgresql.org/docs/current/wal-intro.html", "where": "28.3 Write-Ahead Logging (WAL)" } }
+        ],
+        "limit": [
+          { "id": "db.tx.limit.1", "must": true,
+            "text": "사용자 입력을 기다리는 것처럼 트랜잭션을 오래 열어 두면 그동안 잡은 락을 계속 쥐고 있어 다른 작업을 막는다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.4 Deadlocks" } },
+          { "id": "db.tx.limit.2", "must": true,
+            "text": "MVCC를 쓰는 DB에서 오래 열린 트랜잭션은 그 트랜잭션이 볼 수도 있는 옛 행 버전의 정리를 막아 저장 공간이 불어나게 한다는 점을 말한다(예: PostgreSQL VACUUM, InnoDB undo 로그 purge)",
+            "source": { "title": "PostgreSQL 18 문서: Client Connection Defaults", "url": "https://www.postgresql.org/docs/current/runtime-config-client.html", "where": "idle_in_transaction_session_timeout" } },
+          { "id": "db.tx.limit.3", "must": false,
+            "text": "커밋 때 로그를 디스크에 내리기를 기다리지 않는 설정(예: PostgreSQL synchronous_commit = off)은 커밋 응답을 빠르게 하지만, 장애가 나면 직전에 커밋된 트랜잭션 일부를 잃을 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Asynchronous Commit", "url": "https://www.postgresql.org/docs/current/wal-async-commit.html", "where": "Asynchronous Commit" } }
+        ],
+        "alternative": [
+          { "id": "db.tx.alternative.1", "must": true,
+            "text": "트랜잭션 전체를 버리지 않고 일부만 되돌리려면 세이브포인트(SAVEPOINT)를 두고 그 지점까지만 되돌린다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Tutorial - Transactions", "url": "https://www.postgresql.org/docs/current/tutorial-transactions.html", "where": "Transactions (savepoints)" } },
+          { "id": "db.tx.alternative.2", "must": true,
+            "text": "최근 몇 건을 잃어도 되는 쓰기만 골라 커밋 때 로그 플러시를 기다리지 않게 해 지연을 줄이고, 잃으면 안 되는 쓰기는 그대로 둘 수 있다는 점을 말한다(예: PostgreSQL은 트랜잭션별로 synchronous_commit을 바꿀 수 있다)",
+            "source": { "title": "PostgreSQL 18 문서: Asynchronous Commit", "url": "https://www.postgresql.org/docs/current/wal-async-commit.html", "where": "Asynchronous Commit" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.tx.m1",
+          "claim": "커밋할 때 바뀐 데이터 페이지를 테이블 파일에 바로 써야만 지속성이 보장된다",
+          "fix": "WAL 방식에서는 커밋 때 변경 기록(WAL)만 디스크에 내리면 된다. 데이터 페이지는 나중에 써도 장애 뒤 WAL을 다시 적용해 복구하므로, 순차 기록인 WAL만 동기화해 디스크 쓰기가 크게 준다.",
+          "probe": "초당 수천 건 커밋하는 DB가 커밋마다 바뀐 데이터 페이지를 모두 디스크에 쓴다면 어떤 비용이 들까요?",
+          "source": { "title": "PostgreSQL 18 문서: 28.3 Write-Ahead Logging (WAL)", "url": "https://www.postgresql.org/docs/current/wal-intro.html", "where": "28.3 Write-Ahead Logging (WAL)" } },
+        { "id": "db.tx.m2",
+          "claim": "트랜잭션을 지원하는 DB에서도 BEGIN을 쓰지 않으면 문장이 트랜잭션 없이 실행된다",
+          "fix": "PostgreSQL은 모든 SQL 문장을 트랜잭션 안에서 실행한다. 자동 커밋 모드에서는 BEGIN이 없으면 문장마다 암묵적인 트랜잭션이 열리고 성공하면 커밋된다. 드라이버가 자동 커밋을 끄면 COMMIT 전까지 트랜잭션이 열려 있다.",
+          "probe": "BEGIN 없이 UPDATE 한 문장을 실행하다가 중간에 오류가 나면, 그 문장이 이미 바꾼 일부 행은 남을까요?",
+          "source": { "title": "PostgreSQL 18 문서: Tutorial - Transactions", "url": "https://www.postgresql.org/docs/current/tutorial-transactions.html", "where": "Transactions" } }
+      ],
+      "scenarios": [
+        { "id": "db.tx.s1", "text": "계좌 이체 중 출금 UPDATE는 성공하고 입금 UPDATE에서 제약 조건 오류가 났다.", "faces": ["principle"] },
+        { "id": "db.tx.s2", "text": "관리자 화면이 트랜잭션을 연 채로 사용자의 확인 버튼을 기다리도록 만들어져 있고, 그 사이 다른 요청들이 줄줄이 대기한다.", "faces": ["limit"] }
+      ],
+      "tradeoffs": [
+        { "axis": "커밋 지연 대 지속성", "a": "동기 커밋: 커밋 확인 전에 로그를 디스크에 내려 장애에도 잃지 않지만 커밋마다 플러시 지연이 든다", "b": "비동기 커밋: 커밋이 빨라지지만 장애 직전 짧은 구간의 트랜잭션을 잃을 수 있다" }
+      ]
+    },
+    {
+      "id": "db.isolation",
+      "name": "격리 수준과 MVCC",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": ["격리 수준", "isolation level", "MVCC", "Read Committed", "Repeatable Read", "Serializable", "팬텀 리드", "phantom read"],
+      "prereq": ["db.tx"],
+      "alt": ["db.lock"],
+      "summary": "격리 수준(isolation level)은 동시에 도는 트랜잭션이 서로의 변경을 얼마나 볼 수 있는지 정한다. 많은 DB는 MVCC(다중 버전 동시성 제어)로 행의 여러 버전을 두어 읽기와 쓰기가 서로 막지 않게 하고, 락 기반 DB는 공유 락으로 같은 보장을 얻는다.",
+      "faces": {
+        "principle": [
+          { "id": "db.isolation.principle.1", "must": true,
+            "text": "격리 수준을 커밋되지 않은 데이터 읽기(dirty read), 반복 불가능한 읽기(nonrepeatable read), 팬텀 읽기(phantom read), 직렬화 이상(serialization anomaly) 같은 현상의 허용 여부로 구분한다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2 Transaction Isolation (Table 13.1)" } },
+          { "id": "db.isolation.principle.2", "must": true,
+            "text": "MVCC를 쓰는 DB에서는 읽기가 어느 시점의 데이터 스냅샷을 보므로, 읽기가 쓰기를 막지 않고 쓰기가 읽기를 막지 않는다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.1 Introduction (Concurrency Control)", "url": "https://www.postgresql.org/docs/current/mvcc-intro.html", "where": "13.1 Introduction" } },
+          { "id": "db.isolation.principle.3", "must": false,
+            "text": "MVCC 기반 Read Committed(예: PostgreSQL 기본, InnoDB의 READ COMMITTED)에서는 문장마다 새 스냅샷을 잡아 그 시점에 커밋된 데이터를 본다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.1 Read Committed Isolation Level" } },
+          { "id": "db.isolation.principle.4", "must": false,
+            "text": "PostgreSQL의 Repeatable Read에서는 트랜잭션 안의 모든 문장이 첫 문장 시점에 잡은 같은 스냅샷을 본다는 점을 설명한다(InnoDB는 일반 SELECT만 그렇고 UPDATE·잠금 읽기는 최신 커밋 값을 본다)",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.2 Repeatable Read Isolation Level" } },
+          { "id": "db.isolation.principle.5", "must": false,
+            "text": "기본 격리 수준은 제품마다 다르다는 점을 말한다(예: PostgreSQL은 Read Committed, MySQL InnoDB는 REPEATABLE READ)",
+            "source": { "title": "MySQL 8.4 Reference Manual: Transaction Isolation Levels", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html", "where": "REPEATABLE READ" } }
+        ],
+        "limit": [
+          { "id": "db.isolation.limit.1", "must": true,
+            "text": "Read Committed에서 값을 읽어 애플리케이션에서 계산한 뒤 쓰면, 그 사이 다른 트랜잭션이 커밋한 갱신을 덮어쓰는 갱신 손실(lost update)이 생길 수 있다는 점을 말한다",
+            "source": { "title": "Berenson et al., A Critique of ANSI SQL Isolation Levels (SIGMOD 1995)", "url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-95-51.pdf", "where": "4.1 Cursor Stability (P4 Lost Update)" } },
+          { "id": "db.isolation.limit.2", "must": true,
+            "text": "스냅샷 격리(snapshot isolation)는 갱신 손실은 막지만 쓰기 왜곡(write skew)을 허용하므로 직렬 가능(serializable)하지 않다는 점을 말한다",
+            "source": { "title": "Berenson et al., A Critique of ANSI SQL Isolation Levels (SIGMOD 1995)", "url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-95-51.pdf", "where": "4.2 Snapshot Isolation (A5B Write Skew)" } },
+          { "id": "db.isolation.limit.3", "must": false,
+            "text": "높은 격리 수준에서는 충돌한 트랜잭션이 롤백될 수 있어(예: PostgreSQL의 직렬화 실패, 락 기반 구현의 교착 상태나 락 대기 시간 초과) 애플리케이션이 트랜잭션을 다시 실행할 준비를 해야 한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.2 Repeatable Read, 13.2.3 Serializable" } },
+          { "id": "db.isolation.limit.4", "must": false,
+            "text": "같은 이름의 격리 수준도 제품마다 실제 보장이 다르다는 점을 말한다(예: PostgreSQL의 Repeatable Read는 팬텀 읽기를 막고, Read Uncommitted는 Read Committed처럼 동작한다)",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2 Transaction Isolation (Table 13.1)" } }
+        ],
+        "alternative": [
+          { "id": "db.isolation.alternative.1", "must": true,
+            "text": "갱신 손실을 막으려면 읽을 때 잠금 읽기(예: SELECT ... FOR UPDATE)로 행을 잠가, 현재 트랜잭션이 끝날 때까지 다른 트랜잭션이 그 행을 고치지 못하게 한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.2 Row-Level Locks" } },
+          { "id": "db.isolation.alternative.2", "must": true,
+            "text": "쓰기 왜곡까지 막아야 하면 Serializable을 쓰고, 그 때문에 롤백된 트랜잭션(예: PostgreSQL SQLSTATE 40001)을 공통으로 잡아 재시도하는 장치를 둔다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.3 Serializable Isolation Level" } },
+          { "id": "db.isolation.alternative.3", "must": false,
+            "text": "UPDATE ... SET balance = balance + 100 WHERE id = ? 처럼 미리 정해진 행 하나를 DB 안에서 계산해 바꾸면, 읽고 계산해 쓰는 사이의 갱신 손실을 피할 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.1 Read Committed Isolation Level" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.isolation.m1",
+          "claim": "Repeatable Read면 어떤 제품에서든 동시성 이상이 모두 막힌다",
+          "fix": "Repeatable Read에서도 직렬화 이상은 생길 수 있다. 예를 들어 PostgreSQL의 Repeatable Read(스냅샷 격리)에서는 쓰기 왜곡이 생긴다. 이를 막으려면 Serializable이나 명시적 락이 필요하다.",
+          "probe": "당직 의사가 최소 한 명은 남아야 하는 규칙에서, 두 의사가 동시에 '다른 사람이 있으니 나는 빠진다'를 Repeatable Read 트랜잭션으로 실행하면 어떻게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2 Transaction Isolation (Table 13.1)" } },
+        { "id": "db.isolation.m2",
+          "claim": "MVCC를 쓰는 DB에서는 같은 행을 고치는 쓰기끼리도 서로 기다리는 일이 없다",
+          "fix": "MVCC는 읽기와 쓰기가 서로 막지 않게 할 뿐이다. 같은 행을 동시에 고치려는 두 번째 트랜잭션은 첫 번째가 커밋하거나 롤백할 때까지 기다린다.",
+          "probe": "PostgreSQL에서 두 트랜잭션이 같은 행을 동시에 UPDATE하면, 두 번째 UPDATE는 바로 진행될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.1 Read Committed Isolation Level" } },
+        { "id": "db.isolation.m3",
+          "claim": "격리 수준을 높이면 느려질 뿐 애플리케이션 코드는 그대로 둬도 된다",
+          "fix": "높은 격리 수준에서는 충돌한 트랜잭션이 롤백된다. PostgreSQL에서는 직렬화 실패(SQLSTATE 40001)로, 락 기반 구현(예: MySQL SERIALIZABLE)에서는 교착 상태나 락 대기 시간 초과로 나타나므로 재시도 코드가 필요하다.",
+          "probe": "Serializable로 바꾼 뒤 'could not serialize access' 오류가 로그에 보이기 시작했다면, 애플리케이션은 무엇을 해야 할까요?",
+          "source": { "title": "PostgreSQL 18 문서: 13.2 Transaction Isolation", "url": "https://www.postgresql.org/docs/current/transaction-iso.html", "where": "13.2.3 Serializable Isolation Level" } }
+      ],
+      "scenarios": [
+        { "id": "db.isolation.s1", "text": "재고 차감을 'SELECT로 재고 읽기 → 애플리케이션에서 1 빼기 → UPDATE'로 구현했더니 동시 주문에서 재고 수가 맞지 않는다.", "faces": ["limit", "alternative"] },
+        { "id": "db.isolation.s2", "text": "MySQL에서 PostgreSQL로 옮긴 뒤 같은 코드인데 동시 요청에서 동작이 달라졌다.", "faces": ["principle", "limit"] }
+      ],
+      "tradeoffs": [
+        { "axis": "격리 강도 대 동시성·재시도 비용", "a": "높은 수준(Serializable): 이상 현상을 막지만 롤백이 늘어 재시도 코드와 비용이 필요하다", "b": "낮은 수준(Read Committed): 실패가 적고 동시성이 높지만 갱신 손실과 쓰기 왜곡을 락이나 애플리케이션이 막아야 한다" }
+      ]
+    },
+    {
+      "id": "db.lock",
+      "name": "락과 교착 상태(DB)",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": ["락", "lock", "잠금", "교착 상태", "deadlock", "데드락", "SELECT FOR UPDATE", "행 잠금"],
+      "prereq": ["db.tx"],
+      "alt": ["db.isolation"],
+      "summary": "DB는 같은 데이터를 동시에 고치려는 트랜잭션을 락(lock)으로 줄 세운다. 두 트랜잭션이 서로가 가진 락을 기다리면 교착 상태(deadlock)가 되며, 많은 DB는 이를 감지해 한쪽을 중단시킨다.",
+      "faces": {
+        "principle": [
+          { "id": "db.lock.principle.1", "must": true,
+            "text": "공유 락(S)끼리는 함께 잡을 수 있지만 배타 락(X)은 다른 어떤 락과도 함께 잡을 수 없어, 배타 락이 풀릴 때까지 다른 트랜잭션이 기다린다는 호환 관계를 설명한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: InnoDB Locking", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-locking.html", "where": "Shared and Exclusive Locks" } },
+          { "id": "db.lock.principle.2", "must": true,
+            "text": "잠금 읽기(예: SELECT ... FOR UPDATE)는 읽은 행을 잠가, 현재 트랜잭션이 끝날 때까지 다른 트랜잭션이 그 행을 잠그거나 고치거나 지우지 못하게 한다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.2 Row-Level Locks" } },
+          { "id": "db.lock.principle.3", "must": true,
+            "text": "교착 상태는 여러 트랜잭션이 각자 상대에게 필요한 락을 쥐고 있어 아무도 진행하지 못하는 상태라고 설명한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: 17.7.5 Deadlocks in InnoDB", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlocks.html", "where": "17.7.5 Deadlocks in InnoDB" } },
+          { "id": "db.lock.principle.4", "must": false,
+            "text": "교착 상태를 감지하는 DB(예: PostgreSQL, InnoDB)는 관련 트랜잭션 하나를 중단(롤백)시켜 나머지를 진행시킨다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.4 Deadlocks" } },
+          { "id": "db.lock.principle.5", "must": false,
+            "text": "MVCC로 읽는 DB(예: PostgreSQL, InnoDB 기본 격리 수준)에서 행 수준 락은 일반 조회를 막지 않고, 같은 행을 쓰거나 잠그려는 쪽만 막는다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.2 Row-Level Locks" } }
+        ],
+        "limit": [
+          { "id": "db.lock.limit.1", "must": true,
+            "text": "애플리케이션 로직이 옳아도 교착 상태로 트랜잭션이 롤백될 수 있으므로, 롤백된 트랜잭션을 재시도하는 처리가 필요하다는 점을 말한다",
+            "source": { "title": "MySQL 8.4 Reference Manual: 17.7.5 Deadlocks in InnoDB", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlocks.html", "where": "17.7.5 Deadlocks in InnoDB" } },
+          { "id": "db.lock.limit.2", "must": true,
+            "text": "트랜잭션을 오래 열어 두면(예: 사용자 입력 대기) 락을 오래 쥐어 다른 요청이 줄줄이 기다리게 된다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.4 Deadlocks" } },
+          { "id": "db.lock.limit.3", "must": false,
+            "text": "교착 상태에서 어느 트랜잭션이 중단될지는 예측하기 어려워 그것에 기대면 안 된다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.4 Deadlocks" } },
+          { "id": "db.lock.limit.4", "must": false,
+            "text": "교착 상태 감지가 없거나 꺼져 있으면 락 대기 시간 초과로만 풀린다는 점을 말한다(예: InnoDB에서 innodb_deadlock_detect를 끄면 innodb_lock_wait_timeout에 기댄다)",
+            "source": { "title": "MySQL 8.4 Reference Manual: 17.7.5 Deadlocks in InnoDB", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlocks.html", "where": "17.7.5 Deadlocks in InnoDB" } }
+        ],
+        "alternative": [
+          { "id": "db.lock.alternative.1", "must": true,
+            "text": "여러 객체를 잠글 때 모든 코드가 같은 순서로 잠그게 하면 교착 상태를 피할 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.4 Deadlocks" } },
+          { "id": "db.lock.alternative.2", "must": true,
+            "text": "충돌이 드물면 미리 잠그는 대신 버전 열을 두고 UPDATE의 WHERE 절에서 버전을 확인해, 그사이 바뀌었으면 갱신이 실패하게 하는 낙관적 잠금(optimistic locking)을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "5.4 Operations on the persistence context (optimistic lock failure)" } },
+          { "id": "db.lock.alternative.3", "must": false,
+            "text": "행이 아니라 작업 단위로 잠가야 하면, DB가 강제하지 않고 애플리케이션이 의미를 정하는 권고 락(advisory lock, 예: PostgreSQL)을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.5 Advisory Locks" } },
+          { "id": "db.lock.alternative.4", "must": false,
+            "text": "락을 무한정 기다리지 않도록 락 대기 시간 제한(예: PostgreSQL lock_timeout)을 두어, 정해진 시간 넘게 기다리는 문장을 중단시킨다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Client Connection Defaults", "url": "https://www.postgresql.org/docs/current/runtime-config-client.html", "where": "lock_timeout" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.lock.m1",
+          "claim": "PostgreSQL이나 InnoDB의 기본 격리 수준에서도 FOR UPDATE로 잠근 행은 일반 SELECT로 읽지 못한다",
+          "fix": "PostgreSQL과 InnoDB(READ COMMITTED, REPEATABLE READ)는 일반 SELECT를 MVCC 스냅샷으로 읽으므로 FOR UPDATE 락을 기다리지 않는다. 행 락은 같은 행을 쓰거나 잠그려는 쪽만 막는다. 다만 락 기반으로 읽는 DB(예: SQL Server 기본 READ COMMITTED)에서는 일반 SELECT도 기다린다.",
+          "probe": "PostgreSQL에서 한 트랜잭션이 FOR UPDATE로 잠근 주문 행을 다른 세션이 일반 SELECT로 조회하면, 그 세션은 기다리게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 13.3 Explicit Locking", "url": "https://www.postgresql.org/docs/current/explicit-locking.html", "where": "13.3.2 Row-Level Locks" } },
+        { "id": "db.lock.m2",
+          "claim": "교착 상태는 코드 버그라서, 올바르게 짜면 재시도 처리는 필요 없다",
+          "fix": "로직이 옳아도 동시 실행 순서에 따라 교착 상태가 생겨 트랜잭션이 롤백될 수 있다. 잠금 순서를 맞춰 빈도를 줄이고, 그래도 생기는 경우를 재시도로 처리한다.",
+          "probe": "같은 순서로 잠그도록 고쳤는데도 드물게 deadlock 오류가 난다면, 애플리케이션은 이 오류를 어떻게 다뤄야 할까요?",
+          "source": { "title": "MySQL 8.4 Reference Manual: 17.7.5 Deadlocks in InnoDB", "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-deadlocks.html", "where": "17.7.5 Deadlocks in InnoDB" } }
+      ],
+      "scenarios": [
+        { "id": "db.lock.s1", "text": "이체 기능에서 A에서 B로의 이체와 B에서 A로의 이체가 동시에 일어나면 가끔 deadlock detected 오류가 난다.", "faces": ["principle", "alternative"] },
+        { "id": "db.lock.s2", "text": "인기 상품의 재고 행 하나에 FOR UPDATE가 몰려 요청 지연이 수 초로 늘었다.", "faces": ["limit", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "비관적 락 대 낙관적 동시성", "a": "비관적 락(FOR UPDATE): 충돌을 미리 막지만 대기와 교착 상태가 생길 수 있다", "b": "낙관적 잠금(버전 확인): 대기가 없지만 충돌이 잦으면 실패와 재시도가 많아진다" }
+      ]
+    },
+    {
+      "id": "db.plan",
+      "name": "쿼리 실행 계획과 튜닝",
+      "kind": "operation",
+      "core": false,
+      "aliases": ["실행 계획", "EXPLAIN", "EXPLAIN ANALYZE", "쿼리 튜닝", "슬로 쿼리", "slow query", "옵티마이저"],
+      "prereq": ["db.index"],
+      "alt": [],
+      "summary": "DB 옵티마이저(플래너)는 통계로 행 수를 추정해 비용이 가장 낮아 보이는 실행 계획을 고른다. 느린 쿼리는 로그와 문장별 누적 통계로 찾고, 실제 실행 결과를 담은 계획으로 추정과 실제를 견줘 원인을 좁힌다.",
+      "faces": {
+        "observe": [
+          { "id": "db.plan.observe.1", "must": true,
+            "text": "문장별 누적 실행 통계(예: PostgreSQL pg_stat_statements, MySQL performance_schema의 문장 요약)로 호출 수와 총·평균 실행 시간을 모아 전체 시간을 가장 많이 쓰는 쿼리를 찾는다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: pg_stat_statements", "url": "https://www.postgresql.org/docs/current/pgstatstatements.html", "where": "pg_stat_statements View" } },
+          { "id": "db.plan.observe.2", "must": false,
+            "text": "정해진 시간보다 오래 걸린 쿼리를 로그로 남겨 최적화 대상을 찾는다는 점을 말한다(예: MySQL slow query log, PostgreSQL auto_explain)",
+            "source": { "title": "MySQL 8.4 Reference Manual: The Slow Query Log", "url": "https://dev.mysql.com/doc/refman/8.4/en/slow-query-log.html", "where": "The Slow Query Log" } },
+          { "id": "db.plan.observe.3", "must": true,
+            "text": "쿼리를 실제로 실행해 단계마다 실제 행 수와 시간을 보여 주는 계획(예: EXPLAIN ANALYZE)으로, 추정 행 수와 실제 행 수가 크게 어긋나는 단계를 찾는다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 14.1 Using EXPLAIN", "url": "https://www.postgresql.org/docs/current/using-explain.html", "where": "14.1.2 EXPLAIN ANALYZE" } },
+          { "id": "db.plan.observe.4", "must": true,
+            "text": "실행 계획에서 테이블을 읽는 방식(순차 스캔, 인덱스 스캔 등)과 조인 방식(중첩 루프, 해시 조인, 병합 조인)을 읽어 어디서 비용이 드는지 본다는 점을 설명한다",
+            "source": { "title": "PostgreSQL 18 문서: 14.1 Using EXPLAIN", "url": "https://www.postgresql.org/docs/current/using-explain.html", "where": "14.1.1 EXPLAIN Basics" } },
+          { "id": "db.plan.observe.5", "must": false,
+            "text": "지금 실행 중인 쿼리와 그 상태·대기 이벤트를 세션 목록(예: PostgreSQL pg_stat_activity)에서 본다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 27.2 The Cumulative Statistics System", "url": "https://www.postgresql.org/docs/current/monitoring-stats.html", "where": "27.2.3 pg_stat_activity" } }
+        ],
+        "recover": [
+          { "id": "db.plan.recover.1", "must": true,
+            "text": "자원을 잡아먹는 쿼리는 연결은 두고 그 쿼리만 취소하거나, 필요하면 세션까지 끊는다는 점을 말한다(예: PostgreSQL pg_cancel_backend·pg_terminate_backend, MySQL KILL QUERY·KILL CONNECTION)",
+            "source": { "title": "MySQL 8.4 Reference Manual: KILL Statement", "url": "https://dev.mysql.com/doc/refman/8.4/en/kill.html", "where": "KILL Statement" } },
+          { "id": "db.plan.recover.2", "must": true,
+            "text": "통계가 실제 데이터와 어긋나 추정이 틀리면 통계를 새로 모아(예: ANALYZE) 옵티마이저가 다시 판단하게 한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Statistics Used by the Planner", "url": "https://www.postgresql.org/docs/current/planner-stats.html", "where": "Single-Column Statistics" } },
+          { "id": "db.plan.recover.3", "must": true,
+            "text": "운영 중에 필요한 인덱스를 더할 때는 쓰기를 막지 않는 온라인 생성(예: PostgreSQL CREATE INDEX CONCURRENTLY, InnoDB 온라인 DDL)을 쓴다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: CREATE INDEX", "url": "https://www.postgresql.org/docs/current/sql-createindex.html", "where": "Building Indexes Concurrently" } },
+          { "id": "db.plan.recover.4", "must": false,
+            "text": "PostgreSQL에서 CONCURRENTLY 생성이 실패하면 조회에는 쓰이지 않으면서 갱신 부담만 주는 INVALID 인덱스가 남으므로, 지우고 다시 만든다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: CREATE INDEX", "url": "https://www.postgresql.org/docs/current/sql-createindex.html", "where": "Building Indexes Concurrently" } }
+        ],
+        "prevent": [
+          { "id": "db.plan.prevent.1", "must": true,
+            "text": "인덱스와 쿼리 계획은 작은 시험 데이터가 아니라 실제와 같은 데이터로 확인한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Examining Index Usage", "url": "https://www.postgresql.org/docs/current/indexes-examine.html", "where": "11.12 Examining Index Usage" } },
+          { "id": "db.plan.prevent.2", "must": true,
+            "text": "문장 하나가 쓸 수 있는 실행 시간에 상한(예: PostgreSQL statement_timeout)을 두어 폭주 쿼리가 오래 자원을 쥐지 못하게 하되, 모든 세션에 걸리는 서버 전체 설정보다 역할이나 세션 단위로 건다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Client Connection Defaults", "url": "https://www.postgresql.org/docs/current/runtime-config-client.html", "where": "statement_timeout" } },
+          { "id": "db.plan.prevent.3", "must": false,
+            "text": "옵티마이저는 보통 여러 조건이 서로 독립이라고 가정하므로, 열 사이에 상관관계가 있어 추정이 틀리면 여러 열을 함께 보는 통계(예: PostgreSQL CREATE STATISTICS)를 만든다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Statistics Used by the Planner", "url": "https://www.postgresql.org/docs/current/planner-stats.html", "where": "Extended Statistics" } },
+          { "id": "db.plan.prevent.4", "must": false,
+            "text": "값 분포를 더 자세히 알아야 하는 열은 그 열의 통계 표본을 늘린다는 점을 말한다(예: PostgreSQL ALTER TABLE ... SET STATISTICS)",
+            "source": { "title": "PostgreSQL 18 문서: Statistics Used by the Planner", "url": "https://www.postgresql.org/docs/current/planner-stats.html", "where": "Single-Column Statistics" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.plan.m1",
+          "claim": "EXPLAIN ANALYZE는 계획만 보여 주므로 UPDATE나 DELETE에 써도 데이터는 바뀌지 않는다",
+          "fix": "EXPLAIN ANALYZE는 쿼리를 실제로 실행하므로 부작용이 그대로 일어난다. 데이터를 바꾸는 쿼리는 트랜잭션으로 감싸고 롤백하면서 본다.",
+          "probe": "운영 DB에서 EXPLAIN ANALYZE DELETE FROM orders WHERE ... 를 돌리면 그 주문들은 어떻게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 14.1 Using EXPLAIN", "url": "https://www.postgresql.org/docs/current/using-explain.html", "where": "14.1.2 EXPLAIN ANALYZE" } },
+        { "id": "db.plan.m2",
+          "claim": "PostgreSQL EXPLAIN에 나오는 cost는 밀리초 단위의 예상 실행 시간이다",
+          "fix": "cost는 플래너의 비용 매개변수로 정해지는 임의 단위다. 실제 시간(actual time, 밀리초)과 직접 맞지 않는다.",
+          "probe": "cost=0.00..445.00으로 나온 계획은 445ms가 걸린다고 읽어도 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 14.1 Using EXPLAIN", "url": "https://www.postgresql.org/docs/current/using-explain.html", "where": "14.1.1 EXPLAIN Basics, 14.1.2 EXPLAIN ANALYZE" } }
+      ],
+      "scenarios": [
+        { "id": "db.plan.s1", "text": "어제까지 50ms이던 검색 쿼리가 대량 적재 뒤 5초로 느려졌고, 실제 실행 계획을 보니 추정 행 수는 10인데 실제는 200만이다.", "faces": ["observe", "recover", "prevent"] },
+        { "id": "db.plan.s2", "text": "새벽 배치가 시작되면 API 응답이 느려지는데 어떤 쿼리 때문인지 모른다.", "faces": ["observe", "recover"] }
+      ],
+      "tradeoffs": [
+        { "axis": "자동 계획 기록의 정보량 대 오버헤드", "a": "느린 쿼리의 실제 실행 계획까지 자동으로 남기면 원인 분석이 쉬워진다", "b": "실제 시간을 재는 설정(예: auto_explain.log_analyze)은 기록 여부와 상관없이 모든 문장에 측정이 붙어 성능이 크게 떨어질 수 있다" }
+      ]
+    },
+    {
+      "id": "db.normal",
+      "name": "정규화와 반정규화",
+      "kind": "decision",
+      "core": false,
+      "aliases": ["정규화", "normalization", "반정규화", "denormalization", "제3정규형", "3NF", "BCNF"],
+      "prereq": [],
+      "alt": [],
+      "summary": "정규화(normalization)는 함수 종속을 기준으로 테이블을 나눠 같은 사실이 여러 곳에 반복되지 않게 하는 설계다. 반정규화(denormalization)는 조회 성능을 위해 일부러 중복을 들이는 것으로, 그 대가로 중복된 값을 맞춰 두는 책임이 생긴다.",
+      "faces": {
+        "rationale": [
+          { "id": "db.normal.rationale.1", "must": true,
+            "text": "같은 사실이 여러 레코드에 반복되면 바꿀 때 모든 곳을 고쳐야 하고 그러지 못하면 불일치가 생기므로, 정규화로 중복을 없애 갱신 이상과 불일치를 막는다는 점을 말한다",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "1 Introduction, 3.1 Second Normal Form" } },
+          { "id": "db.normal.rationale.2", "must": true,
+            "text": "제2정규형은 키의 일부에만 종속된 사실을, 제3정규형은 키가 아닌 다른 필드에 종속된 사실을 따로 떼어 내는 것이라고 설명한다",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "3.1 Second Normal Form, 3.2 Third Normal Form" } },
+          { "id": "db.normal.rationale.3", "must": false,
+            "text": "제1정규형은 반복되는 필드나 그룹을 없애 모든 레코드가 같은 수의 필드를 갖게 하는 것이라고 설명한다",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "2 First Normal Form" } },
+          { "id": "db.normal.rationale.4", "must": false,
+            "text": "정규화되지 않은 설계에서는 다른 사실에 딸려 저장된 정보가 그 사실이 없으면 기록될 곳이 없어지는 문제(삽입·삭제 이상)가 생긴다는 점을 말한다(예: 부품이 하나도 없으면 창고 주소를 둘 레코드가 없다)",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "3.1 Second Normal Form" } },
+          { "id": "db.normal.rationale.5", "must": false,
+            "text": "테이블을 나눌 때는 다시 조인했을 때 원래 정보를 잃지 않는 분해(lossless decomposition)여야 한다는 점을 말한다",
+            "source": { "title": "Silberschatz·Korth·Sudarshan, Database System Concepts 7판 7장 강의 자료: Normalization", "url": "https://www.db-book.com/slides-dir/PDF-dir/ch7.pdf", "where": "Decomposition, Lossless Decomposition, Goals of Normalization" } }
+        ],
+        "tradeoff": [
+          { "id": "db.normal.tradeoff.1", "must": true,
+            "text": "정규화하면 정규화 전에는 한 레코드에서 읽던 데이터를 여러 레코드(테이블)에서 모아 읽어야 해 조회가 불리해진다는 점을 말한다",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "1 Introduction" } },
+          { "id": "db.normal.tradeoff.2", "must": true,
+            "text": "결과를 미리 저장해 두는 반정규화는 조회를 빠르게 하지만 원본이 바뀌면 저장된 값이 최신이 아니게 된다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Materialized Views", "url": "https://www.postgresql.org/docs/current/rules-materializedviews.html", "where": "Materialized Views" } }
+        ],
+        "alternative": [
+          { "id": "db.normal.alternative.1", "must": true,
+            "text": "집계나 보고처럼 최신일 필요가 없는 조회는 결과를 저장해 두는 머티리얼라이즈드 뷰(materialized view)에 두고 주기적으로 새로 고친다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Materialized Views", "url": "https://www.postgresql.org/docs/current/rules-materializedviews.html", "where": "Materialized Views" } },
+          { "id": "db.normal.alternative.2", "must": true,
+            "text": "정규화 규칙은 키가 아닌 필드가 자주 갱신된다는 가정에 맞춰져 있으므로, 실제 성능 요구를 고려해 모든 테이블을 완전히 정규화하지 않는 선택도 할 수 있다는 점을 말한다",
+            "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "1 Introduction" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.normal.m1",
+          "claim": "정규화를 더 할수록 성능이 항상 좋아진다",
+          "fix": "정규화는 갱신 이상과 불일치를 막는 것이 목적이며, 갱신 쪽에 유리하게 치우쳐 있다. 정규화하면 한 곳에서 읽던 데이터를 여러 테이블에서 모아 읽어야 해 조회는 오히려 불리해질 수 있다.",
+          "probe": "주문 목록 화면 하나를 그리는 데 조인이 일곱 번 필요하다면, 테이블을 더 쪼갤수록 이 화면은 빨라질까요?",
+          "source": { "title": "William Kent, A Simple Guide to Five Normal Forms in Relational Database Theory (CACM 26(2), 1983)", "url": "https://www.bkent.net/Doc/simple5.htm", "where": "1 Introduction" } },
+        { "id": "db.normal.m2",
+          "claim": "결과를 미리 저장해 두는 반정규화를 하면 조회도 빨라지고 데이터도 늘 최신이다",
+          "fix": "미리 저장한 결과는 원본이 바뀌어도 다시 계산하기 전까지 옛 값이다. 머티리얼라이즈드 뷰는 새로 고쳐야 최신이 된다.",
+          "probe": "매일 밤 새로 고치는 매출 요약 뷰를 오후 3시에 조회하면 오늘 오전 매출이 들어 있을까요?",
+          "source": { "title": "PostgreSQL 18 문서: Materialized Views", "url": "https://www.postgresql.org/docs/current/rules-materializedviews.html", "where": "Materialized Views" } }
+      ],
+      "scenarios": [
+        { "id": "db.normal.s1", "text": "고객 주소를 주문·배송·청구 테이블에 모두 복사해 두었더니, 주소 변경 뒤 청구서만 옛 주소로 나갔다.", "faces": ["rationale", "tradeoff"] },
+        { "id": "db.normal.s2", "text": "대시보드의 일별 매출 집계 쿼리가 수억 행을 조인하느라 몇 분씩 걸린다.", "faces": ["tradeoff", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "중복 제거 대 조회 비용", "a": "정규화: 한 곳만 고치면 되어 불일치가 없지만 조회에 조인이 늘어난다", "b": "반정규화: 조인 없이 빨리 읽지만 중복된 값을 맞추는 쓰기 비용과 불일치 위험이 생긴다" }
+      ]
+    },
+    {
+      "id": "db.replication",
+      "name": "복제와 읽기 분산",
+      "kind": "decision",
+      "core": false,
+      "aliases": ["복제", "replication", "레플리카", "read replica", "읽기 복제본", "프라이머리", "스탠바이", "읽기 분산"],
+      "prereq": ["db.tx"],
+      "alt": ["db.sharding", "cache.strategy"],
+      "summary": "복제(replication)는 주 서버의 변경을 다른 서버에 옮겨 같은 데이터를 여러 곳에 두는 것이다. 읽기 요청을 복제본으로 나눠 읽기 처리량을 늘리고, 장애 때 복제본을 승격해 가용성을 높인다. 동기 복제와 비동기 복제는 지연과 손실 위험을 맞바꾼다.",
+      "faces": {
+        "rationale": [
+          { "id": "db.replication.rationale.1", "must": true,
+            "text": "읽기가 많은 부하를 한 DB 서버의 용량 너머로 늘리려고, 읽기 요청을 읽기 전용 복제본으로 보낸다는 점을 말한다",
+            "source": { "title": "AWS 문서: Working with DB instance read replicas", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html", "where": "본문 첫 단락, Use cases for read replicas" } },
+          { "id": "db.replication.rationale.2", "must": true,
+            "text": "주 서버가 실패하면 복제본을 승격해 서비스를 이어 가는 재해 복구·가용성 용도로 쓴다는 점을 말한다",
+            "source": { "title": "AWS 문서: Working with DB instance read replicas", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html", "where": "Use cases for read replicas" } },
+          { "id": "db.replication.rationale.3", "must": false,
+            "text": "보고서처럼 무거운 조회를 복제본에서 돌려 운영 중인 주 서버를 보호한다는 점을 말한다",
+            "source": { "title": "AWS 문서: Working with DB instance read replicas", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html", "where": "Use cases for read replicas" } }
+        ],
+        "tradeoff": [
+          { "id": "db.replication.tradeoff.1", "must": true,
+            "text": "비동기 복제는 주 서버의 커밋을 붙잡지 않지만, 커밋과 복제본 반영 사이에 지연이 있어 같은 시각에 두 곳을 조회한 결과가 다를 수 있다(결과적 일관성)는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 26.4 Hot Standby", "url": "https://www.postgresql.org/docs/current/hot-standby.html", "where": "26.4.1 User's Overview" } },
+          { "id": "db.replication.tradeoff.2", "must": true,
+            "text": "동기 복제는 커밋이 대기 서버에도 기록될 때까지 기다려 두 서버가 동시에 망가지지 않는 한 손실이 없지만, 그만큼 커밋 응답 시간이 늘어난다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 26.2 Log-Shipping Standby Servers", "url": "https://www.postgresql.org/docs/current/warm-standby.html", "where": "26.2.8 Synchronous Replication" } },
+          { "id": "db.replication.tradeoff.3", "must": false,
+            "text": "복제본에서 읽으면 같은 사용자가 방금 쓴 값을 보지 못하는, 자기 쓰기 읽기(read-your-writes) 위반이 생길 수 있다는 점을 말한다",
+            "source": { "title": "Jepsen: Read Your Writes", "url": "https://jepsen.io/consistency/models/read-your-writes", "where": "본문 (정의)" } },
+          { "id": "db.replication.tradeoff.4", "must": false,
+            "text": "동기 대기 서버가 응답하지 못하면 그 확인을 기다리는 커밋이 끝나지 않을 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 26.2 Log-Shipping Standby Servers", "url": "https://www.postgresql.org/docs/current/warm-standby.html", "where": "26.2.8.4 Planning for High Availability" } },
+          { "id": "db.replication.tradeoff.5", "must": false,
+            "text": "PostgreSQL 복제본에서 오래 도는 조회는 주 서버의 정리 작업과 충돌해 취소될 수 있고, 이를 막는 설정(hot_standby_feedback)은 주 서버에 테이블 팽창을 부를 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 26.4 Hot Standby", "url": "https://www.postgresql.org/docs/current/hot-standby.html", "where": "26.4.2 Handling Query Conflicts" } }
+        ],
+        "alternative": [
+          { "id": "db.replication.alternative.1", "must": true,
+            "text": "방금 쓴 값이 보여야 하는 읽기는 주 서버에서 읽거나, 복제본이 그 커밋까지 반영했는지 확인·대기한 뒤 읽는다는 점을 말한다(예: MySQL WAIT_FOR_EXECUTED_GTID_SET, PostgreSQL synchronous_commit = remote_apply)",
+            "source": { "title": "MySQL 8.4 Reference Manual: Functions Used with Global Transaction Identifiers (GTIDs)", "url": "https://dev.mysql.com/doc/refman/8.4/en/gtid-functions.html", "where": "WAIT_FOR_EXECUTED_GTID_SET()" } },
+          { "id": "db.replication.alternative.2", "must": true,
+            "text": "주 서버 하나에 읽기 복제본을 두는 구성에서는 복제본이 읽기만 받고 쓰기는 모두 주 서버로 가므로, 쓰기 처리량을 늘리려면 복제가 아니라 데이터를 여러 서버로 나누는 방법이 필요하다는 점을 말한다",
+            "source": { "title": "AWS 문서: Working with DB instance read replicas", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html", "where": "본문 (read/write access to the primary, read-only access to the replica)" } },
+          { "id": "db.replication.alternative.3", "must": false,
+            "text": "대기 서버 하나의 장애에 커밋이 묶이지 않도록, 여러 후보 가운데 정해진 수만 확인하면 되는 정족수(quorum) 기반 동기 복제를 쓸 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 26.2 Log-Shipping Standby Servers", "url": "https://www.postgresql.org/docs/current/warm-standby.html", "where": "26.2.8.2 Multiple Synchronous Standbys, 26.2.8.4 Planning for High Availability" } }
+        ],
+        "verify": [
+          { "id": "db.replication.verify.1", "must": false,
+            "text": "복제본이 주 서버보다 얼마나 뒤처졌는지 복제 지연 지표로 지켜본다는 점을 말한다(예: Amazon RDS ReplicaLag, MySQL SHOW REPLICA STATUS의 지연 값)",
+            "source": { "title": "AWS 문서: Monitoring read replication", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Monitoring.html", "where": "Monitoring replication lag" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.replication.m1",
+          "claim": "주 서버 하나에 읽기 복제본을 늘리면 쓰기 성능도 함께 좋아진다",
+          "fix": "읽기 복제본은 읽기 전용이고 모든 쓰기는 주 서버가 받는다. 복제본은 쓰기 부하를 나눠 갖지 못한다.",
+          "probe": "초당 쓰기 5천 건으로 주 서버 CPU가 100%일 때 읽기 복제본을 세 대 더하면 쓰기 지연은 줄어들까요?",
+          "source": { "title": "AWS 문서: Working with DB instance read replicas", "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html", "where": "본문 (read/write access to the primary, read-only access to the replica)" } },
+        { "id": "db.replication.m2",
+          "claim": "비동기 복제본은 항상 주 서버와 같은 데이터를 보여 준다",
+          "fix": "비동기 복제에서는 주 서버의 커밋이 복제본에 닿기까지 지연이 있어, 같은 쿼리를 두 곳에서 거의 동시에 돌려도 결과가 다를 수 있다.",
+          "probe": "회원 정보를 고친 직후 화면을 새로고침했는데 그 읽기가 복제본으로 가면, 사용자는 무엇을 보게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 26.4 Hot Standby", "url": "https://www.postgresql.org/docs/current/hot-standby.html", "where": "26.4.1 User's Overview" } },
+        { "id": "db.replication.m3",
+          "claim": "동기 복제를 켜면 다른 손해 없이 데이터 손실만 사라진다",
+          "fix": "동기 복제는 커밋마다 대기 서버의 확인을 기다려 응답 시간이 늘고, 대기 서버가 응답하지 못하면 커밋이 끝나지 않을 수 있다.",
+          "probe": "동기 대기 서버가 하나뿐인데 그 서버가 네트워크에서 끊기면, 주 서버의 커밋은 어떻게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 26.2 Log-Shipping Standby Servers", "url": "https://www.postgresql.org/docs/current/warm-standby.html", "where": "26.2.8 Synchronous Replication, 26.2.8.4 Planning for High Availability" } }
+      ],
+      "scenarios": [
+        { "id": "db.replication.s1", "text": "글을 쓴 직후 목록에 내 글이 보이지 않는다는 문의가 들어온다. 읽기는 복제본으로 보내고 있다.", "faces": ["tradeoff", "alternative"] },
+        { "id": "db.replication.s2", "text": "월말 정산 쿼리를 복제본에서 돌렸더니 'canceling statement due to conflict with recovery' 오류로 자꾸 중단된다.", "faces": ["tradeoff"] },
+        { "id": "db.replication.s3", "text": "쓰기가 몰려 주 DB가 한계인데, 팀에서는 읽기 복제본을 더 늘리자는 의견이 나왔다.", "faces": ["rationale", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "동기 복제 대 비동기 복제", "a": "동기: 커밋된 데이터가 대기 서버에도 있어 장애 때 손실이 거의 없지만 커밋 지연이 늘고 대기 서버 장애가 커밋을 멈출 수 있다", "b": "비동기: 커밋이 빠르고 대기 서버에 묶이지 않지만 장애 조치 때 최근 커밋을 잃을 수 있고 복제본 읽기가 뒤처진다" }
+      ]
+    },
+    {
+      "id": "db.sharding",
+      "name": "파티셔닝과 샤딩",
+      "kind": "decision",
+      "core": false,
+      "aliases": ["샤딩", "sharding", "파티셔닝", "partitioning", "샤드 키", "shard key", "수평 분할"],
+      "prereq": ["db.index"],
+      "alt": ["db.replication"],
+      "summary": "파티셔닝(partitioning)은 논리적으로 하나인 큰 테이블을 작은 물리 조각으로 나누는 것이고, 샤딩(sharding)은 데이터를 여러 기계에 나눠 저장하는 것이다. 어떤 키로 나누는지가 성능과 확장성을 좌우한다.",
+      "faces": {
+        "rationale": [
+          { "id": "db.sharding.rationale.1", "must": true,
+            "text": "샤딩은 큰 데이터베이스를 여러 기계에 나눠 저장해 한 서버의 한계를 넘는 방법이며, 샤드 키로 각 행이 어느 샤드에 갈지 정한다는 점을 설명한다",
+            "source": { "title": "AWS: What is Database Sharding?", "url": "https://aws.amazon.com/what-is/database-sharding/", "where": "What is database sharding?, How does database sharding work?" } },
+          { "id": "db.sharding.rationale.2", "must": true,
+            "text": "자주 접근하는 행이 소수 파티션에 모여 있으면, 조건에 맞지 않는 파티션을 건너뛰어(파티션 가지치기, partition pruning) 조회가 크게 빨라진다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 5.12 Table Partitioning", "url": "https://www.postgresql.org/docs/current/ddl-partitioning.html", "where": "5.12.1 Overview, 5.12.4 Partition Pruning" } },
+          { "id": "db.sharding.rationale.3", "must": false,
+            "text": "오래된 데이터를 대량 DELETE 대신 파티션째 떼어 내거나 지우면 훨씬 빠르고 정리 작업 부담도 없다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 5.12 Table Partitioning", "url": "https://www.postgresql.org/docs/current/ddl-partitioning.html", "where": "5.12.1 Overview" } },
+          { "id": "db.sharding.rationale.4", "must": false,
+            "text": "파티셔닝의 이득은 보통 테이블이 아주 클 때에만 비용을 넘어선다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 5.12 Table Partitioning", "url": "https://www.postgresql.org/docs/current/ddl-partitioning.html", "where": "5.12.1 Overview" } }
+        ],
+        "tradeoff": [
+          { "id": "db.sharding.tradeoff.1", "must": true,
+            "text": "샤드 키가 들어 있지 않은 조회는 모든 샤드에 뿌려야(scatter-gather) 해서, 샤드를 늘려도 그 조회는 선형으로 확장되지 않는다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "Sharding Query Patterns" } },
+          { "id": "db.sharding.tradeoff.2", "must": true,
+            "text": "시각이나 증가 ID처럼 계속 커지는 값으로 범위 분할하면 새 쓰기가 모두 한 샤드로 몰려 병목이 된다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "Monotonically Changing Shard Keys" } },
+          { "id": "db.sharding.tradeoff.3", "must": false,
+            "text": "여러 샤드에 걸친 트랜잭션은 한 곳에서 끝나는 쓰기보다 비용이 크므로, 함께 바뀌는 데이터가 같은 샤드에 모이도록 설계해야 한다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Transactions", "url": "https://www.mongodb.com/docs/manual/core/transactions/", "where": "본문 (distributed transaction의 성능 비용과 스키마 설계에 대한 노트)" } },
+          { "id": "db.sharding.tradeoff.4", "must": false,
+            "text": "샤드 키의 서로 다른 값이 적거나(낮은 카디널리티) 특정 값에 데이터가 몰리면 일부 샤드가 병목이 된다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "Shard Key Cardinality, Shard Key Frequency" } },
+          { "id": "db.sharding.tradeoff.5", "must": false,
+            "text": "데이터베이스 하나 대신 여러 노드를 관리해야 해 운영 부담과 인프라 비용이 늘어난다는 점을 말한다",
+            "source": { "title": "AWS: What is Database Sharding?", "url": "https://aws.amazon.com/what-is/database-sharding/", "where": "What are the challenges of database sharding?" } }
+        ],
+        "alternative": [
+          { "id": "db.sharding.alternative.1", "must": true,
+            "text": "계속 커지는 값으로 나눠야 한다면 해시 샤딩으로 쓰기를 여러 샤드에 고르게 퍼뜨린다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Hashed Sharding", "url": "https://www.mongodb.com/docs/manual/core/hashed-sharding/", "where": "Hashed Sharding" } },
+          { "id": "db.sharding.alternative.2", "must": true,
+            "text": "해시 샤딩은 데이터를 고르게 퍼뜨리는 대신 가까운 키 값이 여러 샤드에 흩어져, 키 범위를 묻는 조회가 여러 샤드로 퍼진다는 점을 말한다",
+            "source": { "title": "MongoDB 매뉴얼: Hashed Sharding", "url": "https://www.mongodb.com/docs/manual/core/hashed-sharding/", "where": "Hashed Sharding" } },
+          { "id": "db.sharding.alternative.3", "must": false,
+            "text": "서버를 나누기 전에 한 서버 안에서 테이블을 범위·목록·해시로 나누는 내장 파티셔닝(예: PostgreSQL 선언적 파티셔닝)을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: 5.12 Table Partitioning", "url": "https://www.postgresql.org/docs/current/ddl-partitioning.html", "where": "5.12.1 Overview" } },
+          { "id": "db.sharding.alternative.4", "must": false,
+            "text": "샤드 키를 바꾸려면 데이터를 다시 나눠 옮겨야 해 비싸며, 그 기능의 지원 여부는 제품과 버전마다 다르다는 점을 말한다(예: MongoDB 5.0부터 reshardCollection)",
+            "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "페이지 첫머리의 Note (reshardCollection)" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.sharding.m1",
+          "claim": "샤드를 늘리면 모든 쿼리가 그만큼 빨라진다",
+          "fix": "샤드 키가 있는 조회만 해당 샤드로 바로 간다. 샤드 키가 없는 조회는 모든 샤드에 뿌려지므로 샤드를 늘려도 선형으로 빨라지지 않는다.",
+          "probe": "user_id로 샤딩한 주문 데이터에서 '어제 주문 전체 금액'을 구하는 쿼리는 샤드 10개 가운데 몇 개를 거쳐야 할까요?",
+          "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "Sharding Query Patterns" } },
+        { "id": "db.sharding.m2",
+          "claim": "생성 시각이나 자동 증가 ID는 값이 고유하니 범위 샤딩의 좋은 샤드 키다",
+          "fix": "계속 커지는 값을 범위 분할 키로 쓰면 새 쓰기가 모두 맨 끝 범위를 맡은 샤드 하나로 몰린다. 이런 키를 쓰려면 해시 샤딩을 고려한다. 고유성보다 쓰기와 조회가 고르게 퍼지는지가 중요하다.",
+          "probe": "created_at으로 범위 샤딩했다면 지금 막 들어오는 주문은 모두 어느 샤드로 갈까요?",
+          "source": { "title": "MongoDB 매뉴얼: Choose a Shard Key", "url": "https://www.mongodb.com/docs/manual/core/sharding-choose-a-shard-key/", "where": "Monotonically Changing Shard Keys" } },
+        { "id": "db.sharding.m3",
+          "claim": "파티션은 잘게 많이 나눌수록 좋다",
+          "fix": "파티션이 너무 많으면 쿼리 계획 시간이 길어지고 계획과 실행에 드는 메모리가 늘어난다. 많을수록 좋다거나 적을수록 좋다고 가정하지 말고 부하에 맞춰 정한다.",
+          "probe": "일 단위로 10년치 파티션 3,650개를 만들었다면 쿼리 계획 시간과 메모리는 어떻게 될까요?",
+          "source": { "title": "PostgreSQL 18 문서: 5.12 Table Partitioning", "url": "https://www.postgresql.org/docs/current/ddl-partitioning.html", "where": "5.12.6 Best Practices for Declarative Partitioning" } }
+      ],
+      "scenarios": [
+        { "id": "db.sharding.s1", "text": "로그 테이블이 수십억 행이 되어, 90일 지난 데이터를 매일 DELETE하는 배치가 몇 시간씩 걸린다.", "faces": ["rationale", "alternative"] },
+        { "id": "db.sharding.s2", "text": "주 DB 하나의 쓰기 처리량이 한계라 사용자 ID 기준으로 여러 DB에 나누려 한다. 운영자용 전체 검색 화면과 사용자 사이 송금 기능도 있다.", "faces": ["tradeoff", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "쓰기 확장성 대 조회·운영 복잡도", "a": "샤딩: 데이터와 쓰기를 여러 서버로 나눠 한 서버의 한계를 넘는다", "b": "샤드 키가 없는 조회와 샤드를 넘는 트랜잭션이 비싸지고, 여러 노드 관리와 재분배 같은 운영 부담이 생긴다" }
+      ]
+    },
+    {
+      "id": "db.pool",
+      "name": "커넥션 풀",
+      "kind": "operation",
+      "core": false,
+      "aliases": ["커넥션 풀", "connection pool", "HikariCP", "PgBouncer", "max_connections", "풀 크기", "DB 연결"],
+      "prereq": ["db.tx"],
+      "alt": [],
+      "summary": "커넥션 풀(connection pool)은 DB 연결을 미리 열어 두고 요청마다 빌려 쓰고 돌려받게 해, 연결 수립 비용을 아끼고 DB의 동시 연결 수를 제한한다. 운영에서는 풀 고갈(대기와 타임아웃), 연결 누수, DB 쪽 연결 한도가 주된 문제다.",
+      "faces": {
+        "observe": [
+          { "id": "db.pool.observe.1", "must": true,
+            "text": "풀 지표(사용 중·유휴·전체 연결 수, 연결을 기다리는 스레드 수, 연결을 얻기까지 기다린 시간)를 보고 풀이 고갈되는지 판단한다는 점을 말한다(예: HikariCP의 ActiveConnections, PendingConnections, Wait)",
+            "source": { "title": "HikariCP Wiki: Dropwizard Metrics", "url": "https://github.com/brettwooldridge/HikariCP/wiki/Dropwizard-Metrics", "where": "본문 (지표 목록)" } },
+          { "id": "db.pool.observe.2", "must": true,
+            "text": "풀이 가득 차 빈 연결이 없으면 연결 요청이 정해진 시간까지 기다리다 예외를 던지므로(예: HikariCP connectionTimeout), 연결 획득 시간 초과 오류가 늘면 풀 고갈의 신호라는 점을 말한다",
+            "source": { "title": "HikariCP README: Configuration", "url": "https://github.com/brettwooldridge/HikariCP", "where": "connectionTimeout, maximumPoolSize" } },
+          { "id": "db.pool.observe.3", "must": false,
+            "text": "연결이 정해진 시간 넘게 풀 밖에 머물면 누수 가능성을 로그로 남기게 해(예: HikariCP leakDetectionThreshold) 연결 누수를 찾는다는 점을 말한다",
+            "source": { "title": "HikariCP README: Configuration", "url": "https://github.com/brettwooldridge/HikariCP", "where": "leakDetectionThreshold" } },
+          { "id": "db.pool.observe.4", "must": false,
+            "text": "DB 쪽 세션 목록에서 트랜잭션을 연 채 아무 쿼리도 하지 않는 연결을 찾는다는 점을 말한다(예: PostgreSQL pg_stat_activity의 state = 'idle in transaction')",
+            "source": { "title": "PostgreSQL 18 문서: 27.2 The Cumulative Statistics System", "url": "https://www.postgresql.org/docs/current/monitoring-stats.html", "where": "27.2.3 pg_stat_activity" } },
+          { "id": "db.pool.observe.5", "must": false,
+            "text": "DB의 최대 연결 수(예: PostgreSQL max_connections) 대비 현재 연결 수를 본다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Connections and Authentication", "url": "https://www.postgresql.org/docs/current/runtime-config-connection.html", "where": "max_connections" } }
+        ],
+        "recover": [
+          { "id": "db.pool.recover.1", "must": true,
+            "text": "트랜잭션을 연 채 연결과 락을 붙잡고 있는 세션을 찾아 끊는다는 점을 말한다(예: PostgreSQL pg_terminate_backend, MySQL KILL)",
+            "source": { "title": "PostgreSQL 18 문서: System Administration Functions", "url": "https://www.postgresql.org/docs/current/functions-admin.html", "where": "Server Signaling Functions (Table 9.96)" } },
+          { "id": "db.pool.recover.2", "must": true,
+            "text": "연결이 DB 한도에 막혀도 관리자용으로 남겨 둔 연결 슬롯(예: PostgreSQL superuser_reserved_connections)으로 접속해 조치할 수 있다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Connections and Authentication", "url": "https://www.postgresql.org/docs/current/runtime-config-connection.html", "where": "superuser_reserved_connections" } }
+        ],
+        "prevent": [
+          { "id": "db.pool.prevent.1", "must": true,
+            "text": "풀 크기는 크게가 아니라 코어 수 기반 공식(예: 코어 수 × 2 + 디스크 수)을 출발점으로 작게 잡고, 실제와 비슷한 부하 시험으로 조정한다는 점을 말한다",
+            "source": { "title": "HikariCP Wiki: About Pool Sizing", "url": "https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing", "where": "The Formula" } },
+          { "id": "db.pool.prevent.2", "must": true,
+            "text": "트랜잭션을 연 채 쉬는 세션을 자동으로 끊는 시간 제한(예: PostgreSQL idle_in_transaction_session_timeout)을 두어 락과 연결을 오래 쥐지 못하게 한다는 점을 말한다",
+            "source": { "title": "PostgreSQL 18 문서: Client Connection Defaults", "url": "https://www.postgresql.org/docs/current/runtime-config-client.html", "where": "idle_in_transaction_session_timeout" } },
+          { "id": "db.pool.prevent.3", "must": false,
+            "text": "한 스레드가 연결을 동시에 여러 개 잡는 코드는 풀이 바닥나 스레드끼리 서로 기다리는 풀 교착(pool-locking)을 부를 수 있다는 점을 말한다",
+            "source": { "title": "HikariCP Wiki: About Pool Sizing", "url": "https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing", "where": "Pool-locking" } },
+          { "id": "db.pool.prevent.4", "must": false,
+            "text": "풀의 연결 최대 수명을 DB나 네트워크 장비가 강제하는 연결 시간 한도보다 몇 초 짧게 둔다는 점을 말한다(예: HikariCP maxLifetime)",
+            "source": { "title": "HikariCP README: Configuration", "url": "https://github.com/brettwooldridge/HikariCP", "where": "maxLifetime" } },
+          { "id": "db.pool.prevent.5", "must": false,
+            "text": "외부 풀러의 트랜잭션 단위 풀링(예: PgBouncer transaction pooling)은 트랜잭션 동안만 서버 연결을 배정하므로 SET, LISTEN, 세션 수준 권고 락처럼 세션 상태에 기대는 기능을 쓸 수 없다는 점을 말한다",
+            "source": { "title": "PgBouncer 문서: Features", "url": "https://www.pgbouncer.org/features.html", "where": "Pooling modes, SQL feature map for pooling modes" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.pool.m1",
+          "claim": "풀 크기는 늘릴수록 처리량이 계속 좋아진다",
+          "fix": "동시 연결이 DB가 실제로 병렬 처리할 수 있는 양(코어 수와 I/O 대기에 따라 정해짐)을 넘으면 경합과 문맥 전환으로 처리량이 떨어진다. 늘릴수록 좋은 것이 아니라 최적점이 있다.",
+          "probe": "CPU 8코어 DB에 애플리케이션 서버 20대가 각각 연결 100개짜리 풀을 잡으면 DB에서는 무슨 일이 일어날까요?",
+          "source": { "title": "HikariCP Wiki: About Pool Sizing", "url": "https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing", "where": "본문 (But why?), The Formula" } },
+        { "id": "db.pool.m2",
+          "claim": "PgBouncer를 트랜잭션 모드로 두어도 애플리케이션은 아무것도 바꿀 필요가 없다",
+          "fix": "트랜잭션 풀링은 설계상 클라이언트가 기대하는 서버 상태를 깨뜨린다. SET, LISTEN, 세션 수준 권고 락 같은 기능은 이 모드에서 쓸 수 없다.",
+          "probe": "세션에서 SET search_path를 실행한 뒤 다음 트랜잭션이 다른 서버 연결에 배정되면, 그 설정은 남아 있을까요?",
+          "source": { "title": "PgBouncer 문서: Features", "url": "https://www.pgbouncer.org/features.html", "where": "Pooling modes, SQL feature map for pooling modes" } }
+      ],
+      "scenarios": [
+        { "id": "db.pool.s1", "text": "트래픽이 늘자 'Connection is not available, request timed out after 30000ms' 오류가 쏟아지는데 DB CPU는 20%다.", "faces": ["observe", "recover"] },
+        { "id": "db.pool.s2", "text": "외부 결제 API를 호출하는 동안 DB 트랜잭션과 연결을 열어 두는 코드가 있다.", "faces": ["observe", "prevent"] }
+      ],
+      "tradeoffs": [
+        { "axis": "풀 크기", "a": "크게: 대기가 줄 것 같지만 DB가 병렬로 처리할 수 있는 양을 넘으면 경합과 문맥 전환으로 오히려 느려진다", "b": "작게: DB가 감당할 만큼으로 동시성을 제한하지만 연결을 오래 쥐는 코드가 있으면 대기와 타임아웃이 늘어난다" }
+      ]
+    },
+    {
+      "id": "db.nplus1",
+      "name": "N+1 쿼리 문제",
+      "kind": "operation",
+      "core": false,
+      "aliases": ["N+1", "N+1 문제", "지연 로딩", "lazy loading", "fetch join", "즉시 로딩", "eager loading", "ORM"],
+      "prereq": [],
+      "alt": [],
+      "summary": "N+1 쿼리 문제는 목록을 가져오는 쿼리 1번 뒤에 각 항목의 연관 데이터를 가져오는 쿼리가 N번 더 나가는 현상이다. ORM의 지연 로딩(lazy loading)에서 흔히 생기며, 조인이나 묶음 조회로 쿼리 수를 줄인다.",
+      "faces": {
+        "observe": [
+          { "id": "db.nplus1.observe.1", "must": true,
+            "text": "책 10권을 가져와 각 저자를 출력하면 책 1번과 저자 10번, 모두 11번의 쿼리가 나가는 것처럼, 목록 크기에 비례해 쿼리 수가 늘어나는 모양으로 알아챈다는 점을 말한다",
+            "source": { "title": "Rails Guides: Active Record Query Interface", "url": "https://guides.rubyonrails.org/active_record_querying.html", "where": "N + 1 Queries Problem" } },
+          { "id": "db.nplus1.observe.2", "must": true,
+            "text": "ORM이 실제로 낸 SQL과 그 수를 로그나 통계로 확인한다는 점을 말한다(예: Django connection.queries, Hibernate statistics)",
+            "source": { "title": "Django 6.1 문서: Database access optimization", "url": "https://docs.djangoproject.com/en/stable/topics/db/optimization/", "where": "Use raw SQL" } }
+        ],
+        "recover": [
+          { "id": "db.nplus1.recover.1", "must": true,
+            "text": "연관 데이터를 조인으로 한 번에 가져오는 것(예: Hibernate join fetch, Django select_related)이 N+1의 근본적인 해결이라는 점을 말한다",
+            "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "8.6 Join fetch" } },
+          { "id": "db.nplus1.recover.2", "must": true,
+            "text": "다대다나 일대다 관계는 관계마다 IN 조건 같은 추가 쿼리 한 번으로 묶어 가져온다는 점을 말한다(예: Django prefetch_related)",
+            "source": { "title": "Django 6.1 문서: QuerySet API reference", "url": "https://docs.djangoproject.com/en/stable/ref/models/querysets/", "where": "prefetch_related()" } },
+          { "id": "db.nplus1.recover.3", "must": false,
+            "text": "배치 페치(batch fetching)는 지연 로딩을 여러 건씩 묶어 쿼리 수를 줄이지만 N+1을 완화할 뿐 없애지는 못한다는 점을 말한다",
+            "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "8.5 Batch fetching and subselect fetching" } }
+        ],
+        "prevent": [
+          { "id": "db.nplus1.prevent.1", "must": true,
+            "text": "연관은 기본적으로 지연 로딩으로 매핑하고, 필요한 쿼리에서만 명시적으로 함께 가져온다는 점을 말한다",
+            "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "8.6 Join fetch" } },
+          { "id": "db.nplus1.prevent.2", "must": true,
+            "text": "테스트에서 실행된 쿼리 수를 단언해(예: Django assertNumQueries) 쿼리 수가 늘어나면 테스트가 실패하게 한다는 점을 말한다",
+            "source": { "title": "Django 6.1 문서: Testing tools", "url": "https://docs.djangoproject.com/en/stable/topics/testing/tools/", "where": "TransactionTestCase.assertNumQueries()" } },
+          { "id": "db.nplus1.prevent.3", "must": false,
+            "text": "지연 로딩을 시도하면 예외를 내게 하는 설정(예: Rails strict_loading)으로 놓친 N+1을 개발 중에 드러낸다는 점을 말한다",
+            "source": { "title": "Rails Guides: Active Record Query Interface", "url": "https://guides.rubyonrails.org/active_record_querying.html", "where": "strict_loading" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "db.nplus1.m1",
+          "claim": "연관을 즉시 로딩(EAGER)으로 매핑해 두면 다른 문제 없이 N+1 문제가 해결된다",
+          "fix": "매핑을 즉시 로딩으로 바꾸면 그 연관이 필요 없는 조회에서도 매번 함께 가져오게 된다. Hibernate 문서는 연관을 기본적으로 지연 로딩으로 두고, 필요한 곳의 쿼리에서 조인으로 가져오라고 권한다.",
+          "probe": "주문 목록 API 때문에 Order와 Customer 관계를 EAGER로 바꿨다면, 고객 정보가 전혀 필요 없는 주문 통계 쿼리에서는 어떤 일이 생길까요?",
+          "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "8.6 Join fetch" } },
+        { "id": "db.nplus1.m2",
+          "claim": "배치 크기(batch size)만 설정하면 N+1은 완전히 사라진다",
+          "fix": "배치 페치는 지연 로딩 쿼리를 여러 건씩 묶어 횟수를 줄일 뿐, 항목 수에 비례해 쿼리가 늘어나는 구조는 그대로다. 근본 해결은 조인으로 함께 가져오는 것이다.",
+          "probe": "batch size를 100으로 두고 주문 1만 건의 고객을 지연 로딩하면 쿼리는 몇 번 나갈까요?",
+          "source": { "title": "Hibernate ORM 7.1 Introduction", "url": "https://docs.hibernate.org/orm/7.1/introduction/html_single/Hibernate_Introduction.html", "where": "8.5 Batch fetching and subselect fetching" } }
+      ],
+      "scenarios": [
+        { "id": "db.nplus1.s1", "text": "게시글 목록 API에서 글 50개를 보여 주는데, DB 쿼리 로그에는 요청 한 번에 SELECT가 51번 찍힌다.", "faces": ["observe", "recover"] },
+        { "id": "db.nplus1.s2", "text": "코드 리뷰에서 템플릿의 반복문 안에서 post.author.name을 읽는 코드를 발견했다. 다음에도 이런 실수를 자동으로 잡고 싶다.", "faces": ["prevent"] }
+      ],
+      "tradeoffs": [
+        { "axis": "조인 한 번 대 관계별 추가 쿼리", "a": "조인(select_related, join fetch): 쿼리 한 번이지만 다(many) 쪽 관계를 조인하면 결과 행이 크게 불어난다", "b": "관계별 추가 쿼리(prefetch_related, preload): 쿼리가 몇 번 늘지만 결과가 불어나지 않고 다대다 관계도 다룬다" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+[package]
+name = "kari-edit"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+kari-doc = { path = "../doc" }
+kari-layout = { path = "../layout" }
+# 글자 수(사람이 보는 글자)와 찾기의 자소 묶음 경계. parley가 이미 쓰는 판과 기능이라 새로 빌드되는 것은 없다.
+icu_segmenter = { version = "2.4", default-features = false, features = ["compiled_data"] }

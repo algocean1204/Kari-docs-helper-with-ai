@@ -1,0 +1,11 @@
+name: 그 밖
+description: 버그나 기능 제안이 아닌 것
+title: "[기타]: "
+labels: ["untriaged"]
+body:
+  - type: textarea
+    id: body
+    attributes:
+      label: 내용
+    validations:
+      required: true

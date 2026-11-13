@@ -1,0 +1,30 @@
+[package]
+name = "kari-ffi"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "kari"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kari-doc = { path = "../doc" }
+kari-store = { path = "../store" }
+kari-layout = { path = "../layout" }
+kari-edit = { path = "../edit" }
+kari-render = { path = "../render" }
+kari-pdf = { path = "../pdf" }
+kari-docx = { path = "../docx" }
+kari-ai = { path = "../ai" }
+kari-interview = { path = "../interview" }
+
+[features]
+# 시험용 길: `ai.testBase`(가짜 서버 주소)와 메모리 키 보관. 앱에 싣는 기본 빌드에는 없다.
+test-hooks = []
+
+[dev-dependencies]
+# 시험에서 다른 연결로 DB 쓰기 잠금을 잡아 커밋이 디스크를 기다리게 만든다. kari-store와 같은 판이다.
+rusqlite = { version = "0.42", features = ["bundled"] }
+# 가짜 HTTP 서버(app/engine/ai/tests/common)를 같이 쓴다.
+serde_json = "1"

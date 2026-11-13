@@ -1,0 +1,35 @@
+name: kari
+description: "Kari(카리): 이력서·포트폴리오 작성과 면접 준비 앱의 Flutter 셸."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 엔진(engine/ffi)과 C 문자열을 주고받는다.
+  ffi: ^2.1.4
+  # hook/build.dart가 엔진의 동적 라이브러리를 빌드해 앱에 싣는다.
+  code_assets: ^1.0.0
+  hooks: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # 실제 앱을 띄워 모는 시험(integration_test/). Flutter SDK에 들어 있다.
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  # 글꼴은 assets/fonts를 Rust 엔진과 같이 쓴다.
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Pretendard-Bold.ttf
+          weight: 700

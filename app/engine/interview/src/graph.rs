@@ -1,0 +1,590 @@
+//! 그래프 실행기: 노드, 분기, 단계마다 저장, 사람 답을 기다리며 멈춤.
+//!
+//! 노드는 `(상태) → 다음`인 함수이고 다음은 `가기(노드)`, `기다림`, `끝` 가운데 하나다. 실행기는 노드 하나를
+//! 돌릴 때마다 상태를 저장 함수에 넘긴다. 상태에는 다음에 돌 노드가 들어 있어, 다시 시작하면 그 노드부터 돈다.
+//! 노드가 실패하면 상태를 그 노드 앞(마지막 저장 지점)으로 되돌리고 오류를 돌려준다. 다시 돌면 그 노드만 다시 돈다.
+//!
+//! 노드: prepare → pick → ask → wait → grade → score → pick … → finish. 힌트는 wait → hint → wait.
+
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+
+use crate::ask::{self, Asked};
+use crate::extract;
+use crate::grade::{self, Verdict};
+use crate::pack::{Concept, Face, Pack};
+use crate::pick::{self, Facts, Intent, Phase, QType, Status, TypeCtx};
+use crate::plan::{self, PlanIn};
+use crate::report;
+use crate::score;
+use crate::state::{ClaimCache, FaceRun, Prepared, Session, Slot, Target, Turn};
+use crate::{Error, Model};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Node {
+    /// 공고 분해, 주장 뽑기(바뀐 문단만), 계획
+    Prepare,
+    /// 다음 질문의 의도, 대상, 유형(코드)
+    Pick,
+    /// 질문 만들기(모델)
+    Ask,
+    /// 사람의 답을 기다린다(실행기가 멈춘다)
+    Wait,
+    /// 채점(모델 + 코드)
+    Grade,
+    /// 면 점수와 상태, 다음 자리(코드)
+    Score,
+    /// 힌트 만들기(모델)
+    Hint,
+    /// 증거와 리포트(코드)
+    Finish,
+    /// 끝
+    Done,
+}
+
+/// 노드가 돌려주는 다음.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Next {
+    Go(Node),
+    Wait,
+    End,
+}
+
+/// 기다림이나 끝까지 돈다. 노드 하나를 돌릴 때마다 `save`를 부른다.
+pub fn run(
+    s: &mut Session,
+    pack: &Pack,
+    model: &mut Model,
+    save: &mut dyn FnMut(&Session) -> Result<(), String>,
+) -> Result<(), Error> {
+    loop {
+        let node = s.node;
+        if matches!(node, Node::Wait | Node::Done) {
+            return Ok(());
+        }
+        let before = s.clone();
+        let next = match step(node, s, pack, model) {
+            Ok(n) => n,
+            Err(e) => {
+                *s = before;
+                return Err(e);
+            }
+        };
+        s.node = match next {
+            Next::Go(n) => n,
+            Next::Wait => Node::Wait,
+            Next::End => Node::Done,
+        };
+        save(s).map_err(Error::Save)?;
+    }
+}
+
+fn step(node: Node, s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Error> {
+    match node {
+        Node::Prepare => prepare(s, pack, model),
+        Node::Pick => pick_node(s, pack),
+        Node::Ask => ask_node(s, pack, model),
+        Node::Grade => grade_node(s, pack, model),
+        Node::Score => score_node(s, pack),
+        Node::Hint => hint_node(s, pack, model),
+        Node::Finish => {
+            s.evidence = s
+                .faces
+                .iter()
+                .filter_map(|r| score::evidence(&r.concept, r.face, r.status, s.created))
+                .collect();
+            s.report = Some(report::build(s, pack));
+            s.next = None;
+            s.target = None;
+            Ok(Next::End)
+        }
+        Node::Wait => Ok(Next::Wait),
+        Node::Done => Ok(Next::End),
+    }
+}
+
+fn concept<'a>(pack: &'a Pack, id: &str) -> Result<&'a Concept, Error> {
+    pack.concept(id)
+        .ok_or_else(|| Error::Invalid(format!("팩에 없는 개념입니다: {id}")))
+}
+
+/// 모델을 부르는 동안 `calls`를 빌려 쓴다(상태의 다른 칸을 읽으면서 기록하려고).
+fn with_calls<T>(
+    s: &mut Session,
+    f: impl FnOnce(&Session, &mut Vec<crate::CallLog>) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let mut calls = std::mem::take(&mut s.calls);
+    let out = f(s, &mut calls);
+    s.calls = calls;
+    out
+}
+
+/// 한 단계에 모델 호출 하나: 공고 분해 → 주장 뽑기 → 계획.
+fn prepare(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Error> {
+    if let Some(text) = s.prep.posting.clone() {
+        let p = extract::posting(model, &text, pack, &mut s.calls)?;
+        let mut plain = p.clone();
+        for i in &mut plain.items {
+            i.quote = s.mask.restore(&i.quote);
+        }
+        s.out.get_or_insert_with(Prepared::default).posting = Some(plain);
+        s.posting_parsed = Some(p);
+        s.prep.posting = None;
+        return Ok(Next::Go(Node::Prepare));
+    }
+    if !s.prep.paras.is_empty() {
+        let new = extract::claims(model, &s.prep.paras, pack, &mut s.calls)?;
+        s.claims.extend(new);
+        s.prep.paras.clear();
+        let plain = s
+            .claims
+            .iter()
+            .map(|c| extract::Claim {
+                quote: s.mask.restore(&c.quote),
+                ..c.clone()
+            })
+            .collect();
+        s.out.get_or_insert_with(Prepared::default).claims = Some(ClaimCache {
+            paras: s.prep.seen.clone(),
+            claims: plain,
+        });
+        return Ok(Next::Go(Node::Prepare));
+    }
+    s.plan = plan::plan(&PlanIn {
+        pack,
+        years: s.years,
+        minutes: s.minutes,
+        claims: &s.claims,
+        posting: s.posting_parsed.as_ref(),
+        weak: &s.prep.weak,
+        recent: &s.prep.recent,
+    });
+    s.prep = Default::default();
+    let Some(first) = s.plan.first() else {
+        return Ok(Next::Go(Node::Finish));
+    };
+    s.cursor = 0;
+    s.next = Some(Slot {
+        concept: 0,
+        face: first.faces[first.start],
+        phase: Phase::First,
+        intent: Intent::Switch,
+    });
+    Ok(Next::Go(Node::Pick))
+}
+
+fn run_index(s: &Session, concept: &str, face: Face) -> Option<usize> {
+    s.faces
+        .iter()
+        .position(|r| r.concept == concept && r.face == face)
+}
+
+/// 면이 끝난 뒤의 자리: 확인됨이면 더 높은 안 물은 면(올림), 아니면 더 낮은 안 물은 면(내림), 없으면 다음 개념.
+fn route(s: &Session, idx: usize, face: Face, status: Status) -> Option<Slot> {
+    let planned = &s.plan[idx];
+    let pos = planned.faces.iter().position(|f| *f == face)?;
+    let unasked = |f: &&Face| run_index(s, &planned.concept, **f).is_none();
+    let (found, intent) = if status == Status::Confirmed {
+        (planned.faces[pos + 1..].iter().find(unasked), Intent::Raise)
+    } else {
+        (
+            planned.faces[..pos].iter().rev().find(unasked),
+            Intent::Lower,
+        )
+    };
+    found.map(|f| Slot {
+        concept: idx,
+        face: *f,
+        phase: Phase::First,
+        intent,
+    })
+}
+
+fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
+    // 새 질문을 내기 전에 예산과 질문 수 상한(분 × 2)을 본다.
+    if s.elapsed_ms() >= s.budget_ms() || s.turns.len() >= (s.minutes * 2) as usize {
+        return Ok(Next::Go(Node::Finish));
+    }
+    if s.cope_pending {
+        s.cope_pending = false;
+        s.cope_used = true;
+        s.target = Some(Target {
+            concept: s.cursor,
+            face: None,
+            phase: None,
+            kind: QType::Cope,
+            intent: Intent::Keep,
+            material: None,
+            missing: None,
+        });
+        return Ok(Next::Go(Node::Ask));
+    }
+    let slot = match s.next.take() {
+        Some(slot) => slot,
+        None => {
+            let idx = s.cursor + 1;
+            let Some(p) = s.plan.get(idx) else {
+                return Ok(Next::Go(Node::Finish));
+            };
+            Slot {
+                concept: idx,
+                face: p.faces[p.start],
+                phase: Phase::First,
+                intent: Intent::Switch,
+            }
+        }
+    };
+    s.cursor = slot.concept;
+    let id = s.plan[slot.concept].concept.clone();
+    let c = concept(pack, &id)?;
+    let face = slot.face;
+    let last = s
+        .turns
+        .iter()
+        .rev()
+        .find(|t| t.concept == id && t.face == Some(face));
+    let graded = last.and_then(|t| t.graded.as_ref());
+    let probing = slot.phase == Phase::Probe;
+    let conflict = graded
+        .and_then(|g| g.conflict.clone())
+        .filter(|_| probing && !s.conflict_used);
+    let caught = graded
+        .and_then(|g| g.misconceptions.first())
+        .and_then(|m| c.misconceptions.iter().find(|x| x.id == m.id))
+        .filter(|m| probing && !m.probe.trim().is_empty());
+    let used = |t: QType| {
+        s.turns
+            .iter()
+            .any(|x| x.concept == id && x.face == Some(face) && x.kind == t)
+    };
+    let count = |t: QType| s.turns.iter().filter(|x| x.kind == t).count();
+    let ctx = TypeCtx {
+        pressure: s.pressure,
+        scenario: c.scenarios.iter().any(|x| x.faces.contains(&face)),
+        tradeoff: !c.tradeoffs.is_empty(),
+        claim: s.claims.iter().any(|x| x.concepts.contains(&id)),
+        conflict: conflict.is_some(),
+        probe: caught.is_some(),
+        used: &used,
+        count: &count,
+    };
+    let Some(kind) = pick::choose(slot.phase, slot.intent, &ctx) else {
+        // 낼 수 있는 유형이 없다: 그 면은 지금 상태로 끝난다(정해지지 않았으면 실패).
+        if let Some(i) = run_index(s, &id, face) {
+            if s.faces[i].status == Status::Pending {
+                s.faces[i].status = Status::Failed;
+            }
+            let st = s.faces[i].status;
+            s.next = route(s, slot.concept, face, st);
+        }
+        return Ok(Next::Go(Node::Pick));
+    };
+    let material = match kind {
+        QType::Scenario => match (probing, caught) {
+            (true, Some(m)) => Some(m.probe.clone()),
+            _ => c
+                .scenarios
+                .iter()
+                .find(|x| x.faces.contains(&face))
+                .map(|x| x.text.clone()),
+        },
+        QType::Tradeoff => c
+            .tradeoffs
+            .first()
+            .map(|t| format!("{}: {} / {}", t.axis, t.a, t.b)),
+        QType::Conflict => conflict.map(|x| {
+            format!(
+                "앞선 답(턴 {}): «{}» / 이번 답: «{}»",
+                x.turn, x.before, x.now
+            )
+        }),
+        _ => None,
+    };
+    let missing = (kind == QType::Hint)
+        .then(|| missing_checkpoint(s, c, face))
+        .flatten();
+    if kind == QType::Conflict {
+        s.conflict_used = true;
+    }
+    s.target = Some(Target {
+        concept: slot.concept,
+        face: Some(face),
+        phase: Some(slot.phase),
+        kind,
+        intent: slot.intent,
+        material,
+        missing,
+    });
+    Ok(Next::Go(Node::Ask))
+}
+
+/// 아직 met이 아닌 첫 체크포인트의 글(힌트의 재료). 필수를 먼저 본다.
+fn missing_checkpoint(s: &Session, c: &Concept, face: Face) -> Option<String> {
+    let run = run_index(s, &c.id, face).map(|i| &s.faces[i]);
+    let missing =
+        |cp: &&crate::pack::Checkpoint| run.and_then(|r| r.best.get(&cp.id)) != Some(&Verdict::Met);
+    let cps = c.checkpoints(face);
+    cps.iter()
+        .filter(|cp| cp.must)
+        .find(missing)
+        .or_else(|| cps.iter().find(missing))
+        .map(|cp| cp.text.clone())
+}
+
+/// 질문 프롬프트의 자료. 체크포인트의 글은 넣지 않는다(힌트의 `missing`만 예외).
+/// 실제 서버에서 고친 것(10a, 10c): 이력서 인용은 그 개념을 여는 질문과 본인 기여 질문에만 준다(주면 모든 질문이
+/// "이력서에 …라고 쓰셨는데"로 시작했다). 앞서 낸 질문 목록은 따로 주지 않는다(같은 개념의 질문은 history에 있고,
+/// 반복은 코드가 모든 질문과 견주어 막는다).
+fn ask_data(s: &Session, c: &Concept, t: &Target) -> Value {
+    let history: Vec<Value> = s
+        .turns
+        .iter()
+        .filter(|x| x.concept == c.id)
+        .map(|x| json!({"question": x.question, "answer": x.answer, "skipped": x.skipped}))
+        .collect();
+    let opens = matches!(t.kind, QType::Switch | QType::Contribution);
+    let claims: Vec<&str> = s
+        .claims
+        .iter()
+        .filter(|x| opens && x.concepts.contains(&c.id))
+        .map(|x| x.quote.as_str())
+        .collect();
+    json!({
+        "intent": t.intent,
+        "concept": {"name": c.name, "summary": c.summary},
+        "face": t.face.map(Face::ko),
+        "type": t.kind.as_str(),
+        "pressure": s.pressure,
+        "history": history,
+        "claims": claims,
+        "material": t.material,
+        "missing": t.missing,
+    })
+}
+
+fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Error> {
+    let t = s
+        .target
+        .clone()
+        .ok_or_else(|| Error::Invalid("만들 질문이 없습니다.".into()))?;
+    let id = s.plan[t.concept].concept.clone();
+    let c = concept(pack, &id)?;
+    let asked = with_calls(s, |s, calls| {
+        let data = ask_data(s, c, &t);
+        let before: Vec<&str> = s.turns.iter().map(|x| x.question.as_str()).collect();
+        ask::ask(model, "ask", &data, &before, calls)
+    })?;
+    s.target = None;
+    let q = match asked {
+        Asked::Question(q) => q,
+        Asked::Repeat => {
+            // 두 번 모두 앞의 질문과 같았다: 모를 때 대처면 건너뛰고, 그 밖은 다음 개념으로 간다.
+            if t.kind != QType::Cope {
+                s.next = None;
+            }
+            return Ok(Next::Go(Node::Pick));
+        }
+    };
+    if let (Some(face), Some(phase)) = (t.face, t.phase) {
+        let i = match run_index(s, &id, face) {
+            Some(i) => i,
+            None => {
+                s.faces.push(FaceRun {
+                    concept: id.clone(),
+                    face,
+                    status: Status::Pending,
+                    best: Default::default(),
+                    caught: Vec::new(),
+                    probed: false,
+                    followed: false,
+                });
+                s.faces.len() - 1
+            }
+        };
+        match phase {
+            Phase::Follow => s.faces[i].followed = true,
+            Phase::Probe => s.faces[i].probed = true,
+            _ => {}
+        }
+    }
+    s.turns.push(Turn {
+        n: s.turns.len() as u32 + 1,
+        concept: id,
+        face: t.face,
+        phase: t.phase,
+        kind: t.kind,
+        intent: t.intent,
+        question: q,
+        hint: None,
+        answer: None,
+        skipped: false,
+        graded: None,
+        feedback: None,
+    });
+    Ok(Next::Wait)
+}
+
+fn grade_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Error> {
+    let i = s
+        .turns
+        .len()
+        .checked_sub(1)
+        .ok_or_else(|| Error::Invalid("채점할 답이 없습니다.".into()))?;
+    let (Some(face), Some(answer)) = (s.turns[i].face, s.turns[i].answer.clone()) else {
+        return Ok(Next::Go(Node::Score));
+    };
+    let c = concept(pack, &s.turns[i].concept)?;
+    let cps: Vec<(&str, &str)> = c
+        .checkpoints(face)
+        .iter()
+        .map(|cp| (cp.id.as_str(), cp.text.as_str()))
+        .collect();
+    let mis: Vec<(&str, &str)> = c
+        .misconceptions
+        .iter()
+        .map(|m| (m.id.as_str(), m.claim.as_str()))
+        .collect();
+    let g = with_calls(s, |s, calls| {
+        // 모순을 찾으려고 앞선 답을 모두 준다. 다른 개념의 답 사이의 모순도 잡아야 해서, 턴마다 늘어나는 입력 비용보다 앞선다.
+        // 한계: 최대 30턴 × 4,000자까지 늘어난다, 프롬프트가 한도에 닿으면 오래된 답부터 요약한다
+        let previous: Vec<(u32, &str)> = s.turns[..i]
+            .iter()
+            .filter_map(|t| Some((t.n, t.answer.as_deref()?)))
+            .collect();
+        let inp = grade::Input {
+            question: &s.turns[i].question,
+            answer: &answer,
+            checkpoints: &cps,
+            misconceptions: &mis,
+            previous: &previous,
+        };
+        grade::grade(model, &inp, calls)
+    })?;
+    s.quote_fail += g.quote_fail;
+    s.turns[i].graded = Some(g);
+    Ok(Next::Go(Node::Score))
+}
+
+fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
+    let Some(t) = s.turns.last().cloned() else {
+        return Ok(Next::Go(Node::Pick));
+    };
+    let (Some(face), Some(phase)) = (t.face, t.phase) else {
+        // 모를 때 대처 질문은 채점하지 않는다. 다음 자리는 그 앞에서 정해 두었다.
+        return Ok(Next::Go(Node::Pick));
+    };
+    let idx = s
+        .plan
+        .iter()
+        .position(|p| p.concept == t.concept)
+        .ok_or_else(|| Error::Invalid("계획에 없는 개념입니다.".into()))?;
+    let ri = run_index(s, &t.concept, face)
+        .ok_or_else(|| Error::Invalid("묻지 않은 면입니다.".into()))?;
+    let c = concept(pack, &t.concept)?;
+    let ids: Vec<&str> = c
+        .checkpoints(face)
+        .iter()
+        .map(|cp| cp.id.as_str())
+        .collect();
+    // 면의 점수는 필수 체크포인트로만 낸다.
+    let musts: Vec<&str> = c
+        .checkpoints(face)
+        .iter()
+        .filter(|cp| cp.must)
+        .map(|cp| cp.id.as_str())
+        .collect();
+    let run = &mut s.faces[ri];
+    let facts = match (&t.graded, t.skipped) {
+        (_, true) => Facts {
+            skipped: true,
+            ..Facts::default()
+        },
+        (None, false) => return Err(Error::Invalid("채점하지 않은 답입니다.".into())),
+        (Some(g), false) => {
+            let before = run.best.clone();
+            let turn_v = |id: &str| g.checks.iter().find(|x| x.id == id).map(|x| x.verdict);
+            for id in &ids {
+                if let Some(v) = turn_v(id) {
+                    run.best
+                        .insert(id.to_string(), score::merge(before.get(*id).copied(), v));
+                }
+            }
+            for m in &g.misconceptions {
+                if !run.caught.contains(&m.id) {
+                    run.caught.push(m.id.clone());
+                }
+            }
+            // 그 턴에 새로 met이 된 체크포인트(필수든 아니든).
+            let new_met = ids.iter().any(|id| {
+                turn_v(id) == Some(Verdict::Met) && before.get(*id) != Some(&Verdict::Met)
+            });
+            Facts {
+                skipped: false,
+                turn_score: score::face_score(musts.iter().copied(), turn_v),
+                face_score: score::face_score(musts.iter().copied(), |id| {
+                    run.best.get(id).copied()
+                }),
+                new_met,
+                contra: g.checks.iter().any(|x| x.verdict == Verdict::Contra)
+                    || g.conflict.is_some(),
+                misconception: !g.misconceptions.is_empty(),
+                hinted: t.hint.is_some(),
+                open_contra: run.best.values().any(|v| *v == Verdict::Contra),
+                probed: run.probed,
+                followed: run.followed,
+            }
+        }
+    };
+    let d = pick::decide(phase, run.status, &facts);
+    run.status = d.status;
+    let met = musts
+        .iter()
+        .filter(|id| run.best.get(**id) == Some(&Verdict::Met))
+        .count();
+    if s.pressure == crate::Pressure::Coaching && !t.skipped {
+        let last = s.turns.len() - 1;
+        s.turns[last].feedback = Some(format!("핵심 {}개 중 {met}개를 짚었습니다.", musts.len()));
+    }
+    if t.skipped && !s.cope_used {
+        s.cope_pending = true;
+    }
+    s.next = match d.next {
+        Some(p) => Some(Slot {
+            concept: idx,
+            face,
+            phase: p,
+            intent: Intent::Keep,
+        }),
+        None => route(s, idx, face, d.status),
+    };
+    Ok(Next::Go(Node::Pick))
+}
+
+fn hint_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Error> {
+    let Some(t) = s.turns.last().cloned() else {
+        return Ok(Next::Wait);
+    };
+    let Some(face) = t.face else {
+        return Ok(Next::Wait);
+    };
+    let c = concept(pack, &t.concept)?;
+    let target = Target {
+        concept: s.cursor,
+        face: Some(face),
+        phase: t.phase,
+        kind: QType::Hint,
+        intent: Intent::Keep,
+        material: Some(t.question.clone()),
+        missing: missing_checkpoint(s, c, face),
+    };
+    let got = with_calls(s, |s, calls| {
+        ask::ask(model, "hint", &ask_data(s, c, &target), &[], calls)
+    })?;
+    if let Asked::Question(h) = got {
+        if let Some(last) = s.turns.last_mut() {
+            last.hint = Some(h);
+        }
+    }
+    Ok(Next::Wait)
+}

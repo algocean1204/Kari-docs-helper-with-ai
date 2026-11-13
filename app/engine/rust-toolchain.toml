@@ -1,0 +1,4 @@
+# CI와 개발 기기가 같은 판으로 검사하게 고정한다. 올릴 때는 이 값만 바꾼다.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

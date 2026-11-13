@@ -1,0 +1,18 @@
+[package]
+name = "kari-docx"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+kari-doc = { path = "../doc" }
+kari-layout = { path = "../layout" }
+# 꾸러미(zip)의 압축과 검사 값. kari-pdf(krilla, png)가 이미 쓰는 판이라 새로 빌드되는 것은 없다.
+miniz_oxide = "0.9"
+crc32fast = { version = "1", default-features = false }
+
+[dev-dependencies]
+# 같은 견본의 PDF를 나란히 보려고 쓴다(작업 공간 안의 크레이트).
+kari-pdf = { path = "../pdf" }
+# 시험 그림(PNG, JPEG)을 만든다. kari-pdf의 시험과 같은 판, 같은 기능이라 새로 빌드되는 것은 없다.
+skia-safe = { version = "0.157", default-features = false, features = ["binary-cache", "pdf"] }

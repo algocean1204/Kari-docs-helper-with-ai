@@ -1,0 +1,1121 @@
+{
+  "area": "os",
+  "concepts": [
+    {
+      "id": "os.thread",
+      "name": "프로세스와 스레드",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": [
+        "프로세스",
+        "스레드",
+        "멀티스레드",
+        "멀티프로세스",
+        "process",
+        "thread",
+        "PCB",
+        "TCB"
+      ],
+      "prereq": [],
+      "alt": [
+        "os.io"
+      ],
+      "summary": "프로세스는 따로 떨어진 주소 공간과 자원을 가진 실행 단위이고, 스레드는 한 프로세스 안에서 주소 공간을 함께 쓰며 따로 스케줄되는 실행 흐름이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.thread.principle.1",
+            "must": true,
+            "text": "같은 프로세스의 스레드들은 전역 메모리(데이터·힙 영역)와 열린 파일 디스크립터를 함께 쓴다는 점을 말한다",
+            "source": {
+              "title": "Linux man-pages: pthreads(7)",
+              "url": "https://man7.org/linux/man-pages/man7/pthreads.7.html",
+              "where": "DESCRIPTION"
+            }
+          },
+          {
+            "id": "os.thread.principle.2",
+            "must": true,
+            "text": "스레드마다 자기 스택과 레지스터(프로그램 카운터 포함)를 따로 가진다는 점을 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26장 도입부(스레드 상태와 스택)"
+            }
+          },
+          {
+            "id": "os.thread.principle.3",
+            "must": true,
+            "text": "프로세스끼리는 메모리 공간이 분리되어 있어, 한 프로세스가 바꾼 변수가 다른 프로세스에 보이지 않는다고 설명한다",
+            "source": {
+              "title": "Linux man-pages: fork(2)",
+              "url": "https://man7.org/linux/man-pages/man2/fork.2.html",
+              "where": "DESCRIPTION"
+            }
+          },
+          {
+            "id": "os.thread.principle.4",
+            "must": false,
+            "text": "같은 프로세스의 스레드 사이 전환은 주소 공간(페이지 테이블)을 바꾸지 않아 프로세스 사이 전환보다 가볍다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26장 도입부(TCB와 스레드 간 전환)"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "os.thread.limit.1",
+            "must": true,
+            "text": "스레드들이 메모리를 함께 쓰므로 공유 데이터를 동기화 없이 고치면 경쟁 상태(race condition)가 생긴다는 점을 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.3 Why It Gets Worse: Shared Data; 26.4"
+            }
+          },
+          {
+            "id": "os.thread.limit.2",
+            "must": true,
+            "text": "한 스레드가 받은 치명적 시그널(예: 잘못된 메모리 접근의 SIGSEGV)은 기본 동작으로 프로세스 전체를 끝내 다른 스레드도 함께 끝난다는 점을 말한다(언어 런타임의 잡히지 않은 예외는 그 스레드만 끝낼 수도 있다)",
+            "source": {
+              "title": "Linux man-pages: signal(7)",
+              "url": "https://man7.org/linux/man-pages/man7/signal.7.html",
+              "where": "Signal dispositions(Term·Core 기본 동작, 처리 방식은 프로세스 단위)"
+            }
+          },
+          {
+            "id": "os.thread.limit.3",
+            "must": false,
+            "text": "OS 스레드는 하나마다 메모리와 전환 비용이 들어, 연결마다 스레드를 두는 방식은 동시 연결이 아주 많을 때 한계에 닿는다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Why should I avoid blocking the Event Loop and the Worker Pool?"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.thread.alternative.1",
+            "must": true,
+            "text": "데이터를 거의 함께 쓰지 않는 논리적으로 분리된 작업은 스레드보다 프로세스로 나누는 편이 알맞다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.1 Why Use Threads?"
+            }
+          },
+          {
+            "id": "os.thread.alternative.2",
+            "must": true,
+            "text": "I/O 대기가 대부분인 연결이 많으면 적은 수의 스레드로 이벤트 루프를 돌려 스레드의 메모리·전환 비용을 줄일 수 있다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Why should I avoid blocking the Event Loop and the Worker Pool?"
+            }
+          },
+          {
+            "id": "os.thread.alternative.3",
+            "must": false,
+            "text": "OS 스레드에 묶이지 않고 런타임이 스케줄하는 가벼운 실행 단위(예: Java 가상 스레드, Go 고루틴)로 대기가 많은 작업을 아주 많이 둘 수 있고, CPU 집약 작업을 빠르게 하지는 않는다고 말한다",
+            "source": {
+              "title": "Oracle Java SE 21 Core Libraries: Virtual Threads",
+              "url": "https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html",
+              "where": "What Is a Virtual Thread?; Why Use Virtual Threads?"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.thread.m1",
+          "claim": "SIGSEGV 같은 치명적 시그널로 한 스레드가 죽어도 같은 프로세스의 다른 스레드는 계속 돈다",
+          "fix": "시그널 처리 방식은 프로세스 단위다. 잘못된 메모리 접근으로 생긴 SIGSEGV의 기본 동작은 프로세스 전체 종료라서 다른 스레드도 함께 끝난다. (Java·Python 같은 언어에서 잡히지 않은 예외는 그 스레드만 끝낼 수 있는데, 이것은 시그널과 다른 경우다.)",
+          "probe": "C로 짠 서버에서 요청을 처리하던 스레드 하나가 널 포인터를 역참조해 SIGSEGV를 받으면, 같은 프로세스에서 처리 중이던 다른 요청들은 어떻게 될까요?",
+          "source": {
+            "title": "Linux man-pages: signal(7)",
+            "url": "https://man7.org/linux/man-pages/man7/signal.7.html",
+            "where": "Signal dispositions"
+          }
+        },
+        {
+          "id": "os.thread.m2",
+          "claim": "fork한 뒤에도 부모와 자식 프로세스는 같은 변수를 함께 본다",
+          "fix": "fork 뒤 두 프로세스는 따로 떨어진 메모리 공간에서 돈다. 리눅스는 쓰기 시 복사로 구현하지만, 한쪽의 쓰기는 다른 쪽에 보이지 않는다.",
+          "probe": "부모가 fork한 뒤 자식이 전역 카운터를 1 올리면, 부모가 읽는 카운터 값도 바뀔까요?",
+          "source": {
+            "title": "Linux man-pages: fork(2)",
+            "url": "https://man7.org/linux/man-pages/man2/fork.2.html",
+            "where": "DESCRIPTION, NOTES"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.thread.s1",
+          "text": "웹 서버가 요청마다 OS 스레드를 하나씩 만들어 처리하는데, 동시 접속이 수만으로 늘자 메모리가 부족해지고 응답이 느려졌다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        },
+        {
+          "id": "os.thread.s2",
+          "text": "가끔 메모리 오류로 죽는 C 이미지 변환 라이브러리를 API 서버 프로세스 안의 스레드에서 돌리고 있어, 변환이 죽을 때마다 API 전체가 내려간다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "격리 대 공유의 쉬움",
+          "a": "프로세스: 메모리가 분리되어 한쪽 장애가 다른 쪽을 덜 끌고 가지만, 데이터를 주고받으려면 별도 통신(IPC)이 필요하다",
+          "b": "스레드: 주소 공간을 함께 써 데이터를 주고받기 쉽고 전환이 가볍지만, 동기화가 필요하고 치명적 오류가 프로세스 전체를 끝낼 수 있다"
+        }
+      ]
+    },
+    {
+      "id": "os.context",
+      "name": "컨텍스트 스위칭의 비용",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": [
+        "컨텍스트 스위칭",
+        "문맥 교환",
+        "컨텍스트 스위치",
+        "context switch",
+        "context switching"
+      ],
+      "prereq": [
+        "os.thread"
+      ],
+      "alt": [
+        "os.io"
+      ],
+      "summary": "CPU에서 도는 프로세스나 스레드를 바꿀 때 지금 것의 레지스터 상태를 저장하고 다음 것을 복원하는 일과, 그로 인해 생기는 직접·간접 비용이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.context.principle.1",
+            "must": true,
+            "text": "컨텍스트 스위치는 지금 도는 것의 레지스터(프로그램 카운터, 스택 포인터 포함)를 저장하고 다음 것의 값을 복원하는 일이라고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 6장 Mechanism: Limited Direct Execution",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf",
+              "where": "6.3 Problem #2: Switching Between Processes — Saving and Restoring Context"
+            }
+          },
+          {
+            "id": "os.context.principle.2",
+            "must": false,
+            "text": "운영체제가 시스템 호출이나 타이머 인터럽트로 제어권을 되찾은 뒤 스케줄러가 전환 여부를 정한다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 6장 Mechanism: Limited Direct Execution",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-mechanisms.pdf",
+              "where": "6.3 Problem #2: Switching Between Processes — Saving and Restoring Context"
+            }
+          },
+          {
+            "id": "os.context.principle.3",
+            "must": true,
+            "text": "같은 프로세스의 스레드 사이 전환은 주소 공간(페이지 테이블)을 바꾸지 않는다는 점에서 프로세스 사이 전환과 다르다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26장 도입부(TCB와 스레드 간 전환)"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "os.context.limit.1",
+            "must": true,
+            "text": "비용은 레지스터 저장·복원만이 아니라, CPU 캐시·TLB·분기 예측기에 쌓인 상태가 밀려나 다시 채워지는 간접 비용이 크다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 7장 Scheduling: Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf",
+              "where": "7.7 Round Robin"
+            }
+          },
+          {
+            "id": "os.context.limit.2",
+            "must": true,
+            "text": "전환이 너무 잦으면(예: 타임 슬라이스가 너무 짧으면) 전환 비용이 전체 성능을 좌우하게 된다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 7장 Scheduling: Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf",
+              "where": "7.7 Round Robin(TIP: Amortization Can Reduce Costs)"
+            }
+          },
+          {
+            "id": "os.context.limit.3",
+            "must": false,
+            "text": "프로세스 사이 전환에서 TLB를 비우면(주소 공간 식별자 같은 하드웨어 지원이 없을 때) 새로 도는 프로세스가 TLB 미스를 겪는다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 19장 Paging: Faster Translations (TLBs)",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/vm-tlbs.pdf",
+              "where": "19.5 TLB Issue: Context Switches"
+            }
+          },
+          {
+            "id": "os.context.limit.4",
+            "must": false,
+            "text": "스레드가 돌 때마다 다른 CPU로 옮겨지면 캐시에 쌓인 상태를 다시 채워야 해서 느려진다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 10장 Multiprocessor Scheduling",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched-multi.pdf",
+              "where": "10.3 One Final Issue: Cache Affinity"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.context.alternative.1",
+            "must": true,
+            "text": "적은 수의 스레드로 이벤트 루프를 돌려 많은 연결을 처리하면 스레드의 메모리·전환 비용을 줄일 수 있다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Why should I avoid blocking the Event Loop and the Worker Pool?"
+            }
+          },
+          {
+            "id": "os.context.alternative.2",
+            "must": true,
+            "text": "동시에 도는 스레드 수를 제한하면(예: 크기를 정한 스레드 풀) 전환 비용이 줄지만, 너무 적으면 처리량이 떨어질 수 있다고 말한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Queuing — Bounded queues"
+            }
+          },
+          {
+            "id": "os.context.alternative.3",
+            "must": false,
+            "text": "스레드를 특정 CPU에 묶어(CPU 친화도, affinity) CPU를 옮겨 다니며 생기는 캐시 무효화 비용을 피할 수 있다고 말한다",
+            "source": {
+              "title": "Linux man-pages: sched_setaffinity(2)",
+              "url": "https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html",
+              "where": "DESCRIPTION"
+            }
+          }
+        ],
+        "verify": [
+          {
+            "id": "os.context.verify.1",
+            "must": false,
+            "text": "프로세스의 자발적·비자발적 전환 횟수를 운영체제 통계로 확인한다고 말한다(예: 리눅스 /proc/[pid]/status의 voluntary_ctxt_switches)",
+            "source": {
+              "title": "Linux man-pages: proc_pid_status(5)",
+              "url": "https://man7.org/linux/man-pages/man5/proc_pid_status.5.html",
+              "where": "voluntary_ctxt_switches, nonvoluntary_ctxt_switches"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.context.m1",
+          "claim": "컨텍스트 스위칭 비용은 레지스터 몇 개를 저장하고 복원하는 시간뿐이다",
+          "fix": "돌던 작업이 CPU 캐시·TLB·분기 예측기에 쌓아 둔 상태가 밀려나고, 다음 작업은 그것을 다시 채워야 한다. 이 간접 비용이 클 수 있다.",
+          "probe": "같은 일을 하는 스레드를 코어 수의 50배로 늘렸더니 전환 횟수와 함께 캐시 미스도 크게 늘었다면, 전환 비용을 어디까지 세어야 할까요?",
+          "source": {
+            "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 7장 Scheduling: Introduction",
+            "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/cpu-sched.pdf",
+            "where": "7.7 Round Robin"
+          }
+        },
+        {
+          "id": "os.context.m2",
+          "claim": "스레드 사이 전환과 프로세스 사이 전환은 비용이 같다",
+          "fix": "같은 프로세스의 스레드 사이 전환은 주소 공간을 바꾸지 않는다. 프로세스 사이 전환은 주소 공간이 바뀌어, 주소 공간 식별자 같은 지원이 없으면 TLB를 비우고 새 프로세스가 TLB 미스를 겪는다.",
+          "probe": "두 프로세스를 번갈아 돌릴 때와 한 프로세스의 두 스레드를 번갈아 돌릴 때, 전환 직후의 메모리 접근에서 무엇이 달라질까요?",
+          "source": {
+            "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 19장 Paging: Faster Translations (TLBs)",
+            "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/vm-tlbs.pdf",
+            "where": "19.5 TLB Issue: Context Switches"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.context.s1",
+          "text": "8코어 서버에서 CPU 집약 작업을 스레드 400개로 나눠 돌렸더니, 스레드를 늘리기 전보다 처리량이 오히려 떨어졌다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "응답성 대 전환 비용(타임 슬라이스 길이)",
+          "a": "짧은 타임 슬라이스: 응답 시간이 좋아지지만 전환이 잦아 전환 비용의 비중이 커진다",
+          "b": "긴 타임 슬라이스: 전환 비용이 상각되지만 응답성이 떨어진다"
+        }
+      ]
+    },
+    {
+      "id": "os.sync",
+      "name": "뮤텍스, 세마포어, 경쟁 상태",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": [
+        "뮤텍스",
+        "세마포어",
+        "경쟁 상태",
+        "임계 구역",
+        "mutex",
+        "semaphore",
+        "race condition",
+        "lock"
+      ],
+      "prereq": [
+        "os.thread"
+      ],
+      "alt": [],
+      "summary": "여러 스레드가 공유 자원을 동시에 고칠 때 결과가 실행 순서에 따라 달라지는 경쟁 상태와, 이를 막는 뮤텍스·세마포어 같은 동기화 도구다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.sync.principle.1",
+            "must": true,
+            "text": "경쟁 상태는 결과가 코드 실행의 타이밍에 달려 실행할 때마다 결과가 달라질 수 있는 상태라고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.4 The Heart Of The Problem: Uncontrolled Scheduling"
+            }
+          },
+          {
+            "id": "os.sync.principle.2",
+            "must": true,
+            "text": "counter = counter + 1 같은 한 줄도 읽기·더하기·쓰기 여러 명령으로 나뉘어, 그 사이에 다른 스레드로 바뀌면 갱신이 사라진다고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.4 The Heart Of The Problem: Uncontrolled Scheduling"
+            }
+          },
+          {
+            "id": "os.sync.principle.3",
+            "must": true,
+            "text": "뮤텍스(락)는 한 번에 한 스레드만 임계 구역에 들어가게 하는 상호 배제 도구라고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 28장 Locks",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf",
+              "where": "28.1 Locks: The Basic Idea"
+            }
+          },
+          {
+            "id": "os.sync.principle.4",
+            "must": false,
+            "text": "세마포어는 정수 카운터로, wait는 값을 줄이고 쓸 수 있는 몫이 없으면 기다리며, post는 값을 늘리고 기다리는 스레드를 깨운다고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 31장 Semaphores",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf",
+              "where": "31.1 Semaphores: A Definition"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "os.sync.limit.1",
+            "must": true,
+            "text": "큰 자료구조 전체를 락 하나로 감싸면 스레드들이 그 락을 두고 경합해 코어를 늘려도 빨라지지 않는다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 29장 Lock-based Concurrent Data Structures",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks-usage.pdf",
+              "where": "29.4 Concurrent Hash Table"
+            }
+          },
+          {
+            "id": "os.sync.limit.2",
+            "must": true,
+            "text": "락을 기다리며 스핀하면 CPU를 낭비하며, 특히 CPU가 하나일 때 락을 쥔 스레드가 선점되면 다른 스레드들이 타임 슬라이스 내내 헛돈다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 28장 Locks",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf",
+              "where": "28.8 Evaluating Spin Locks"
+            }
+          },
+          {
+            "id": "os.sync.limit.3",
+            "must": false,
+            "text": "단순한 스핀 락은 공정성을 보장하지 않아 기다리는 스레드가 굶을(starvation) 수 있다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 28장 Locks",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf",
+              "where": "28.8 Evaluating Spin Locks"
+            }
+          },
+          {
+            "id": "os.sync.limit.4",
+            "must": false,
+            "text": "POSIX 기본 뮤텍스는 잠근 스레드가 풀어야 하며 다른 스레드가 풀면 동작이 정의되지 않는다고 말한다(Go의 sync.Mutex처럼 소유자를 따지지 않는 구현도 있다)",
+            "source": {
+              "title": "Linux man-pages: pthread_mutex_lock(3p)",
+              "url": "https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html",
+              "where": "DESCRIPTION(Unlock When Not Owner 표)"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.sync.alternative.1",
+            "must": true,
+            "text": "세마포어를 최대 동시 실행 수로 초기화해 어떤 구간에 동시에 들어가는 스레드 수를 제한한다(throttling)고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 31장 Semaphores",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf",
+              "where": "31.7 Thread Throttling"
+            }
+          },
+          {
+            "id": "os.sync.alternative.2",
+            "must": true,
+            "text": "비교 후 교환(compare-and-swap) 같은 원자적 명령으로 락 없이 공유 값을 갱신할 수 있다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Prevention: Mutual Exclusion"
+            }
+          },
+          {
+            "id": "os.sync.alternative.3",
+            "must": true,
+            "text": "락을 잘게 나눠(예: 해시 버킷마다 락 하나) 서로 다른 부분을 고치는 스레드끼리 경합하지 않게 한다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 29장 Lock-based Concurrent Data Structures",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks-usage.pdf",
+              "where": "29.4 Concurrent Hash Table"
+            }
+          },
+          {
+            "id": "os.sync.alternative.4",
+            "must": false,
+            "text": "잠깐 스핀하다가 락을 못 얻으면 잠드는 2단계 락(two-phase lock)으로 스핀 낭비와 잠들기 비용을 절충한다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 28장 Locks",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf",
+              "where": "28.16 Two-Phase Locks"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.sync.m1",
+          "claim": "여러 스레드가 같은 변수를 고칠 때도 count++처럼 한 줄짜리 연산은 원자적이라 락이 필요 없다",
+          "fix": "count++는 메모리에서 읽기, 더하기, 메모리에 쓰기 여러 명령으로 실행된다. 그 사이에 다른 스레드로 바뀌면 두 증가 가운데 하나가 사라진다. (언어가 따로 원자적 연산을 제공하는 경우는 그 연산을 써야 한다.)",
+          "probe": "두 스레드가 같은 카운터를 각각 100만 번 ++하면, 최종 값은 언제나 200만일까요?",
+          "source": {
+            "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+            "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+            "where": "26.4 The Heart Of The Problem: Uncontrolled Scheduling"
+          }
+        },
+        {
+          "id": "os.sync.m2",
+          "claim": "POSIX(pthread) 기본 뮤텍스는 잠그지 않은 다른 스레드가 풀어도 된다",
+          "fix": "pthread 기본 뮤텍스를 잠그지 않은 스레드가 풀면 동작이 정의되지 않고, 오류 검사 유형은 오류를 돌려준다. 스레드 사이 신호에는 세마포어나 조건 변수를 쓴다. (Go의 sync.Mutex처럼 다른 고루틴이 풀어도 되는 구현도 있다.)",
+          "probe": "C에서 스레드 A가 pthread 기본 뮤텍스를 잠그고 스레드 B가 작업 완료 신호로 그 뮤텍스를 풀도록 짰다면, 무슨 일이 생길 수 있을까요?",
+          "source": {
+            "title": "Linux man-pages: pthread_mutex_lock(3p)",
+            "url": "https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html",
+            "where": "DESCRIPTION(Unlock When Not Owner 표)"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.sync.s1",
+          "text": "재고 차감 코드가 '읽고, 0보다 큰지 확인하고, 1 빼서 쓰기'로 되어 있는데, 동시 주문이 몰리자 재고가 음수가 됐다.",
+          "faces": [
+            "principle",
+            "alternative"
+          ]
+        },
+        {
+          "id": "os.sync.s2",
+          "text": "캐시 전체를 락 하나로 감쌌더니, 코어를 8개에서 32개로 늘려도 처리량이 거의 그대로다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "스핀 대 잠들기",
+          "a": "스핀: 락이 곧 풀리면 문맥 전환 없이 빨리 얻지만, 오래 기다리면 CPU를 낭비한다",
+          "b": "잠들기: 기다리는 동안 CPU를 쓰지 않지만, 잠들고 깨는 비용이 든다"
+        },
+        {
+          "axis": "락의 크기",
+          "a": "굵은 락: 단순하고 실수가 적지만 경합으로 병렬성이 떨어진다",
+          "b": "잘게 나눈 락: 병렬성이 높지만 설계가 복잡하고 교착 위험이 커진다"
+        }
+      ]
+    },
+    {
+      "id": "os.deadlock",
+      "name": "교착 상태의 조건과 회피",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": [
+        "교착 상태",
+        "데드락",
+        "deadlock",
+        "락 순서",
+        "lock ordering",
+        "라이브락",
+        "livelock"
+      ],
+      "prereq": [
+        "os.sync"
+      ],
+      "alt": [],
+      "summary": "둘 이상의 스레드가 서로 상대가 쥔 자원을 기다리며 아무도 나아가지 못하는 상태로, 네 조건이 모두 성립할 때 생기며 예방·회피·탐지와 복구로 다룬다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.deadlock.principle.1",
+            "must": true,
+            "text": "상호 배제, 점유 대기(hold-and-wait), 비선점, 순환 대기의 네 조건이 모두 성립해야 교착이 생긴다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Conditions for Deadlock"
+            }
+          },
+          {
+            "id": "os.deadlock.principle.2",
+            "must": false,
+            "text": "락 순서가 엇갈린 코드라도 교착은 매번 생기지 않고, 특정 시점에 전환이 겹칠 때만 생긴다고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs(Figure 32.6 Simple Deadlock 설명)"
+            }
+          },
+          {
+            "id": "os.deadlock.principle.3",
+            "must": true,
+            "text": "누가 무엇을 쥐고 무엇을 기다리는지 그린 의존 그래프에 순환이 있으면 교착이라고 설명한다(락처럼 자원이 하나씩일 때)",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs(Figure 32.7 The Deadlock Dependency Graph)"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "os.deadlock.limit.1",
+            "must": true,
+            "text": "큰 코드에서는 모듈 사이 의존이 복잡하고 캡슐화 때문에 호출자가 안에서 어떤 락을 어떤 순서로 잡는지 알기 어려워 교착을 피하기 어렵다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Why Do Deadlocks Occur?"
+            }
+          },
+          {
+            "id": "os.deadlock.limit.2",
+            "must": true,
+            "text": "trylock으로 물러났다가 다시 시도하는 방식은 서로 계속 실패하며 진행하지 못하는 라이브락(livelock)을 낳을 수 있다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Prevention: No Preemption"
+            }
+          },
+          {
+            "id": "os.deadlock.limit.3",
+            "must": false,
+            "text": "필요한 락을 처음에 한꺼번에 잡는 방식은 실제로 필요할 때보다 일찍 잡게 되어 동시성을 떨어뜨린다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Prevention: Hold-and-wait"
+            }
+          },
+          {
+            "id": "os.deadlock.limit.4",
+            "must": false,
+            "text": "은행원 알고리즘 같은 스케줄링 기반 회피는 모든 작업과 그 작업이 잡을 락을 미리 알아야 해서 범용으로 쓰기 어렵다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Deadlock Avoidance via Scheduling"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.deadlock.alternative.1",
+            "must": true,
+            "text": "모든 코드가 락을 같은 전체(또는 부분) 순서로 잡게 해 순환 대기를 없앤다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Prevention: Circular Wait"
+            }
+          },
+          {
+            "id": "os.deadlock.alternative.2",
+            "must": true,
+            "text": "교착이 드물다면 허용하되, 주기적으로 대기 그래프의 순환을 찾아 한쪽을 되돌리는 탐지·복구 방식을 쓸 수 있다(많은 DB가 쓴다)고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — Detect and Recover"
+            }
+          },
+          {
+            "id": "os.deadlock.alternative.3",
+            "must": false,
+            "text": "두 락을 인자로 받는 함수는 락의 주소처럼 호출 순서와 무관한 기준으로 잡는 순서를 정한다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+              "where": "32.3 Deadlock Bugs — TIP: Enforce Lock Ordering By Lock Address"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.deadlock.m1",
+          "claim": "테스트에서 교착이 한 번도 나지 않았으면 그 코드에는 교착 위험이 없다",
+          "fix": "교착은 특정한 실행 순서가 겹칠 때만 생긴다. 서로 반대 순서로 락을 잡는 코드는 대부분 멀쩡히 돌다가 운 나쁜 시점에 전환이 일어나면 멈춘다.",
+          "probe": "스레드 1은 L1 다음 L2, 스레드 2는 L2 다음 L1 순서로 잡는 코드가 테스트 1,000번에서 멀쩡했다면, 운영에서도 안전할까요?",
+          "source": {
+            "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+            "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+            "where": "32.3 Deadlock Bugs(Figure 32.6 Simple Deadlock 설명)"
+          }
+        },
+        {
+          "id": "os.deadlock.m2",
+          "claim": "trylock으로 실패하면 놓고 다시 시도하게 하면 진행 문제가 모두 사라진다",
+          "fix": "교착은 피하지만, 두 스레드가 같은 시도를 반복하며 계속 서로 실패하는 라이브락이 생길 수 있다. 다시 시도하기 전에 무작위 지연을 두어 확률을 줄인다.",
+          "probe": "두 스레드가 반대 순서로 lock과 trylock을 반복하며 매번 실패하고 있다면, 이것은 교착인가요, 진행 중인가요?",
+          "source": {
+            "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 32장 Common Concurrency Problems",
+            "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf",
+            "where": "32.3 Deadlock Bugs — Prevention: No Preemption"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.deadlock.s1",
+          "text": "송금 함수 transfer(a, b)가 a 계좌의 락을 잡고 b 계좌의 락을 잡는데, A→B와 B→A 송금이 동시에 들어오면 가끔 두 요청 모두 멈춘다.",
+          "faces": [
+            "principle",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "예방 대 탐지·복구",
+          "a": "예방(락 순서 등): 교착이 생기지 않지만 설계와 규칙을 지키는 부담이 크다",
+          "b": "탐지·복구: 평소 제약이 적지만, 교착이 생긴 뒤 찾아내고 되돌리는 비용이 든다"
+        }
+      ]
+    },
+    {
+      "id": "os.io",
+      "name": "블로킹·논블로킹 I/O와 이벤트 루프",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": [
+        "논블로킹 I/O",
+        "이벤트 루프",
+        "비동기 I/O",
+        "I/O 멀티플렉싱",
+        "epoll",
+        "select",
+        "non-blocking I/O",
+        "event loop"
+      ],
+      "prereq": [
+        "os.thread"
+      ],
+      "alt": [
+        "os.pool"
+      ],
+      "summary": "블로킹 I/O는 결과가 준비될 때까지 호출한 스레드를 멈추고, 논블로킹 I/O와 준비 알림(I/O 멀티플렉싱)을 쓰면 한 스레드의 이벤트 루프가 여러 연결을 번갈아 처리한다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.io.principle.1",
+            "must": true,
+            "text": "블로킹 호출을 한 스레드는 I/O가 끝날 때까지 멈추고, 그동안 스케줄러가 다른 스레드를 돌린다고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.1 Why Use Threads?"
+            }
+          },
+          {
+            "id": "os.io.principle.2",
+            "must": true,
+            "text": "논블로킹 모드의 디스크립터에서는 I/O 호출이 기다리지 않고 바로 돌아온다(준비가 안 됐으면 다시 하라는 결과를 준다)고 설명한다",
+            "source": {
+              "title": "Linux man-pages: open(2)",
+              "url": "https://man7.org/linux/man-pages/man2/open.2.html",
+              "where": "DESCRIPTION — O_NONBLOCK"
+            }
+          },
+          {
+            "id": "os.io.principle.3",
+            "must": true,
+            "text": "I/O 멀티플렉싱(예: epoll, select)은 여러 디스크립터 가운데 I/O가 가능한 것을 알려 주어 한 스레드가 여러 연결을 다루게 한다고 설명한다",
+            "source": {
+              "title": "Linux man-pages: epoll(7)",
+              "url": "https://man7.org/linux/man-pages/man7/epoll.7.html",
+              "where": "DESCRIPTION"
+            }
+          },
+          {
+            "id": "os.io.principle.4",
+            "must": false,
+            "text": "이벤트 루프는 이벤트를 기다렸다가 받은 이벤트를 하나씩 핸들러로 처리하며, 한 순간에는 한 핸들러만 돈다고 설명한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 33장 Event-based Concurrency",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-events.pdf",
+              "where": "33.1 The Basic Idea: An Event Loop"
+            }
+          },
+          {
+            "id": "os.io.principle.5",
+            "must": false,
+            "text": "비동기 I/O는 요청을 내고 바로 돌아온 뒤 완료를 따로 통지받는 방식으로, 호출이 기다리는지(블로킹·논블로킹)와는 다른 축이라고 구분한다",
+            "source": {
+              "title": "Linux man-pages: aio(7)",
+              "url": "https://man7.org/linux/man-pages/man7/aio.7.html",
+              "where": "DESCRIPTION"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "os.io.limit.1",
+            "must": true,
+            "text": "이벤트 핸들러가 블로킹 호출이나 오래 걸리는 계산을 하면 루프 전체가 멈춰 모든 클라이언트가 함께 기다린다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Why should I avoid blocking the Event Loop and the Worker Pool?"
+            }
+          },
+          {
+            "id": "os.io.limit.2",
+            "must": true,
+            "text": "여러 코어를 쓰려고 핸들러를 병렬로 돌리면 다시 임계 구역과 락 같은 동기화 문제가 생긴다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 33장 Event-based Concurrency",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-events.pdf",
+              "where": "33.8 What Is Still Difficult With Events"
+            }
+          },
+          {
+            "id": "os.io.limit.3",
+            "must": false,
+            "text": "일반 파일과 블록 장치에는 논블로킹 모드가 통하지 않아(예: 리눅스의 O_NONBLOCK) 장치 접근이 필요하면 읽기가 블록된다고 말한다",
+            "source": {
+              "title": "Linux man-pages: open(2)",
+              "url": "https://man7.org/linux/man-pages/man2/open.2.html",
+              "where": "DESCRIPTION — O_NONBLOCK"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.io.alternative.1",
+            "must": true,
+            "text": "오래 걸리는 계산은 이벤트 루프 밖의 작업자 풀(worker pool)로 넘긴다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Blocking the Event Loop — Offloading"
+            }
+          },
+          {
+            "id": "os.io.alternative.2",
+            "must": true,
+            "text": "논블로킹이 통하지 않는 파일 I/O는 비동기 I/O 인터페이스(예: io_uring, POSIX AIO)나 스레드 풀(예: Node.js의 libuv 스레드 풀)로 루프 밖에서 처리한다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 33장 Event-based Concurrency",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-events.pdf",
+              "where": "33.5 A Problem: Blocking System Calls; 33.6 A Solution: Asynchronous I/O"
+            }
+          },
+          {
+            "id": "os.io.alternative.3",
+            "must": false,
+            "text": "긴 계산을 잘게 나눠 중간중간 다른 이벤트에 차례를 넘기는 분할(partitioning)을 쓸 수 있다고 말한다",
+            "source": {
+              "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+              "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+              "where": "Blocking the Event Loop — Partitioning"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.io.m1",
+          "claim": "Node.js는 완전히 단일 스레드라서 모든 일이 한 스레드에서 돈다",
+          "fix": "자바스크립트 코드는 이벤트 루프에서 돌지만, 파일 시스템 API, dns.lookup, crypto.pbkdf2 같은 일부 crypto와 zlib는 libuv 스레드 풀(Worker Pool)에서 돈다.",
+          "probe": "Node.js에서 crypto.pbkdf2를 동시에 수십 건 호출하면, 그 계산은 어느 스레드에서 돌까요?",
+          "source": {
+            "title": "Node.js 문서: Don't Block the Event Loop (or the Worker Pool)",
+            "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop",
+            "where": "What code runs on the Worker Pool?"
+          }
+        },
+        {
+          "id": "os.io.m2",
+          "claim": "리눅스에서 O_NONBLOCK을 걸면 디스크 파일 읽기도 절대 블록되지 않는다",
+          "fix": "리눅스에서 O_NONBLOCK은 일반 파일과 블록 장치에 효과가 없다. 장치 접근이 필요하면 읽기가 블록된다.",
+          "probe": "이벤트 루프에서 O_NONBLOCK으로 연 큰 로그 파일을 read하는데 디스크가 느리다면, 루프는 멈출까요?",
+          "source": {
+            "title": "Linux man-pages: open(2)",
+            "url": "https://man7.org/linux/man-pages/man2/open.2.html",
+            "where": "DESCRIPTION — O_NONBLOCK"
+          }
+        },
+        {
+          "id": "os.io.m3",
+          "claim": "리눅스(glibc)에서 select로 원하는 만큼 많은 연결을 감시할 수 있다",
+          "fix": "리눅스(glibc)의 select는 FD_SETSIZE(1024)보다 작은 디스크립터 번호만 감시할 수 있고 이 제한은 바뀌지 않는다. 많은 연결에는 poll이나 epoll을 쓴다.",
+          "probe": "리눅스에서 디스크립터 번호가 2000인 소켓을 select로 감시하려 하면 어떻게 될까요?",
+          "source": {
+            "title": "Linux man-pages: select(2)",
+            "url": "https://man7.org/linux/man-pages/man2/select.2.html",
+            "where": "DESCRIPTION(WARNING)"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.io.s1",
+          "text": "Node.js API 서버에서 요청 하나가 수십 MB짜리 JSON을 동기로 파싱하는 동안, 다른 모든 요청의 응답 시간이 함께 튀었다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        },
+        {
+          "id": "os.io.s2",
+          "text": "연결 10만 개를 유지해야 하는 채팅 서버를 스레드당 연결 방식에서 다른 방식으로 바꾸려 한다.",
+          "faces": [
+            "principle",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "스레드당 요청 대 이벤트 루프",
+          "a": "스레드당 요청: 블로킹 코드를 그대로 쓸 수 있어 쓰기 쉽지만, 스레드마다 메모리와 전환 비용이 든다",
+          "b": "이벤트 루프: 적은 스레드로 많은 연결을 다루지만, 블로킹 호출 하나가 전체를 멈추고 상태 관리가 복잡해진다"
+        }
+      ]
+    },
+    {
+      "id": "os.pool",
+      "name": "스레드 풀과 백프레셔",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "스레드 풀",
+        "백프레셔",
+        "배압",
+        "작업 큐",
+        "thread pool",
+        "backpressure",
+        "worker pool"
+      ],
+      "prereq": [
+        "os.thread"
+      ],
+      "alt": [
+        "os.io"
+      ],
+      "summary": "정해진 수의 스레드를 재사용해 작업을 처리하고, 큐 한도와 거절 정책으로 처리 속도를 넘는 유입을 보낸 쪽으로 되밀어(백프레셔) 자원 고갈을 막는다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "os.pool.principle.1",
+            "must": true,
+            "text": "풀은 만들어 둔 스레드를 재사용하며, 스레드가 모두 바쁘면 새 작업은 작업 큐에서 기다린다고 설명한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Core and maximum pool sizes; Queuing"
+            }
+          },
+          {
+            "id": "os.pool.principle.2",
+            "must": true,
+            "text": "스레드 수와 큐가 모두 한도에 차면 새 작업은 거절 정책(예외, 버림, 제출자가 직접 실행 등)에 따라 처리된다고 설명한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Rejected tasks"
+            }
+          },
+          {
+            "id": "os.pool.principle.3",
+            "must": false,
+            "text": "구현에 따라 기본 수를 넘는 스레드는 큐가 가득 찼을 때만 생긴다고 말한다(예: Java ThreadPoolExecutor의 corePoolSize와 maximumPoolSize)",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Core and maximum pool sizes"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "os.pool.rationale.1",
+            "must": true,
+            "text": "작업마다 스레드를 만드는 비용을 줄이고, 작업들이 쓰는 스레드 같은 자원에 상한을 두려고 풀을 쓴다고 말한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "클래스 설명 첫 문단"
+            }
+          },
+          {
+            "id": "os.pool.rationale.2",
+            "must": true,
+            "text": "유입이 처리 속도보다 계속 빠르면 무제한 큐는 끝없이 자라 메모리와 대기 시간이 늘므로, 큐에 한도를 두어 과부하를 드러낸다고 말한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Queuing — Unbounded queues"
+            }
+          },
+          {
+            "id": "os.pool.rationale.3",
+            "must": true,
+            "text": "풀 크기는 작업 성격으로 정한다: CPU 집약 작업은 CPU 수 근처로, I/O 대기가 많은 작업은 대기 동안 다른 스레드가 CPU를 쓰도록 더 크게 둔다고 말한다",
+            "source": {
+              "title": "Arpaci-Dusseau, Operating Systems: Three Easy Pieces, 26장 Concurrency: An Introduction",
+              "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-intro.pdf",
+              "where": "26.1 Why Use Threads?"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "os.pool.tradeoff.1",
+            "must": true,
+            "text": "큐 크기와 풀 크기는 맞바꾸는 관계다: 큰 큐·작은 풀은 CPU·OS 자원·전환 비용을 줄이지만 처리량이 낮아질 수 있고, 작은 큐·큰 풀은 CPU를 바쁘게 하지만 스케줄링 오버헤드가 커진다고 말한다",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Queuing — Bounded queues"
+            }
+          },
+          {
+            "id": "os.pool.tradeoff.2",
+            "must": true,
+            "text": "한도에 차면 새 요청을 거절해, 일부 요청이 실패하는 대신 서버가 통째로 무너지지 않게 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Preventing Server Overload — Queue Management"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "os.pool.alternative.1",
+            "must": true,
+            "text": "포화되면 제출하는 쪽을 막거나 직접 실행하게 해 유입을 늦춘다고 말한다(예: Java의 CallerRunsPolicy, 크기를 정한 채널에 보내면 막히는 방식)",
+            "source": {
+              "title": "Java SE 21 API: ThreadPoolExecutor",
+              "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+              "where": "Rejected tasks — CallerRunsPolicy"
+            }
+          },
+          {
+            "id": "os.pool.alternative.2",
+            "must": true,
+            "text": "받는 쪽이 처리할 수 있는 양만 요청하게 해 받는 쪽이 무한히 버퍼링하지 않게 하는 백프레셔를 쓴다고 말한다(예: Reactive Streams의 request(n))",
+            "source": {
+              "title": "Reactive Streams for the JVM: README (명세)",
+              "url": "https://github.com/reactive-streams/reactive-streams-jvm/blob/master/README.md",
+              "where": "Goals, Design and Scope; 2. Subscriber 규칙 1"
+            }
+          },
+          {
+            "id": "os.pool.alternative.3",
+            "must": false,
+            "text": "가벼운 실행 단위(예: Java 가상 스레드)를 쓰면 풀에 넣지 않고 작업마다 하나씩 만들며, 동시 실행 수 제한은 세마포어로 한다고 말한다",
+            "source": {
+              "title": "Oracle Java SE 21 Core Libraries: Virtual Threads",
+              "url": "https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html",
+              "where": "Represent Every Concurrent Task as a Virtual Thread; Never Pool Virtual Threads"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "os.pool.m1",
+          "claim": "스레드 풀의 큐를 무제한으로 두면 요청을 하나도 잃지 않으니 가장 안전하다",
+          "fix": "유입이 평균적으로 처리 속도보다 빠르면 무제한 큐는 끝없이 자라 메모리를 먹고, 대기 시간이 길어져 결국 모든 요청이 늦어진다. 한도를 두고 넘치면 거절하거나 보낸 쪽을 늦춘다.",
+          "probe": "초당 1,000건을 처리하는 풀에 초당 1,200건이 30분 동안 들어오면, 무제한 큐와 응답 시간은 어떻게 될까요?",
+          "source": {
+            "title": "Java SE 21 API: ThreadPoolExecutor",
+            "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+            "where": "Queuing — Unbounded queues"
+          }
+        },
+        {
+          "id": "os.pool.m2",
+          "claim": "Java ThreadPoolExecutor에 용량을 정하지 않은 LinkedBlockingQueue를 쓰더라도 maximumPoolSize를 크게 하면 바쁠 때 스레드가 그만큼 늘어난다",
+          "fix": "이 구현에서는 core 스레드가 모두 바쁘면 새 작업이 큐에서 기다리고, 큐가 가득 찰 때만 core를 넘는 스레드가 생긴다. 무제한 큐는 가득 차지 않으므로 스레드는 corePoolSize를 넘지 않고 maximumPoolSize는 효과가 없다.",
+          "probe": "corePoolSize 4, maximumPoolSize 64, 용량을 정하지 않은 LinkedBlockingQueue로 만든 풀에 작업이 쏟아지면 스레드는 몇 개까지 늘까요?",
+          "source": {
+            "title": "Java SE 21 API: ThreadPoolExecutor",
+            "url": "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/ThreadPoolExecutor.html",
+            "where": "Core and maximum pool sizes; Queuing — Unbounded queues"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "os.pool.s1",
+          "text": "결제 서버에서 외부 카드사 호출을 처리하는 풀이 꽉 차서 큐에 작업이 수만 건 쌓였고, 응답 시간이 수십 초로 늘었다.",
+          "faces": [
+            "rationale",
+            "tradeoff",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "요청 보존 대 지연·메모리",
+          "a": "큰 큐: 순간적인 몰림을 흡수해 거절이 적지만, 대기 지연과 메모리가 늘고 과부하가 늦게 드러난다",
+          "b": "작은 큐와 빠른 거절: 지연이 짧게 유지되고 과부하가 바로 드러나지만, 몰릴 때 거절되는 요청이 생긴다"
+        }
+      ]
+    }
+  ]
+}

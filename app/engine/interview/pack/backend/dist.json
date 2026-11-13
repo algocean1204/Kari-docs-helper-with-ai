@@ -1,0 +1,1729 @@
+{
+  "area": "dist",
+  "concepts": [
+    {
+      "id": "dist.cap",
+      "name": "CAP 정리와 일관성 모델",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": [
+        "CAP",
+        "CAP 정리",
+        "일관성 모델",
+        "선형화 가능성",
+        "최종 일관성",
+        "linearizability",
+        "eventual consistency",
+        "PACELC"
+      ],
+      "prereq": [],
+      "alt": [],
+      "summary": "네트워크 분할이 일어나면 분산 시스템은 가용성과 선형화 가능한 일관성 가운데 하나를 줄여야 한다는 정리와, 그 바탕이 되는 강한·최종 일관성 같은 일관성 모델이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.cap.principle.1",
+            "must": true,
+            "text": "CAP의 선택은 네트워크 분할(partition)이 실제로 일어났을 때 일관성과 가용성 가운데 무엇을 줄일지의 문제라고 설명한다",
+            "source": {
+              "title": "Daniel Abadi, Consistency Tradeoffs in Modern Distributed Database System Design (IEEE Computer, 2012)",
+              "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf",
+              "where": "CAP IS FOR FAILURES"
+            }
+          },
+          {
+            "id": "dist.cap.principle.2",
+            "must": true,
+            "text": "CAP 증명(Gilbert·Lynch)이 말하는 일관성은 모든 연산이 한 순간에 하나씩 일어난 것처럼 보이는 원자적(선형화 가능) 일관성이라고 설명한다",
+            "source": {
+              "title": "Daniel Abadi, Consistency Tradeoffs in Modern Distributed Database System Design (IEEE Computer, 2012)",
+              "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf",
+              "where": "CAP IS FOR FAILURES(Gilbert·Lynch 정의 인용)"
+            }
+          },
+          {
+            "id": "dist.cap.principle.3",
+            "must": true,
+            "text": "최종 일관성(eventual consistency) 읽기는 막 끝난 쓰기를 반영하지 않을 수 있고, 시간이 조금 지나면 최신 값을 돌려준다고 설명한다",
+            "source": {
+              "title": "Amazon DynamoDB 개발자 안내서: DynamoDB read consistency",
+              "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html",
+              "where": "Eventually consistent reads"
+            }
+          },
+          {
+            "id": "dist.cap.principle.4",
+            "must": false,
+            "text": "선형화 가능성에서는 연산 A가 끝난 뒤 B가 시작했다면 B가 A 뒤에 효력을 낸 것처럼 보여야 한다(실시간 순서)고 설명한다",
+            "source": {
+              "title": "Jepsen: Consistency Models — Linearizability",
+              "url": "https://jepsen.io/consistency/models/linearizable",
+              "where": "Linearizability"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "dist.cap.limit.1",
+            "must": true,
+            "text": "분할이 없어도 데이터를 복제하는 순간 일관성과 지연 시간 사이의 저울질이 생긴다고 말한다(PACELC의 ELC)",
+            "source": {
+              "title": "Daniel Abadi, Consistency Tradeoffs in Modern Distributed Database System Design (IEEE Computer, 2012)",
+              "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf",
+              "where": "CONSISTENCY/LATENCY TRADEOFF; PACELC"
+            }
+          },
+          {
+            "id": "dist.cap.limit.2",
+            "must": true,
+            "text": "선형화 가능 모델은 분할이 일어나면 일부 또는 모든 노드가 진행하지 못한다(완전히 가용할 수 없다)고 말한다",
+            "source": {
+              "title": "Jepsen: Consistency Models — Linearizability",
+              "url": "https://jepsen.io/consistency/models/linearizable",
+              "where": "Linearizability(가용성 설명)"
+            }
+          },
+          {
+            "id": "dist.cap.limit.3",
+            "must": false,
+            "text": "일관성과 가용성의 선택은 시스템 전체에 한 번 정하는 이분법이 아니라 연산·데이터마다 다르게, 또 정도의 문제로 고를 수 있다고 말한다",
+            "source": {
+              "title": "Eric Brewer, CAP Twelve Years Later: How the \"Rules\" Have Changed (InfoQ)",
+              "url": "https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/",
+              "where": "Why \"2 of 3\" is misleading"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.cap.alternative.1",
+            "must": true,
+            "text": "분할 중 가용성을 택했다면 분할이 끝난 뒤 양쪽 상태를 맞추고, 깨진 불변식은 보상(compensation)으로 바로잡는다고 말한다",
+            "source": {
+              "title": "Eric Brewer, CAP Twelve Years Later: How the \"Rules\" Have Changed (InfoQ)",
+              "url": "https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/",
+              "where": "Partition recovery; Compensating for mistakes"
+            }
+          },
+          {
+            "id": "dist.cap.alternative.2",
+            "must": true,
+            "text": "연산마다 강한 일관성 읽기와 최종 일관성 읽기를 골라 쓸 수 있다고 말한다(예: DynamoDB의 ConsistentRead)",
+            "source": {
+              "title": "Amazon DynamoDB 개발자 안내서: DynamoDB read consistency",
+              "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html",
+              "where": "Strongly consistent reads"
+            }
+          },
+          {
+            "id": "dist.cap.alternative.3",
+            "must": false,
+            "text": "읽기·쓰기에 참여하는 복제본 수(R, W)를 조절해 일관성을 높이면 지연이 늘어나는 식으로 저울질을 설정할 수 있다고 말한다",
+            "source": {
+              "title": "Daniel Abadi, Consistency Tradeoffs in Modern Distributed Database System Design (IEEE Computer, 2012)",
+              "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf",
+              "where": "PACELC"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.cap.m1",
+          "claim": "분산 DB는 언제나 C, A, P 가운데 두 개만 가질 수 있어서 평소에도 하나는 포기하고 있다",
+          "fix": "CAP는 네트워크 분할이 실제로 일어났을 때 일관성과 가용성 가운데 하나를 줄여야 한다는 정리다. 분할이 없을 때는 둘 다 지킬 수 있다. 평소에 일관성을 낮추는 것은 주로 지연 시간 때문이다(PACELC의 ELC).",
+          "probe": "네트워크가 멀쩡한 평상시에, CP로 분류된 DB가 가용성을 포기해야 할 이유가 있을까요?",
+          "source": {
+            "title": "Daniel Abadi, Consistency Tradeoffs in Modern Distributed Database System Design (IEEE Computer, 2012)",
+            "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf",
+            "where": "CAP IS FOR FAILURES"
+          }
+        },
+        {
+          "id": "dist.cap.m2",
+          "claim": "쓰기 성공 응답을 받았다면, 최종 일관성으로 읽어도 바로 새 값이 나온다",
+          "fix": "최종 일관성 읽기는 쓰기가 성공적으로 끝난 직후에도 그 결과를 반영하지 않을 수 있다. 바로 읽어야 하면 강한 일관성 읽기를 고른다.",
+          "probe": "DynamoDB에 쓰기를 하고 200 응답을 받은 직후 기본 설정으로 GetItem을 하면, 방금 쓴 값이 반드시 나올까요?",
+          "source": {
+            "title": "Amazon DynamoDB 개발자 안내서: DynamoDB read consistency",
+            "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html",
+            "where": "Eventually consistent reads"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.cap.s1",
+          "text": "두 데이터센터에 복제된 장바구니 서비스에서 데이터센터 사이 링크가 끊겼다. 양쪽 모두 계속 주문을 받을지 정해야 한다.",
+          "faces": [
+            "principle",
+            "limit",
+            "alternative"
+          ]
+        },
+        {
+          "id": "dist.cap.s2",
+          "text": "회원 가입 직후 프로필 화면이 가끔 '없는 사용자'로 뜬다. 쓰기는 주 노드에, 읽기는 복제본에 최종 일관성으로 하고 있다.",
+          "faces": [
+            "principle",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "일관성 대 지연·가용성",
+          "a": "강한 일관성: 최신 값을 보장하지만 복제본 사이 조정으로 지연이 늘고, 분할 때 응답하지 못할 수 있다",
+          "b": "약한 일관성: 지연이 짧고 분할 중에도 응답하지만, 오래된 값을 읽거나 충돌을 나중에 맞춰야 한다"
+        }
+      ]
+    },
+    {
+      "id": "dist.consensus",
+      "name": "합의(Raft)와 리더 선출",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": [
+        "합의 알고리즘",
+        "Raft",
+        "리더 선출",
+        "Paxos",
+        "쿼럼",
+        "consensus",
+        "leader election",
+        "quorum"
+      ],
+      "prereq": [
+        "dist.cap"
+      ],
+      "alt": [],
+      "summary": "여러 서버가 같은 순서의 명령 로그에 합의해 일부가 죽어도 하나의 상태 기계처럼 동작하게 하는 알고리즘이다. Raft는 리더 선출과 과반 복제로 이를 이룬다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.consensus.principle.1",
+            "must": true,
+            "text": "리더의 하트비트를 선거 타임아웃 동안 받지 못한 팔로워가 후보가 되어 투표를 요청하고, 과반의 표를 얻으면 리더가 된다고 설명한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.2 Leader election"
+            }
+          },
+          {
+            "id": "dist.consensus.principle.2",
+            "must": true,
+            "text": "서버는 한 텀(term)에 한 후보에게만 투표하므로 한 텀에 리더는 많아야 하나라고 설명한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.2 Leader election"
+            }
+          },
+          {
+            "id": "dist.consensus.principle.3",
+            "must": true,
+            "text": "리더가 만든 로그 항목은 과반 서버에 복제되면 커밋되고, 그 뒤에 상태 기계에 적용된다고 설명한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.3 Log replication"
+            }
+          },
+          {
+            "id": "dist.consensus.principle.4",
+            "must": false,
+            "text": "선거 타임아웃을 무작위로 정해 여러 후보가 동시에 나서 표가 갈리는(split vote) 일을 드물게 한다고 설명한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.2 Leader election"
+            }
+          },
+          {
+            "id": "dist.consensus.principle.5",
+            "must": false,
+            "text": "투표자는 자기 로그가 후보의 로그보다 더 최신이면 표를 주지 않아, 커밋된 항목을 모두 가진 서버만 리더가 된다고 설명한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.4.1 Election restriction"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "dist.consensus.limit.1",
+            "must": true,
+            "text": "과반의 서버가 살아서 서로 통신할 수 있을 때만 진행하므로, 2f+1대는 f대 장애까지 견딘다(예: 5대는 2대)고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "2 Replicated state machines; 5.1 Raft basics"
+            }
+          },
+          {
+            "id": "dist.consensus.limit.2",
+            "must": true,
+            "text": "멤버가 많을수록 더 많은 서버에 복제해야 해서 쓰기 성능이 떨어진다고 말한다",
+            "source": {
+              "title": "etcd 문서 v3.5: Frequently Asked Questions",
+              "url": "https://etcd.io/docs/v3.5/faq/",
+              "where": "What is maximum cluster size?"
+            }
+          },
+          {
+            "id": "dist.consensus.limit.3",
+            "must": false,
+            "text": "멤버를 짝수로 늘려도 견디는 장애 수는 늘지 않는다(3대와 4대 모두 1대)고 말한다",
+            "source": {
+              "title": "etcd 문서 v3.5: Frequently Asked Questions",
+              "url": "https://etcd.io/docs/v3.5/faq/",
+              "where": "Why an odd number of cluster members?; What is failure tolerance?"
+            }
+          },
+          {
+            "id": "dist.consensus.limit.4",
+            "must": false,
+            "text": "안전성은 시간에 기대지 않지만, 리더 선출 같은 가용성은 메시지 왕복 시간이 선거 타임아웃보다 훨씬 짧아야 한다는 시간 조건에 달려 있다고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "5.6 Timing and availability"
+            }
+          },
+          {
+            "id": "dist.consensus.limit.5",
+            "must": false,
+            "text": "리더가 로그를 거치지 않고 바로 읽기에 답하면, 이미 새 리더로 바뀐 줄 모르는 옛 리더가 오래된 값을 줄 수 있다고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "8 Client interaction"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.consensus.alternative.1",
+            "must": true,
+            "text": "합의를 직접 구현하지 않고 합의를 구현해 제공하는 시스템(예: ZooKeeper, Chubby, etcd)에 리더 선출이나 설정 저장을 맡길 수 있다고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "2 Replicated state machines"
+            }
+          },
+          {
+            "id": "dist.consensus.alternative.2",
+            "must": true,
+            "text": "Paxos(와 그 변형)가 같은 문제를 푸는 대안이며, Raft는 이해하기 쉬움을 목표로 설계되었다고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "3 What's wrong with Paxos?"
+            }
+          },
+          {
+            "id": "dist.consensus.alternative.3",
+            "must": false,
+            "text": "읽기마다 과반과 하트비트를 주고받아 리더임을 확인하는 대신 리스(lease)를 쓸 수 있지만, 그러면 시계 오차가 제한된다는 시간 가정에 안전성이 기댄다고 말한다",
+            "source": {
+              "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+              "url": "https://raft.github.io/raft.pdf",
+              "where": "8 Client interaction"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.consensus.m1",
+          "claim": "노드를 3대에서 4대로 늘리면 장애를 더 많이 견딘다",
+          "fix": "과반은 (n/2)+1(정수 나눗셈)이라 4대의 과반은 3대다. 3대와 4대 모두 1대 장애까지만 견디므로, 짝수로 늘리면 장애 허용은 그대로이고 과반만 커진다.",
+          "probe": "3대 클러스터를 4대로 늘린 뒤 2대가 동시에 죽으면, 쓰기를 계속 받을 수 있을까요?",
+          "source": {
+            "title": "etcd 문서 v3.5: Frequently Asked Questions",
+            "url": "https://etcd.io/docs/v3.5/faq/",
+            "where": "Why an odd number of cluster members?"
+          }
+        },
+        {
+          "id": "dist.consensus.m2",
+          "claim": "리더가 읽기 요청에 자기 상태로 바로 답하면 언제나 최신 값이다",
+          "fix": "그 리더는 자기도 모르게 이미 새 리더로 교체되었을 수 있다. Raft는 읽기 전에 과반과 하트비트를 주고받아 자신이 아직 리더인지 확인한다.",
+          "probe": "네트워크 분할로 고립된 옛 리더가 아직 자신이 리더라고 믿고 읽기에 답하면, 어떤 값이 나갈 수 있을까요?",
+          "source": {
+            "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+            "url": "https://raft.github.io/raft.pdf",
+            "where": "8 Client interaction"
+          }
+        },
+        {
+          "id": "dist.consensus.m3",
+          "claim": "Raft 같은 합의 알고리즘을 쓰면 거짓 정보를 보내는 노드도 걸러진다",
+          "fix": "Raft 같은 실무 합의 알고리즘은 비잔틴이 아닌 조건(지연, 분할, 메시지 유실·중복·순서 바뀜)에서 안전성을 보장한다. 임의로 틀린 메시지를 보내는 노드는 다루지 않는다(그런 경우는 비잔틴 장애 허용 알고리즘의 영역이다).",
+          "probe": "버그로 엉뚱한 로그 항목을 보내는 노드가 하나 있다면, Raft가 이를 걸러 낼 수 있을까요?",
+          "source": {
+            "title": "Ongaro·Ousterhout, In Search of an Understandable Consensus Algorithm (Extended Version)",
+            "url": "https://raft.github.io/raft.pdf",
+            "where": "2 Replicated state machines"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.consensus.s1",
+          "text": "3대 클러스터에서 고장 난 한 대를 바꾸려고 새 멤버를 먼저 추가했는데, 새 노드가 합류에 실패했다.",
+          "faces": [
+            "limit"
+          ]
+        },
+        {
+          "id": "dist.consensus.s2",
+          "text": "두 데이터센터에 2대와 1대로 나눠 둔 Raft 클러스터에서, 2대가 있는 데이터센터가 통째로 끊겼다.",
+          "faces": [
+            "principle",
+            "limit"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "장애 허용 대 쓰기 지연",
+          "a": "멤버를 늘림: 견딜 수 있는 장애 수가 늘지만 복제할 곳이 많아져 쓰기가 느려진다",
+          "b": "멤버를 줄임: 쓰기가 빠르지만 적은 장애에도 과반을 잃는다"
+        }
+      ]
+    },
+    {
+      "id": "dist.tx",
+      "name": "분산 트랜잭션(2PC, Saga)",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "분산 트랜잭션",
+        "2PC",
+        "2단계 커밋",
+        "사가",
+        "Saga",
+        "보상 트랜잭션",
+        "two-phase commit",
+        "XA"
+      ],
+      "prereq": [
+        "db.tx"
+      ],
+      "alt": [
+        "arch.outbox"
+      ],
+      "summary": "여러 저장소에 걸친 변경을 하나처럼 다루는 방법이다. 2단계 커밋(2PC)은 모든 참여자를 함께 커밋하거나 롤백하고, 사가(Saga)는 로컬 트랜잭션들을 잇되 실패하면 보상 트랜잭션으로 되돌린다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.tx.principle.1",
+            "must": true,
+            "text": "2PC는 준비 단계에서 모든 참여자가 커밋을 약속(락 확보, 기록)한 뒤에만 커밋 단계로 가서, 모두 커밋하거나 모두 롤백한다고 설명한다",
+            "source": {
+              "title": "Martin Fowler, Patterns of Distributed Systems: Two-Phase Commit",
+              "url": "https://martinfowler.com/articles/patterns-of-distributed-systems/two-phase-commit.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.tx.principle.2",
+            "must": true,
+            "text": "사가는 각 단계가 로컬 트랜잭션으로 커밋되고 다음 단계를 메시지나 이벤트로 일으키며, 한 단계가 실패하면 앞 단계들을 보상 트랜잭션으로 되돌린다고 설명한다",
+            "source": {
+              "title": "microservices.io: Pattern: Saga",
+              "url": "https://microservices.io/patterns/data/saga.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.tx.principle.3",
+            "must": false,
+            "text": "사가는 코레오그래피(각 서비스가 이벤트를 발행해 다음 단계를 일으킴)나 오케스트레이션(중앙 조정자가 참여자에게 할 일을 지시)으로 구현한다고 설명한다",
+            "source": {
+              "title": "microservices.io: Pattern: Saga",
+              "url": "https://microservices.io/patterns/data/saga.html",
+              "where": "Solution(Choreography, Orchestration)"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "dist.tx.rationale.1",
+            "must": true,
+            "text": "서비스마다 DB가 따로 있어 한 로컬 ACID 트랜잭션으로 여러 서비스의 데이터를 묶을 수 없을 때 이 문제가 생긴다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Saga",
+              "url": "https://microservices.io/patterns/data/saga.html",
+              "where": "Context; Problem"
+            }
+          },
+          {
+            "id": "dist.tx.rationale.2",
+            "must": true,
+            "text": "모든 참여자가 2PC를 지원하는 저장소이고 외부 트랜잭션 관리자가 있으며 트랜잭션이 짧게 끝나면 2PC로 원자성을 얻을 수 있다고 말한다",
+            "source": {
+              "title": "PostgreSQL 문서: PREPARE TRANSACTION",
+              "url": "https://www.postgresql.org/docs/current/sql-prepare-transaction.html",
+              "where": "Description; Notes"
+            }
+          },
+          {
+            "id": "dist.tx.rationale.3",
+            "must": true,
+            "text": "2PC를 쓸 수 없는 환경(서비스마다 다른 DB, 2PC를 지원하지 않는 저장소나 브로커)이거나 흐름이 여러 서비스를 오래 거치면 사가를 고른다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Saga",
+              "url": "https://microservices.io/patterns/data/saga.html",
+              "where": "Forces"
+            }
+          },
+          {
+            "id": "dist.tx.rationale.4",
+            "must": false,
+            "text": "갱신의 위험도에 따라 위험이 큰 갱신에는 분산 트랜잭션을, 작은 갱신에는 사가를 고를 수 있다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Saga design pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+              "where": "Strategies to address data anomalies(Risk-based concurrency)"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "dist.tx.tradeoff.1",
+            "must": true,
+            "text": "2PC는 참여자들이 준비를 마친 뒤 코디네이터가 죽으면 참여자들이 결과를 몰라 막힌다(blocking)고 말한다",
+            "source": {
+              "title": "Jim Gray·Leslie Lamport, Consensus on Transaction Commit (MSR-TR-2003-96)",
+              "url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf",
+              "where": "Abstract; 3 Two-Phase Commit"
+            }
+          },
+          {
+            "id": "dist.tx.tradeoff.2",
+            "must": true,
+            "text": "사가는 서비스 사이 격리(ACID의 I)가 없어 중간 상태가 보이고 갱신 분실이나 더티 리드 같은 이상이 생길 수 있다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Saga design pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+              "where": "Potential data anomalies in sagas"
+            }
+          },
+          {
+            "id": "dist.tx.tradeoff.3",
+            "must": true,
+            "text": "사가의 되돌리기는 자동이 아니라 보상 트랜잭션을 직접 설계해야 하고, 보상 자체도 실패할 수 있다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Saga design pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+              "where": "Problems and considerations"
+            }
+          },
+          {
+            "id": "dist.tx.tradeoff.4",
+            "must": false,
+            "text": "준비된 트랜잭션은 커밋이나 롤백이 정해질 때까지 쥐고 있던 락을 계속 쥔다고 말한다",
+            "source": {
+              "title": "PostgreSQL 문서: PREPARE TRANSACTION",
+              "url": "https://www.postgresql.org/docs/current/sql-prepare-transaction.html",
+              "where": "Notes(Caution)"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.tx.alternative.1",
+            "must": true,
+            "text": "사가의 이상을 줄이려 의미적 락(semantic lock), 순서와 무관한 갱신, 갱신 전 값 다시 읽기 같은 대응책을 쓴다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Saga design pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+              "where": "Strategies to address data anomalies"
+            }
+          },
+          {
+            "id": "dist.tx.alternative.2",
+            "must": true,
+            "text": "되돌릴 수 없는 지점(피벗 트랜잭션) 뒤의 단계는 재시도할 수 있고 멱등하게 만들어 끝까지 완료시킨다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Saga design pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+              "where": "Key concepts in the Saga pattern"
+            }
+          },
+          {
+            "id": "dist.tx.alternative.3",
+            "must": false,
+            "text": "2PC의 막힘을 없애려면 커밋 결정을 합의 알고리즘으로 여러 코디네이터에 복제하는 비차단 커밋(예: Paxos Commit)을 쓸 수 있다고 말한다",
+            "source": {
+              "title": "Jim Gray·Leslie Lamport, Consensus on Transaction Commit (MSR-TR-2003-96)",
+              "url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf",
+              "where": "Abstract; 4 Paxos Commit"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.tx.m1",
+          "claim": "사가를 쓰면 전체 과정이 하나의 ACID 트랜잭션처럼 격리된다",
+          "fix": "사가의 각 단계는 따로 커밋되므로 중간 상태가 다른 사가에 보인다. 갱신 분실, 더티 리드 같은 이상이 생길 수 있어 의미적 락 같은 대응책이 필요하다.",
+          "probe": "주문 사가가 재고를 줄인 뒤 결제 단계에서 실패해 보상하는 중에, 다른 사가가 그 재고 값을 읽으면 무엇을 보게 될까요?",
+          "source": {
+            "title": "Azure Architecture Center: Saga design pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga",
+            "where": "Potential data anomalies in sagas"
+          }
+        },
+        {
+          "id": "dist.tx.m2",
+          "claim": "고전적인 2PC에서는 어느 노드가 죽어도 남은 참여자들이 스스로 결론을 낼 수 있다",
+          "fix": "고전적인 2PC는 코디네이터 하나가 결정한다. 모든 참여자가 준비를 마친 직후 코디네이터가 죽으면 참여자는 커밋인지 롤백인지 알 수 없어 코디네이터가 돌아올 때까지 막힌다. (결정을 합의로 복제한 Paxos Commit 같은 변형은 이 막힘을 없앤다.)",
+          "probe": "모든 참여자가 '준비 완료'를 보낸 직후 코디네이터가 죽으면, 참여자는 커밋할지 롤백할지 스스로 정할 수 있을까요?",
+          "source": {
+            "title": "Jim Gray·Leslie Lamport, Consensus on Transaction Commit (MSR-TR-2003-96)",
+            "url": "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2003-96.pdf",
+            "where": "3 Two-Phase Commit"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.tx.s1",
+          "text": "주문, 결제, 재고가 서로 다른 서비스와 DB에 있는데, 결제가 실패하면 이미 줄인 재고를 되돌려야 한다.",
+          "faces": [
+            "principle",
+            "rationale",
+            "alternative"
+          ]
+        },
+        {
+          "id": "dist.tx.s2",
+          "text": "두 DB 사이에 2PC를 했는데 조정자 프로세스가 죽은 뒤 준비된 트랜잭션이 몇 시간째 남아 다른 쓰기가 막힌다.",
+          "faces": [
+            "tradeoff"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "원자성 대 가용성·결합",
+          "a": "2PC: 모두 커밋 또는 모두 롤백이 보장되지만, 코디네이터 장애 때 막히고 준비 동안 락을 쥔다",
+          "b": "사가: 단계마다 따로 커밋해 막힘이 적지만, 중간 상태가 보이고 보상 로직을 직접 짜야 한다"
+        }
+      ]
+    },
+    {
+      "id": "dist.idempotency",
+      "name": "멱등성과 중복 요청 처리",
+      "kind": "decision",
+      "core": true,
+      "aliases": [
+        "멱등성",
+        "멱등 키",
+        "중복 요청",
+        "중복 제거",
+        "idempotency",
+        "idempotent",
+        "Idempotency-Key",
+        "dedup"
+      ],
+      "prereq": [
+        "net.rest"
+      ],
+      "alt": [],
+      "summary": "같은 요청이 여러 번 처리되어도 결과가 한 번 처리한 것과 같게 만드는 성질로, 재시도와 중복 전달을 안전하게 하려고 멱등 키나 처리 기록으로 중복을 걸러 낸다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.idempotency.principle.1",
+            "must": true,
+            "text": "클라이언트가 요청마다 고유한 키(요청 ID)를 붙이고, 서버는 같은 키로 온 요청을 같은 요청의 재시도로 알아본다고 설명한다",
+            "source": {
+              "title": "AWS Builders' Library: Making retries safe with idempotent APIs",
+              "url": "https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/",
+              "where": "Reducing client complexity"
+            }
+          },
+          {
+            "id": "dist.idempotency.principle.2",
+            "must": true,
+            "text": "서버는 키와 첫 처리 결과를 기록해 두고, 같은 키의 재시도에는 다시 실행하지 않고 그 결과(또는 의미가 같은 응답)를 돌려준다고 설명한다",
+            "source": {
+              "title": "Stripe API 문서: Idempotent requests",
+              "url": "https://docs.stripe.com/api/idempotent_requests",
+              "where": "Idempotent requests"
+            }
+          },
+          {
+            "id": "dist.idempotency.principle.3",
+            "must": true,
+            "text": "키 기록과 실제 변경은 함께 성공하거나 함께 실패하도록 원자적으로 남긴다고 설명한다",
+            "source": {
+              "title": "AWS Builders' Library: Making retries safe with idempotent APIs",
+              "url": "https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/",
+              "where": "Reducing client complexity"
+            }
+          },
+          {
+            "id": "dist.idempotency.principle.4",
+            "must": false,
+            "text": "같은 키에 다른 파라미터가 오면 첫 결과를 돌려주지 않고 오류로 거절한다고 말한다",
+            "source": {
+              "title": "AWS Builders' Library: Making retries safe with idempotent APIs",
+              "url": "https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/",
+              "where": "Same client request ID, different intent"
+            }
+          },
+          {
+            "id": "dist.idempotency.principle.5",
+            "must": false,
+            "text": "같은 키의 요청이 동시에 들어오면 하나만 실행하고 나머지는 충돌로 돌려보내거나 유일 제약으로 막는다고 말한다",
+            "source": {
+              "title": "Stripe API 문서: Idempotent requests",
+              "url": "https://docs.stripe.com/api/idempotent_requests",
+              "where": "Idempotent requests(동시 실행 중인 요청과의 충돌)"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "dist.idempotency.rationale.1",
+            "must": true,
+            "text": "응답을 받기 전에 연결이 끊기면 클라이언트는 처리 여부를 모른 채 다시 보내야 하므로, 멱등하지 않으면 재시도가 중복 실행(예: 이중 결제)을 낳는다고 말한다",
+            "source": {
+              "title": "Stripe API 문서: Idempotent requests",
+              "url": "https://docs.stripe.com/api/idempotent_requests",
+              "where": "Idempotent requests"
+            }
+          },
+          {
+            "id": "dist.idempotency.rationale.2",
+            "must": true,
+            "text": "멱등하지 않은 HTTP 메서드(예: POST)의 요청은 멱등함을 알지 못하면 자동으로 재시도하면 안 된다고 말한다",
+            "source": {
+              "title": "RFC 9110 HTTP Semantics",
+              "url": "https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods",
+              "where": "9.2.2 Idempotent Methods"
+            }
+          },
+          {
+            "id": "dist.idempotency.rationale.3",
+            "must": true,
+            "text": "적어도 한 번(at-least-once) 전달하는 메시지 시스템은 같은 메시지를 다시 줄 수 있어 소비자를 멱등하게 만들어야 한다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Idempotent Consumer",
+              "url": "https://microservices.io/patterns/communication-style/idempotent-consumer.html",
+              "where": "Problem; Solution"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "dist.idempotency.tradeoff.1",
+            "must": true,
+            "text": "서버가 키와 결과를 저장해 두어야 해서 저장 비용이 들고 보관 기간을 정해야 한다고 말한다",
+            "source": {
+              "title": "Stripe API 문서: Idempotent requests",
+              "url": "https://docs.stripe.com/api/idempotent_requests",
+              "where": "Idempotent requests(키 보관 기간)"
+            }
+          },
+          {
+            "id": "dist.idempotency.tradeoff.2",
+            "must": true,
+            "text": "보관 기간이 지나 키 기록이 지워진 뒤 같은 키로 오면 새 요청으로 처리된다고 말한다",
+            "source": {
+              "title": "Stripe API 문서: Idempotent requests",
+              "url": "https://docs.stripe.com/api/idempotent_requests",
+              "where": "Idempotent requests(키 보관 기간)"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.idempotency.alternative.1",
+            "must": true,
+            "text": "요청 내용의 해시로 중복을 판단하면 사용자가 정말 같은 요청을 두 번 원하는 경우를 구분하지 못해, 호출자가 정한 고유 요청 ID를 쓴다고 말한다",
+            "source": {
+              "title": "AWS Builders' Library: Making retries safe with idempotent APIs",
+              "url": "https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/",
+              "where": "Reducing client complexity"
+            }
+          },
+          {
+            "id": "dist.idempotency.alternative.2",
+            "must": true,
+            "text": "메시지 소비자는 처리한 메시지 ID를 업무 데이터와 같은 트랜잭션에서 기록하고(유일 제약으로 중복 삽입을 막아) 이미 있으면 버린다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Idempotent Consumer",
+              "url": "https://microservices.io/patterns/communication-style/idempotent-consumer.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.idempotency.alternative.3",
+            "must": false,
+            "text": "대상 상태를 통째로 지정하는 연산(예: HTTP PUT)은 그 자체로 멱등이라 별도 키 없이도 재시도할 수 있다고 말한다",
+            "source": {
+              "title": "RFC 9110 HTTP Semantics",
+              "url": "https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods",
+              "where": "9.2.2 Idempotent Methods"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.idempotency.m1",
+          "claim": "POST 요청도 네트워크 오류가 나면 그냥 다시 보내면 된다",
+          "fix": "POST는 멱등이 보장되지 않는다. 첫 요청이 이미 처리되었는데 응답만 잃었다면 다시 보낸 요청이 한 번 더 실행된다. 멱등 키 같은 장치가 있을 때만 안전하게 재시도한다.",
+          "probe": "결제 POST의 응답을 받기 전에 연결이 끊겨 다시 보냈는데 사실 첫 요청이 이미 처리됐다면, 어떤 일이 생길까요?",
+          "source": {
+            "title": "RFC 9110 HTTP Semantics",
+            "url": "https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods",
+            "where": "9.2.2 Idempotent Methods"
+          }
+        },
+        {
+          "id": "dist.idempotency.m2",
+          "claim": "멱등성의 정의에는 요청을 반복해도 응답이 매번 같아야 한다는 것이 들어 있다",
+          "fix": "멱등성은 서버에 미치는 의도된 효과가 한 번 보낸 것과 같다는 뜻이고, 응답은 달라질 수 있다. 멱등 키 API가 재시도에 첫 응답을 그대로 돌려주는 것은 정의가 아니라 설계 선택이다.",
+          "probe": "같은 자원에 DELETE를 두 번 보냈는데 두 번째는 404를 받았다면, DELETE는 멱등하지 않은 걸까요?",
+          "source": {
+            "title": "RFC 9110 HTTP Semantics",
+            "url": "https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods",
+            "where": "9.2.2 Idempotent Methods"
+          }
+        },
+        {
+          "id": "dist.idempotency.m3",
+          "claim": "요청 본문의 해시로 중복을 막으면 멱등 키가 필요 없다",
+          "fix": "호출자가 일부러 같은 요청을 두 번 보낼 수 있으므로 내용만으로는 재시도와 새 요청을 구분할 수 없다. 호출자가 요청마다 고유 ID를 붙여야 한다.",
+          "probe": "사용자가 같은 금액, 같은 받는 사람으로 일부러 송금을 두 번 했다면, 해시 방식은 두 번째 송금을 어떻게 처리할까요?",
+          "source": {
+            "title": "AWS Builders' Library: Making retries safe with idempotent APIs",
+            "url": "https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/",
+            "where": "Reducing client complexity"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.idempotency.s1",
+          "text": "모바일 앱의 결제 요청이 타임아웃 나자 앱이 자동으로 다시 보냈고, 카드가 두 번 결제됐다.",
+          "faces": [
+            "principle",
+            "rationale",
+            "alternative"
+          ]
+        },
+        {
+          "id": "dist.idempotency.s2",
+          "text": "포인트 적립 메시지를 받는 소비자가 같은 메시지를 두 번 받아 포인트가 두 배로 쌓였다.",
+          "faces": [
+            "rationale",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "키 보관 기간",
+          "a": "오래 보관: 늦게 온 재시도도 막지만 저장 비용이 커진다",
+          "b": "짧게 보관: 저장이 적지만 보관 기간이 지난 재시도는 새 요청으로 처리된다"
+        }
+      ]
+    },
+    {
+      "id": "dist.mq",
+      "name": "메시지 큐와 전달 보장",
+      "kind": "decision",
+      "core": true,
+      "aliases": [
+        "메시지 큐",
+        "메시지 브로커",
+        "전달 보장",
+        "at-least-once",
+        "exactly-once",
+        "message queue",
+        "RabbitMQ",
+        "SQS"
+      ],
+      "prereq": [],
+      "alt": [
+        "dist.kafka"
+      ],
+      "summary": "생산자와 소비자 사이에 큐를 두어 비동기로 처리하는 방식과, 메시지를 최대 한 번·적어도 한 번·정확히 한 번 가운데 어떻게 전달하고 처리하는지에 대한 보장이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.mq.principle.1",
+            "must": true,
+            "text": "브로커가 메시지를 보관하고, 소비자가 처리를 마쳤다고 확인(ack, 삭제)해야 메시지가 지워진다고 설명한다",
+            "source": {
+              "title": "Amazon SQS 개발자 안내서: Amazon SQS visibility timeout",
+              "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html",
+              "where": "도입부; Setting and adjusting the visibility timeout"
+            }
+          },
+          {
+            "id": "dist.mq.principle.2",
+            "must": true,
+            "text": "확인 전에 소비자가 죽거나 정해진 시간이 지나면 메시지가 다시 전달된다고 설명한다(예: SQS 가시성 타임아웃)",
+            "source": {
+              "title": "Amazon SQS 개발자 안내서: Amazon SQS visibility timeout",
+              "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html",
+              "where": "Handling failures"
+            }
+          },
+          {
+            "id": "dist.mq.principle.3",
+            "must": true,
+            "text": "점대점 큐는 메시지 하나를 소비자 하나가 받고, 발행·구독은 구독자마다 사본을 받는다고 구분한다",
+            "source": {
+              "title": "RabbitMQ 튜토리얼 3: Publish/Subscribe",
+              "url": "https://www.rabbitmq.com/tutorials/tutorial-three-python",
+              "where": "Publish/Subscribe"
+            }
+          },
+          {
+            "id": "dist.mq.principle.4",
+            "must": false,
+            "text": "처리한 뒤 확인(위치 기록)하면 적어도 한 번, 확인한 뒤 처리하면 최대 한 번이 된다고 설명한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Message Delivery Semantics"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "dist.mq.rationale.1",
+            "must": true,
+            "text": "큐가 생산자와 소비자 사이의 버퍼가 되어 몰리는 부하를 흡수하고, 소비자는 자기 속도로 처리한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.mq.rationale.2",
+            "must": true,
+            "text": "소비자가 잠시 처리하지 못해도 브로커가 메시지를 보관해 생산자는 계속 보낼 수 있다(느슨한 결합, 가용성)고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Messaging",
+              "url": "https://microservices.io/patterns/communication-style/messaging.html",
+              "where": "Resulting context — Benefits"
+            }
+          },
+          {
+            "id": "dist.mq.rationale.3",
+            "must": true,
+            "text": "호출자가 결과를 바로 받아야 하는 낮은 지연의 동기 호출에는 맞지 않는다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "When to use this pattern"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "dist.mq.tradeoff.1",
+            "must": true,
+            "text": "대부분의 큐는 적어도 한 번 전달이라 같은 메시지를 두 번 처리해도 결과가 같도록(멱등하게) 소비자를 만들어야 한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Problems and considerations"
+            }
+          },
+          {
+            "id": "dist.mq.tradeoff.2",
+            "must": true,
+            "text": "최대 한 번은 장애 때 메시지를 잃을 수 있지만 중복이 없고, 적어도 한 번은 잃지 않지만 중복이 생길 수 있다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Message Delivery Semantics"
+            }
+          },
+          {
+            "id": "dist.mq.tradeoff.3",
+            "must": false,
+            "text": "평균 생산 속도가 소비 속도보다 빠르면 큐는 계속 자라고 지연이 늘어난다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Problems and considerations"
+            }
+          },
+          {
+            "id": "dist.mq.tradeoff.4",
+            "must": false,
+            "text": "브로커는 따로 운영해야 하고 고가용성이어야 하는 구성 요소가 된다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Messaging",
+              "url": "https://microservices.io/patterns/communication-style/messaging.html",
+              "where": "Resulting context — Drawbacks"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.mq.alternative.1",
+            "must": true,
+            "text": "계속 처리에 실패하는 메시지는 정해진 횟수만큼 받은 뒤 데드 레터 큐(DLQ)로 옮겨 따로 분석한다고 말한다",
+            "source": {
+              "title": "Amazon SQS 개발자 안내서: Using dead-letter queues",
+              "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html",
+              "where": "Using dead-letter queues; Using policies for dead-letter queues"
+            }
+          },
+          {
+            "id": "dist.mq.alternative.2",
+            "must": true,
+            "text": "처리한 메시지 ID(Kafka라면 오프셋)를 처리 결과와 같은 트랜잭션에 저장해 다시 온 메시지를 걸러 낸다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Idempotent Consumer",
+              "url": "https://microservices.io/patterns/communication-style/idempotent-consumer.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.mq.alternative.3",
+            "must": false,
+            "text": "여러 소비자가 병렬로 처리하면 순서가 보장되지 않으므로, 순서가 필요하면 메시지 그룹·세션 같은 기능을 쓴다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Problems and considerations"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.mq.m1",
+          "claim": "큐에 넣은 메시지는 정확히 한 번만 처리된다",
+          "fix": "대부분의 큐(예: SQS, 확인을 쓰는 RabbitMQ)는 적어도 한 번 전달이다. 소비자가 처리한 뒤 확인(ack, 삭제)하기 전에 죽으면 메시지가 다시 전달되어 또 처리된다. 정확히 한 번 '처리'는 소비자의 멱등 처리나 트랜잭션으로 따로 만들어야 한다.",
+          "probe": "소비자가 메시지를 처리해 DB에 반영한 직후, 확인(ack)을 보내기 전에 죽으면 그 메시지는 어떻게 될까요?",
+          "source": {
+            "title": "Amazon SQS 개발자 안내서: Amazon SQS visibility timeout",
+            "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html",
+            "where": "Handling failures; Understanding visibility timeout in standard and FIFO queues"
+          }
+        },
+        {
+          "id": "dist.mq.m2",
+          "claim": "중간에 큐를 넣으면 처리량 문제가 해결된다",
+          "fix": "큐는 일시적인 몰림을 흡수할 뿐이다. 평균 생산 속도가 소비 속도보다 빠르면 큐는 계속 자라고 지연이 늘어난다. 소비자를 늘리거나 생산 쪽에서 덜어내야 한다.",
+          "probe": "생산은 초당 500건, 소비는 초당 400건인 상태가 하루 종일 이어지면, 큐 길이와 처리 지연은 어떻게 될까요?",
+          "source": {
+            "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+            "where": "Problems and considerations"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.mq.s1",
+          "text": "주문 완료 메일을 큐로 비동기 발송하는데, 형식이 깨진 메시지 하나가 계속 실패하며 재시도되어 다른 메일까지 늦어진다.",
+          "faces": [
+            "alternative"
+          ]
+        },
+        {
+          "id": "dist.mq.s2",
+          "text": "소비자의 처리 시간이 평균 40초인데 재전달까지의 시간(가시성 타임아웃)을 30초로 두었더니, 같은 작업이 두 번씩 실행된다.",
+          "faces": [
+            "principle",
+            "tradeoff"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "최대 한 번 대 적어도 한 번",
+          "a": "최대 한 번: 중복이 없지만 장애 때 메시지를 잃을 수 있다",
+          "b": "적어도 한 번: 메시지를 잃지 않지만 중복 처리를 소비자가 감당해야 한다"
+        }
+      ]
+    },
+    {
+      "id": "dist.kafka",
+      "name": "Kafka의 파티션, 순서, 컨슈머 그룹",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": [
+        "Kafka",
+        "카프카",
+        "파티션",
+        "컨슈머 그룹",
+        "오프셋",
+        "partition",
+        "consumer group",
+        "offset"
+      ],
+      "prereq": [
+        "dist.mq"
+      ],
+      "alt": [],
+      "summary": "Kafka는 토픽을 여러 파티션으로 나눠 저장하는 로그다. 같은 키는 같은 파티션에 쓰여 파티션 안에서 순서가 지켜지고, 컨슈머 그룹 안에서는 파티션마다 컨슈머 하나가 읽는다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.kafka.principle.1",
+            "must": true,
+            "text": "토픽은 여러 브로커에 걸친 파티션으로 나뉘고, 같은 키의 이벤트는 같은 파티션에 쓰인다고 설명한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Introduction",
+              "url": "https://kafka.apache.org/41/getting-started/introduction/",
+              "where": "Main Concepts and Terminology"
+            }
+          },
+          {
+            "id": "dist.kafka.principle.2",
+            "must": true,
+            "text": "순서는 파티션 단위로 보장되어, 한 파티션의 이벤트는 쓰인 순서대로 읽힌다고 설명한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Introduction",
+              "url": "https://kafka.apache.org/41/getting-started/introduction/",
+              "where": "Main Concepts and Terminology"
+            }
+          },
+          {
+            "id": "dist.kafka.principle.3",
+            "must": true,
+            "text": "기존 컨슈머 그룹 안에서 각 파티션은 정확히 한 컨슈머에 배정되고, 구성원이 바뀌면 다시 배정(리밸런스)된다고 설명한다",
+            "source": {
+              "title": "Apache Kafka 4.1 Javadoc: KafkaConsumer",
+              "url": "https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html",
+              "where": "Consumer Groups and Topic Subscriptions"
+            }
+          },
+          {
+            "id": "dist.kafka.principle.4",
+            "must": false,
+            "text": "컨슈머의 위치는 파티션마다 정수 오프셋 하나이고, 메시지는 소비해도 지워지지 않아 오프셋을 되돌려 다시 읽을 수 있다고 설명한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "The Consumer — Consumer Position"
+            }
+          },
+          {
+            "id": "dist.kafka.principle.5",
+            "must": false,
+            "text": "메시지는 동기화된 복제본(ISR)에 모두 반영되어야 커밋되고, 커밋된 메시지는 ISR 하나라도 살아 있으면 잃지 않는다고 설명한다(acks=all이면 프로듀서가 커밋까지 기다린다)",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Replication"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "dist.kafka.limit.1",
+            "must": true,
+            "text": "기존 컨슈머 그룹(share group 제외)에서는 한 그룹에서 동시에 읽는 컨슈머 수가 파티션 수를 넘지 못한다(남는 컨슈머는 논다)고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 Javadoc: KafkaConsumer",
+              "url": "https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html",
+              "where": "Consumer Groups and Topic Subscriptions; Multi-threaded Processing"
+            }
+          },
+          {
+            "id": "dist.kafka.limit.2",
+            "must": true,
+            "text": "파티션을 늘려도 기존 데이터는 다시 나뉘지 않고 키와 파티션의 대응이 바뀌어, 키별 순서에 기대는 소비자가 흔들릴 수 있다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Basic Kafka Operations",
+              "url": "https://kafka.apache.org/41/operations/basic-kafka-operations/",
+              "where": "Modifying topics"
+            }
+          },
+          {
+            "id": "dist.kafka.limit.3",
+            "must": true,
+            "text": "처리한 뒤에 오프셋을 커밋하면 장애 때 같은 레코드가 다시 전달될 수 있다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 Javadoc: KafkaConsumer",
+              "url": "https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html",
+              "where": "Manual Offset Control"
+            }
+          },
+          {
+            "id": "dist.kafka.limit.4",
+            "must": false,
+            "text": "poll을 정해진 간격(max.poll.interval.ms) 안에 다시 부르지 않으면 컨슈머가 그룹을 떠나 파티션이 다른 컨슈머로 넘어간다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 Javadoc: KafkaConsumer",
+              "url": "https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html",
+              "where": "Detecting Consumer Failures"
+            }
+          },
+          {
+            "id": "dist.kafka.limit.5",
+            "must": false,
+            "text": "토픽의 파티션 수를 줄이는 것은 지원하지 않는다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Basic Kafka Operations",
+              "url": "https://kafka.apache.org/41/operations/basic-kafka-operations/",
+              "where": "Modifying topics"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.kafka.alternative.1",
+            "must": true,
+            "text": "멱등 프로듀서(0.11.0.0부터)를 쓰면 응답을 못 받아 다시 보내도 로그에 중복이 생기지 않는다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Message Delivery Semantics"
+            }
+          },
+          {
+            "id": "dist.kafka.alternative.2",
+            "must": true,
+            "text": "트랜잭션 프로듀서와 read_committed 격리의 컨슈머로 Kafka에서 읽고 처리해 Kafka로 쓰는 흐름을 정확히 한 번으로 만든다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Message Delivery Semantics"
+            }
+          },
+          {
+            "id": "dist.kafka.alternative.3",
+            "must": false,
+            "text": "외부 시스템에 쓸 때는 오프셋을 결과와 같은 저장소에 함께 저장해 둘이 함께 바뀌게 한다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Message Delivery Semantics"
+            }
+          },
+          {
+            "id": "dist.kafka.alternative.4",
+            "must": false,
+            "text": "share group(4.1에서 미리보기)은 파티션 하나를 여러 컨슈머가 함께 읽게 해, 파티션 수보다 많은 컨슈머로 큐처럼 나눠 처리할 수 있다고 말한다",
+            "source": {
+              "title": "Apache Kafka 4.1 문서: Design",
+              "url": "https://kafka.apache.org/41/design/design/",
+              "where": "Share groups"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.kafka.m1",
+          "claim": "Kafka는 토픽 전체에서 메시지 순서를 보장한다",
+          "fix": "순서는 파티션 안에서만 보장된다. 순서가 필요한 이벤트들은 같은 키로 보내 같은 파티션에 들어가게 해야 한다.",
+          "probe": "파티션이 6개인 토픽에 주문 이벤트를 키 없이 보내면, 같은 주문의 '생성'과 '취소'가 순서대로 처리될까요?",
+          "source": {
+            "title": "Apache Kafka 4.1 문서: Introduction",
+            "url": "https://kafka.apache.org/41/getting-started/introduction/",
+            "where": "Main Concepts and Terminology"
+          }
+        },
+        {
+          "id": "dist.kafka.m2",
+          "claim": "기존 컨슈머 그룹에서는 컨슈머를 파티션 수보다 많이 늘려도 처리량이 계속 늘어난다",
+          "fix": "기존 컨슈머 그룹에서는 파티션 하나가 컨슈머 하나에만 배정되므로, 컨슈머가 파티션보다 많으면 남는 컨슈머는 논다. (Kafka 4.1의 share group은 파티션 하나를 여러 컨슈머가 나눠 읽을 수 있어 이와 다르다.)",
+          "probe": "파티션 4개인 토픽을 읽는 기존 컨슈머 그룹에 컨슈머를 10개 띄우면, 실제로 일하는 컨슈머는 몇 개일까요?",
+          "source": {
+            "title": "Apache Kafka 4.1 Javadoc: KafkaConsumer",
+            "url": "https://kafka.apache.org/41/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html",
+            "where": "Consumer Groups and Topic Subscriptions"
+          }
+        },
+        {
+          "id": "dist.kafka.m3",
+          "claim": "Kafka는 별도 설정이나 설계 없이도 정확히 한 번 전달한다",
+          "fix": "Kafka의 기본 보장은 적어도 한 번이다. 정확히 한 번은 트랜잭션 프로듀서와 read_committed 컨슈머로 Kafka 안에서 읽고 쓸 때, 또는 외부 저장소가 오프셋과 결과를 함께 저장할 때 얻는다.",
+          "probe": "컨슈머가 레코드를 처리해 외부 DB에 쓴 뒤 오프셋을 커밋하기 전에 죽으면, 다시 시작한 컨슈머는 그 레코드를 어떻게 할까요?",
+          "source": {
+            "title": "Apache Kafka 4.1 문서: Design",
+            "url": "https://kafka.apache.org/41/design/design/",
+            "where": "Message Delivery Semantics"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.kafka.s1",
+          "text": "주문 이벤트 토픽의 파티션을 6개에서 12개로 늘린 직후, 같은 주문의 이벤트가 순서가 뒤바뀌어 처리됐다.",
+          "faces": [
+            "limit"
+          ]
+        },
+        {
+          "id": "dist.kafka.s2",
+          "text": "컨슈머가 레코드마다 느린 외부 API를 불러 poll 간격이 길어지자, 리밸런스가 반복되고 같은 레코드가 여러 번 처리됐다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "파티션 수",
+          "a": "많이 잡음: 한 그룹의 병렬 소비 상한이 높지만, 나중에 줄일 수 없다",
+          "b": "적게 잡음: 관리가 단순하지만 병렬 소비 상한이 낮고, 나중에 늘리면 키와 파티션의 대응이 바뀐다"
+        },
+        {
+          "axis": "복제 대기 대 쓰기 지연",
+          "a": "모든 동기화 복제본을 기다림(acks=all): 쓰기를 잃지 않지만 지연이 늘고 복제본이 모자라면 쓰기를 거절할 수 있다",
+          "b": "리더만 기다림: 빠르지만 리더가 죽으면 막 쓴 메시지를 잃을 수 있다"
+        }
+      ]
+    },
+    {
+      "id": "dist.lock",
+      "name": "분산 락",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "분산 락",
+        "Redlock",
+        "펜싱 토큰",
+        "락 만료",
+        "distributed lock",
+        "fencing token",
+        "advisory lock"
+      ],
+      "prereq": [
+        "os.sync"
+      ],
+      "alt": [],
+      "summary": "여러 프로세스나 서버가 공유 자원을 한 번에 하나만 쓰게 하려고 외부 저장소(DB, Redis, ZooKeeper, etcd 등)에 두는 잠금으로, 만료·장애·프로세스 멈춤 때의 안전성이 핵심 쟁점이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.lock.principle.1",
+            "must": true,
+            "text": "공유 저장소에 '없을 때만 만든다'는 원자적 연산으로 락을 얻는다고 설명한다(예: Redis SET NX)",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Correct Implementation with a Single Instance"
+            }
+          },
+          {
+            "id": "dist.lock.principle.2",
+            "must": true,
+            "text": "락을 쥔 쪽이 죽어도 결국 풀리도록 만료 시간(TTL, 리스)을 둔다고 설명한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Safety and Liveness Guarantees; Why Failover-based Implementations Are Not Enough"
+            }
+          },
+          {
+            "id": "dist.lock.principle.3",
+            "must": true,
+            "text": "락 값에 쥔 쪽마다 고유한 값을 넣고, 그 값이 자기 것일 때만 풀어 다른 쪽의 락을 지우지 않게 한다고 설명한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Correct Implementation with a Single Instance"
+            }
+          },
+          {
+            "id": "dist.lock.principle.4",
+            "must": false,
+            "text": "작업이 길면 만료 전에 락을 연장(리스 갱신)하되, 아직 자기 락일 때만 연장한다고 말한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Making the algorithm more reliable: Extending the lock"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "dist.lock.rationale.1",
+            "must": true,
+            "text": "락이 깨졌을 때 무엇이 망가지는지(같은 일을 두 번 하는 낭비인지, 데이터 손상인지)를 따져 필요한 보장 수준을 고른다고 말한다",
+            "source": {
+              "title": "Martin Kleppmann, How to do distributed locking",
+              "url": "https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html",
+              "where": "What are you using that lock for?"
+            }
+          },
+          {
+            "id": "dist.lock.rationale.2",
+            "must": true,
+            "text": "두 번 실행되어도 결과가 맞는 효율 목적이라면 단순한 단일 노드 락으로 충분하다고 말한다",
+            "source": {
+              "title": "Martin Kleppmann, How to do distributed locking",
+              "url": "https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html",
+              "where": "Conclusion"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "dist.lock.tradeoff.1",
+            "must": true,
+            "text": "만료 시간 안에 작업이 끝나지 않으면(예: GC 멈춤) 다른 쪽도 락을 얻어 둘이 동시에 자원을 쓸 수 있다고 말한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Correct Implementation with a Single Instance; Disclaimer about consistency"
+            }
+          },
+          {
+            "id": "dist.lock.tradeoff.2",
+            "must": true,
+            "text": "복제가 비동기인 저장소에서 주 노드가 락을 복제하기 전에 죽고 복제본이 승격되면, 두 클라이언트가 같은 락을 가질 수 있다고 말한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Why Failover-based Implementations Are Not Enough"
+            }
+          },
+          {
+            "id": "dist.lock.tradeoff.3",
+            "must": false,
+            "text": "락을 쥔 쪽이 분할되어 풀지 못하면 다른 쪽은 만료 시간만큼 기다려야 해서, 만료 시간이 곧 가용성 손해가 된다고 말한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "Liveness Arguments"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "dist.lock.alternative.1",
+            "must": true,
+            "text": "락 서비스가 단조 증가하는 펜싱 토큰을 주고, 저장소는 이미 본 것보다 오래된 토큰의 쓰기를 거절하게 한다고 말한다",
+            "source": {
+              "title": "Martin Kleppmann, How to do distributed locking",
+              "url": "https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html",
+              "where": "Making the lock safe with fencing"
+            }
+          },
+          {
+            "id": "dist.lock.alternative.2",
+            "must": true,
+            "text": "이미 쓰는 트랜잭션 DB의 락(행 잠금이나 권고 락, 예: SELECT … FOR UPDATE, PostgreSQL advisory lock)으로 상호 배제를 할 수 있다고 말한다",
+            "source": {
+              "title": "PostgreSQL 문서: 13.3 Explicit Locking",
+              "url": "https://www.postgresql.org/docs/current/explicit-locking.html",
+              "where": "13.3.2 Row-Level Locks; 13.3.5 Advisory Locks"
+            }
+          },
+          {
+            "id": "dist.lock.alternative.3",
+            "must": false,
+            "text": "합의 기반 시스템의 락을 쓸 수 있다(예: ZooKeeper는 임시·순차 노드를 만들어 번호가 가장 작은 쪽이 락을 갖고 바로 앞 노드만 감시한다)고 말한다",
+            "source": {
+              "title": "Apache ZooKeeper 문서: ZooKeeper Recipes and Solutions",
+              "url": "https://zookeeper.apache.org/doc/current/recipes.html",
+              "where": "Locks"
+            }
+          },
+          {
+            "id": "dist.lock.alternative.4",
+            "must": false,
+            "text": "독립된 노드 여럿(예: Redis 마스터 5개) 가운데 과반에서 유효 시간 안에 락을 얻어야 성공으로 보는 방식(Redlock)이 있다고 말한다",
+            "source": {
+              "title": "Redis 문서: Distributed Locks with Redis",
+              "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+              "where": "The Redlock Algorithm"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.lock.m1",
+          "claim": "만료 시간을 둔 락을 잡았으면 작업이 끝날 때까지 나만 그 자원을 쓴다",
+          "fix": "상호 배제는 락의 유효 시간 안에서만 보장된다. 작업이 GC 멈춤 등으로 유효 시간을 넘기면 락이 만료되어 다른 쪽이 락을 얻을 수 있다. 펜싱 토큰으로 늦은 쓰기를 막아야 한다.",
+          "probe": "락 TTL이 10초인데 작업 중 GC로 15초 멈췄다가 깨어나 DB에 썼다면, 그 사이에 무슨 일이 있었을 수 있을까요?",
+          "source": {
+            "title": "Redis 문서: Distributed Locks with Redis",
+            "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+            "where": "Is the Algorithm Asynchronous?; Disclaimer about consistency"
+          }
+        },
+        {
+          "id": "dist.lock.m2",
+          "claim": "만료 시간을 둔 Redis 락을 풀 때는 DEL로 키만 지우면 된다",
+          "fix": "내 락이 이미 만료되어 다른 클라이언트가 같은 키로 락을 잡았을 수 있다. 값이 내가 넣은 고유 값과 같을 때만 지우는 원자적 연산(Lua 스크립트, Redis 8.4부터는 DELEX 명령)으로 풀어야 한다.",
+          "probe": "내 락이 만료되어 다른 클라이언트가 같은 키로 락을 잡은 뒤에 내가 DEL을 보내면, 어떻게 될까요?",
+          "source": {
+            "title": "Redis 문서: Distributed Locks with Redis",
+            "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+            "where": "Correct Implementation with a Single Instance"
+          }
+        },
+        {
+          "id": "dist.lock.m3",
+          "claim": "Redis에 복제본을 붙이면 락도 장애에 안전해진다",
+          "fix": "Redis 복제는 비동기라서, 마스터가 락 키를 복제하기 전에 죽고 복제본이 승격되면 다른 클라이언트가 같은 락을 또 얻는다.",
+          "probe": "클라이언트 A가 마스터에서 락을 얻은 직후 마스터가 죽고 복제본이 승격되었다면, 클라이언트 B가 같은 락을 요청할 때 어떻게 될까요?",
+          "source": {
+            "title": "Redis 문서: Distributed Locks with Redis",
+            "url": "https://redis.io/docs/latest/develop/clients/patterns/distributed-locks/",
+            "where": "Why Failover-based Implementations Are Not Enough"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.lock.s1",
+          "text": "매일 밤 정산 배치를 서버 3대 가운데 한 대만 돌리려고 락을 쓴다. 가끔 두 대가 함께 돌아도 결과는 같다.",
+          "faces": [
+            "rationale",
+            "tradeoff"
+          ]
+        },
+        {
+          "id": "dist.lock.s2",
+          "text": "재고 차감을 Redis 락으로 감쌌는데, 락이 만료된 뒤 늦게 깨어난 서버가 재고 값을 덮어써 수량이 틀어졌다.",
+          "faces": [
+            "tradeoff",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "단순한 락 대 강한 보장의 락",
+          "a": "단일 노드 락(예: Redis 하나): 빠르고 단순하지만 장애나 프로세스 멈춤 때 상호 배제가 깨질 수 있다",
+          "b": "합의 기반 락이나 펜싱: 더 강한 보장을 주지만 과반 복제나 저장소 쪽 검사가 필요해 느리고 할 일이 늘어난다"
+        }
+      ]
+    },
+    {
+      "id": "dist.breaker",
+      "name": "서킷 브레이커와 격벽",
+      "kind": "operation",
+      "core": false,
+      "aliases": [
+        "서킷 브레이커",
+        "격벽",
+        "벌크헤드",
+        "연쇄 장애",
+        "circuit breaker",
+        "bulkhead",
+        "Resilience4j"
+      ],
+      "prereq": [
+        "net.timeout"
+      ],
+      "alt": [],
+      "summary": "실패가 이어지는 원격 호출을 기준을 넘으면 바로 실패로 돌려(서킷 브레이커) 기다림과 자원 고갈을 막고, 의존 대상마다 자원을 나눠(격벽) 한 곳의 장애가 번지지 않게 하는 패턴이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "dist.breaker.principle.1",
+            "must": true,
+            "text": "닫힘 상태에서 일정 시간 안의 실패 수(또는 비율)가 임계값을 넘으면 열림으로 바뀐다고 설명한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution(Closed)"
+            }
+          },
+          {
+            "id": "dist.breaker.principle.2",
+            "must": true,
+            "text": "열림 상태에서는 원격 호출을 하지 않고 바로 실패를 돌려준다고 설명한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution(Open)"
+            }
+          },
+          {
+            "id": "dist.breaker.principle.3",
+            "must": true,
+            "text": "정해진 시간이 지나면 반열림(half-open)에서 제한된 시험 요청만 보내, 성공하면 닫고 실패하면 다시 연다고 설명한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution(Half-Open)"
+            }
+          },
+          {
+            "id": "dist.breaker.principle.4",
+            "must": false,
+            "text": "격벽은 의존 대상마다 자원(연결 풀, 스레드 풀 등)을 나눠 한 곳의 고갈이 다른 곳으로 번지지 않게 한다고 설명한다",
+            "source": {
+              "title": "Azure Architecture Center: Bulkhead pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead",
+              "where": "Solution"
+            }
+          }
+        ],
+        "observe": [
+          {
+            "id": "dist.breaker.observe.1",
+            "must": true,
+            "text": "브레이커의 상태 변화(닫힘에서 열림 등)를 기록하고 드러내 모니터링한다고 말한다",
+            "source": {
+              "title": "Martin Fowler, CircuitBreaker",
+              "url": "https://martinfowler.com/bliki/CircuitBreaker.html",
+              "where": "본문(상태 변화 기록과 모니터링)"
+            }
+          },
+          {
+            "id": "dist.breaker.observe.2",
+            "must": true,
+            "text": "응답 없는 의존 서비스를 기다리는 요청들이 스레드·메모리·DB 연결을 쥐고 있어 자원이 고갈되는지를 본다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Context and problem"
+            }
+          },
+          {
+            "id": "dist.breaker.observe.3",
+            "must": false,
+            "text": "격벽으로 나눈 파티션마다 성능과 SLA를 따로 관측한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Bulkhead pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead",
+              "where": "Problems and considerations"
+            }
+          }
+        ],
+        "recover": [
+          {
+            "id": "dist.breaker.recover.1",
+            "must": true,
+            "text": "열림 동안 실패를 그대로 보이는 대신 기본값이나 캐시한 응답, 줄인 기능으로 응답한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution; Example"
+            }
+          },
+          {
+            "id": "dist.breaker.recover.2",
+            "must": true,
+            "text": "회복은 시험 요청 몇 개로 확인한 뒤 점진적으로 되돌려, 회복 중인 서비스에 요청이 한꺼번에 몰려 다시 쓰러지지 않게 한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution(Half-Open 참고)"
+            }
+          },
+          {
+            "id": "dist.breaker.recover.3",
+            "must": false,
+            "text": "회복 시간이 들쭉날쭉하면 관리자가 브레이커를 직접 닫거나 열 수 있게 한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Problems and considerations — Manual override"
+            }
+          }
+        ],
+        "prevent": [
+          {
+            "id": "dist.breaker.prevent.1",
+            "must": true,
+            "text": "의존 서비스마다 연결 풀이나 스레드 풀을 따로 두어(격벽) 한 서비스의 장애가 다른 서비스 호출의 자원까지 고갈시키지 않게 한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Bulkhead pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "dist.breaker.prevent.2",
+            "must": true,
+            "text": "외부 호출의 타임아웃이 너무 길면 브레이커가 실패를 알아채기 전에 많은 스레드가 묶이므로 타임아웃을 알맞게 짧게 둔다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Problems and considerations — Inappropriate time-outs on external services"
+            }
+          },
+          {
+            "id": "dist.breaker.prevent.3",
+            "must": true,
+            "text": "재시도에는 무작위 지수 백오프, 요청당 재시도 횟수 제한, 전체 재시도 예산을 둔다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Retries"
+            }
+          },
+          {
+            "id": "dist.breaker.prevent.4",
+            "must": false,
+            "text": "재시도 로직은 브레이커가 돌려준 실패를 보고 일시적이지 않은 장애면 재시도를 멈춘다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Circuit Breaker pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+              "where": "Solution(Retry 패턴과의 차이 참고)"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "dist.breaker.m1",
+          "claim": "서킷 브레이커와 재시도는 같은 목적의 도구다",
+          "fix": "재시도는 결국 성공하리라 기대하고 다시 해 보는 것이고, 서킷 브레이커는 실패할 가능성이 큰 호출을 아예 하지 않게 막는 것이다. 함께 쓸 때 재시도는 브레이커가 열렸다는 신호를 보면 멈춰야 한다.",
+          "probe": "상대 서비스가 몇 분째 완전히 죽어 있는데 재시도만 계속하면, 우리 쪽 스레드와 상대 서비스에는 무슨 일이 생길까요?",
+          "source": {
+            "title": "Azure Architecture Center: Circuit Breaker pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+            "where": "Solution(Retry 패턴과의 차이 참고)"
+          }
+        },
+        {
+          "id": "dist.breaker.m2",
+          "claim": "반열림 상태가 되면 쌓였던 요청을 모두 다시 보내 본다",
+          "fix": "반열림에서는 제한된 수의 시험 요청만 통과시킨다. 회복 중인 서비스는 적은 양만 감당할 수 있어 한꺼번에 몰리면 다시 실패한다.",
+          "probe": "막 재시작한 결제 서버에 반열림 순간 그동안 쌓인 요청이 한꺼번에 흘러가면, 어떻게 될까요?",
+          "source": {
+            "title": "Azure Architecture Center: Circuit Breaker pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/circuit-breaker",
+            "where": "Solution(Half-Open 참고)"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "dist.breaker.s1",
+          "text": "추천 서비스가 응답하지 않자 상품 상세 API의 스레드가 모두 추천 호출을 기다리느라 묶였고, 추천과 상관없는 결제 API까지 응답이 멈췄다.",
+          "faces": [
+            "principle",
+            "observe",
+            "recover",
+            "prevent"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "격리 단위의 크기",
+          "a": "잘게 나눔: 장애가 좁게 갇히지만 자원을 덜 효율적으로 쓴다",
+          "b": "크게 나눔(공유): 자원 효율이 좋지만 한 의존 대상의 장애가 넓게 번진다"
+        }
+      ]
+    }
+  ]
+}

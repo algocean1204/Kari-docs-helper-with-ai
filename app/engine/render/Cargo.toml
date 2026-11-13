@@ -1,0 +1,15 @@
+[package]
+name = "kari-render"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+kari-layout = { path = "../layout" }
+# 화면 그리기(CPU 래스터)와 PNG 인코더만 쓴다. 글 배치(textlayout)는 넣지 않는다.
+# pdf를 켜는 이유: 미리 빌드된 Skia는 pdf가 켜진 조합만 배포된다. 끄면 Skia를 소스에서 빌드한다.
+# PDF 코드는 부르지 않아 링크에서 빠진다(엔진 라이브러리 +2KB).
+skia-safe = { version = "0.157", default-features = false, features = ["binary-cache", "pdf"] }
+
+[dev-dependencies]
+kari-doc = { path = "../doc" }

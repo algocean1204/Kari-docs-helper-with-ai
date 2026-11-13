@@ -1,0 +1,55 @@
+# 태그 v*를 밀면 macOS 앱을 빌드해 dmg를 만들고 초안 릴리스에 올린다. 게시는 유지 관리자가 글을 다듬은 뒤 한다.
+# 손으로 돌리면(Run workflow) 릴리스를 만들지 않고 dmg까지만 만들어 실행 기록의 산출물로 남긴다.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.38.2
+
+jobs:
+  release:
+    name: release
+    if: github.repository == 'algocean1204/Kari-docs-helper-with-ai'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: 필요한 도구
+        run: rustup update stable
+      - name: 빌드, 서명, dmg
+        # 기본은 임시 서명이다. Developer ID 인증서를 쓰려면 인증서를 키체인에 들이는 단계를 앞에 두고
+        # 아래 env의 두 줄을 켠다(공증 프로필은 xcrun notarytool store-credentials로 만든다).
+        # env:
+        #   KARI_SIGN_IDENTITY: ${{ secrets.KARI_SIGN_IDENTITY }}
+        #   KARI_NOTARY_PROFILE: ${{ secrets.KARI_NOTARY_PROFILE }}
+        run: |
+          app/scripts/package_dmg.sh --src "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/dist"
+          cp "$RUNNER_TEMP"/dist/Kari-*-arm64.dmg "$RUNNER_TEMP/Kari-macos-arm64.dmg"
+          cd "$RUNNER_TEMP" && shasum -a 256 Kari-macos-arm64.dmg > Kari-macos-arm64.dmg.sha256
+      - name: 산출물(손으로 돌렸을 때)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Kari-macos-arm64
+          path: |
+            ${{ runner.temp }}/Kari-macos-arm64.dmg
+            ${{ runner.temp }}/Kari-macos-arm64.dmg.sha256
+          retention-days: 7
+      - name: 초안 릴리스
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "Kari ${GITHUB_REF_NAME#v}" \
+            "$RUNNER_TEMP/Kari-macos-arm64.dmg" "$RUNNER_TEMP/Kari-macos-arm64.dmg.sha256"

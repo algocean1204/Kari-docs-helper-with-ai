@@ -1,0 +1,1294 @@
+{
+  "area": "ops",
+  "concepts": [
+    {
+      "id": "ops.observability",
+      "name": "로그, 메트릭, 트레이스",
+      "kind": "operation",
+      "core": true,
+      "aliases": [
+        "관측 가능성",
+        "모니터링",
+        "로그",
+        "메트릭",
+        "트레이스",
+        "observability",
+        "OpenTelemetry",
+        "Prometheus"
+      ],
+      "prereq": [],
+      "alt": [],
+      "summary": "로그, 메트릭, 트레이스로 시스템의 상태와 요청의 흐름을 바깥에서 알아보는 능력으로, 문제를 알아채고 원인을 좁히며 다음에 더 빨리 잡게 한다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "ops.observability.principle.1",
+            "must": true,
+            "text": "메트릭은 일정 시간에 걸친 수치의 집계(예: 오류율, 요청 수, CPU 사용률)라서 추세와 알림에 쓴다고 설명한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Observability primer",
+              "url": "https://opentelemetry.io/docs/concepts/observability-primer/",
+              "where": "Reliability and metrics"
+            }
+          },
+          {
+            "id": "ops.observability.principle.2",
+            "must": true,
+            "text": "로그는 시각이 붙은 개별 사건의 기록이라 한 사건의 자세한 내용을 보는 데 쓴다고 설명한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Observability primer",
+              "url": "https://opentelemetry.io/docs/concepts/observability-primer/",
+              "where": "Understanding distributed tracing — Logs"
+            }
+          },
+          {
+            "id": "ops.observability.principle.3",
+            "must": true,
+            "text": "트레이스는 한 요청이 여러 서비스를 거친 경로를 기록해 요청 단위로 어디서 시간이 걸렸는지 보는 데 쓴다고 설명한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Observability primer",
+              "url": "https://opentelemetry.io/docs/concepts/observability-primer/",
+              "where": "Understanding distributed tracing — Distributed traces"
+            }
+          },
+          {
+            "id": "ops.observability.principle.4",
+            "must": false,
+            "text": "트레이스는 서비스 사이에 트레이스 ID·스팬 ID를 전파해 여러 프로세스의 작업(스팬)을 하나로 잇는다고 설명한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Traces",
+              "url": "https://opentelemetry.io/docs/concepts/signals/traces/",
+              "where": "Spans; Context Propagation"
+            }
+          }
+        ],
+        "observe": [
+          {
+            "id": "ops.observability.observe.1",
+            "must": true,
+            "text": "사용자를 상대하는 서비스는 지연 시간, 트래픽, 오류, 포화도(네 가지 황금 신호)를 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+              "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+              "where": "The Four Golden Signals"
+            }
+          },
+          {
+            "id": "ops.observability.observe.2",
+            "must": true,
+            "text": "평균은 느린 꼬리를 가리므로 지연 시간을 히스토그램이나 백분위수로 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+              "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+              "where": "Worrying About Your Tail (or, Instrumentation and Performance)"
+            }
+          },
+          {
+            "id": "ops.observability.observe.3",
+            "must": true,
+            "text": "여러 서비스를 거치는 요청은 트레이스로 어느 구간이 느리거나 실패하는지 좁힌다고 말한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Traces",
+              "url": "https://opentelemetry.io/docs/concepts/signals/traces/",
+              "where": "Traces; Spans"
+            }
+          },
+          {
+            "id": "ops.observability.observe.4",
+            "must": false,
+            "text": "성공한 요청과 실패한 요청의 지연 시간을 따로 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+              "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+              "where": "The Four Golden Signals"
+            }
+          },
+          {
+            "id": "ops.observability.observe.5",
+            "must": false,
+            "text": "로그에 트레이스 ID와 스팬 ID를 남겨 문제 트레이스에서 그 요청의 로그로 바로 넘어간다고 말한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Logs",
+              "url": "https://opentelemetry.io/docs/concepts/signals/logs/",
+              "where": "OpenTelemetry logging components — Log Record"
+            }
+          }
+        ],
+        "recover": [
+          {
+            "id": "ops.observability.recover.1",
+            "must": true,
+            "text": "원인을 다 밝히기 전에 먼저 피해를 막는다(트래픽 돌리기, 부하 줄이기, 문제 기능 끄기)고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "Triage"
+            }
+          },
+          {
+            "id": "ops.observability.recover.2",
+            "must": true,
+            "text": "오류가 늘어난 시점을 배포·설정 변경 시점과 맞춰 보고, 최근 변경부터 의심해 되돌린다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "What touched it last"
+            }
+          }
+        ],
+        "prevent": [
+          {
+            "id": "ops.observability.prevent.1",
+            "must": true,
+            "text": "알림은 원인 지표보다 사용자가 겪는 증상을 기준으로 건다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+              "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+              "where": "Symptoms Versus Causes; Tying These Principles Together"
+            }
+          },
+          {
+            "id": "ops.observability.prevent.2",
+            "must": true,
+            "text": "호출(page)은 바로 행동할 수 있고 사람의 판단이 필요한 것만 보내고, 기계적으로 대응할 수 있는 것은 자동화한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+              "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+              "where": "Tying These Principles Together"
+            }
+          },
+          {
+            "id": "ops.observability.prevent.3",
+            "must": false,
+            "text": "배포와 설정 변경을 모든 계층에서 기록하고 모니터링 그래프에 표시해 두어 다음 장애 때 대조할 수 있게 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "What touched it last"
+            }
+          },
+          {
+            "id": "ops.observability.prevent.4",
+            "must": false,
+            "text": "라벨 기반 시계열 DB(예: Prometheus)에서는 사용자 ID처럼 값이 끝없이 많은 차원을 라벨로 쓰지 않는다고 말한다",
+            "source": {
+              "title": "Prometheus 문서: Metric and label naming",
+              "url": "https://prometheus.io/docs/practices/naming/",
+              "where": "Labels"
+            }
+          },
+          {
+            "id": "ops.observability.prevent.5",
+            "must": false,
+            "text": "운영 환경에서는 대규모로 분석하기 쉬운 구조화 로그를 쓴다고 말한다",
+            "source": {
+              "title": "OpenTelemetry 문서: Logs",
+              "url": "https://opentelemetry.io/docs/concepts/signals/logs/",
+              "where": "Structured, unstructured, and semistructured logs — Structured logs"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.observability.m1",
+          "claim": "평균 응답 시간이 정상이면 사용자들도 괜찮다",
+          "fix": "평균은 느린 꼬리를 가린다. 소수의 아주 느린 요청은 평균에 거의 드러나지 않으므로 백분위수나 히스토그램으로 봐야 한다.",
+          "probe": "평균 응답 시간은 80ms인데 요청의 1%가 5초 걸린다면, 평균 그래프에서 이 문제가 보일까요?",
+          "source": {
+            "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+            "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+            "where": "Worrying About Your Tail (or, Instrumentation and Performance)"
+          }
+        },
+        {
+          "id": "ops.observability.m2",
+          "claim": "Prometheus 같은 라벨 기반 시계열 DB에서 메트릭에 user_id 라벨을 달면 사용자별로 볼 수 있어 좋다",
+          "fix": "라벨 값의 조합마다 새 시계열이 생겨 저장량이 폭증한다. 사용자 ID처럼 값이 끝없는 차원은 라벨로 쓰지 말고 로그나 트레이스로 본다. (고카디널리티를 전제로 만든 도구는 사정이 다를 수 있다.)",
+          "probe": "사용자가 1,000만 명인 서비스의 요청 수 메트릭에 user_id 라벨을 달면, 시계열은 몇 개쯤 생길까요?",
+          "source": {
+            "title": "Prometheus 문서: Metric and label naming",
+            "url": "https://prometheus.io/docs/practices/naming/",
+            "where": "Labels"
+          }
+        },
+        {
+          "id": "ops.observability.m3",
+          "claim": "CPU 사용률 같은 원인 지표마다 호출 알림을 거는 것이 가장 안전하다",
+          "fix": "호출은 사용자가 겪는 증상을 기준으로 하고 행동할 수 있는 것만 보낸다. 원인 지표는 디버깅에 쓰고, 확실하고 임박한 경우가 아니면 호출하지 않는다.",
+          "probe": "CPU가 90%여도 사용자가 보는 오류율과 지연이 정상이라면, 새벽에 사람을 깨워야 할까요?",
+          "source": {
+            "title": "Google SRE Book, 6장 Monitoring Distributed Systems",
+            "url": "https://sre.google/sre-book/monitoring-distributed-systems/",
+            "where": "Symptoms Versus Causes; Tying These Principles Together"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.observability.s1",
+          "text": "결제 API의 p99 지연이 튀었는데, 결제 요청은 서비스 다섯 개를 거친다. 어느 서비스가 느린지 찾아야 한다.",
+          "faces": [
+            "principle",
+            "observe",
+            "recover"
+          ]
+        },
+        {
+          "id": "ops.observability.s2",
+          "text": "장애로 요청들이 즉시 500으로 실패하자, 평균 지연 그래프는 오히려 좋아 보였다.",
+          "faces": [
+            "observe"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "트레이스 수집량 대 비용",
+          "a": "모두 수집: 어떤 요청이든 볼 수 있지만 저장·처리 비용이 크다",
+          "b": "샘플링: 비용이 줄지만 드문 오류 요청을 놓칠 수 있다(전체 트레이스를 보고 고르는 테일 샘플링은 이를 줄이지만 운영이 무겁다)"
+        }
+      ]
+    },
+    {
+      "id": "ops.slo",
+      "name": "SLI, SLO, 에러 예산",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "SLO",
+        "SLI",
+        "SLA",
+        "에러 예산",
+        "서비스 수준 목표",
+        "error budget",
+        "burn rate",
+        "번 레이트"
+      ],
+      "prereq": [
+        "ops.observability"
+      ],
+      "alt": [],
+      "summary": "서비스 수준을 재는 지표(SLI), 그 목표(SLO), 목표가 허용하는 실패의 양(에러 예산)으로 신뢰성 목표를 정하고, 출시 속도와 신뢰성 작업 사이를 데이터로 가르는 방법이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "ops.slo.principle.1",
+            "must": true,
+            "text": "SLI는 서비스 수준의 한 측면을 재는 정량 지표(예: 요청 지연, 오류율)라고 설명한다",
+            "source": {
+              "title": "Google SRE Book, 4장 Service Level Objectives",
+              "url": "https://sre.google/sre-book/service-level-objectives/",
+              "where": "Service Level Terminology — Indicators"
+            }
+          },
+          {
+            "id": "ops.slo.principle.2",
+            "must": true,
+            "text": "SLO는 SLI가 일정 기간 맞춰야 할 목표 값이나 범위라고 설명한다",
+            "source": {
+              "title": "Google SRE Book, 4장 Service Level Objectives",
+              "url": "https://sre.google/sre-book/service-level-objectives/",
+              "where": "Service Level Terminology — Objectives"
+            }
+          },
+          {
+            "id": "ops.slo.principle.3",
+            "must": true,
+            "text": "에러 예산은 SLO가 허용하는 실패의 양(1 − SLO)이라고 설명한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Forming Your Error Budget"
+            }
+          },
+          {
+            "id": "ops.slo.principle.4",
+            "must": false,
+            "text": "SLA는 목표를 맞추거나 놓쳤을 때의 결과(흔히 금전)가 걸린 사용자와의 약속이라는 점에서 SLO와 다르다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 4장 Service Level Objectives",
+              "url": "https://sre.google/sre-book/service-level-objectives/",
+              "where": "Agreements"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "ops.slo.rationale.1",
+            "must": true,
+            "text": "지표는 측정하기 쉬운 것이 아니라 사용자가 신경 쓰는 것에서 고른다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 4장 Service Level Objectives",
+              "url": "https://sre.google/sre-book/service-level-objectives/",
+              "where": "What Do You and Your Users Care About?"
+            }
+          },
+          {
+            "id": "ops.slo.rationale.2",
+            "must": true,
+            "text": "에러 예산이 남아 있으면 출시를 계속하고, 다 쓰면 출시를 늦추고 신뢰성 작업에 집중하는 식으로 출시와 안정성 사이를 데이터로 정한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Forming Your Error Budget"
+            }
+          },
+          {
+            "id": "ops.slo.rationale.3",
+            "must": false,
+            "text": "에러 예산은 개발 쪽과 운영 쪽이 같은 기준을 보게 해 이해를 맞춘다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Key Insights"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "ops.slo.tradeoff.1",
+            "must": true,
+            "text": "신뢰성을 한 단계 더 올릴 때마다 비용이 크게 늘고 새 기능을 내는 속도가 줄지만, 사용자는 그 차이를 느끼지 못할 수 있다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Embracing Risk(장 도입부)"
+            }
+          },
+          {
+            "id": "ops.slo.tradeoff.2",
+            "must": true,
+            "text": "100%는 거의 언제나 맞지 않는 목표라고 말한다(실패를 전혀 허용하지 않으면 출시할 여지가 없다)",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Key Insights"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "ops.slo.alternative.1",
+            "must": true,
+            "text": "오류율이 임계값을 넘을 때마다 알리는 대신, 에러 예산을 소진하는 속도(번 레이트)를 기준으로 알린다고 말한다",
+            "source": {
+              "title": "Google SRE Workbook, 5장 Alerting on SLOs",
+              "url": "https://sre.google/workbook/alerting-on-slos/",
+              "where": "Ways to Alert on Significant Events — Alert on Burn Rate"
+            }
+          },
+          {
+            "id": "ops.slo.alternative.2",
+            "must": true,
+            "text": "가동 시간의 비율 대신 성공한 요청의 비율로 가용성을 잴 수 있다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Measuring Service Risk — Time-based availability, Aggregate availability"
+            }
+          },
+          {
+            "id": "ops.slo.alternative.3",
+            "must": false,
+            "text": "긴 창과 짧은 창을 함께 보는 다중 창·다중 번 레이트 알림으로, 감지를 빠르게 하면서 문제가 끝난 뒤에는 알림이 빨리 멈추게 한다고 말한다",
+            "source": {
+              "title": "Google SRE Workbook, 5장 Alerting on SLOs",
+              "url": "https://sre.google/workbook/alerting-on-slos/",
+              "where": "Ways to Alert on Significant Events — Multiwindow, Multi-Burn-Rate Alerts"
+            }
+          }
+        ],
+        "estimate": [
+          {
+            "id": "ops.slo.estimate.1",
+            "must": false,
+            "text": "30일 기간에 SLO가 99.9%면 에러 예산은 약 43분(30×24×60×0.001)이라고 계산한다",
+            "source": {
+              "title": "Google SRE Book, 3장 Embracing Risk",
+              "url": "https://sre.google/sre-book/embracing-risk/",
+              "where": "Forming Your Error Budget"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.slo.m1",
+          "claim": "SLO는 높을수록 좋고, 가능하면 100%가 맞다",
+          "fix": "신뢰성을 한 단계 올릴 때마다 비용이 가파르게 늘지만, 사용자는 다른 구성 요소(단말, 네트워크)의 신뢰성 때문에 그 차이를 느끼지 못한다. 100%를 목표로 하면 출시할 여지도 없어진다.",
+          "probe": "가용성을 99.99%에서 99.999%로 올리는 데 드는 비용을, 99% 신뢰성의 휴대폰으로 접속하는 사용자가 체감할 수 있을까요?",
+          "source": {
+            "title": "Google SRE Book, 3장 Embracing Risk",
+            "url": "https://sre.google/sre-book/embracing-risk/",
+            "where": "Embracing Risk(장 도입부)"
+          }
+        },
+        {
+          "id": "ops.slo.m2",
+          "claim": "SLO와 SLA는 같은 말이다",
+          "fix": "SLO는 지표가 맞춰야 할 목표이고, SLA는 목표를 놓쳤을 때의 결과(환불 등)가 걸린 약속이다. 결과가 걸려 있지 않다면 그것은 SLO다.",
+          "probe": "목표를 놓쳤을 때 고객에게 환불해야 하는 숫자와 팀 안에서 작업 우선순위를 정하는 숫자는, 같은 값이어야 할까요?",
+          "source": {
+            "title": "Google SRE Book, 4장 Service Level Objectives",
+            "url": "https://sre.google/sre-book/service-level-objectives/",
+            "where": "Agreements"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.slo.s1",
+          "text": "월 가용성 SLO가 99.9%인 서비스가 3주 만에 에러 예산을 다 썼는데, 다음 주에 큰 기능 출시가 잡혀 있다.",
+          "faces": [
+            "principle",
+            "rationale",
+            "tradeoff"
+          ]
+        },
+        {
+          "id": "ops.slo.s2",
+          "text": "오류율이 0.1%를 넘는 상태가 10분 이어질 때마다 알림이 와서, 팀이 알림을 무시하기 시작했다.",
+          "faces": [
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "높은 목표 대 출시 속도",
+          "a": "높은 SLO: 사용자가 겪는 실패가 줄지만 비용이 크게 늘고 출시가 느려진다",
+          "b": "낮은 SLO: 빨리 출시할 수 있지만 사용자가 겪는 실패가 는다"
+        }
+      ]
+    },
+    {
+      "id": "ops.deploy",
+      "name": "배포 전략(롤링, 블루그린, 카나리)",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "배포 전략",
+        "롤링 배포",
+        "블루그린",
+        "카나리",
+        "rolling update",
+        "blue-green",
+        "canary",
+        "무중단 배포"
+      ],
+      "prereq": [],
+      "alt": [],
+      "summary": "새 버전을 운영에 내보내는 방식으로, 인스턴스를 조금씩 바꾸는 롤링, 두 환경 사이에서 트래픽을 통째로 넘기는 블루그린, 일부 사용자에게 먼저 내보내는 카나리가 있다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "ops.deploy.principle.1",
+            "must": true,
+            "text": "롤링은 인스턴스를 조금씩 새 버전으로 바꾸며, 한 번에 빠지거나 더 뜨는 수를 정해 용량을 지킨다고 설명한다(예: Kubernetes maxUnavailable·maxSurge)",
+            "source": {
+              "title": "Kubernetes 문서: Deployments",
+              "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+              "where": "Writing a Deployment Spec — Strategy(Rolling Update Deployment)"
+            }
+          },
+          {
+            "id": "ops.deploy.principle.2",
+            "must": true,
+            "text": "블루그린은 거의 같은 운영 환경 둘을 두고 라우터를 새 환경으로 통째로 넘긴다고 설명한다",
+            "source": {
+              "title": "Martin Fowler, BlueGreenDeployment",
+              "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html",
+              "where": "본문"
+            }
+          },
+          {
+            "id": "ops.deploy.principle.3",
+            "must": true,
+            "text": "카나리는 새 버전을 일부 사용자(트래픽)에게 먼저 내보내 확인한 뒤 범위를 넓힌다고 설명한다",
+            "source": {
+              "title": "Martin Fowler, CanaryRelease",
+              "url": "https://martinfowler.com/bliki/CanaryRelease.html",
+              "where": "본문"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "ops.deploy.rationale.1",
+            "must": true,
+            "text": "문제가 생겼을 때 라우터를 되돌려 바로 롤백해야 하면 블루그린을 고른다고 말한다",
+            "source": {
+              "title": "Martin Fowler, BlueGreenDeployment",
+              "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html",
+              "where": "본문"
+            }
+          },
+          {
+            "id": "ops.deploy.rationale.2",
+            "must": true,
+            "text": "실제 운영 트래픽으로 확인하되 문제의 영향을 일부 사용자로 한정하려면 카나리를 고른다고 말한다",
+            "source": {
+              "title": "Martin Fowler, CanaryRelease",
+              "url": "https://martinfowler.com/bliki/CanaryRelease.html",
+              "where": "본문"
+            }
+          },
+          {
+            "id": "ops.deploy.rationale.3",
+            "must": false,
+            "text": "카나리는 새 버전의 용량을 운영 환경에서 시험하는 데도 쓸 수 있다고 말한다",
+            "source": {
+              "title": "Martin Fowler, CanaryRelease",
+              "url": "https://martinfowler.com/bliki/CanaryRelease.html",
+              "where": "본문"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "ops.deploy.tradeoff.1",
+            "must": true,
+            "text": "두 버전이 함께 도는 동안(롤링, 카나리)에는 DB와 API가 두 버전을 모두 지원해야 한다고 말한다",
+            "source": {
+              "title": "Martin Fowler, CanaryRelease",
+              "url": "https://martinfowler.com/bliki/CanaryRelease.html",
+              "where": "본문(단점)"
+            }
+          },
+          {
+            "id": "ops.deploy.tradeoff.2",
+            "must": true,
+            "text": "블루그린에서 롤백하면 새 환경이 받는 동안 생긴 쓰기를 옛 환경에 어떻게 반영할지 따로 다뤄야 한다고 말한다",
+            "source": {
+              "title": "Martin Fowler, BlueGreenDeployment",
+              "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html",
+              "where": "본문"
+            }
+          },
+          {
+            "id": "ops.deploy.tradeoff.3",
+            "must": false,
+            "text": "옛 인스턴스를 모두 내린 뒤 새로 올리는 방식(예: Kubernetes Recreate)은 그 사이 서비스가 비는 시간이 생긴다고 말한다",
+            "source": {
+              "title": "Kubernetes 문서: Deployments",
+              "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+              "where": "Writing a Deployment Spec — Strategy(Recreate Deployment)"
+            }
+          },
+          {
+            "id": "ops.deploy.tradeoff.4",
+            "must": false,
+            "text": "카나리는 대표성이 있으려면 충분히 크고 오래 돌아야 하는데, 그만큼 출시가 늦어진다고 말한다",
+            "source": {
+              "title": "Google SRE Workbook, 16장 Canarying Releases",
+              "url": "https://sre.google/workbook/canarying-releases/",
+              "where": "Choosing a Canary Population and Duration"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "ops.deploy.alternative.1",
+            "must": true,
+            "text": "기능 플래그로 코드 배포와 기능 출시를 나눠, 배포는 하되 기능은 따로 켜고 끈다고 말한다",
+            "source": {
+              "title": "Pete Hodgson, Feature Toggles (aka Feature Flags) (martinfowler.com)",
+              "url": "https://martinfowler.com/articles/feature-toggles.html",
+              "where": "Categories of toggles — Release Toggles"
+            }
+          },
+          {
+            "id": "ops.deploy.alternative.2",
+            "must": true,
+            "text": "스키마 변경은 앱 배포와 분리해, 먼저 옛 버전과 새 버전 모두와 호환되는 변경을 내보낸다고 말한다",
+            "source": {
+              "title": "Martin Fowler, BlueGreenDeployment",
+              "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html",
+              "where": "본문(데이터베이스)"
+            }
+          },
+          {
+            "id": "ops.deploy.alternative.3",
+            "must": false,
+            "text": "기능 플래그는 조건 분기와 시험 부담을 늘리므로 쓰임이 끝나면 지운다고 말한다",
+            "source": {
+              "title": "Pete Hodgson, Feature Toggles (aka Feature Flags) (martinfowler.com)",
+              "url": "https://martinfowler.com/articles/feature-toggles.html",
+              "where": "Working with feature-flagged systems — Managing the carrying cost of Feature Toggles"
+            }
+          }
+        ],
+        "verify": [
+          {
+            "id": "ops.deploy.verify.1",
+            "must": false,
+            "text": "카나리는 배포 전후를 비교하지 않고, 같은 시간에 옛 버전으로 도는 대조군과 비교해 평가한다고 말한다",
+            "source": {
+              "title": "Google SRE Workbook, 16장 Canarying Releases",
+              "url": "https://sre.google/workbook/canarying-releases/",
+              "where": "Before/After Evaluation Is Risky"
+            }
+          },
+          {
+            "id": "ops.deploy.verify.2",
+            "must": false,
+            "text": "배포가 정해진 시간 안에 진행되지 않으면 실패로 감지해 되돌린다고 말한다(예: Kubernetes는 progressDeadlineSeconds를 넘긴 배포를 실패로 표시만 하고 자동 롤백은 하지 않는다)",
+            "source": {
+              "title": "Kubernetes 문서: Deployments",
+              "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+              "where": "Deployment status — Failed Deployment"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.deploy.m1",
+          "claim": "Kubernetes 롤링 배포가 실패하면 Kubernetes가 자동으로 이전 버전으로 되돌린다",
+          "fix": "Kubernetes는 진행이 멈춘 디플로이먼트에 ProgressDeadlineExceeded 상태만 남기고 스스로 롤백하지 않는다. 롤백은 사람이나 상위 도구가 kubectl rollout undo 등으로 한다.",
+          "probe": "새 이미지가 계속 크래시해 진행 기한을 넘긴 디플로이먼트를 그냥 두면, Kubernetes는 무엇을 할까요?",
+          "source": {
+            "title": "Kubernetes 문서: Deployments",
+            "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+            "where": "Deployment status — Failed Deployment"
+          }
+        },
+        {
+          "id": "ops.deploy.m2",
+          "claim": "블루그린이면 DB 스키마도 새 환경과 함께 한 번에 바꾸면 된다",
+          "fix": "블루그린의 빠른 롤백은 옛 환경이 같은 DB에서 그대로 돌 수 있어야 가능하다. 스키마 변경은 앱 배포와 분리해 두 버전 모두와 호환되게 먼저 내보낸다.",
+          "probe": "새 버전과 함께 컬럼 이름을 바꿨는데 문제가 생겨 옛 환경으로 되돌리면, 옛 버전은 그 DB에서 제대로 돌까요?",
+          "source": {
+            "title": "Martin Fowler, BlueGreenDeployment",
+            "url": "https://martinfowler.com/bliki/BlueGreenDeployment.html",
+            "where": "본문(데이터베이스)"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.deploy.s1",
+          "text": "결제 서비스 새 버전을 사용자 5%에게 먼저 내보냈는데, 오류율이 지난주 평소와 비슷해 보인다. 비율을 늘릴지 정해야 한다.",
+          "faces": [
+            "principle",
+            "rationale"
+          ]
+        },
+        {
+          "id": "ops.deploy.s2",
+          "text": "새 버전 배포에 컬럼 삭제가 함께 들어가 있어, 문제가 생겼는데도 롤백할 수 없게 됐다.",
+          "faces": [
+            "tradeoff",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "추가 자원 대 롤백 속도",
+          "a": "블루그린: 라우터 전환으로 바로 롤백하지만 환경을 두 벌 유지한다",
+          "b": "롤링: 추가 자원이 적지만 롤백도 다시 하나씩 바꿔야 하고 그동안 두 버전이 섞인다"
+        }
+      ]
+    },
+    {
+      "id": "ops.incident",
+      "name": "장애 대응과 사후 검토",
+      "kind": "operation",
+      "core": false,
+      "aliases": [
+        "장애 대응",
+        "인시던트",
+        "포스트모템",
+        "사후 검토",
+        "incident",
+        "postmortem",
+        "온콜",
+        "on-call"
+      ],
+      "prereq": [
+        "ops.observability"
+      ],
+      "alt": [],
+      "summary": "장애가 났을 때 역할을 나눠 서비스를 먼저 되살리고, 끝난 뒤 비난 없는 사후 검토(포스트모템)로 원인과 재발 방지 작업을 남기는 과정이다.",
+      "faces": {
+        "observe": [
+          {
+            "id": "ops.incident.observe.1",
+            "must": true,
+            "text": "문제를 알아채면 먼저 심각도(영향 범위)를 가늠한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "Triage"
+            }
+          },
+          {
+            "id": "ops.incident.observe.2",
+            "must": true,
+            "text": "인시던트 선언 기준(고객 영향, 다른 팀이 필요함, 해결 지연 등)을 미리 정해 두고 일찍 선언한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 14장 Managing Incidents",
+              "url": "https://sre.google/sre-book/managing-incidents/",
+              "where": "When to Declare an Incident"
+            }
+          },
+          {
+            "id": "ops.incident.observe.3",
+            "must": false,
+            "text": "오류가 늘어난 시점을 최근 배포·설정 변경과 맞춰 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "What touched it last"
+            }
+          }
+        ],
+        "recover": [
+          {
+            "id": "ops.incident.recover.1",
+            "must": true,
+            "text": "우선순위는 피해 막기, 서비스 복구, 원인 분석용 증거 보존 순이라고 말한다",
+            "source": {
+              "title": "Google SRE Book, 14장 Managing Incidents",
+              "url": "https://sre.google/sre-book/managing-incidents/",
+              "where": "Best Practices for Incident Management(Prioritize)"
+            }
+          },
+          {
+            "id": "ops.incident.recover.2",
+            "must": true,
+            "text": "원인 규명보다 먼저 최근 변경 되돌리기, 트래픽 돌리기, 부하 줄이기 같은 완화를 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 12장 Effective Troubleshooting",
+              "url": "https://sre.google/sre-book/effective-troubleshooting/",
+              "where": "Triage"
+            }
+          },
+          {
+            "id": "ops.incident.recover.3",
+            "must": true,
+            "text": "지휘, 작업(운영), 소통, 계획으로 역할을 나눈다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 14장 Managing Incidents",
+              "url": "https://sre.google/sre-book/managing-incidents/",
+              "where": "Elements of Incident Management Process — Recursive Separation of Responsibilities"
+            }
+          },
+          {
+            "id": "ops.incident.recover.4",
+            "must": false,
+            "text": "소통 담당이 관련된 사람과 이해관계자에게 주기적으로 상황을 알린다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 14장 Managing Incidents",
+              "url": "https://sre.google/sre-book/managing-incidents/",
+              "where": "Elements of Incident Management Process — Recursive Separation of Responsibilities"
+            }
+          },
+          {
+            "id": "ops.incident.recover.5",
+            "must": false,
+            "text": "장애 중에는 작업 담당만 시스템을 바꿔 서로 엇갈린 조치를 막는다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 14장 Managing Incidents",
+              "url": "https://sre.google/sre-book/managing-incidents/",
+              "where": "Elements of Incident Management Process — Recursive Separation of Responsibilities"
+            }
+          }
+        ],
+        "prevent": [
+          {
+            "id": "ops.incident.prevent.1",
+            "must": true,
+            "text": "포스트모템에 사건, 영향, 완화·해결 조치, 근본 원인, 재발을 막는 후속 작업을 적는다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 15장 Postmortem Culture: Learning from Failure",
+              "url": "https://sre.google/sre-book/postmortem-culture/",
+              "where": "장 도입부"
+            }
+          },
+          {
+            "id": "ops.incident.prevent.2",
+            "must": true,
+            "text": "포스트모템은 비난 없이(blameless) 개인이나 팀을 탓하지 않고 기여 원인을 찾는다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 15장 Postmortem Culture: Learning from Failure",
+              "url": "https://sre.google/sre-book/postmortem-culture/",
+              "where": "Google's Postmortem Philosophy"
+            }
+          },
+          {
+            "id": "ops.incident.prevent.3",
+            "must": true,
+            "text": "포스트모템을 검토해 근본 원인이 충분히 깊은지와 후속 작업이 실제로 처리되는지 확인한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 15장 Postmortem Culture: Learning from Failure",
+              "url": "https://sre.google/sre-book/postmortem-culture/",
+              "where": "Collaborate and Share Knowledge(Best Practice: No Postmortem Left Unreviewed)"
+            }
+          },
+          {
+            "id": "ops.incident.prevent.4",
+            "must": false,
+            "text": "사용자 영향, 데이터 손실, 롤백 같은 개입이 있었는지 등 포스트모템을 쓸 기준을 미리 정해 둔다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 15장 Postmortem Culture: Learning from Failure",
+              "url": "https://sre.google/sre-book/postmortem-culture/",
+              "where": "Google's Postmortem Philosophy"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.incident.m1",
+          "claim": "장애가 나면 근본 원인을 먼저 찾은 뒤에 복구해야 한다",
+          "fix": "먼저 피해를 막고 서비스를 되살린다. 원인 분석은 그다음이며, 그때 쓸 증거(로그, 상태)는 복구하면서 남겨 둔다.",
+          "probe": "결제가 전면 중단됐고 직전 배포가 의심될 때, 원인이 된 코드를 찾을 때까지 롤백을 미뤄야 할까요?",
+          "source": {
+            "title": "Google SRE Book, 14장 Managing Incidents",
+            "url": "https://sre.google/sre-book/managing-incidents/",
+            "where": "Best Practices for Incident Management(Prioritize)"
+          }
+        },
+        {
+          "id": "ops.incident.m2",
+          "claim": "포스트모템의 목적은 실수한 사람을 찾아 책임을 묻는 것이다",
+          "fix": "포스트모템은 비난 없이 기여 원인과 시스템의 빈틈을 찾는다. 사람을 탓하면 다음 문제를 숨기게 되어 배울 기회를 잃는다.",
+          "probe": "설정 실수를 한 사람을 징계하면, 다음에 비슷한 실수를 한 사람이 바로 알릴까요?",
+          "source": {
+            "title": "Google SRE Book, 15장 Postmortem Culture: Learning from Failure",
+            "url": "https://sre.google/sre-book/postmortem-culture/",
+            "where": "Google's Postmortem Philosophy"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.incident.s1",
+          "text": "새벽 배포 뒤 주문 실패율이 30%로 올랐고, 엔지니어 넷이 서로 알리지 않고 각자 서버 설정을 바꿔 보고 있다.",
+          "faces": [
+            "observe",
+            "recover"
+          ]
+        },
+        {
+          "id": "ops.incident.s2",
+          "text": "같은 원인의 장애가 석 달에 세 번 났는데, 매번 포스트모템의 후속 작업이 처리되지 않았다.",
+          "faces": [
+            "prevent"
+          ]
+        }
+      ],
+      "tradeoffs": []
+    },
+    {
+      "id": "ops.capacity",
+      "name": "부하 시험과 용량 계획",
+      "kind": "operation",
+      "core": false,
+      "aliases": [
+        "부하 테스트",
+        "용량 계획",
+        "스트레스 테스트",
+        "성능 테스트",
+        "load test",
+        "capacity planning",
+        "k6"
+      ],
+      "prereq": [
+        "ops.observability"
+      ],
+      "alt": [
+        "ops.autoscale"
+      ],
+      "summary": "부하 시험으로 시스템이 어디까지 견디고 어떻게 무너지는지 알아내고, 수요 예측과 함께 필요한 자원을 미리 마련하는 일이다.",
+      "faces": {
+        "observe": [
+          {
+            "id": "ops.capacity.observe.1",
+            "must": true,
+            "text": "부하가 늘수록 시스템은 느려지므로, 목표 응답 속도를 지키는 선에서의 처리량으로 용량을 정한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 1장 Introduction",
+              "url": "https://sre.google/sre-book/introduction/",
+              "where": "Efficiency and Performance"
+            }
+          },
+          {
+            "id": "ops.capacity.observe.2",
+            "must": true,
+            "text": "구성 요소를 깨질 때까지 부하 시험해, 일부 요청을 거절하며 버티는지 통째로 무너지는지 어떻게 실패하는지를 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Testing for Cascading Failures — Test Until Failure and Beyond"
+            }
+          },
+          {
+            "id": "ops.capacity.observe.3",
+            "must": true,
+            "text": "요청 종류마다 드는 자원이 달라 요청 구성이 바뀌면 처리 가능한 초당 요청 수도 바뀌므로, 실제와 같은 요청 구성으로 시험하거나 CPU 같은 자원 기준을 함께 본다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 21장 Handling Overload",
+              "url": "https://sre.google/sre-book/handling-overload/",
+              "where": "The Pitfalls of \"Queries per Second\""
+            }
+          },
+          {
+            "id": "ops.capacity.observe.4",
+            "must": false,
+            "text": "시스템이 바뀌므로 자원 대비 처리량의 관계를 예전 수치에 기대지 않고 부하 시험으로 다시 확인한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 부록 B A Collection of Best Practices for Production Services",
+              "url": "https://sre.google/sre-book/service-best-practices/",
+              "where": "Capacity Planning"
+            }
+          }
+        ],
+        "recover": [
+          {
+            "id": "ops.capacity.recover.1",
+            "must": true,
+            "text": "과부하로 연쇄 장애가 났을 때 인스턴스를 늘리는 것이 가장 빠른 복구일 수 있다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Immediate Steps to Address Cascading Failures — Increase Resources"
+            }
+          },
+          {
+            "id": "ops.capacity.recover.2",
+            "must": true,
+            "text": "용량을 넘을 때는 일부 트래픽을 떨어뜨리거나(load shedding) 요청당 일을 줄여(graceful degradation) 서버가 죽지 않게 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Load Shedding and Graceful Degradation"
+            }
+          },
+          {
+            "id": "ops.capacity.recover.3",
+            "must": false,
+            "text": "장애 중에는 배치 작업처럼 덜 중요한 부하를 꺼서 용량을 확보한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Immediate Steps to Address Cascading Failures — Eliminate Batch Load"
+            }
+          }
+        ],
+        "prevent": [
+          {
+            "id": "ops.capacity.prevent.1",
+            "must": true,
+            "text": "수요 예측은 자원을 확보하는 데 걸리는 기간보다 멀리 내다봐야 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 1장 Introduction",
+              "url": "https://sre.google/sre-book/introduction/",
+              "where": "Demand Forecasting and Capacity Planning"
+            }
+          },
+          {
+            "id": "ops.capacity.prevent.2",
+            "must": true,
+            "text": "계획된 중단과 예기치 못한 장애가 겹쳐도 버티도록 여유 인스턴스를 둔다고 말한다(예: N+2)",
+            "source": {
+              "title": "Google SRE Book, 부록 B A Collection of Best Practices for Production Services",
+              "url": "https://sre.google/sre-book/service-best-practices/",
+              "where": "Capacity Planning"
+            }
+          },
+          {
+            "id": "ops.capacity.prevent.3",
+            "must": false,
+            "text": "출시나 마케팅 같은 비유기적 수요를 예측에 넣는다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 1장 Introduction",
+              "url": "https://sre.google/sre-book/introduction/",
+              "where": "Demand Forecasting and Capacity Planning"
+            }
+          },
+          {
+            "id": "ops.capacity.prevent.4",
+            "must": false,
+            "text": "캐시가 비어 있어도 예상 부하를 견딜 수 있는지 확인한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Causes of Cascading Failures and Designing to Avoid Them — Slow Startup and Cold Caching"
+            }
+          },
+          {
+            "id": "ops.capacity.prevent.5",
+            "must": false,
+            "text": "오랜 시간 돌려야 드러나는 문제는 짧은 부하 시험이 아니라 장시간(soak) 시험으로 확인한다고 말한다",
+            "source": {
+              "title": "Grafana k6 문서: Load test types",
+              "url": "https://grafana.com/docs/k6/latest/testing-guides/test-types/",
+              "where": "Load test types"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.capacity.m1",
+          "claim": "초당 요청 수(QPS) 하나만 알면, 요청 구성이 바뀌어도 용량을 정할 수 있다",
+          "fix": "요청마다 드는 자원이 크게 다르고 요청의 구성은 바뀐다. 구성이 바뀌면 같은 서버가 처리하는 QPS도 바뀌므로, 대표적인 요청 구성으로 시험하거나 CPU 같은 자원 기준을 함께 봐야 한다.",
+          "probe": "무거운 검색 요청의 비중이 10%에서 40%로 늘었는데 서버당 처리 가능 QPS를 예전 수치로 계획하면, 어떻게 될까요?",
+          "source": {
+            "title": "Google SRE Book, 21장 Handling Overload",
+            "url": "https://sre.google/sre-book/handling-overload/",
+            "where": "The Pitfalls of \"Queries per Second\""
+          }
+        },
+        {
+          "id": "ops.capacity.m2",
+          "claim": "캐시가 따뜻한 상태로 부하 시험을 통과했으니 재시작 직후에도 같은 부하를 견딘다",
+          "fix": "막 시작한 작업은 느리고 캐시가 비어 있어 뒤쪽 저장소에 부하가 몰린다. 캐시가 비어 있을 때도 예상 부하를 견디는지 따로 확인해야 한다.",
+          "probe": "배포로 캐시 서버가 모두 비워진 직후 평소 트래픽이 그대로 들어오면, DB는 어떻게 될까요?",
+          "source": {
+            "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+            "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+            "where": "Causes of Cascading Failures and Designing to Avoid Them — Slow Startup and Cold Caching"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.capacity.s1",
+          "text": "블랙프라이데이에 평소의 5배 트래픽이 예상되는데, 지금 서버가 몇 배까지 버티는지 아무도 모른다.",
+          "faces": [
+            "observe",
+            "prevent"
+          ]
+        },
+        {
+          "id": "ops.capacity.s2",
+          "text": "부하 시험에서 처리 한계를 넘자 서버가 일부 요청을 거절하는 대신 메모리가 가득 차서 통째로 죽었다.",
+          "faces": [
+            "observe",
+            "recover"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "여유 용량 대 비용",
+          "a": "여유를 크게: 예측 밖의 몰림과 장애를 견디지만 평소 노는 자원에 비용이 든다",
+          "b": "여유를 작게: 비용이 적지만 몰릴 때 부하 차단이나 기능 축소에 기대야 한다"
+        }
+      ]
+    },
+    {
+      "id": "ops.autoscale",
+      "name": "오토스케일링",
+      "kind": "operation",
+      "core": false,
+      "aliases": [
+        "오토스케일링",
+        "자동 확장",
+        "스케일 아웃",
+        "HPA",
+        "autoscaling",
+        "Auto Scaling Group",
+        "Horizontal Pod Autoscaler"
+      ],
+      "prereq": [
+        "ops.capacity"
+      ],
+      "alt": [],
+      "summary": "부하 지표에 따라 인스턴스나 파드 수를 자동으로 늘리고 줄이는 기능으로, 지표를 주기적으로 보고 목표 대비 비율로 필요한 수를 정한다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "ops.autoscale.principle.1",
+            "must": true,
+            "text": "지표를 주기적으로 보고 현재 값과 목표 값의 비율로 필요한 인스턴스 수를 정한다고 설명한다(예: Kubernetes HPA의 desiredReplicas 공식)",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "Algorithm details"
+            }
+          },
+          {
+            "id": "ops.autoscale.principle.2",
+            "must": true,
+            "text": "수평 확장(인스턴스 수를 늘림)과 수직 확장(인스턴스의 CPU·메모리를 늘림)을 구분한다",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "도입부"
+            }
+          },
+          {
+            "id": "ops.autoscale.principle.3",
+            "must": false,
+            "text": "부하가 예측되는 시간에 맞춰 미리 늘리고 줄이는 예약 확장을 지표 기반 확장과 함께 쓸 수 있다고 말한다",
+            "source": {
+              "title": "Amazon EC2 Auto Scaling 사용 안내서: Scheduled scaling",
+              "url": "https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-scheduled-scaling.html",
+              "where": "Scheduled scaling for Amazon EC2 Auto Scaling"
+            }
+          }
+        ],
+        "observe": [
+          {
+            "id": "ops.autoscale.observe.1",
+            "must": true,
+            "text": "확장 지표는 처리 부담을 보여 주는 것(예: CPU 사용률, 요청 수, 큐 적체)으로 고르고, 큐를 소비하는 작업자는 큐 길이를 본다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Problems and considerations"
+            }
+          },
+          {
+            "id": "ops.autoscale.observe.2",
+            "must": true,
+            "text": "새 인스턴스는 준비될 때까지 지표에서 빼거나 따로 다뤄, 기동 중의 높은 사용률로 잘못 늘리지 않게 한다고 말한다(예: ASG 인스턴스 워밍업, HPA의 초기화 기간)",
+            "source": {
+              "title": "Amazon EC2 Auto Scaling 사용 안내서: Set the default instance warmup",
+              "url": "https://docs.aws.amazon.com/autoscaling/ec2/userguide/ec2-auto-scaling-default-instance-warmup.html",
+              "where": "Set the default instance warmup; Scaling performance considerations"
+            }
+          },
+          {
+            "id": "ops.autoscale.observe.3",
+            "must": false,
+            "text": "사용률을 리소스 요청량 대비로 계산하는 구현에서는 요청량을 정하지 않으면 그 지표로 확장하지 않는다고 말한다(예: Kubernetes HPA)",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "How does a HorizontalPodAutoscaler work?"
+            }
+          }
+        ],
+        "recover": [
+          {
+            "id": "ops.autoscale.recover.1",
+            "must": true,
+            "text": "확장이 따라오지 못하는 동안에는 부하를 떨어뜨리거나 기능을 줄여 버틴다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Load Shedding and Graceful Degradation"
+            }
+          },
+          {
+            "id": "ops.autoscale.recover.2",
+            "must": true,
+            "text": "과부하가 이어지면 자동 확장을 기다리지 않고 인스턴스를 직접 늘리는 것이 빠른 복구일 수 있다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Immediate Steps to Address Cascading Failures — Increase Resources"
+            }
+          }
+        ],
+        "prevent": [
+          {
+            "id": "ops.autoscale.prevent.1",
+            "must": true,
+            "text": "축소는 일정 시간 지표를 지켜본 뒤 해서, 줄였다가 곧 다시 늘리는 출렁임을 막는다고 말한다(예: HPA 안정화 창, ASG 쿨다운)",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "Algorithm details; Configurable scaling behavior — Stabilization window"
+            }
+          },
+          {
+            "id": "ops.autoscale.prevent.2",
+            "must": true,
+            "text": "소비자를 늘릴 때 아래쪽(DB 등)으로 가는 전체 처리율을 묶어 두지 않으면 과부하가 하위 의존 서비스로 옮겨 갈 뿐이라고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Queue-Based Load Leveling pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling",
+              "where": "Problems and considerations"
+            }
+          },
+          {
+            "id": "ops.autoscale.prevent.3",
+            "must": true,
+            "text": "새 인스턴스는 시작이 느리고 캐시가 비어 있어 늘린 즉시 제 처리량을 내지 못한다는 점을 여유 용량에 넣는다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+              "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+              "where": "Causes of Cascading Failures and Designing to Avoid Them — Slow Startup and Cold Caching"
+            }
+          },
+          {
+            "id": "ops.autoscale.prevent.4",
+            "must": false,
+            "text": "최소·최대 인스턴스 수를 정해 확장과 축소의 범위를 묶는다고 말한다",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "도입부; Scaling on multiple metrics"
+            }
+          },
+          {
+            "id": "ops.autoscale.prevent.5",
+            "must": false,
+            "text": "한 번에 늘리거나 줄이는 수나 비율을 제한한다고 말한다(예: HPA 스케일링 정책)",
+            "source": {
+              "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+              "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+              "where": "Configurable scaling behavior — Scaling policies"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "ops.autoscale.m1",
+          "claim": "오토스케일링을 켜 두면 트래픽 급증에도 즉시 대응한다",
+          "fix": "지표 확인 주기, 새 인스턴스의 기동 시간, 빈 캐시 때문에 늘어난 용량이 효과를 내기까지 시간이 걸린다. 그 사이의 몰림은 여유 용량이나 부하 차단으로 버텨야 한다.",
+          "probe": "트래픽이 10초 만에 5배가 됐는데 새 인스턴스가 뜨고 캐시가 데워지는 데 2분이 걸린다면, 그 2분 동안은 어떻게 될까요?",
+          "source": {
+            "title": "Google SRE Book, 22장 Addressing Cascading Failures",
+            "url": "https://sre.google/sre-book/addressing-cascading-failures/",
+            "where": "Causes of Cascading Failures and Designing to Avoid Them — Slow Startup and Cold Caching"
+          }
+        },
+        {
+          "id": "ops.autoscale.m2",
+          "claim": "Kubernetes HPA로 CPU 사용률 기준 확장을 걸면 컨테이너에 CPU 요청량을 쓰지 않아도 된다",
+          "fix": "HPA의 CPU 사용률은 요청량에 대한 비율이라 요청이 없으면 사용률이 정의되지 않고, HPA는 그 지표로 아무것도 하지 않는다.",
+          "probe": "CPU requests를 지정하지 않은 디플로이먼트에 CPU 사용률 50% 목표의 HPA를 걸면, 어떻게 동작할까요?",
+          "source": {
+            "title": "Kubernetes 문서: Horizontal Pod Autoscaling",
+            "url": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+            "where": "How does a HorizontalPodAutoscaler work?"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "ops.autoscale.s1",
+          "text": "주문 소비자를 큐 길이 기준으로 50개까지 늘렸더니, 이번에는 DB 연결이 고갈되어 전체가 느려졌다.",
+          "faces": [
+            "prevent"
+          ]
+        },
+        {
+          "id": "ops.autoscale.s2",
+          "text": "부하가 조금만 출렁여도 인스턴스 수가 10개와 30개 사이를 계속 오르내린다.",
+          "faces": [
+            "observe",
+            "prevent"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "빠른 반응 대 안정성",
+          "a": "민감하게 확장·축소: 부하를 빨리 따라가지만 출렁임과 잦은 기동이 생긴다",
+          "b": "오래 지켜본 뒤 축소: 출렁임이 줄지만 남는 자원을 더 오래 쓴다"
+        }
+      ]
+    }
+  ]
+}

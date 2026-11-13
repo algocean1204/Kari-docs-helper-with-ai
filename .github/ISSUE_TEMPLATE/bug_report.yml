@@ -1,0 +1,52 @@
+name: 버그 신고
+description: 동작이 기대와 다를 때
+title: "[버그]: "
+labels: ["bug", "untriaged"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        한국어로 써 주세요. 영어도 받습니다.
+        보안 문제(키가 새는 것, 자료가 허락 없이 나가는 것)는 여기 말고 비공개 신고로 알려 주세요.
+        이력서 내용, 연락처, API 키는 올리지 마세요.
+  - type: input
+    id: kari-version
+    attributes:
+      label: Kari 판
+      description: dmg 파일 이름이나 Finder에서 Kari를 고르고 ⌘I로 본 판. 직접 빌드했다면 커밋 해시 앞 7자리
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS 판과 칩
+      description: 사과 메뉴 → 이 Mac에 관하여
+      placeholder: macOS 15.3, Apple M2
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: 무엇이 일어났나요
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 다시 일으키는 순서
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 화면 그림, 오류 문구
+      description: 견본 글로 다시 일으킨 화면이면 좋습니다.

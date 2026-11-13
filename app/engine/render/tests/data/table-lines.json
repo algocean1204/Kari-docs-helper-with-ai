@@ -1,0 +1,1710 @@
+[
+{
+"op": "text",
+"id": "n1",
+"at": 0,
+"ins": [
+{
+"t": "이력서"
+}
+]
+},
+{
+"op": "set",
+"id": "n1",
+"props": {
+"style": "title"
+}
+},
+{
+"op": "add",
+"node": {
+"id": "info",
+"type": "table",
+"parent": "root",
+"props": {
+"cols": [
+100.0,
+90.0,
+291.9
+],
+"headerRows": 0,
+"align": "LEFT",
+"border": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infor0",
+"type": "row",
+"parent": "info",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc0_0",
+"type": "cell",
+"parent": "infor0",
+"props": {
+"span": {
+"rows": 4,
+"cols": 1
+},
+"alignV": "CENTER",
+"border": {
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"left": {
+"weight": 0,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop0_0",
+"type": "para",
+"parent": "infoc0_0",
+"props": {
+"runs": [
+{
+"t": "￼",
+"o": {
+"type": "image",
+"asset": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+"w": 84,
+"h": 108
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc0_1",
+"type": "cell",
+"parent": "infor0",
+"props": {
+"fill": "#F7F7F7FF",
+"border": {
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop0_1",
+"type": "para",
+"parent": "infoc0_1",
+"props": {
+"runs": [
+{
+"t": "성명",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc0_2",
+"type": "cell",
+"parent": "infor0",
+"props": {
+"border": {
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop0_2",
+"type": "para",
+"parent": "infoc0_2",
+"props": {
+"runs": [
+{
+"t": "홍길동"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infor1",
+"type": "row",
+"parent": "info",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc1_0",
+"type": "cell",
+"parent": "infor1",
+"props": {
+"covered": true
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop1_0",
+"type": "para",
+"parent": "infoc1_0",
+"props": {
+"runs": [
+{
+"t": ""
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc1_1",
+"type": "cell",
+"parent": "infor1",
+"props": {
+"fill": "#F7F7F7FF",
+"border": {}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop1_1",
+"type": "para",
+"parent": "infoc1_1",
+"props": {
+"runs": [
+{
+"t": "생년월일",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc1_2",
+"type": "cell",
+"parent": "infor1",
+"props": {
+"border": {
+"right": {
+"weight": 0,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop1_2",
+"type": "para",
+"parent": "infoc1_2",
+"props": {
+"runs": [
+{
+"t": "1998. 04. 12"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infor2",
+"type": "row",
+"parent": "info",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc2_0",
+"type": "cell",
+"parent": "infor2",
+"props": {
+"covered": true
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop2_0",
+"type": "para",
+"parent": "infoc2_0",
+"props": {
+"runs": [
+{
+"t": ""
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc2_1",
+"type": "cell",
+"parent": "infor2",
+"props": {
+"fill": "#F7F7F7FF",
+"border": {}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop2_1",
+"type": "para",
+"parent": "infoc2_1",
+"props": {
+"runs": [
+{
+"t": "연락처",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc2_2",
+"type": "cell",
+"parent": "infor2",
+"props": {
+"border": {
+"right": {
+"weight": 0,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop2_2",
+"type": "para",
+"parent": "infoc2_2",
+"props": {
+"runs": [
+{
+"t": "010-1234-5678"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infor3",
+"type": "row",
+"parent": "info",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc3_0",
+"type": "cell",
+"parent": "infor3",
+"props": {
+"covered": true
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop3_0",
+"type": "para",
+"parent": "infoc3_0",
+"props": {
+"runs": [
+{
+"t": ""
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc3_1",
+"type": "cell",
+"parent": "infor3",
+"props": {
+"fill": "#F7F7F7FF",
+"border": {
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop3_1",
+"type": "para",
+"parent": "infoc3_1",
+"props": {
+"runs": [
+{
+"t": "전자 우편",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infoc3_2",
+"type": "cell",
+"parent": "infor3",
+"props": {
+"border": {
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "infop3_2",
+"type": "para",
+"parent": "infoc3_2",
+"props": {
+"runs": [
+{
+"t": "hello@example.com"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "h_edu",
+"type": "para",
+"parent": "root",
+"props": {
+"style": "h1",
+"runs": [
+{
+"t": "학력"
+}
+]
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edu",
+"type": "table",
+"parent": "root",
+"props": {
+"cols": [
+110.0,
+150.0,
+130.0,
+91.9
+],
+"headerRows": 1,
+"align": "LEFT",
+"border": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edur0",
+"type": "row",
+"parent": "edu",
+"props": {
+"h": 22
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ0_0",
+"type": "cell",
+"parent": "edur0",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.0,
+"color": "#000000FF"
+}
+},
+"fill": "#EEF2F7FF",
+"alignV": "CENTER"
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup0_0",
+"type": "para",
+"parent": "educ0_0",
+"props": {
+"runs": [
+{
+"t": "기간",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ0_1",
+"type": "cell",
+"parent": "edur0",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.0,
+"color": "#000000FF"
+}
+},
+"fill": "#EEF2F7FF",
+"alignV": "CENTER"
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup0_1",
+"type": "para",
+"parent": "educ0_1",
+"props": {
+"runs": [
+{
+"t": "학교",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ0_2",
+"type": "cell",
+"parent": "edur0",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.0,
+"color": "#000000FF"
+}
+},
+"fill": "#EEF2F7FF",
+"alignV": "CENTER"
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup0_2",
+"type": "para",
+"parent": "educ0_2",
+"props": {
+"runs": [
+{
+"t": "전공",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ0_3",
+"type": "cell",
+"parent": "edur0",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"top": {
+"weight": 1.5,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.0,
+"color": "#000000FF"
+}
+},
+"fill": "#EEF2F7FF",
+"alignV": "CENTER"
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup0_3",
+"type": "para",
+"parent": "educ0_3",
+"props": {
+"runs": [
+{
+"t": "구분",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edur1",
+"type": "row",
+"parent": "edu",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ1_0",
+"type": "cell",
+"parent": "edur1",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup1_0",
+"type": "para",
+"parent": "educ1_0",
+"props": {
+"runs": [
+{
+"t": "2016.03 – 2020.02"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ1_1",
+"type": "cell",
+"parent": "edur1",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup1_1",
+"type": "para",
+"parent": "educ1_1",
+"props": {
+"runs": [
+{
+"t": "한국대학교"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ1_2",
+"type": "cell",
+"parent": "edur1",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup1_2",
+"type": "para",
+"parent": "educ1_2",
+"props": {
+"runs": [
+{
+"t": "컴퓨터공학"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ1_3",
+"type": "cell",
+"parent": "edur1",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup1_3",
+"type": "para",
+"parent": "educ1_3",
+"props": {
+"runs": [
+{
+"t": "졸업"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edur2",
+"type": "row",
+"parent": "edu",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ2_0",
+"type": "cell",
+"parent": "edur2",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup2_0",
+"type": "para",
+"parent": "educ2_0",
+"props": {
+"runs": [
+{
+"t": "2013.03 – 2016.02"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ2_1",
+"type": "cell",
+"parent": "edur2",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup2_1",
+"type": "para",
+"parent": "educ2_1",
+"props": {
+"runs": [
+{
+"t": "서울고등학교"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ2_2",
+"type": "cell",
+"parent": "edur2",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup2_2",
+"type": "para",
+"parent": "educ2_2",
+"props": {
+"runs": [
+{
+"t": "이과"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "educ2_3",
+"type": "cell",
+"parent": "edur2",
+"props": {
+"border": {
+"left": {
+"weight": 0,
+"color": "#000000FF"
+},
+"right": {
+"weight": 0,
+"color": "#000000FF"
+},
+"bottom": {
+"weight": 1.5,
+"color": "#000000FF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "edup2_3",
+"type": "para",
+"parent": "educ2_3",
+"props": {
+"runs": [
+{
+"t": "졸업"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "h_cert",
+"type": "para",
+"parent": "root",
+"props": {
+"style": "h1",
+"runs": [
+{
+"t": "자격"
+}
+]
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "cert",
+"type": "table",
+"parent": "root",
+"props": {
+"cols": [
+110.0,
+140.0,
+100.0
+],
+"headerRows": 0,
+"align": "CENTER",
+"border": {
+"weight": 0.5,
+"color": "#8C8C8CFF"
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certr0",
+"type": "row",
+"parent": "cert",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc0_0",
+"type": "cell",
+"parent": "certr0",
+"props": {
+"border": {
+"top": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp0_0",
+"type": "para",
+"parent": "certc0_0",
+"props": {
+"runs": [
+{
+"t": "자격증",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc0_1",
+"type": "cell",
+"parent": "certr0",
+"props": {
+"border": {
+"top": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp0_1",
+"type": "para",
+"parent": "certc0_1",
+"props": {
+"runs": [
+{
+"t": "발급 기관",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc0_2",
+"type": "cell",
+"parent": "certr0",
+"props": {
+"border": {
+"top": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 2,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp0_2",
+"type": "para",
+"parent": "certc0_2",
+"props": {
+"runs": [
+{
+"t": "취득일",
+"s": {
+"weight": 700
+}
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certr1",
+"type": "row",
+"parent": "cert",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc1_0",
+"type": "cell",
+"parent": "certr1",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp1_0",
+"type": "para",
+"parent": "certc1_0",
+"props": {
+"runs": [
+{
+"t": "정보처리기사"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc1_1",
+"type": "cell",
+"parent": "certr1",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp1_1",
+"type": "para",
+"parent": "certc1_1",
+"props": {
+"runs": [
+{
+"t": "한국산업인력공단"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc1_2",
+"type": "cell",
+"parent": "certr1",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 2,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp1_2",
+"type": "para",
+"parent": "certc1_2",
+"props": {
+"runs": [
+{
+"t": "2020.06"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certr2",
+"type": "row",
+"parent": "cert",
+"props": {}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc2_0",
+"type": "cell",
+"parent": "certr2",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp2_0",
+"type": "para",
+"parent": "certc2_0",
+"props": {
+"runs": [
+{
+"t": "SQLD"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc2_1",
+"type": "cell",
+"parent": "certr2",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 0.75,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp2_1",
+"type": "para",
+"parent": "certc2_1",
+"props": {
+"runs": [
+{
+"t": "한국데이터산업진흥원"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certc2_2",
+"type": "cell",
+"parent": "certr2",
+"props": {
+"border": {
+"top": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"bottom": {
+"weight": 2,
+"color": "#1155CCFF"
+},
+"left": {
+"weight": 0.75,
+"color": "#1155CCFF"
+},
+"right": {
+"weight": 2,
+"color": "#1155CCFF"
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "certp2_2",
+"type": "para",
+"parent": "certc2_2",
+"props": {
+"runs": [
+{
+"t": "2021.03"
+}
+],
+"pf": {
+"space": {
+"before": 0,
+"after": 0
+}
+}
+}
+}
+},
+{
+"op": "add",
+"node": {
+"id": "end",
+"type": "para",
+"parent": "root",
+"props": {
+"runs": [
+{
+"t": "위 내용은 사실과 다름없습니다."
+}
+]
+}
+}
+}
+]

@@ -1,0 +1,11 @@
+[package]
+name = "kari-store"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+kari-doc = { path = "../doc" }
+rusqlite = { version = "0.42", features = ["bundled", "backup", "fallible_uint"] }
+serde_json = "1"
+sha2 = "0.11"

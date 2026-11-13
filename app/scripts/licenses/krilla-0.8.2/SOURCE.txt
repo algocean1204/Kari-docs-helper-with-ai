@@ -1,0 +1,4 @@
+https://raw.githubusercontent.com/LaurenzV/krilla/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/LICENSE_MIT
+https://raw.githubusercontent.com/LaurenzV/krilla/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/LICENSE_APACHE
+https://raw.githubusercontent.com/LaurenzV/krilla/3ffdf0588cf98050aad6edba51ca70162e1fb5b5/NOTICE.md
+https://www.mozilla.org/media/MPL/2.0/index.txt

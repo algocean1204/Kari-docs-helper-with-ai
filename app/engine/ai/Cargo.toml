@@ -1,0 +1,11 @@
+[package]
+name = "kari-ai"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = "1"
+# OS의 TLS(macOS Security.framework, Windows SChannel)와 OS 인증서 저장소를 쓴다.
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
+keyring = "4"

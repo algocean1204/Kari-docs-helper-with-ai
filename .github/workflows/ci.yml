@@ -1,0 +1,114 @@
+# 푸시와 PR마다 저장소 구성, 엔진, 앱을 검사한다. 보호 규칙의 필수 검사는 마지막의 ci-passed 하나다.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.38.2
+
+jobs:
+  repo:
+    name: repo
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 저장소에 두면 안 되는 것
+        # 최상위 구성, 비밀 모양, 기기 경로, 개발 도구의 설정 파일.
+        run: python3 app/scripts/public_check.py
+      - name: 문서의 상대 링크
+        run: python3 app/scripts/check_links.py
+
+  engine:
+    name: engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 필요한 도구
+        run: |
+          sudo apt-get update
+          # kari-ai가 OpenSSL을 링크한다(ureq의 native-tls).
+          # kari-render의 Skia가 Linux에서 FreeType과 fontconfig를 링크한다.
+          # kari-pdf의 시험이 만든 PDF를 poppler(pdftotext, pdffonts, pdfinfo)와 qpdf로 검사한다.
+          sudo apt-get install -y libssl-dev pkg-config libfreetype6-dev libfontconfig1-dev poppler-utils qpdf
+          rustup update stable
+          rustup component add rustfmt clippy
+      - name: 형식, 정적 분석, 시험
+        working-directory: app/engine
+        # kari-store의 강제 종료 시험은 기본 횟수(20번)로 돈다. 200번은 KARI_CRASH_RUNS=200.
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+      - name: 지식 팩과 그 문서의 표
+        run: |
+          python3 app/scripts/pack_check.py
+          python3 app/scripts/pack_check.py --doc Docs/architecture/knowledge-pack.md
+
+  app:
+    name: app
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: 필요한 도구
+        # flutter test가 빌드 훅(app/hook/build.dart)으로 엔진 라이브러리(kari-ffi)를 cargo로 빌드한다.
+        # 통합 시험(test/native_test.dart)이 그 라이브러리를 부른다.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config libfreetype6-dev libfontconfig1-dev
+          rustup update stable
+      - name: 정적 분석과 시험
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+  macos:
+    name: macos
+    # macOS 앱이 컴파일되는지 본다(Swift, 권한 파일, 빌드 훅의 엔진 빌드). 공개 저장소에서만 돈다.
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: 필요한 도구
+        run: rustup update stable
+      - name: 디버그 빌드
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build macos --debug
+
+  ci-passed:
+    name: ci-passed
+    if: always()
+    needs: [repo, engine, app, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 모든 검사 통과
+        run: |
+          [ "${{ needs.repo.result }}" = success ] && [ "${{ needs.engine.result }}" = success ] && [ "${{ needs.app.result }}" = success ]
+          # macos는 비공개 저장소에서 건너뛴다.
+          case "${{ needs.macos.result }}" in success|skipped) ;; *) exit 1 ;; esac

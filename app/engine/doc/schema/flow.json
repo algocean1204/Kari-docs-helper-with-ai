@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "kind": "flow",
+  "root": "flow",
+  "singleRoot": true,
+  "runInherit": ["s"],
+  "types": ["flow", "para", "table", "row", "cell"],
+  "parents": {
+    "flow": [null],
+    "para": ["flow", "cell"],
+    "table": ["flow", "cell"],
+    "row": ["table"],
+    "cell": ["row"]
+  },
+  "enums": {
+    "orientation": ["portrait", "landscape"],
+    "alignH": ["LEFT", "CENTER", "RIGHT", "JUSTIFIED"],
+    "alignV": ["TOP", "CENTER", "BOTTOM"],
+    "tableAlign": ["LEFT", "CENTER", "RIGHT"],
+    "lineUnit": ["AUTO", "PT", "PERCENT"],
+    "tabAlign": ["LEFT", "CENTER", "RIGHT", "DECIMAL"],
+    "tabLeader": ["NONE", "DOT", "DASH", "LINE"],
+    "list": ["NONE", "BULLET", "ORDERED"],
+    "vertical": ["NONE", "SUPER", "SUB"],
+    "object": ["image", "field"],
+    "field": ["page", "pages"],
+    "markKind": ["INS", "DEL"],
+    "markBy": ["user", "ai"]
+  },
+  "presets": {
+    "A4": [595.28, 841.89],
+    "A5": [419.53, 595.28],
+    "B5": [498.9, 708.66],
+    "LETTER": [612, 792]
+  },
+  "common": {},
+  "props": {
+    "flow": {
+      "page": {"kind": "object", "default": {"preset": "A4", "w": 595.28, "h": 841.89, "orientation": "portrait", "margin": {"t": 56.69, "r": 56.69, "b": 56.69, "l": 56.69}}},
+      "styles": {"kind": "object", "default": {
+        "body": {"name": "본문", "cs": {"font": "Pretendard", "size": 10.5, "weight": 400, "color": "#1E1E1EFF"}, "pf": {"align": "LEFT", "line": {"unit": "PERCENT", "value": 160}, "space": {"before": 0, "after": 4}}},
+        "title": {"name": "제목", "based": "body", "next": "body", "cs": {"size": 20, "weight": 700}, "pf": {"space": {"before": 0, "after": 8}}},
+        "subtitle": {"name": "부제", "based": "body", "next": "body", "cs": {"size": 14, "color": "#5A5A5AFF"}, "pf": {"space": {"before": 0, "after": 8}}},
+        "h1": {"name": "제목 1", "based": "body", "next": "body", "cs": {"size": 13, "weight": 700}, "pf": {"space": {"before": 14, "after": 6}, "keepNext": true}},
+        "h3": {"name": "제목 3", "based": "body", "next": "body", "cs": {"size": 10.5, "weight": 700}, "pf": {"space": {"before": 8, "after": 4}, "keepNext": true}},
+        "h4": {"name": "제목 4", "based": "body", "next": "body", "cs": {"size": 10.5, "weight": 700, "italic": true}, "pf": {"space": {"before": 6, "after": 3}, "keepNext": true}},
+        "h5": {"name": "제목 5", "based": "body", "next": "body", "cs": {"size": 10.5, "weight": 700, "color": "#5A5A5AFF"}, "pf": {"space": {"before": 6, "after": 3}, "keepNext": true}},
+        "h6": {"name": "제목 6", "based": "body", "next": "body", "cs": {"size": 10.5, "italic": true, "color": "#5A5A5AFF"}, "pf": {"space": {"before": 6, "after": 3}, "keepNext": true}},
+        "h2": {"name": "제목 2", "based": "body", "next": "body", "cs": {"size": 11, "weight": 700}, "pf": {"space": {"before": 8, "after": 4}, "keepNext": true}}
+      }},
+      "lang": {"kind": "string", "max": 16, "default": "ko"},
+      "header": {"kind": "object", "default": {"l": "", "c": "", "r": ""}},
+      "footer": {"kind": "object", "default": {"l": "", "c": "", "r": ""}},
+      "hfSkipFirst": {"kind": "bool", "default": false}
+    },
+    "para": {
+      "runs": {"kind": "array", "default": [{"t": ""}]},
+      "style": {"kind": "string", "max": 40, "default": "body"},
+      "pf": {"kind": "object", "default": {}}
+    },
+    "table": {
+      "cols": {"kind": "array", "default": [160, 160, 160]},
+      "headerRows": {"kind": "int", "min": 0, "max": 100, "default": 0},
+      "align": {"kind": "enum", "enum": "tableAlign", "default": "LEFT"},
+      "border": {"kind": "object", "default": {"color": "#8C8C8CFF", "weight": 0.5}}
+    },
+    "row": {
+      "h": {"kind": "number", "min": 0, "default": 0},
+      "keep": {"kind": "bool", "default": true}
+    },
+    "cell": {
+      "span": {"kind": "object", "default": {"rows": 1, "cols": 1}},
+      "covered": {"kind": "bool", "default": false},
+      "fill": {"kind": "color", "default": "#FFFFFF00"},
+      "pad": {"kind": "array", "default": [4, 6, 4, 6]},
+      "border": {"kind": "object", "default": {}},
+      "alignV": {"kind": "enum", "enum": "alignV", "default": "TOP"}
+    }
+  },
+  "typeDefaults": {}
+}

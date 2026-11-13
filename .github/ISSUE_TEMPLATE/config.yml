@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 신고(비공개)
+    url: https://github.com/algocean1204/Kari-docs-helper-with-ai/security/advisories/new
+    about: API 키가 새거나 자료가 허락 없이 나가는 문제는 공개 이슈 대신 여기로 알려 주세요.
+  - name: 질문과 아이디어
+    url: https://github.com/algocean1204/Kari-docs-helper-with-ai/discussions
+    about: 쓰는 법에 대한 질문이나 아이디어는 디스커션에 남겨 주세요.

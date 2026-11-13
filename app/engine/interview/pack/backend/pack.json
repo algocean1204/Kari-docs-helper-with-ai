@@ -1,0 +1,16 @@
+{
+  "id": "backend",
+  "version": 1,
+  "lang": "ko",
+  "role": "백엔드 개발",
+  "areas": [
+    { "id": "net", "name": "네트워크와 HTTP" },
+    { "id": "db", "name": "데이터베이스" },
+    { "id": "cache", "name": "캐시" },
+    { "id": "sec", "name": "인증과 보안" },
+    { "id": "os", "name": "동시성과 운영체제" },
+    { "id": "dist", "name": "분산 시스템" },
+    { "id": "arch", "name": "아키텍처와 설계" },
+    { "id": "ops", "name": "운영과 관측" }
+  ]
+}

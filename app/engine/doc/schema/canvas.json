@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "kind": "canvas",
+  "root": "page",
+  "singleRoot": false,
+  "runInherit": ["s", "fill"],
+  "parents": {
+    "page": [null],
+    "section": ["page"],
+    "*": ["page", "frame", "section", "group", "boolean"]
+  },
+  "containers": ["page", "frame", "section", "group", "boolean"],
+  "types": ["page", "frame", "section", "group", "boolean", "rect", "ellipse", "line", "polygon", "star", "vector", "text", "video", "table"],
+  "enums": {
+    "blend": ["PASS_THROUGH", "NORMAL", "DARKEN", "MULTIPLY", "LINEAR_BURN", "COLOR_BURN", "LIGHTEN", "SCREEN", "LINEAR_DODGE", "COLOR_DODGE", "OVERLAY", "SOFT_LIGHT", "HARD_LIGHT", "DIFFERENCE", "EXCLUSION", "HUE", "SATURATION", "COLOR", "LUMINOSITY"],
+    "paint": ["SOLID", "LINEAR", "RADIAL", "ANGULAR", "DIAMOND", "IMAGE"],
+    "imageMode": ["FILL", "FIT", "CROP", "TILE"],
+    "strokeAlign": ["INSIDE", "CENTER", "OUTSIDE"],
+    "cap": ["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL", "DIAMOND_FILLED", "TRIANGLE_FILLED", "CIRCLE_FILLED"],
+    "dashCap": ["NONE", "ROUND", "SQUARE"],
+    "join": ["MITER", "BEVEL", "ROUND"],
+    "effect": ["DROP_SHADOW", "INNER_SHADOW", "LAYER_BLUR", "BACKGROUND_BLUR"],
+    "constraintH": ["LEFT", "RIGHT", "LEFT_RIGHT", "CENTER", "SCALE"],
+    "constraintV": ["TOP", "BOTTOM", "TOP_BOTTOM", "CENTER", "SCALE"],
+    "sizing": ["FIXED", "HUG", "FILL"],
+    "layoutDir": ["NONE", "HORIZONTAL", "VERTICAL"],
+    "alignMain": ["MIN", "CENTER", "MAX", "SPACE_BETWEEN"],
+    "alignCross": ["MIN", "CENTER", "MAX", "BASELINE"],
+    "guide": ["GRID", "COLUMNS", "ROWS"],
+    "guideAlign": ["MIN", "MAX", "STRETCH", "CENTER"],
+    "boolean": ["UNION", "SUBTRACT", "INTERSECT", "EXCLUDE"],
+    "winding": ["NONZERO", "EVENODD"],
+    "autoResize": ["WIDTH_AND_HEIGHT", "HEIGHT", "NONE", "TRUNCATE"],
+    "alignH": ["LEFT", "CENTER", "RIGHT", "JUSTIFIED"],
+    "alignV": ["TOP", "CENTER", "BOTTOM"],
+    "decoration": ["NONE", "UNDERLINE", "STRIKETHROUGH"],
+    "textCase": ["ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS"],
+    "unit": ["AUTO", "PX", "PERCENT"],
+    "list": ["NONE", "BULLET", "ORDERED"],
+    "orientation": ["portrait", "landscape"]
+  },
+  "presets": {
+    "SLIDE_16_9": [1920, 1080], "SLIDE_4_3": [1024, 768],
+    "A3": [842, 1191], "A4": [595, 842], "A5": [420, 595], "A6": [297, 420],
+    "LETTER": [612, 792], "LEGAL": [612, 1008], "TABLOID": [792, 1224]
+  },
+  "common": {
+    "name": {"kind": "string", "max": 200, "default": ""},
+    "x": {"kind": "number", "default": 0},
+    "y": {"kind": "number", "default": 0},
+    "w": {"kind": "number", "min": 0, "default": 100},
+    "h": {"kind": "number", "min": 0, "default": 100},
+    "rotation": {"kind": "number", "min": -180, "max": 180, "default": 0},
+    "flipX": {"kind": "bool", "default": false},
+    "flipY": {"kind": "bool", "default": false},
+    "opacity": {"kind": "number", "min": 0, "max": 1, "default": 1},
+    "blend": {"kind": "enum", "enum": "blend", "default": "PASS_THROUGH"},
+    "visible": {"kind": "bool", "default": true},
+    "locked": {"kind": "bool", "default": false},
+    "fills": {"kind": "paints", "default": []},
+    "strokes": {"kind": "paints", "default": []},
+    "stroke": {"kind": "stroke", "default": {"weight": 1, "align": "INSIDE", "sides": null, "dash": [], "dashCap": "NONE", "join": "MITER", "miterLimit": 4, "capStart": "NONE", "capEnd": "NONE"}},
+    "effects": {"kind": "effects", "default": []},
+    "constraints": {"kind": "object", "default": {"h": "LEFT", "v": "TOP"}},
+    "layoutChild": {"kind": "object", "default": {"sizingH": "FIXED", "sizingV": "FIXED", "absolute": false}}
+  },
+  "props": {
+    "page": {
+      "cx": {"kind": "number", "default": 0},
+      "cy": {"kind": "number", "default": 0},
+      "preset": {"kind": "string", "max": 40, "default": "SLIDE_16_9"},
+      "orientation": {"kind": "enum", "enum": "orientation", "default": "landscape"},
+      "clip": {"kind": "bool", "default": true},
+      "notes": {"kind": "string", "max": 100000, "default": ""},
+      "guides": {"kind": "array", "default": []},
+      "layout": {"kind": "layout", "default": null},
+      "radius": {"kind": "radius", "default": [0, 0, 0, 0]}
+    },
+    "frame": {
+      "clip": {"kind": "bool", "default": true},
+      "radius": {"kind": "radius", "default": [0, 0, 0, 0]},
+      "smoothing": {"kind": "number", "min": 0, "max": 1, "default": 0},
+      "layout": {"kind": "layout", "default": null},
+      "guides": {"kind": "array", "default": []}
+    },
+    "section": {},
+    "group": {},
+    "boolean": {
+      "op": {"kind": "enum", "enum": "boolean", "default": "UNION"}
+    },
+    "rect": {
+      "radius": {"kind": "radius", "default": [0, 0, 0, 0]},
+      "smoothing": {"kind": "number", "min": 0, "max": 1, "default": 0}
+    },
+    "ellipse": {
+      "arc": {"kind": "object", "default": {"start": 0, "end": 6.283185307179586, "inner": 0}}
+    },
+    "line": {},
+    "polygon": {
+      "points": {"kind": "int", "min": 3, "max": 60, "default": 3},
+      "radius": {"kind": "number", "min": 0, "default": 0}
+    },
+    "star": {
+      "points": {"kind": "int", "min": 3, "max": 60, "default": 5},
+      "inner": {"kind": "number", "min": 0, "max": 1, "default": 0.382},
+      "radius": {"kind": "number", "min": 0, "default": 0}
+    },
+    "vector": {
+      "paths": {"kind": "array", "default": []},
+      "winding": {"kind": "enum", "enum": "winding", "default": "NONZERO"}
+    },
+    "text": {
+      "runs": {"kind": "array", "default": [{"t": ""}]},
+      "style": {"kind": "object", "default": {"font": "Inter", "weight": 400, "italic": false, "size": 24, "lineHeight": {"unit": "AUTO", "value": 0}, "letterSpacing": {"unit": "PERCENT", "value": 0}, "decoration": "NONE", "case": "ORIGINAL"}},
+      "paras": {"kind": "array", "default": []},
+      "autoResize": {"kind": "enum", "enum": "autoResize", "default": "WIDTH_AND_HEIGHT"},
+      "maxLines": {"kind": "int", "min": 0, "default": 0},
+      "alignH": {"kind": "enum", "enum": "alignH", "default": "LEFT"},
+      "alignV": {"kind": "enum", "enum": "alignV", "default": "TOP"},
+      "paragraphSpacing": {"kind": "number", "min": 0, "default": 0},
+      "indent": {"kind": "number", "min": 0, "default": 0}
+    },
+    "video": {
+      "asset": {"kind": "string", "max": 64, "default": ""},
+      "poster": {"kind": "string", "max": 64, "default": ""},
+      "autoplay": {"kind": "bool", "default": false},
+      "loop": {"kind": "bool", "default": false},
+      "muted": {"kind": "bool", "default": true}
+    },
+    "table": {
+      "cols": {"kind": "array", "default": [120, 120, 120]},
+      "rows": {"kind": "array", "default": [40, 40, 40]},
+      "cells": {"kind": "object", "default": {}},
+      "border": {"kind": "object", "default": {"color": "#D9D9D9FF", "weight": 1}},
+      "header": {"kind": "bool", "default": true}
+    }
+  },
+  "typeDefaults": {
+    "page": {"fills": [{"type": "SOLID", "color": "#FFFFFFFF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "w": 1920, "h": 1080, "name": "Page"},
+    "frame": {"fills": [{"type": "SOLID", "color": "#FFFFFFFF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Frame"},
+    "section": {"fills": [{"type": "SOLID", "color": "#FFFFFFFF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Section"},
+    "rect": {"fills": [{"type": "SOLID", "color": "#D9D9D9FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Rectangle"},
+    "ellipse": {"fills": [{"type": "SOLID", "color": "#D9D9D9FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Ellipse"},
+    "polygon": {"fills": [{"type": "SOLID", "color": "#D9D9D9FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Polygon"},
+    "star": {"fills": [{"type": "SOLID", "color": "#D9D9D9FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Star"},
+    "line": {"strokes": [{"type": "SOLID", "color": "#000000FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "stroke": {"weight": 1, "align": "CENTER", "sides": null, "dash": [], "dashCap": "NONE", "join": "MITER", "miterLimit": 4, "capStart": "NONE", "capEnd": "NONE"}, "h": 0, "name": "Line"},
+    "vector": {"strokes": [{"type": "SOLID", "color": "#000000FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "stroke": {"weight": 1, "align": "CENTER", "sides": null, "dash": [], "dashCap": "NONE", "join": "MITER", "miterLimit": 4, "capStart": "NONE", "capEnd": "NONE"}, "name": "Vector"},
+    "text": {"fills": [{"type": "SOLID", "color": "#000000FF", "opacity": 1, "visible": true, "blend": "NORMAL"}], "name": "Text"},
+    "group": {"name": "Group"},
+    "boolean": {"name": "Boolean"},
+    "video": {"name": "Video"},
+    "table": {"name": "Table", "w": 360, "h": 120}
+  }
+}

@@ -1,0 +1,1 @@
+src/content.rs의 content_draw_path

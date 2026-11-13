@@ -1,0 +1,932 @@
+{
+  "area": "arch",
+  "concepts": [
+    {
+      "id": "arch.msa",
+      "name": "모놀리식과 마이크로서비스",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "마이크로서비스",
+        "MSA",
+        "모놀리식",
+        "모놀리스",
+        "microservices",
+        "monolith",
+        "서비스 분리"
+      ],
+      "prereq": [],
+      "alt": [],
+      "summary": "하나의 앱을 한 단위로 빌드·배포하는 모놀리식과, 각자 프로세스로 돌며 따로 배포되는 작은 서비스들로 나누는 마이크로서비스 사이의 선택이다.",
+      "faces": {
+        "rationale": [
+          {
+            "id": "arch.msa.rationale.1",
+            "must": true,
+            "text": "서비스를 따로 배포할 수 있어, 작은 변경에도 앱 전체를 다시 빌드하고 배포하지 않아도 된다고 말한다",
+            "source": {
+              "title": "James Lewis·Martin Fowler, Microservices",
+              "url": "https://martinfowler.com/articles/microservices.html",
+              "where": "도입부(모놀리식 앱과의 비교)"
+            }
+          },
+          {
+            "id": "arch.msa.rationale.2",
+            "must": true,
+            "text": "부하가 큰 기능만 따로 확장할 수 있다(모놀리스는 앱 전체를 확장해야 한다)고 말한다",
+            "source": {
+              "title": "James Lewis·Martin Fowler, Microservices",
+              "url": "https://martinfowler.com/articles/microservices.html",
+              "where": "도입부(모놀리식 앱과의 비교)"
+            }
+          },
+          {
+            "id": "arch.msa.rationale.3",
+            "must": true,
+            "text": "기술 계층이 아니라 비즈니스 기능 단위로 서비스를 나눠, 각 팀이 맡은 서비스를 처음부터 끝까지 독립적으로 개발하게 한다고 말한다",
+            "source": {
+              "title": "James Lewis·Martin Fowler, Microservices",
+              "url": "https://martinfowler.com/articles/microservices.html",
+              "where": "Organized around Business Capabilities"
+            }
+          },
+          {
+            "id": "arch.msa.rationale.4",
+            "must": false,
+            "text": "시스템 구조는 조직의 소통 구조를 닮는다(콘웨이 법칙)는 점을 서비스와 팀 경계를 맞추는 근거로 든다고 말한다",
+            "source": {
+              "title": "James Lewis·Martin Fowler, Microservices",
+              "url": "https://martinfowler.com/articles/microservices.html",
+              "where": "Organized around Business Capabilities"
+            }
+          },
+          {
+            "id": "arch.msa.rationale.5",
+            "must": false,
+            "text": "서비스 경계가 모듈 경계를 강하게 지켜 주어 큰 팀에서 구조를 유지하기 쉽다고 말한다",
+            "source": {
+              "title": "Martin Fowler, Microservice Trade-Offs",
+              "url": "https://martinfowler.com/articles/microservice-trade-offs.html",
+              "where": "Strong Module Boundaries"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "arch.msa.tradeoff.1",
+            "must": true,
+            "text": "원격 호출은 프로세스 안 호출보다 느리고 언제든 실패할 수 있어, 호출마다 느림과 실패를 다뤄야 한다고 말한다",
+            "source": {
+              "title": "Martin Fowler, Microservice Trade-Offs",
+              "url": "https://martinfowler.com/articles/microservice-trade-offs.html",
+              "where": "Distribution"
+            }
+          },
+          {
+            "id": "arch.msa.tradeoff.2",
+            "must": true,
+            "text": "데이터가 서비스마다 나뉘어 갱신이 원자적이지 않고 최종 일관성을 다뤄야 한다고 말한다",
+            "source": {
+              "title": "Martin Fowler, Microservice Trade-Offs",
+              "url": "https://martinfowler.com/articles/microservice-trade-offs.html",
+              "where": "Eventual Consistency"
+            }
+          },
+          {
+            "id": "arch.msa.tradeoff.3",
+            "must": true,
+            "text": "자주 재배포되는 많은 서비스를 운영하려면 성숙한 운영 역량이 필요하다고 말한다",
+            "source": {
+              "title": "Martin Fowler, Microservice Trade-Offs",
+              "url": "https://martinfowler.com/articles/microservice-trade-offs.html",
+              "where": "Operational Complexity"
+            }
+          },
+          {
+            "id": "arch.msa.tradeoff.4",
+            "must": false,
+            "text": "서비스마다 자기 DB를 두면 서비스에 걸친 변경은 분산 트랜잭션 대신 보상 작업으로 맞춘다고 말한다",
+            "source": {
+              "title": "James Lewis·Martin Fowler, Microservices",
+              "url": "https://martinfowler.com/articles/microservices.html",
+              "where": "Decentralized Data Management"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "arch.msa.alternative.1",
+            "must": true,
+            "text": "서비스 경계가 불확실하면 모놀리스로 시작해 경계를 찾은 뒤 나누는 방법이 있다(Fowler의 제안)고 말한다",
+            "source": {
+              "title": "Martin Fowler, MonolithFirst",
+              "url": "https://martinfowler.com/bliki/MonolithFirst.html",
+              "where": "본문"
+            }
+          },
+          {
+            "id": "arch.msa.alternative.2",
+            "must": true,
+            "text": "모놀리스 안에서 모듈 경계를 지켜 나누는 방법이 있다(같은 프로세스라 서비스보다 경계를 우회하기는 쉽다)고 말한다",
+            "source": {
+              "title": "Martin Fowler, Microservice Trade-Offs",
+              "url": "https://martinfowler.com/articles/microservice-trade-offs.html",
+              "where": "Strong Module Boundaries"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "arch.msa.m1",
+          "claim": "서비스로 나눠도 서비스끼리의 호출은 함수 호출처럼 빠르고 믿을 만하다",
+          "fix": "원격 호출은 프로세스 안 호출보다 훨씬 비싸고 언제든 실패할 수 있다. 그래서 API를 굵게 설계하고 모든 호출에 실패 처리를 넣어야 한다.",
+          "probe": "한 화면을 그리려고 서비스 6개를 차례로 호출해야 한다면, 응답 시간과 실패할 확률은 어떻게 될까요?",
+          "source": {
+            "title": "James Lewis·Martin Fowler, Microservices",
+            "url": "https://martinfowler.com/articles/microservices.html",
+            "where": "Componentization via Services"
+          }
+        },
+        {
+          "id": "arch.msa.m2",
+          "claim": "마이크로서비스로 나누면 한 서비스의 장애는 다른 서비스에 영향을 주지 않는다",
+          "fix": "서비스 호출은 언제든 실패할 수 있으므로, 부르는 쪽이 의존 서비스의 실패를 견디도록 설계해야 한다. 그렇지 않으면 장애가 호출 사슬을 따라 번진다.",
+          "probe": "주문 서비스가 재고 서비스를 동기로 부르는데 재고 서비스가 응답 없이 멈추면, 주문 서비스는 어떻게 될까요?",
+          "source": {
+            "title": "James Lewis·Martin Fowler, Microservices",
+            "url": "https://martinfowler.com/articles/microservices.html",
+            "where": "Design for failure"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "arch.msa.s1",
+          "text": "개발자 5명인 스타트업이 아직 시장 검증 전인 첫 제품을 서비스 12개로 나눠 시작하려 한다.",
+          "faces": [
+            "tradeoff",
+            "alternative"
+          ]
+        },
+        {
+          "id": "arch.msa.s2",
+          "text": "검색 기능만 트래픽이 다른 기능의 10배인데, 모놀리스라 앱 전체를 늘려야 해서 서버 비용이 크다.",
+          "faces": [
+            "rationale"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "독립 배포 대 분산의 비용",
+          "a": "마이크로서비스: 따로 배포하고 부분만 확장할 수 있지만, 원격 호출 실패, 최종 일관성, 운영 부담이 생긴다",
+          "b": "모놀리스: 호출, 트랜잭션, 운영이 단순하지만 작은 변경도 전체 배포이고 부분만 확장할 수 없다"
+        }
+      ]
+    },
+    {
+      "id": "arch.gateway",
+      "name": "API 게이트웨이와 BFF",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "API 게이트웨이",
+        "게이트웨이",
+        "BFF",
+        "Backends for Frontends",
+        "API gateway",
+        "리버스 프록시"
+      ],
+      "prereq": [
+        "arch.msa"
+      ],
+      "alt": [],
+      "summary": "클라이언트와 서비스들 사이에 단일 진입점(API 게이트웨이)을 두어 라우팅, 요청 집약, 인증 같은 공통 기능을 맡기는 방식이며, BFF는 클라이언트 종류마다 전용 백엔드를 두는 변형이다.",
+      "faces": {
+        "rationale": [
+          {
+            "id": "arch.gateway.rationale.1",
+            "must": true,
+            "text": "클라이언트가 서비스를 직접 부르면 여러 엔드포인트를 알아야 하고 서비스를 어떻게 나눴는지에 묶이므로, 단일 진입점이 그 구조를 가려 준다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: API gateways",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/microservices/design/gateway",
+              "where": "Why use an API gateway?"
+            }
+          },
+          {
+            "id": "arch.gateway.rationale.2",
+            "must": true,
+            "text": "한 작업에 여러 서비스 호출이 필요할 때 게이트웨이가 모아서(집약) 클라이언트의 왕복 횟수를 줄인다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: API Gateway / Backends for Frontends",
+              "url": "https://microservices.io/patterns/apigateway.html",
+              "where": "Solution; Resulting context"
+            }
+          },
+          {
+            "id": "arch.gateway.rationale.3",
+            "must": true,
+            "text": "인증, TLS 종료, 처리율 제한 같은 공통 관심사를 서비스마다 구현하지 않고 게이트웨이로 옮긴다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: API gateways",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/microservices/design/gateway",
+              "where": "How to use an API gateway — Gateway offloading"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "arch.gateway.tradeoff.1",
+            "must": true,
+            "text": "요청마다 네트워크 홉이 하나 늘어 응답 시간이 길어진다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: API Gateway / Backends for Frontends",
+              "url": "https://microservices.io/patterns/apigateway.html",
+              "where": "Resulting context — Drawbacks"
+            }
+          },
+          {
+            "id": "arch.gateway.tradeoff.2",
+            "must": true,
+            "text": "게이트웨이 자체가 고가용성이어야 해서 여러 인스턴스로 띄워 단일 장애점이나 병목이 되지 않게 해야 한다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Gateway Offloading pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/gateway-offloading",
+              "where": "Problems and considerations — High availability and resilience; Capacity and scaling"
+            }
+          },
+          {
+            "id": "arch.gateway.tradeoff.3",
+            "must": true,
+            "text": "업무 로직이나 서비스별 규칙을 게이트웨이에 넣으면 서비스 변경이 게이트웨이 재배포를 끌고 와 독립 배포가 깨진다고 말한다",
+            "source": {
+              "title": "Azure Architecture Center: Gateway Offloading pattern",
+              "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/gateway-offloading",
+              "where": "Problems and considerations — Business logic separation; When to use this pattern"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "arch.gateway.alternative.1",
+            "must": true,
+            "text": "BFF는 웹, 모바일 같은 사용자 경험마다 전용 백엔드를 두고, 보통 그 UI를 만드는 팀이 소유한다고 말한다",
+            "source": {
+              "title": "Sam Newman, Pattern: Backends For Frontends",
+              "url": "https://samnewman.io/patterns/architectural/bff/",
+              "where": "Introducing The Backend For Frontend"
+            }
+          },
+          {
+            "id": "arch.gateway.alternative.2",
+            "must": true,
+            "text": "여러 클라이언트가 함께 쓰는 범용 API 백엔드 하나는 여러 팀의 변경이 몰려 출시의 병목이 될 수 있어, 클라이언트마다 요구가 다르면 BFF를 고른다고 말한다",
+            "source": {
+              "title": "Sam Newman, Pattern: Backends For Frontends",
+              "url": "https://samnewman.io/patterns/architectural/bff/",
+              "where": "The General-Purpose API Backend; When To Use"
+            }
+          },
+          {
+            "id": "arch.gateway.alternative.3",
+            "must": false,
+            "text": "BFF 사이의 중복 코드는 어느 정도 허용하고, 많아지면 공유 라이브러리나 별도 서비스로 뺀다고 말한다",
+            "source": {
+              "title": "Sam Newman, Pattern: Backends For Frontends",
+              "url": "https://samnewman.io/patterns/architectural/bff/",
+              "where": "Reuse and BFFs"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "arch.gateway.m1",
+          "claim": "주문 검증 같은 업무 규칙을 게이트웨이에 모으면 서비스가 단순해져서 좋다",
+          "fix": "게이트웨이에는 라우팅, 요청 집약, 인증·처리율 제한 같은 공통 관심사까지만 두고 업무 규칙은 두지 않는다. 업무 로직을 넣으면 서비스가 바뀔 때마다 게이트웨이를 다시 배포해야 해서 서비스의 독립 배포가 깨진다.",
+          "probe": "주문 규칙이 바뀔 때마다 게이트웨이를 다시 배포해야 한다면, 주문 서비스 팀은 혼자 배포할 수 있을까요?",
+          "source": {
+            "title": "Azure Architecture Center: Gateway Offloading pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/gateway-offloading",
+            "where": "Problems and considerations — Business logic separation"
+          }
+        },
+        {
+          "id": "arch.gateway.m2",
+          "claim": "게이트웨이에서 인증하니 뒤쪽 서비스는 들어오는 요청을 모두 믿어도 된다",
+          "fix": "뒤쪽 서비스가 게이트웨이를 거친 요청만 받도록 막지 않으면 직접 들어온 요청이 인증과 제한을 우회한다. 게이트웨이도 뒤쪽 서비스에 따로 인증하고, 검증되지 않은 전달 헤더를 신원 증명으로 믿지 않는다.",
+          "probe": "누군가 게이트웨이를 거치지 않고 내부 서비스 주소로 바로 요청을 보내면, 그 요청은 어떻게 처리될까요?",
+          "source": {
+            "title": "Azure Architecture Center: Gateway Offloading pattern",
+            "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/gateway-offloading",
+            "where": "Problems and considerations — Gateway bypass prevention; Identity propagation"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "arch.gateway.s1",
+          "text": "모바일 앱은 화면 하나에 주문, 배송, 리뷰 세 서비스를 불러 느리고, 웹은 같은 데이터를 다른 필드 조합으로 원한다.",
+          "faces": [
+            "rationale",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "중앙화 대 독립성",
+          "a": "게이트웨이에 공통 기능을 모음: 일관되고 관리가 쉽지만, 홉이 늘고 게이트웨이 팀이 변경의 병목이 될 수 있다",
+          "b": "서비스마다 처리: 따로 바꿀 수 있지만 같은 기능을 여러 번 구현한다"
+        }
+      ]
+    },
+    {
+      "id": "arch.ratelimit",
+      "name": "처리율 제한(토큰 버킷 등)",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": [
+        "처리율 제한",
+        "레이트 리밋",
+        "토큰 버킷",
+        "스로틀링",
+        "rate limiting",
+        "token bucket",
+        "throttling",
+        "429"
+      ],
+      "prereq": [],
+      "alt": [],
+      "summary": "일정 시간에 클라이언트나 키마다 받는 요청 수를 제한하는 기법으로, 토큰 버킷, 리키 버킷, 고정·슬라이딩 윈도 같은 알고리즘이 있고 넘친 요청은 늦추거나 거절한다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "arch.ratelimit.principle.1",
+            "must": true,
+            "text": "제한을 허용하는 평균 속도와 순간적으로 받아 줄 몰림(burst)의 크기라는 두 값으로 정한다고 설명한다",
+            "source": {
+              "title": "Amazon API Gateway 개발자 안내서: Throttle requests to your REST APIs",
+              "url": "https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html",
+              "where": "도입부; Configuring API-level and stage-level throttling targets in a usage plan"
+            }
+          },
+          {
+            "id": "arch.ratelimit.principle.2",
+            "must": true,
+            "text": "무엇을 기준으로 셀지(키: IP, 사용자, API 키 등)를 정해 키마다 따로 센다고 설명한다",
+            "source": {
+              "title": "NGINX 문서: Module ngx_http_limit_req_module",
+              "url": "https://nginx.org/en/docs/http/ngx_http_limit_req_module.html",
+              "where": "도입부; limit_req_zone"
+            }
+          },
+          {
+            "id": "arch.ratelimit.principle.3",
+            "must": true,
+            "text": "한도를 넘은 요청은 거절하고, HTTP에서는 429 Too Many Requests로(필요하면 Retry-After와 함께) 알린다고 설명한다",
+            "source": {
+              "title": "RFC 6585 Additional HTTP Status Codes",
+              "url": "https://www.rfc-editor.org/rfc/rfc6585.html#section-4",
+              "where": "4. 429 Too Many Requests"
+            }
+          },
+          {
+            "id": "arch.ratelimit.principle.4",
+            "must": false,
+            "text": "토큰 버킷은 토큰이 일정 속도로 채워지고 요청마다 하나씩 쓰며, 버킷 용량만큼의 몰림을 허용한다고 설명한다",
+            "source": {
+              "title": "Amazon API Gateway 개발자 안내서: Throttle requests to your REST APIs",
+              "url": "https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-request-throttling.html",
+              "where": "Configuring API-level and stage-level throttling targets in a usage plan"
+            }
+          },
+          {
+            "id": "arch.ratelimit.principle.5",
+            "must": false,
+            "text": "리키 버킷은 요청을 일정한 속도로만 내보내 처리 쪽에 몰림이 가지 않게 하며, 넘친 요청은 늦추거나(셰이핑) 바로 거절한다(폴리싱)고 설명한다",
+            "source": {
+              "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+              "url": "https://redis.io/learn/howtos/ratelimiting",
+              "where": "5. Leaky bucket — How it works"
+            }
+          }
+        ],
+        "limit": [
+          {
+            "id": "arch.ratelimit.limit.1",
+            "must": true,
+            "text": "카운터를 읽고, 판단하고, 쓰는 과정을 원자적으로 하지 않으면 동시 요청들이 같은 값을 읽고 함께 통과해 한도를 넘긴다고 말한다",
+            "source": {
+              "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+              "url": "https://redis.io/learn/howtos/ratelimiting",
+              "where": "Why Lua scripts?"
+            }
+          },
+          {
+            "id": "arch.ratelimit.limit.2",
+            "must": true,
+            "text": "상태를 공유하지 않고 인스턴스마다 따로 세면 제한이 인스턴스 단위로 걸려, 전체 허용량이 인스턴스 수에 따라 늘어난다고 말한다",
+            "source": {
+              "title": "Envoy 문서: Local rate limit filter",
+              "url": "https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/local_rate_limit_filter",
+              "where": "Local rate limit(기본은 프로세스마다 적용)"
+            }
+          },
+          {
+            "id": "arch.ratelimit.limit.3",
+            "must": false,
+            "text": "고정 윈도는 시간 칸 경계 양쪽에 몰리면 짧은 시간에 한도의 두 배까지 통과할 수 있다고 말한다",
+            "source": {
+              "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+              "url": "https://redis.io/learn/howtos/ratelimiting",
+              "where": "1. Fixed window counter — Trade-offs"
+            }
+          },
+          {
+            "id": "arch.ratelimit.limit.4",
+            "must": false,
+            "text": "슬라이딩 윈도 로그는 정확하지만 요청마다 시각을 저장해 메모리가 요청 수에 비례해 는다고 말한다",
+            "source": {
+              "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+              "url": "https://redis.io/learn/howtos/ratelimiting",
+              "where": "2. Sliding window log — Trade-offs"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "arch.ratelimit.alternative.1",
+            "must": true,
+            "text": "인스턴스의 로컬 제한으로 큰 몰림을 먼저 흡수하고, 상태를 공유하는 전역 제한과 함께 써서 전역 쪽 부하를 줄인다고 말한다",
+            "source": {
+              "title": "Envoy 문서: Global rate limiting (architecture overview)",
+              "url": "https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting",
+              "where": "Global rate limiting"
+            }
+          },
+          {
+            "id": "arch.ratelimit.alternative.2",
+            "must": true,
+            "text": "고객마다 사용량 한도를 두어, 전체가 과부하일 때 한도를 넘은 고객의 요청만 거절되게 한다고 말한다",
+            "source": {
+              "title": "Google SRE Book, 21장 Handling Overload",
+              "url": "https://sre.google/sre-book/handling-overload/",
+              "where": "Per-Customer Limits"
+            }
+          },
+          {
+            "id": "arch.ratelimit.alternative.3",
+            "must": false,
+            "text": "슬라이딩 윈도 카운터는 이전 윈도와 현재 윈도의 개수를 가중 평균해, 적은 메모리로 경계 몰림을 줄인다(근사치)고 말한다",
+            "source": {
+              "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+              "url": "https://redis.io/learn/howtos/ratelimiting",
+              "where": "3. Sliding window counter"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "arch.ratelimit.m1",
+          "claim": "분당 100회 고정 윈도 제한이면 어느 1분 구간을 잡아도 100회를 넘지 않는다",
+          "fix": "고정 윈도는 시간 칸 경계에서 개수를 새로 센다. 한 칸 끝과 다음 칸 시작에 몰리면 짧은 사이에 한도의 두 배까지 통과한다. 이를 막으려면 슬라이딩 윈도나 토큰 버킷을 쓴다.",
+          "probe": "0분 59초에 100회, 1분 1초에 100회를 보내면 2초 사이에 몇 건이 통과할까요?",
+          "source": {
+            "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+            "url": "https://redis.io/learn/howtos/ratelimiting",
+            "where": "1. Fixed window counter — Trade-offs"
+          }
+        },
+        {
+          "id": "arch.ratelimit.m2",
+          "claim": "공유 저장소에서 개수를 읽고 한도보다 작으면 따로 증가시키는 식으로 짜도 정확하게 제한된다",
+          "fix": "읽기와 증가 사이에 다른 요청이 끼어들 수 있다(확인 시점과 사용 시점의 경쟁). 판단과 증가를 한 원자적 연산(예: Redis의 Lua 스크립트)으로 해야 한다.",
+          "probe": "한도까지 1건 남았을 때 두 서버가 동시에 개수를 읽으면, 몇 건이 통과할까요?",
+          "source": {
+            "title": "Redis 튜토리얼: Build 5 Rate Limiters with Redis",
+            "url": "https://redis.io/learn/howtos/ratelimiting",
+            "where": "Why Lua scripts?"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "arch.ratelimit.s1",
+          "text": "로그인 API에 IP당 분당 10회 제한을 서버 4대가 각자 메모리에 걸어 두었다.",
+          "faces": [
+            "limit",
+            "alternative"
+          ]
+        },
+        {
+          "id": "arch.ratelimit.s2",
+          "text": "모바일 앱이 시작할 때 요청 20개를 한꺼번에 보내는데, 초당 5회 고정 제한에 걸려 첫 화면이 깨진다.",
+          "faces": [
+            "principle",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "정확도 대 메모리",
+          "a": "슬라이딩 윈도 로그: 정확하지만 요청마다 저장해 메모리가 크다",
+          "b": "고정 윈도·카운터: 메모리가 적지만 경계에서 한도를 넘기거나 근사치가 된다"
+        },
+        {
+          "axis": "몰림 허용 대 고른 처리",
+          "a": "토큰 버킷: 순간 몰림을 받아 사용자 경험이 좋지만 뒤쪽에 순간 부하가 간다",
+          "b": "리키 버킷: 뒤쪽 부하가 고르지만 몰릴 때 요청이 늦어지거나 거절된다"
+        }
+      ]
+    },
+    {
+      "id": "arch.paging",
+      "name": "페이지네이션(오프셋 대 커서)",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "페이지네이션",
+        "페이징",
+        "커서 페이지네이션",
+        "키셋 페이지네이션",
+        "pagination",
+        "offset",
+        "cursor",
+        "무한 스크롤"
+      ],
+      "prereq": [
+        "db.index"
+      ],
+      "alt": [],
+      "summary": "큰 목록을 나눠 줄 때 OFFSET으로 앞 행을 건너뛰는 방식과, 직전 페이지 마지막 행의 정렬 키를 기준으로 이어 읽는 커서(키셋) 방식 사이의 선택이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "arch.paging.principle.1",
+            "must": true,
+            "text": "오프셋 방식에서 건너뛴 행도 DB 안에서 계산해야 한다고 설명한다",
+            "source": {
+              "title": "PostgreSQL 문서: 7.6 LIMIT and OFFSET",
+              "url": "https://www.postgresql.org/docs/current/queries-limit.html",
+              "where": "7.6 LIMIT and OFFSET"
+            }
+          },
+          {
+            "id": "arch.paging.principle.2",
+            "must": true,
+            "text": "커서(키셋, seek) 방식은 직전 페이지 마지막 행의 정렬 키 값을 기준으로 그다음 행을 찾는다고 설명한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results; SQL Row Values"
+            }
+          },
+          {
+            "id": "arch.paging.principle.3",
+            "must": true,
+            "text": "두 방식 모두 결정적인(유일한) 정렬 순서가 필요해서, 정렬 열이 유일하지 않으면 기본 키 같은 유일한 열을 덧붙인다고 설명한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results(Important)"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "arch.paging.rationale.1",
+            "must": true,
+            "text": "깊은 페이지까지 넘기는 목록이면 오프셋은 페이지가 깊을수록 느려지므로 커서를 고른다고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results"
+            }
+          },
+          {
+            "id": "arch.paging.rationale.2",
+            "must": true,
+            "text": "읽는 사이에 행이 추가·삭제되는 목록이면 오프셋은 페이지가 밀려 같은 항목이 다시 나오거나 빠지므로 커서를 고른다고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results"
+            }
+          },
+          {
+            "id": "arch.paging.rationale.3",
+            "must": true,
+            "text": "임의의 페이지 번호로 바로 가야 하면 오프셋을 고른다(커서는 그렇게 못 한다)고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "arch.paging.tradeoff.1",
+            "must": true,
+            "text": "커서 방식은 임의의 페이지로 건너뛸 수 없다고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results"
+            }
+          },
+          {
+            "id": "arch.paging.tradeoff.2",
+            "must": true,
+            "text": "커서 방식이 빠르려면 정렬 키에 맞는 인덱스가 있어야 한다고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results(Important); Indexing Equivalent Logic"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "arch.paging.alternative.1",
+            "must": true,
+            "text": "오프셋 대신 마지막 행의 키로 이어 읽는 키셋 방식으로 바꿔 깊은 페이지에서도 일정하게 빠르게 한다고 말한다",
+            "source": {
+              "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+              "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+              "where": "Paging Through Results"
+            }
+          },
+          {
+            "id": "arch.paging.alternative.2",
+            "must": true,
+            "text": "API에서는 응답에 다음 페이지를 가리키는 커서(토큰)를 주고, 끝이면 비워 알린다고 말한다(예: next_page_token)",
+            "source": {
+              "title": "Google AIP-158: Pagination",
+              "url": "https://google.aip.dev/158",
+              "where": "Guidance"
+            }
+          },
+          {
+            "id": "arch.paging.alternative.3",
+            "must": false,
+            "text": "커서 토큰은 클라이언트가 해석할 수 없는 불투명한 문자열로 준다고 말한다",
+            "source": {
+              "title": "Google AIP-158: Pagination",
+              "url": "https://google.aip.dev/158",
+              "where": "Opacity"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "arch.paging.m1",
+          "claim": "OFFSET 페이지네이션은 몇 번째 페이지든 속도가 같다",
+          "fix": "OFFSET으로 건너뛰는 행도 DB 안에서 계산해야 한다. 페이지가 깊을수록 읽고 버리는 행이 늘어 느려진다.",
+          "probe": "OFFSET 1000000 LIMIT 20 쿼리는 DB 안에서 대략 몇 행을 거치게 될까요?",
+          "source": {
+            "title": "PostgreSQL 문서: 7.6 LIMIT and OFFSET",
+            "url": "https://www.postgresql.org/docs/current/queries-limit.html",
+            "where": "7.6 LIMIT and OFFSET"
+          }
+        },
+        {
+          "id": "arch.paging.m2",
+          "claim": "유일하지 않은 열(예: created_at) 하나로만 정렬해 커서를 만들어도 충분하다",
+          "fix": "정렬 열이 유일하지 않으면 경계에서 같은 값을 가진 행의 순서가 정해지지 않는다. 기본 키 같은 유일한 열을 정렬과 커서 조건에 함께 넣어야 한다.",
+          "probe": "같은 created_at 값을 가진 행 30개가 페이지 경계에 걸쳐 있을 때 'created_at < 마지막 값' 조건만 쓰면, 어떤 행을 놓칠까요?",
+          "source": {
+            "title": "Markus Winand, Use The Index, Luke: Paging Through Results",
+            "url": "https://use-the-index-luke.com/sql/partial-results/fetch-next-page",
+            "where": "Paging Through Results(Important)"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "arch.paging.s1",
+          "text": "피드 API를 OFFSET으로 만들었더니, 사용자가 스크롤하는 동안 새 글이 올라와 같은 글이 두 번 보인다.",
+          "faces": [
+            "principle",
+            "rationale",
+            "alternative"
+          ]
+        },
+        {
+          "id": "arch.paging.s2",
+          "text": "관리자 화면은 '37페이지로 이동' 기능이 꼭 필요하다.",
+          "faces": [
+            "rationale",
+            "tradeoff"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "임의 이동 대 깊은 페이지 성능·안정성",
+          "a": "오프셋: 원하는 페이지로 바로 가지만, 깊을수록 느리고 데이터가 바뀌면 밀린다",
+          "b": "커서: 깊어도 일정하게 빠르고 밀림이 없지만, 임의 페이지로 건너뛸 수 없다"
+        }
+      ]
+    },
+    {
+      "id": "arch.outbox",
+      "name": "이중 쓰기 문제와 트랜잭셔널 아웃박스",
+      "kind": "decision",
+      "core": false,
+      "aliases": [
+        "트랜잭셔널 아웃박스",
+        "아웃박스 패턴",
+        "이중 쓰기",
+        "transactional outbox",
+        "dual write",
+        "CDC",
+        "Debezium"
+      ],
+      "prereq": [
+        "db.tx",
+        "dist.mq"
+      ],
+      "alt": [
+        "dist.tx"
+      ],
+      "summary": "DB 갱신과 메시지 발행을 따로 하면 하나만 성공할 수 있는 이중 쓰기 문제를, 메시지를 같은 DB 트랜잭션 안에서 아웃박스 표에 적고 별도 릴레이가 발행하게 해서 푸는 패턴이다.",
+      "faces": {
+        "principle": [
+          {
+            "id": "arch.outbox.principle.1",
+            "must": true,
+            "text": "발행할 메시지를 업무 데이터와 같은 로컬 트랜잭션에서 아웃박스 표에 저장한다고 설명한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "arch.outbox.principle.2",
+            "must": true,
+            "text": "별도의 메시지 릴레이가 아웃박스 표를 읽어 브로커에 발행한다(표를 폴링하거나 DB 변경 로그를 읽는다)고 설명한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Solution; Related patterns"
+            }
+          }
+        ],
+        "rationale": [
+          {
+            "id": "arch.outbox.rationale.1",
+            "must": true,
+            "text": "DB 갱신과 메시지 발행을 따로 하면 둘 중 하나만 성공할 수 있어, 둘을 원자적으로 묶어야 할 때 쓴다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Problem"
+            }
+          },
+          {
+            "id": "arch.outbox.rationale.2",
+            "must": true,
+            "text": "DB와 브로커를 묶는 2PC가 지원되지 않거나 묶고 싶지 않을 때 쓴다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Forces"
+            }
+          },
+          {
+            "id": "arch.outbox.rationale.3",
+            "must": false,
+            "text": "트랜잭션이 커밋될 때만, 앱이 보낸 순서대로 메시지가 나간다는 보장을 얻는다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Resulting context — Benefits"
+            }
+          }
+        ],
+        "tradeoff": [
+          {
+            "id": "arch.outbox.tradeoff.1",
+            "must": true,
+            "text": "릴레이가 같은 메시지를 두 번 이상 발행할 수 있어 소비자가 멱등해야 한다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Resulting context — Issues"
+            }
+          },
+          {
+            "id": "arch.outbox.tradeoff.2",
+            "must": true,
+            "text": "아웃박스를 폴링하는 방식은 어떤 SQL DB에서나 되지만 이벤트를 순서대로 발행하기가 까다롭다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Polling publisher",
+              "url": "https://microservices.io/patterns/data/polling-publisher.html",
+              "where": "Resulting context"
+            }
+          },
+          {
+            "id": "arch.outbox.tradeoff.3",
+            "must": false,
+            "text": "DB 변경 로그를 읽는 방식은 DB마다 다른 방법이 필요하고 중복 발행을 피하기 까다롭다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transaction log tailing",
+              "url": "https://microservices.io/patterns/data/transaction-log-tailing.html",
+              "where": "Resulting context — Drawbacks"
+            }
+          }
+        ],
+        "alternative": [
+          {
+            "id": "arch.outbox.alternative.1",
+            "must": true,
+            "text": "트랜잭션 로그 추적(CDC): DB의 변경 로그(예: MySQL binlog, PostgreSQL WAL)를 읽어 아웃박스에 들어온 메시지를 발행한다고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transaction log tailing",
+              "url": "https://microservices.io/patterns/data/transaction-log-tailing.html",
+              "where": "Solution"
+            }
+          },
+          {
+            "id": "arch.outbox.alternative.2",
+            "must": true,
+            "text": "상태 변경을 이벤트로 저장하는 이벤트 소싱이 또 다른 해법이라고 말한다",
+            "source": {
+              "title": "microservices.io: Pattern: Transactional outbox",
+              "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+              "where": "Related patterns"
+            }
+          },
+          {
+            "id": "arch.outbox.alternative.3",
+            "must": false,
+            "text": "같은 집합체(aggregate)의 이벤트에 같은 메시지 키를 주어 파티션 안 순서를 지킨다(예: Debezium의 aggregateid)고 말한다",
+            "source": {
+              "title": "Debezium 문서: Outbox Event Router",
+              "url": "https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html",
+              "where": "Basic outbox table"
+            }
+          }
+        ]
+      },
+      "misconceptions": [
+        {
+          "id": "arch.outbox.m1",
+          "claim": "DB 커밋이 성공한 직후에 브로커로 보내면 둘 다 반영되니 충분하다",
+          "fix": "커밋과 발행은 서로 다른 시스템에 대한 두 번의 쓰기라 그 사이에 프로세스가 죽거나 발행이 실패하면 한쪽만 남는다. 둘을 원자적으로 묶으려면 메시지를 같은 트랜잭션 안에서 아웃박스에 적는다.",
+          "probe": "DB 커밋은 성공했는데 브로커로 보내기 직전에 프로세스가 죽으면, 다른 서비스는 그 변경을 알게 될까요?",
+          "source": {
+            "title": "microservices.io: Pattern: Transactional outbox",
+            "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+            "where": "Problem; Solution"
+          }
+        },
+        {
+          "id": "arch.outbox.m2",
+          "claim": "아웃박스를 쓰면 메시지가 정확히 한 번만 발행된다",
+          "fix": "아웃박스는 커밋된 메시지가 결국 발행되는 것을 보장할 뿐이다. 릴레이가 발행한 뒤 그 사실을 기록하기 전에 죽으면 다시 발행하므로 소비자는 중복을 견뎌야 한다.",
+          "probe": "릴레이가 메시지를 발행한 뒤 '발행함' 표시를 남기기 전에 죽었다가 다시 뜨면, 그 메시지는 어떻게 될까요?",
+          "source": {
+            "title": "microservices.io: Pattern: Transactional outbox",
+            "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+            "where": "Resulting context — Issues"
+          }
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "arch.outbox.s1",
+          "text": "회원 가입 때 DB에 저장하고 브로커에 '가입함' 이벤트를 보내는데, 가끔 이벤트 없이 가입만 되거나, 가입은 롤백됐는데 이벤트가 나간다.",
+          "faces": [
+            "principle",
+            "rationale",
+            "alternative"
+          ]
+        },
+        {
+          "id": "arch.outbox.s2",
+          "text": "아웃박스 표를 1초마다 폴링해 발행하는데, 같은 주문의 이벤트가 가끔 순서가 바뀌어 나간다.",
+          "faces": [
+            "tradeoff",
+            "alternative"
+          ]
+        }
+      ],
+      "tradeoffs": [
+        {
+          "axis": "폴링 대 로그 추적",
+          "a": "폴링 발행: 어떤 SQL DB에서나 단순히 되지만 DB에 주기적인 조회 부하를 주고 순서 유지가 까다롭다",
+          "b": "로그 추적(CDC): DB 변경 로그를 그대로 읽지만 DB마다 설정이 다르고 운영할 구성 요소가 는다"
+        }
+      ]
+    }
+  ]
+}

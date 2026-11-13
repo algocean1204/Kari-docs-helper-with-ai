@@ -1,0 +1,544 @@
+{
+  "area": "net",
+  "concepts": [
+    {
+      "id": "net.tcp",
+      "name": "TCP 연결과 신뢰성(핸드셰이크, 흐름·혼잡 제어)",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": ["TCP", "전송 제어 프로토콜", "3-way handshake", "3방향 핸드셰이크", "흐름 제어", "혼잡 제어", "TCP/IP"],
+      "prereq": [],
+      "alt": [],
+      "summary": "TCP(Transmission Control Protocol)는 연결을 맺은 두 끝 사이에 순서가 지켜지고 신뢰할 수 있는 바이트 스트림을 제공하는 전송 계층 프로토콜이다. 3방향 핸드셰이크로 연결을 열고, 순서 번호·확인 응답·재전송으로 신뢰성을 얻으며, 수신 윈도와 혼잡 윈도로 보내는 양을 조절한다.",
+      "faces": {
+        "principle": [
+          { "id": "net.tcp.principle.1", "must": true,
+            "text": "연결이 SYN, SYN-ACK, ACK 세 메시지를 주고받는 3방향 핸드셰이크(three-way handshake)로 열리고, 이 과정에서 양쪽의 초기 순서 번호를 맞춘다는 점을 설명한다",
+            "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "3.5 Establishing a Connection, 3.4.1 Initial Sequence Number Selection" } },
+          { "id": "net.tcp.principle.2", "must": true,
+            "text": "순서 번호(sequence number)와 누적 확인 응답(ACK)으로 손실을 알아채고, 확인되지 않은 세그먼트를 재전송해 신뢰성을 얻는다는 점을 설명한다",
+            "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "2.2 Key TCP Concepts, 3.4 Sequence Numbers, 3.8 Data Communication" } },
+          { "id": "net.tcp.principle.3", "must": true,
+            "text": "흐름 제어(flow control)는 수신자가 받을 수 있는 양을 윈도(receive window)로 알려 송신자가 그 이상 보내지 않게 하는 것이라고 설명한다",
+            "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "3.1 Header Format (Window), 3.3.1 Key Connection State Variables" } },
+          { "id": "net.tcp.principle.4", "must": false,
+            "text": "혼잡 제어(congestion control)는 송신자가 스스로 혼잡 윈도(cwnd)를 두는 것이며, 실제로 보낼 수 있는 양은 혼잡 윈도와 수신 윈도 중 작은 값으로 정해진다는 점을 말한다",
+            "source": { "title": "RFC 5681: TCP Congestion Control", "url": "https://www.rfc-editor.org/rfc/rfc5681", "where": "3.1 Slow Start and Congestion Avoidance" } },
+          { "id": "net.tcp.principle.5", "must": false,
+            "text": "혼잡 윈도가 임계값(ssthresh)보다 작을 때는 확인 응답마다 윈도를 키우는 슬로 스타트(slow start)를, 그 위에서는 왕복마다 약 한 세그먼트씩 키우는 혼잡 회피를 쓴다는 점을 설명한다",
+            "source": { "title": "RFC 5681: TCP Congestion Control", "url": "https://www.rfc-editor.org/rfc/rfc5681", "where": "3.1 Slow Start and Congestion Avoidance" } }
+        ],
+        "limit": [
+          { "id": "net.tcp.limit.1", "must": true,
+            "text": "데이터는 3방향 핸드셰이크가 끝난 뒤에야 오갈 수 있어, 짧은 요청이 많은 웹 트래픽에서는 이 추가 왕복(RTT)이 전체 지연의 큰 몫이 된다는 점을 말한다",
+            "source": { "title": "RFC 7413: TCP Fast Open", "url": "https://www.rfc-editor.org/rfc/rfc7413", "where": "1. Introduction" } },
+          { "id": "net.tcp.limit.2", "must": true,
+            "text": "TCP는 하나의 순서 있는 스트림이라 패킷 하나가 손실되면 뒤따르는 데이터가 모두 멈추며(머리 막힘, head-of-line blocking), 한 연결에 여러 요청을 실었다면 그 요청들이 함께 멈춘다는 점을 설명한다",
+            "source": { "title": "RFC 9114: HTTP/3", "url": "https://www.rfc-editor.org/rfc/rfc9114", "where": "1.1 Prior Versions of HTTP" } },
+          { "id": "net.tcp.limit.3", "must": false,
+            "text": "TCP는 보내는 쪽의 쓰기 단위(메시지 경계)를 보존하지 않으므로, 애플리케이션이 길이 필드나 구분자로 메시지를 직접 나눠야 한다는 점을 말한다",
+            "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "2.2 Key TCP Concepts, 3.7 Segmentation" } },
+          { "id": "net.tcp.limit.4", "must": false,
+            "text": "연결을 먼저 닫은 쪽은 늦게 도착하는 이전 연결의 세그먼트가 새 연결에 섞이지 않도록 TIME-WAIT 상태로 일정 시간(2×MSL) 머문다는 점을 말한다",
+            "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "3.3.2 State Machine Overview, 3.6.1 Half-Closed Connections" } }
+        ],
+        "alternative": [
+          { "id": "net.tcp.alternative.1", "must": true,
+            "text": "순서와 신뢰성 보장이 필요 없거나 애플리케이션이 직접 처리할 수 있으면, 전달·중복 보호가 없는 대신 메커니즘이 최소인 UDP(User Datagram Protocol)를 쓸 수 있다는 점을 말한다",
+            "source": { "title": "RFC 768: User Datagram Protocol", "url": "https://www.rfc-editor.org/rfc/rfc768", "where": "Introduction" } },
+          { "id": "net.tcp.alternative.2", "must": true,
+            "text": "QUIC은 UDP 위에서 스트림마다 따로 손실을 복구해, 한 스트림이 막히거나 손실을 겪어도 다른 스트림은 계속 진행된다는 점을 설명한다",
+            "source": { "title": "RFC 9114: HTTP/3", "url": "https://www.rfc-editor.org/rfc/rfc9114", "where": "2. HTTP/3 Protocol Overview" } },
+          { "id": "net.tcp.alternative.3", "must": false,
+            "text": "QUIC은 전송 핸드셰이크와 암호(TLS) 핸드셰이크를 하나로 합쳐 연결 수립 지연을 줄인다는 점을 말한다",
+            "source": { "title": "RFC 9000: QUIC: A UDP-Based Multiplexed and Secure Transport", "url": "https://www.rfc-editor.org/rfc/rfc9000", "where": "1. Overview, 7. Cryptographic and Transport Handshake" } },
+          { "id": "net.tcp.alternative.4", "must": false,
+            "text": "TCP Fast Open(TFO)은 SYN에 데이터를 실어 왕복 한 번을 줄이지만, SYN 데이터가 두 번 이상 전달될 수 있어 이를 견디는 애플리케이션에서만 써야 한다는 점을 말한다",
+            "source": { "title": "RFC 7413: TCP Fast Open", "url": "https://www.rfc-editor.org/rfc/rfc7413", "where": "Abstract, 6.1 (SYN 데이터의 중복 전달)" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.tcp.m1",
+          "claim": "TCP는 send 한 번에 보낸 데이터가 상대의 recv 한 번으로 그대로 전달된다(메시지 경계가 유지된다)",
+          "fix": "TCP는 바이트 스트림 서비스라 보내는 쪽의 쓰기 경계와 받는 쪽의 읽기 경계 사이에 아무 대응이 없다. 메시지를 나누려면 길이 필드나 구분자 같은 애플리케이션 규칙이 필요하다.",
+          "probe": "클라이언트가 100바이트 메시지를 두 번 연달아 보냈는데 서버의 recv 한 번에 150바이트만 들어왔다면, 서버는 메시지를 어떻게 나눠야 할까요?",
+          "source": { "title": "RFC 9293: Transmission Control Protocol (TCP)", "url": "https://www.rfc-editor.org/rfc/rfc9293", "where": "3.7 Segmentation" } },
+        { "id": "net.tcp.m2",
+          "claim": "흐름 제어와 혼잡 제어는 같은 것으로, 둘 다 수신자가 알려 준 윈도로 속도를 맞추는 것이다",
+          "fix": "흐름 제어는 수신자가 알려 주는 수신 윈도로 수신자를 보호하고, 혼잡 제어는 송신자가 스스로 두는 혼잡 윈도로 네트워크를 보호한다. 실제 전송량은 두 값 중 작은 쪽으로 정해진다.",
+          "probe": "수신 서버는 한가해 수신 윈도가 넉넉한데 중간 라우터가 붐벼 패킷이 버려지고 있다면, 송신 속도는 무엇이 줄여야 할까요?",
+          "source": { "title": "RFC 5681: TCP Congestion Control", "url": "https://www.rfc-editor.org/rfc/rfc5681", "where": "3.1 Slow Start and Congestion Avoidance" } }
+      ],
+      "scenarios": [
+        { "id": "net.tcp.s1", "text": "모바일 앱이 작은 API 요청 수십 개를 매번 새 TCP 연결로 보내 화면 하나를 그리는 데 지연이 크다.", "faces": ["limit", "alternative"] },
+        { "id": "net.tcp.s2", "text": "패킷 손실이 잦은 무선망에서 연결 하나로 이미지 수십 장을 받는 화면이 손실이 날 때마다 통째로 멈춘다.", "faces": ["limit", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "신뢰성 대 지연", "a": "TCP: 순서와 재전송을 보장받지만 연결 수립 왕복과 손실 때의 머리 막힘을 감수한다", "b": "UDP 기반(QUIC 등): 지연과 머리 막힘을 줄이지만 신뢰성과 혼잡 제어를 프로토콜이나 애플리케이션이 직접 갖춰야 한다" }
+      ]
+    },
+    {
+      "id": "net.http",
+      "name": "HTTP/1.1, HTTP/2, HTTP/3의 차이",
+      "kind": "mechanism",
+      "core": true,
+      "aliases": ["HTTP/1.1", "HTTP/2", "HTTP/3", "QUIC", "멀티플렉싱", "multiplexing", "keep-alive"],
+      "prereq": ["net.tcp"],
+      "alt": [],
+      "summary": "HTTP/1.1은 텍스트 기반으로 한 연결에서 요청을 차례로 처리하고, HTTP/2는 하나의 TCP 연결 위에 이진 프레임과 스트림으로 요청을 다중화(multiplexing)하며, HTTP/3은 같은 의미를 QUIC(UDP 기반) 위에 올려 전송 계층의 머리 막힘을 없앴다.",
+      "faces": {
+        "principle": [
+          { "id": "net.http.principle.1", "must": false,
+            "text": "HTTP/1.1은 영속 연결(persistent connection)로 TCP 연결 하나를 여러 요청과 응답에 재사용해 요청마다 연결을 새로 열지 않는다는 점을 말한다",
+            "source": { "title": "MDN: Evolution of HTTP", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolution_of_HTTP", "where": "HTTP/1.1 – The standardized protocol" } },
+          { "id": "net.http.principle.2", "must": true,
+            "text": "HTTP/1.1에는 다중화 계층이 없어, 클라이언트가 동시에 요청하려면 서버에 TCP 연결을 여러 개 연다는 점을 말한다",
+            "source": { "title": "RFC 9113: HTTP/2", "url": "https://www.rfc-editor.org/rfc/rfc9113", "where": "1. Introduction" } },
+          { "id": "net.http.principle.3", "must": true,
+            "text": "HTTP/2는 텍스트 대신 이진 프레임(binary framing)을 쓰고, 요청-응답 하나하나를 별도의 스트림(stream)에 실어 한 연결에서 다중화한다는 점을 설명한다",
+            "source": { "title": "RFC 9113: HTTP/2", "url": "https://www.rfc-editor.org/rfc/rfc9113", "where": "1. Introduction, 2. HTTP/2 Protocol Overview" } },
+          { "id": "net.http.principle.4", "must": false,
+            "text": "HTTP/2는 요청마다 반복되는 헤더 필드를 압축해 보내 전송량을 줄인다는 점을 말한다",
+            "source": { "title": "RFC 9113: HTTP/2", "url": "https://www.rfc-editor.org/rfc/rfc9113", "where": "2. HTTP/2 Protocol Overview" } },
+          { "id": "net.http.principle.5", "must": true,
+            "text": "HTTP/3은 메서드·상태 코드 같은 HTTP의 의미는 그대로 두고 전송 계층만 TCP 대신 QUIC으로 바꾼 것이라고 설명한다",
+            "source": { "title": "MDN: Evolution of HTTP", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolution_of_HTTP", "where": "HTTP/3 - HTTP over QUIC" } }
+        ],
+        "limit": [
+          { "id": "net.http.limit.1", "must": true,
+            "text": "HTTP/1.1 파이프라이닝(pipelining)을 써도 응답은 요청 순서대로 와야 해서 앞 응답이 늦으면 뒤 요청이 막히는 애플리케이션 계층 머리 막힘이 남는다는 점을 말한다",
+            "source": { "title": "RFC 9113: HTTP/2", "url": "https://www.rfc-editor.org/rfc/rfc9113", "where": "1. Introduction" } },
+          { "id": "net.http.limit.2", "must": true,
+            "text": "HTTP/2는 TCP 계층의 머리 막힘을 해결하지 못해, 패킷 하나가 손실되면 그 연결의 모든 스트림이 함께 멈춘다는 점을 설명한다",
+            "source": { "title": "RFC 9114: HTTP/3", "url": "https://www.rfc-editor.org/rfc/rfc9114", "where": "1.1 Prior Versions of HTTP" } }
+        ],
+        "alternative": [
+          { "id": "net.http.alternative.1", "must": true,
+            "text": "손실이 잦은 환경에서는 HTTP/3을 쓰면 QUIC이 스트림마다 손실을 따로 복구해, 손실된 데이터가 든 스트림만 막히고 나머지는 계속 진행된다는 점을 말한다",
+            "source": { "title": "MDN: Evolution of HTTP", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolution_of_HTTP", "where": "HTTP/3 - HTTP over QUIC" } },
+          { "id": "net.http.alternative.2", "must": false,
+            "text": "QUIC은 연결 ID로 연결을 식별해 클라이언트의 네트워크 경로(주소)가 바뀌어도 연결을 이어 갈 수 있다(연결 이전, connection migration)는 점을 말한다",
+            "source": { "title": "RFC 9000: QUIC: A UDP-Based Multiplexed and Secure Transport", "url": "https://www.rfc-editor.org/rfc/rfc9000", "where": "1. Overview, 5. Connections" } },
+          { "id": "net.http.alternative.3", "must": true,
+            "text": "HTTP/3은 QUIC이 전송과 TLS 핸드셰이크를 합쳐 처리하므로 TCP와 TLS를 차례로 맺는 것보다 연결 수립 지연이 줄어든다는 점을 말한다",
+            "source": { "title": "RFC 9000: QUIC: A UDP-Based Multiplexed and Secure Transport", "url": "https://www.rfc-editor.org/rfc/rfc9000", "where": "7. Cryptographic and Transport Handshake" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.http.m1",
+          "claim": "HTTP/2는 다중화를 하므로 머리 막힘(head-of-line blocking) 문제가 완전히 사라졌다",
+          "fix": "HTTP/2는 애플리케이션 계층의 머리 막힘만 풀었다. 모든 스트림이 TCP 연결 하나를 공유하므로 패킷 하나가 손실되면 모든 스트림이 멈춘다. 이 문제는 HTTP/3(QUIC)에서 풀렸다.",
+          "probe": "HTTP/2 연결 하나로 스트림 20개를 받는 중에 패킷 하나가 손실되면, 그 패킷과 상관없는 나머지 스트림은 계속 받을 수 있을까요?",
+          "source": { "title": "RFC 9113: HTTP/2", "url": "https://www.rfc-editor.org/rfc/rfc9113", "where": "1. Introduction" } },
+        { "id": "net.http.m2",
+          "claim": "HTTP/3은 UDP를 쓰므로 신뢰성이 없어 데이터가 유실될 수 있다",
+          "fix": "HTTP/3이 쓰는 QUIC이 스트림 단위의 신뢰성과 연결 전체의 혼잡 제어를 제공한다. UDP는 운반 수단일 뿐이다.",
+          "probe": "HTTP/3으로 파일을 내려받다가 UDP 패킷 하나가 손실되면 그 파일은 깨진 채로 저장될까요?",
+          "source": { "title": "RFC 9114: HTTP/3", "url": "https://www.rfc-editor.org/rfc/rfc9114", "where": "1.2 Delegation to QUIC" } },
+        { "id": "net.http.m3",
+          "claim": "HTTP/2나 HTTP/3으로 바꾸면 메서드와 상태 코드 같은 API의 의미도 다시 설계해야 한다",
+          "fix": "HTTP/2와 HTTP/3은 전송 방식을 바꾼 것이고 HTTP의 의미(메서드, 상태 코드, 헤더의 뜻)는 같다.",
+          "probe": "HTTP/1.1로 만든 REST API를 HTTP/2로 제공하려 할 때 GET과 POST의 의미나 상태 코드를 바꿔야 할까요?",
+          "source": { "title": "MDN: Evolution of HTTP", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolution_of_HTTP", "where": "HTTP/3 - HTTP over QUIC" } }
+      ],
+      "scenarios": [
+        { "id": "net.http.s1", "text": "이미지가 100장 넘는 상품 목록 페이지가 HTTP/1.1에서 느려, 도메인을 여러 개로 쪼개 연결 수를 늘리자는 제안이 나왔다.", "faces": ["principle", "alternative"] },
+        { "id": "net.http.s2", "text": "HTTP/2로 올렸는데 손실률이 높은 모바일망에서는 오히려 느린 응답의 꼬리가 길어졌다.", "faces": ["limit", "alternative"] },
+        { "id": "net.http.s3", "text": "지하철에서 쓰는 모바일 앱이 와이파이와 LTE를 오갈 때마다 진행 중인 요청이 실패한다.", "faces": ["alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "연결 하나에 다중화 대 연결 여러 개", "a": "HTTP/2: 연결 수와 핸드셰이크를 줄이지만 TCP 손실 하나가 모든 스트림을 멈춘다", "b": "HTTP/1.1 연결 여러 개: 손실 영향이 연결별로 나뉘지만 연결 수립 비용과 서버 자원이 늘어난다" }
+      ]
+    },
+    {
+      "id": "net.tls",
+      "name": "TLS 핸드셰이크와 인증서",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": ["TLS", "SSL", "HTTPS", "인증서", "certificate", "TLS 1.3", "mTLS"],
+      "prereq": ["net.tcp"],
+      "alt": [],
+      "summary": "TLS(Transport Layer Security)는 두 끝 사이의 통신을 암호화하고 상대(보통 서버)를 인증서로 인증하는 프로토콜이다. TLS 1.3 핸드셰이크에서는 (EC)DHE로 키를 합의하고, 서버가 인증서와 개인 키 서명으로 신원을 증명한다.",
+      "faces": {
+        "principle": [
+          { "id": "net.tls.principle.1", "must": true,
+            "text": "핸드셰이크에서 클라이언트와 서버가 키 공유(key share)를 주고받아 같은 비밀을 계산하고, 그 비밀로 만든 대칭 키로 이후 통신을 암호화한다는 점을 설명한다(예: TLS 1.3의 ClientHello·ServerHello와 (EC)DHE)",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2. Protocol Overview" } },
+          { "id": "net.tls.principle.2", "must": true,
+            "text": "서버는 인증서와, 그 인증서의 개인 키로 핸드셰이크에 서명한 값(예: TLS 1.3의 CertificateVerify)을 보내 인증서의 주인임을 증명한다는 점을 설명한다",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2. Protocol Overview (Figure 1)" } },
+          { "id": "net.tls.principle.3", "must": false,
+            "text": "TLS 1.3에서는 정적 RSA·정적 Diffie-Hellman 키 교환이 빠져, 공개 키 기반 키 교환이 모두 전방 비밀성(forward secrecy)을 제공한다는 점을 말한다",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "1.3 Major Differences from TLS 1.2" } },
+          { "id": "net.tls.principle.4", "must": true,
+            "text": "인증서 검증은 신뢰 앵커(루트 CA)가 발급한 인증서에서 시작해 중간 CA를 거쳐 서버 인증서까지 이어지는 경로의 서명을 차례로 확인하는 것이라고 설명한다",
+            "source": { "title": "RFC 5280: Internet X.509 Public Key Infrastructure Certificate and CRL Profile", "url": "https://www.rfc-editor.org/rfc/rfc5280", "where": "6.1 Basic Path Validation, 6.1.3 Basic Certificate Processing" } },
+          { "id": "net.tls.principle.5", "must": false,
+            "text": "인증서가 증명하는 도메인 이름은 주체 대체 이름(subjectAltName) 확장에 DNS 이름으로 들어간다는 점을 말한다",
+            "source": { "title": "RFC 5280: Internet X.509 Public Key Infrastructure Certificate and CRL Profile", "url": "https://www.rfc-editor.org/rfc/rfc5280", "where": "4.2.1.6 Subject Alternative Name" } }
+        ],
+        "limit": [
+          { "id": "net.tls.limit.1", "must": true,
+            "text": "인증서에는 유효 기간이 있어 현재 시각이 그 밖이면 검증이 실패하므로, 갱신을 놓치면 연결이 거부된다는 점을 말한다",
+            "source": { "title": "RFC 5280: Internet X.509 Public Key Infrastructure Certificate and CRL Profile", "url": "https://www.rfc-editor.org/rfc/rfc5280", "where": "4.1.2.5 Validity, 6.1.3 Basic Certificate Processing" } },
+          { "id": "net.tls.limit.2", "must": false,
+            "text": "0-RTT로 보내는 조기 데이터(early data)는 연결 사이의 재전송(replay)을 막는 보장이 없다는 점을 말한다",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2.3 0-RTT Data" } },
+          { "id": "net.tls.limit.3", "must": true,
+            "text": "TCP 위에서 쓰는 TLS는 TCP 핸드셰이크 뒤에 TLS 핸드셰이크 왕복(TLS 1.3 전체 핸드셰이크는 1-RTT)이 더 들어, 연결을 자주 새로 만들면 그만큼 지연이 붙는다는 점을 말한다(QUIC은 두 핸드셰이크를 합치고, 세션 재개와 0-RTT는 이 왕복을 줄인다)",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2. Protocol Overview, 2.3 0-RTT Data" } }
+        ],
+        "alternative": [
+          { "id": "net.tls.alternative.1", "must": true,
+            "text": "한 번 핸드셰이크를 마친 뒤 받은 키(PSK)로 다시 연결하는 세션 재개(resumption)를 쓰면 인증서 교환을 생략해 재연결 비용을 줄인다는 점을 말한다",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2.2 Resumption and Pre-Shared Key (PSK)" } },
+          { "id": "net.tls.alternative.2", "must": true,
+            "text": "로드 밸런서에 인증서를 두고 TLS를 그곳에서 종료(termination)해, 뒤쪽 서버가 클라이언트 연결의 복호화를 맡지 않게 할 수 있다는 점을 말한다",
+            "source": { "title": "AWS 문서: What is an Application Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html", "where": "Related services (AWS Certificate Manager)" } },
+          { "id": "net.tls.alternative.3", "must": false,
+            "text": "서버뿐 아니라 클라이언트도 인증서로 인증하게 하는 상호 TLS(mTLS)로 서비스 사이 호출의 상대를 확인할 수 있다는 점을 말한다",
+            "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "1. Introduction, 2. Protocol Overview (Figure 1의 클라이언트 Certificate)" } },
+          { "id": "net.tls.alternative.4", "must": false,
+            "text": "QUIC(HTTP/3)은 TLS 1.3 핸드셰이크를 전송 핸드셰이크와 합쳐 연결 수립 지연을 줄인다는 점을 말한다",
+            "source": { "title": "RFC 9000: QUIC: A UDP-Based Multiplexed and Secure Transport", "url": "https://www.rfc-editor.org/rfc/rfc9000", "where": "7. Cryptographic and Transport Handshake" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.tls.m1",
+          "claim": "HTTPS(TLS)는 언제나 서버와 클라이언트를 모두 인증한다",
+          "fix": "TLS에서 서버는 늘 인증되지만 클라이언트 인증은 선택이다. 보통의 HTTPS 접속에서 클라이언트는 TLS 단계에서 인증되지 않고, 필요하면 상호 TLS를 따로 켠다.",
+          "probe": "브라우저로 HTTPS 쇼핑몰에 접속할 때, 서버는 TLS 핸드셰이크만으로 내가 누구인지 알 수 있을까요?",
+          "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "1. Introduction" } },
+        { "id": "net.tls.m2",
+          "claim": "TLS는 서버 인증서의 공개 키로 애플리케이션 데이터 자체를 암호화해 보낸다",
+          "fix": "애플리케이션 데이터는 핸드셰이크에서 합의한 대칭 키로 암호화한다. 인증서의 키는 신원 증명(서명)이나 키 교환에만 쓰인다. TLS 1.3은 (EC)DHE로 임시 키를 합의하므로 서버 개인 키가 나중에 유출돼도 지난 세션이 풀리지 않는다(전방 비밀성).",
+          "probe": "서버 개인 키가 1년 뒤 유출되면, 그 전에 녹화해 둔 TLS 1.3 트래픽을 풀 수 있을까요?",
+          "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "1.3 Major Differences from TLS 1.2, 2. Protocol Overview" } },
+        { "id": "net.tls.m3",
+          "claim": "0-RTT를 켜면 아무 손해 없이 빨라지기만 한다",
+          "fix": "0-RTT 조기 데이터는 연결 사이 재전송에 대한 보장이 없고 전방 비밀성도 없다. 공격자가 같은 데이터를 다시 보낼 수 있으므로 쓸 요청을 가려야 한다.",
+          "probe": "0-RTT로 보낸 '송금' 요청을 공격자가 캡처해 그대로 다시 보내면, TLS가 이를 막아 줄까요?",
+          "source": { "title": "RFC 9846: The Transport Layer Security (TLS) Protocol Version 1.3", "url": "https://www.rfc-editor.org/rfc/rfc9846", "where": "2.3 0-RTT Data" } }
+      ],
+      "scenarios": [
+        { "id": "net.tls.s1", "text": "새벽에 결제 API 호출이 일제히 'certificate has expired' 오류로 실패하기 시작했다.", "faces": ["limit"] },
+        { "id": "net.tls.s2", "text": "사내 마이크로서비스 사이의 호출을 누가 보냈는지 네트워크 계층에서 확인해야 한다는 보안 요구가 생겼다.", "faces": ["principle", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "0-RTT 지연 단축 대 재전송 위험", "a": "0-RTT 허용: 재연결 때 첫 메시지에 데이터를 실어 왕복을 줄인다", "b": "1-RTT만 허용: 왕복이 하나 늘지만 조기 데이터의 재전송과 전방 비밀성 문제가 없다" }
+      ]
+    },
+    {
+      "id": "net.dns",
+      "name": "DNS 조회와 캐시",
+      "kind": "mechanism",
+      "core": false,
+      "aliases": ["DNS", "도메인 이름 시스템", "TTL", "리졸버", "resolver", "네임서버", "nameserver"],
+      "prereq": [],
+      "alt": [],
+      "summary": "DNS(Domain Name System)는 도메인 이름을 IP 주소 같은 레코드로 바꾸는 분산 조회 체계다. 리졸버(resolver)가 위임(referral)을 따라 권한 있는 네임서버까지 묻고, 받은 레코드는 TTL 동안 캐시한다.",
+      "faces": {
+        "principle": [
+          { "id": "net.dns.principle.1", "must": true,
+            "text": "리졸버가 캐시에 아는 가장 가까운 네임서버부터(캐시가 비었으면 루트 서버부터) 묻고, 각 서버가 알려 주는 하위 네임서버로의 위임(referral)을 따라가며 답을 찾는다는 점을 설명한다",
+            "source": { "title": "RFC 1034: Domain Names - Concepts and Facilities", "url": "https://www.rfc-editor.org/rfc/rfc1034", "where": "5.3.3 Algorithm" } },
+          { "id": "net.dns.principle.2", "must": true,
+            "text": "재귀 질의(recursive)에서는 서버가 대신 끝까지 조회해 답이나 오류만 돌려주고, 비재귀(반복) 질의에서는 다른 서버를 알려 주어 묻는 쪽이 계속 따라가게 한다는 차이를 설명한다",
+            "source": { "title": "RFC 1034: Domain Names - Concepts and Facilities", "url": "https://www.rfc-editor.org/rfc/rfc1034", "where": "4.3.1 Queries and responses" } },
+          { "id": "net.dns.principle.3", "must": true,
+            "text": "레코드의 TTL은 캐시에 보관할 수 있는 시간 한도이며, 지나면 버리고 다시 물어야 한다는 점을 말한다",
+            "source": { "title": "RFC 1034: Domain Names - Concepts and Facilities", "url": "https://www.rfc-editor.org/rfc/rfc1034", "where": "3.6 Resource Records" } },
+          { "id": "net.dns.principle.4", "must": false,
+            "text": "이름이 없다는 응답(NXDOMAIN)도 정해진 시간 동안 캐시된다(네거티브 캐시)는 점을 말한다",
+            "source": { "title": "RFC 2308: Negative Caching of DNS Queries (DNS NCACHE)", "url": "https://www.rfc-editor.org/rfc/rfc2308", "where": "5. Caching Negative Answers" } }
+        ],
+        "limit": [
+          { "id": "net.dns.limit.1", "must": true,
+            "text": "레코드를 바꿔도 리졸버들은 TTL이 끝날 때까지 캐시한 옛 값으로 답하므로 변경이 즉시 퍼지지 않는다는 점을 설명한다",
+            "source": { "title": "AWS 문서: Best practices for Amazon Route 53 DNS", "url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/best-practices-dns.html", "where": "Choosing TTL values for DNS records" } },
+          { "id": "net.dns.limit.2", "must": true,
+            "text": "TTL을 짧게 하면 변경은 빨리 퍼지지만 리졸버가 더 자주 물어 질의 수와 비용이 늘어난다는 점을 말한다",
+            "source": { "title": "AWS 문서: Best practices for Amazon Route 53 DNS", "url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/best-practices-dns.html", "where": "Choosing TTL values for DNS records" } },
+          { "id": "net.dns.limit.3", "must": false,
+            "text": "TTL을 지키지 않는 클라이언트는 DNS에서 이미 빠진 주소로 계속 요청을 보내 실패한다는 점을 말한다",
+            "source": { "title": "AWS 문서: What is a Network Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html", "where": "Network Load Balancer overview" } },
+          { "id": "net.dns.limit.4", "must": false,
+            "text": "UDP 응답 크기 한도를 넘는 큰 응답은 잘린(TC 비트) 응답이 되어 TCP로 다시 물어야 하므로 느려지고 신뢰성이 떨어질 수 있다는 점을 말한다",
+            "source": { "title": "AWS 문서: Best practices for Amazon Route 53 DNS", "url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/best-practices-dns.html", "where": "Size of DNS response" } },
+          { "id": "net.dns.limit.5", "must": false,
+            "text": "암호화하지 않은 일반 DNS 질의는 경로 중간의 장치가 엿보거나 간섭할 수 있다는 점을 말한다",
+            "source": { "title": "RFC 8484: DNS Queries over HTTPS (DoH)", "url": "https://www.rfc-editor.org/rfc/rfc8484", "where": "1. Introduction, 8.1 On the Wire" } }
+        ],
+        "alternative": [
+          { "id": "net.dns.alternative.1", "must": true,
+            "text": "바꿀 일정을 미리 알면 변경 전에 TTL을 낮춰 두었다가, 바꾸고 확인한 뒤 다시 올린다는 점을 말한다",
+            "source": { "title": "AWS 문서: Best practices for Amazon Route 53 DNS", "url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/best-practices-dns.html", "where": "Choosing TTL values for DNS records" } },
+          { "id": "net.dns.alternative.2", "must": true,
+            "text": "서버 교체나 장애 조치를 DNS 레코드 변경 대신 로드 밸런서의 상태 확인에 맡기면, 로드 밸런서 자체의 주소가 바뀌지 않는 한 DNS 캐시와 상관없이 비정상 대상을 빼고 건강한 대상으로만 보낸다는 점을 말한다",
+            "source": { "title": "AWS 문서: How Elastic Load Balancing works", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/how-elastic-load-balancing-works.html", "where": "본문 첫 단락" } },
+          { "id": "net.dns.alternative.3", "must": false,
+            "text": "DNS 질의를 HTTPS로 보내는 DoH(DNS over HTTPS)는 질의를 암호화하고 서버를 인증해 경로 중간 장치의 간섭을 막는다는 점을 말한다",
+            "source": { "title": "RFC 8484: DNS Queries over HTTPS (DoH)", "url": "https://www.rfc-editor.org/rfc/rfc8484", "where": "1. Introduction, 8.1 On the Wire" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.dns.m1",
+          "claim": "DNS 레코드를 바꾸면 전 세계에 바로 반영된다",
+          "fix": "리졸버는 레코드를 TTL 동안 캐시하고 그 사이에는 다시 묻지 않는다. 변경은 각 캐시의 TTL이 끝나는 대로 퍼지므로, 급한 변경 전에는 TTL을 미리 낮춰 둔다.",
+          "probe": "TTL이 하루인 A 레코드를 새 서버 IP로 바꾼 지 10분 뒤, 어제 이 도메인을 조회했던 리졸버를 쓰는 사용자는 어느 서버로 갈까요?",
+          "source": { "title": "RFC 1034: Domain Names - Concepts and Facilities", "url": "https://www.rfc-editor.org/rfc/rfc1034", "where": "3.6 Resource Records" } },
+        { "id": "net.dns.m2",
+          "claim": "DNS는 UDP만 쓴다",
+          "fix": "TCP 지원은 DNS 구현의 필수 요건이다. UDP 응답이 크기 한도를 넘어 잘리면(TC 비트) 클라이언트는 TCP로 다시 묻는다.",
+          "probe": "응답에 레코드가 많아 UDP 크기 한도를 넘으면, 리졸버는 그 답을 어떻게 받아 올까요?",
+          "source": { "title": "RFC 7766: DNS Transport over TCP - Implementation Requirements", "url": "https://www.rfc-editor.org/rfc/rfc7766", "where": "1. Introduction, 4. Transport Protocol Selection" } }
+      ],
+      "scenarios": [
+        { "id": "net.dns.s1", "text": "DB 장애 조치를 DNS 이름이 가리키는 IP를 바꾸는 방식으로 하는데, 바꾼 뒤에도 일부 애플리케이션 서버가 몇 분간 옛 주 서버로 접속한다.", "faces": ["limit", "alternative"] },
+        { "id": "net.dns.s2", "text": "다음 주에 서비스 도메인을 새 인프라로 옮기는 작업이 잡혔고 현재 TTL은 86400초다.", "faces": ["principle", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "변경 반영 속도 대 조회 비용", "a": "짧은 TTL: 변경과 장애 조치가 빨리 퍼지지만 질의가 늘어 비용과 지연이 커진다", "b": "긴 TTL: 캐시에서 답하는 경우가 많아 빠르고 싸지만 변경이 퍼지는 데 오래 걸린다" }
+      ]
+    },
+    {
+      "id": "net.lb",
+      "name": "로드 밸런싱(L4·L7, 분배 방식, 상태 확인)",
+      "kind": "decision",
+      "core": false,
+      "aliases": ["로드 밸런서", "load balancer", "L4", "L7", "ALB", "NLB", "헬스 체크", "health check"],
+      "prereq": ["net.tcp", "net.http"],
+      "alt": [],
+      "summary": "로드 밸런싱(load balancing)은 여러 서버에 요청을 나누는 것이다. 어느 계층(L4: 연결, L7: HTTP 요청)에서 나눌지, 어떤 방식(라운드 로빈, 최소 연결, 해시)으로 대상을 고를지, 상태 확인(health check)으로 어떤 서버를 뺄지를 정한다.",
+      "faces": {
+        "principle": [
+          { "id": "net.lb.principle.1", "must": true,
+            "text": "로드 밸런서는 등록된 대상의 상태를 확인해 비정상 대상에는 보내지 않고, 다시 정상이 되면 보내기를 재개한다는 점을 설명한다",
+            "source": { "title": "AWS 문서: How Elastic Load Balancing works", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/how-elastic-load-balancing-works.html", "where": "본문 첫 단락" } },
+          { "id": "net.lb.principle.2", "must": true,
+            "text": "L4 로드 밸런서는 프로토콜과 주소·포트 같은 연결 정보로 대상을 골라 TCP 연결 하나를 끝날 때까지 한 대상에 보내므로, 분배 단위가 요청이 아니라 연결이라는 점을 설명한다",
+            "source": { "title": "AWS 문서: What is a Network Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html", "where": "Network Load Balancer overview" } },
+          { "id": "net.lb.principle.3", "must": false,
+            "text": "분배 방식에는 차례로 돌리는 라운드 로빈, 활성 연결이 가장 적은 서버를 고르는 최소 연결, 클라이언트 IP 해시로 서버를 정하는 방식 등이 있고 가중치를 줄 수 있다는 점을 말한다",
+            "source": { "title": "nginx 문서: Using nginx as HTTP load balancer", "url": "https://nginx.org/en/docs/http/load_balancing.html", "where": "Load balancing methods, Weighted load balancing" } }
+        ],
+        "rationale": [
+          { "id": "net.lb.rationale.1", "must": true,
+            "text": "URL 경로·호스트·헤더 같은 요청 내용으로 서로 다른 서버 묶음에 보내야 하면, 애플리케이션 계층(L7)에서 요청을 해석하는 로드 밸런서를 고른다는 점을 말한다",
+            "source": { "title": "AWS 문서: What is an Application Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html", "where": "Application Load Balancer overview, Benefits of migrating from a Classic Load Balancer" } },
+          { "id": "net.lb.rationale.2", "must": true,
+            "text": "요청 내용을 볼 필요 없이 TCP·UDP 연결을 매우 많이 처리하거나 고정 IP가 필요하면 전송 계층(L4) 로드 밸런서를 고른다는 점을 말한다",
+            "source": { "title": "AWS 문서: What is a Network Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html", "where": "Network Load Balancer overview, Benefits of migrating from a Classic Load Balancer" } }
+        ],
+        "tradeoff": [
+          { "id": "net.lb.tradeoff.1", "must": true,
+            "text": "단순 라운드 로빈(round robin)은 상태 없이 단순하지만, 요청마다 비용이 크게 다르거나 서버 성능이 제각각이면 서버 사이 부하가 크게 벌어진다는 점을 말한다",
+            "source": { "title": "Google SRE Book 20장: Load Balancing in the Datacenter", "url": "https://sre.google/sre-book/load-balancing-datacenter/", "where": "Simple Round Robin" } },
+          { "id": "net.lb.tradeoff.2", "must": true,
+            "text": "활성 요청이 가장 적은 서버를 고르는 방식은 부하를 따라가지만, 오류를 빠르게 돌려주는 비정상 서버가 한가해 보여 요청을 빨아들일 수 있다(sinkholing)는 점을 말한다",
+            "source": { "title": "Google SRE Book 20장: Load Balancing in the Datacenter", "url": "https://sre.google/sre-book/load-balancing-datacenter/", "where": "Least-Loaded Round Robin" } },
+          { "id": "net.lb.tradeoff.3", "must": false,
+            "text": "클라이언트 IP 해시는 같은 클라이언트를 같은 서버로 보내 세션을 유지하게 해 주지만, 그 서버를 쓸 수 없게 되면 다른 서버로 넘어간다는 점을 말한다",
+            "source": { "title": "nginx 문서: Using nginx as HTTP load balancer", "url": "https://nginx.org/en/docs/http/load_balancing.html", "where": "Session persistence" } }
+        ],
+        "alternative": [
+          { "id": "net.lb.alternative.1", "must": true,
+            "text": "서버가 보고하는 처리율·오류율·사용률로 가중치를 매기는 가중 라운드 로빈을 쓰면 단순한 방식보다 서버 사이 사용률 차이가 줄어든다는 점을 말한다",
+            "source": { "title": "Google SRE Book 20장: Load Balancing in the Datacenter", "url": "https://sre.google/sre-book/load-balancing-datacenter/", "where": "Weighted Round Robin" } },
+          { "id": "net.lb.alternative.2", "must": false,
+            "text": "별도의 상태 확인 요청 대신 실제 요청이 정해진 횟수만큼 실패하면 그 서버를 한동안 빼는 수동(passive) 상태 확인을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "nginx 문서: Using nginx as HTTP load balancer", "url": "https://nginx.org/en/docs/http/load_balancing.html", "where": "Health checks" } },
+          { "id": "net.lb.alternative.3", "must": true,
+            "text": "로드 밸런서 대신 DNS 장애 조치로 비정상 자원에서 정상 자원으로 트래픽을 돌릴 수도 있지만, 리졸버 캐시 때문에 최대 TTL만큼(TTL을 지키지 않는 클라이언트는 그보다 더) 늦게 반영된다는 점을 말한다",
+            "source": { "title": "AWS 문서: Best practices for Amazon Route 53 DNS", "url": "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/best-practices-dns.html", "where": "Choosing TTL values for DNS records" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.lb.m1",
+          "claim": "라운드 로빈으로 나누면 모든 서버의 부하가 똑같아진다",
+          "fix": "라운드 로빈은 요청 수를 똑같이 나눌 뿐이다. 요청마다 비용이 크게 다르고 서버마다 성능이 다르므로 실제 부하는 크게 벌어질 수 있다.",
+          "probe": "요청 대부분은 1ms인데 가끔 2초짜리 보고서 요청이 섞인다면, 라운드 로빈으로 나눈 서버들의 CPU 사용률은 비슷할까요?",
+          "source": { "title": "Google SRE Book 20장: Load Balancing in the Datacenter", "url": "https://sre.google/sre-book/load-balancing-datacenter/", "where": "Simple Round Robin" } },
+        { "id": "net.lb.m2",
+          "claim": "활성 요청이 가장 적은 서버로 보내면 항상 안전하다",
+          "fix": "모든 요청에 즉시 오류를 내는 서버는 활성 요청이 적어 가장 한가해 보이므로 오히려 요청을 더 끌어들인다. 최근 오류도 부하로 세는 식의 보정이 필요하다.",
+          "probe": "DB 연결이 끊겨 모든 요청에 바로 500을 돌려주는 서버가 하나 있다면, 최소 연결 방식은 이 서버에 요청을 덜 보낼까요 더 보낼까요?",
+          "source": { "title": "Google SRE Book 20장: Load Balancing in the Datacenter", "url": "https://sre.google/sre-book/load-balancing-datacenter/", "where": "Least-Loaded Round Robin" } },
+        { "id": "net.lb.m3",
+          "claim": "연결 정보(주소·포트)만 보는 L4 로드 밸런서도 URL 경로를 보고 API 서버와 정적 파일 서버로 나눌 수 있다",
+          "fix": "경로·호스트·헤더 같은 요청 내용으로 나누는 것은 요청을 해석하는 L7 로드 밸런서의 기능이다. L4는 프로토콜과 주소·포트 같은 연결 정보로 대상을 고른다.",
+          "probe": "/api 요청은 API 서버로, /images 요청은 이미지 서버로 보내야 할 때, 연결의 IP와 포트만 보는 장비로 가능할까요?",
+          "source": { "title": "AWS 문서: What is an Application Load Balancer?", "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/introduction.html", "where": "Application Load Balancer overview" } }
+      ],
+      "scenarios": [
+        { "id": "net.lb.s1", "text": "웹소켓으로 몇 시간씩 연결을 유지하는 채팅 서버를 늘렸는데, 새로 띄운 서버에는 연결이 거의 가지 않는다.", "faces": ["principle", "alternative"] },
+        { "id": "net.lb.s2", "text": "하나의 도메인 아래 /api, /admin, /static을 서로 다른 서비스로 보내야 한다.", "faces": ["rationale"] },
+        { "id": "net.lb.s3", "text": "DB 연결이 끊긴 서버 한 대가 즉시 오류를 돌려주는데, 그 서버로 가는 요청 비율이 오히려 늘었다.", "faces": ["tradeoff", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "L4 대 L7", "a": "L4: 내용을 해석하지 않아 처리량이 크고 프로토콜에 덜 묶이지만 요청 내용으로 나눌 수 없다", "b": "L7: 경로·호스트·헤더로 나누고 요청 단위로 분배하지만 요청을 해석하는 처리 비용이 든다" }
+      ]
+    },
+    {
+      "id": "net.rest",
+      "name": "REST API 설계와 메서드의 멱등성",
+      "kind": "decision",
+      "core": true,
+      "aliases": ["REST", "RESTful", "REST API", "멱등성", "idempotency", "HTTP 메서드", "API 설계"],
+      "prereq": ["net.http"],
+      "alt": [],
+      "summary": "REST(Representational State Transfer)는 자원을 URI로 식별하고 표준 HTTP 메서드로 표현을 주고받는 설계 방식이다. 메서드마다 안전성(safe)과 멱등성(idempotent)이 정해져 있어, 재시도와 캐시 같은 동작이 그 의미에 기대어 움직인다.",
+      "faces": {
+        "principle": [
+          { "id": "net.rest.principle.1", "must": true,
+            "text": "균일한 인터페이스(uniform interface)에 따라 자원을 식별자(URI)로 가리키고, 표준 메서드로 그 자원의 표현을 주고받아 자원을 다룬다는 점을 설명한다",
+            "source": { "title": "Roy T. Fielding 박사 논문(2000) 5장: Representational State Transfer (REST)", "url": "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm", "where": "5.1.5 Uniform Interface" } },
+          { "id": "net.rest.principle.2", "must": true,
+            "text": "GET, HEAD, OPTIONS, TRACE는 의미가 사실상 읽기 전용인 안전한(safe) 메서드라는 점을 말한다",
+            "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "9.2.1 Safe Methods" } },
+          { "id": "net.rest.principle.3", "must": true,
+            "text": "PUT, DELETE와 안전한 메서드는 멱등(idempotent)해서, 같은 요청을 여러 번 보내도 서버에 생기는 의도한 효과가 한 번 보낸 것과 같다는 점을 말한다",
+            "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "9.2.2 Idempotent Methods" } },
+          { "id": "net.rest.principle.4", "must": false,
+            "text": "상태 코드의 첫 자리가 응답의 종류를 나타낸다는 점(2xx 성공, 3xx 리디렉션, 4xx 클라이언트 오류, 5xx 서버 오류)을 말한다",
+            "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "15. Status Codes" } },
+          { "id": "net.rest.principle.5", "must": false,
+            "text": "PUT은 보낸 표현으로 자원 전체를 바꾸고, PATCH는 자원을 어떻게 고칠지에 대한 지시를 담는다는 차이를 말한다",
+            "source": { "title": "RFC 5789: PATCH Method for HTTP", "url": "https://www.rfc-editor.org/rfc/rfc5789", "where": "2. The PATCH Method" } }
+        ],
+        "rationale": [
+          { "id": "net.rest.rationale.1", "must": true,
+            "text": "무상태(stateless) 제약 때문에 요청마다 이해에 필요한 정보를 모두 담고 서버가 세션 문맥을 저장하지 않으므로, 서버의 확장성과 신뢰성이 좋아진다는 점을 말한다",
+            "source": { "title": "Roy T. Fielding 박사 논문(2000) 5장: Representational State Transfer (REST)", "url": "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm", "where": "5.1.3 Stateless" } },
+          { "id": "net.rest.rationale.2", "must": true,
+            "text": "응답에 캐시 가능 여부를 표시하는 제약 덕분에 클라이언트나 중간 캐시가 응답을 재사용할 수 있다는 점을 말한다",
+            "source": { "title": "Roy T. Fielding 박사 논문(2000) 5장: Representational State Transfer (REST)", "url": "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm", "where": "5.1.4 Cache" } },
+          { "id": "net.rest.rationale.3", "must": false,
+            "text": "메서드의 멱등성이 정해져 있어, 통신이 끊겨 결과를 모를 때 멱등한 요청은 자동으로 재시도할 수 있고 멱등하지 않은 요청은 그러지 말아야 한다는 판단 기준이 된다는 점을 말한다",
+            "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "9.2.2 Idempotent Methods" } }
+        ],
+        "tradeoff": [
+          { "id": "net.rest.tradeoff.1", "must": true,
+            "text": "무상태 제약은 서버에 문맥을 두지 않는 대신 요청마다 같은 정보를 반복해 보내야 해 네트워크 효율이 떨어질 수 있다는 점을 말한다",
+            "source": { "title": "Roy T. Fielding 박사 논문(2000) 5장: Representational State Transfer (REST)", "url": "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm", "where": "5.1.3 Stateless" } },
+          { "id": "net.rest.tradeoff.2", "must": true,
+            "text": "균일한 인터페이스는 정보를 애플리케이션 맞춤이 아닌 표준 형태로 주고받게 하므로 효율이 떨어질 수 있다는 점을 말한다",
+            "source": { "title": "Roy T. Fielding 박사 논문(2000) 5장: Representational State Transfer (REST)", "url": "https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm", "where": "5.1.5 Uniform Interface" } },
+          { "id": "net.rest.tradeoff.3", "must": false,
+            "text": "PATCH는 바꿀 부분만 보내 전체 표현을 보내는 PUT보다 가볍지만, 멱등이 보장되지 않아 재시도와 동시 수정에 조건부 요청(If-Match와 ETag) 같은 장치가 필요하다는 점을 말한다",
+            "source": { "title": "RFC 5789: PATCH Method for HTTP", "url": "https://www.rfc-editor.org/rfc/rfc5789", "where": "2. The PATCH Method" } }
+        ],
+        "alternative": [
+          { "id": "net.rest.alternative.1", "must": true,
+            "text": "화면마다 필요한 필드가 달라 응답 모양을 클라이언트가 정해야 하면, 질의로 필요한 데이터만 요청하는 GraphQL을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "GraphQL 공식 문서: Learn", "url": "https://graphql.org/learn/", "where": "Queries" } },
+          { "id": "net.rest.alternative.2", "must": false,
+            "text": "GraphQL은 자원마다 URL을 두지 않고 하나의 엔드포인트를 쓰므로, URL을 키로 삼는 HTTP 캐시 대신 객체의 전역 식별자로 캐시해야 한다는 점을 말한다",
+            "source": { "title": "GraphQL 공식 문서: Caching", "url": "https://graphql.org/learn/caching/", "where": "본문 (endpoint-based API와 비교)" } },
+          { "id": "net.rest.alternative.3", "must": true,
+            "text": "서비스 사이 호출처럼 메서드와 메시지를 스키마로 정의하고 원격 메서드를 로컬 객체처럼 부르고 싶으면 RPC 방식(예: Protocol Buffers 기반 gRPC)을 쓸 수 있다는 점을 말한다",
+            "source": { "title": "gRPC 문서: Introduction to gRPC", "url": "https://grpc.io/docs/what-is-grpc/introduction/", "where": "Overview" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.rest.m1",
+          "claim": "POST든 PUT이든 응답을 못 받으면 클라이언트가 그대로 자동 재시도하면 된다",
+          "fix": "POST처럼 멱등하지 않은 메서드는 자동으로 재시도하면 같은 처리가 두 번 일어날 수 있다. 의미가 멱등하거나 처리되지 않았음을 확인할 수 있을 때만 재시도한다.",
+          "probe": "주문 생성 POST를 보냈는데 응답 직전에 연결이 끊겼다면, 같은 요청을 그대로 다시 보낼 때 어떤 일이 생길 수 있을까요?",
+          "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "9.2.2 Idempotent Methods" } },
+        { "id": "net.rest.m2",
+          "claim": "멱등하다는 것은 같은 요청에 늘 같은 응답(상태 코드)이 온다는 뜻이다",
+          "fix": "멱등성은 여러 번 보냈을 때 서버에 생기는 의도한 효과가 한 번과 같다는 뜻이다. 요청마다 로그를 남기는 것 같은 부수 효과는 허용되며, 응답이 똑같아야 한다는 뜻이 아니다.",
+          "probe": "같은 자원에 DELETE를 두 번 보내 첫 번째는 204, 두 번째는 404를 받았다면 DELETE는 멱등하지 않은 걸까요?",
+          "source": { "title": "RFC 9110: HTTP Semantics", "url": "https://www.rfc-editor.org/rfc/rfc9110", "where": "9.2.2 Idempotent Methods" } },
+        { "id": "net.rest.m3",
+          "claim": "PATCH는 PUT처럼 늘 멱등하다",
+          "fix": "PATCH는 멱등이 보장되지 않는다. '1 줄여라' 같은 지시는 두 번 적용되면 결과가 달라진다. 멱등하게 쓰려면 같은 값으로 바꾸는 패치를 보내거나 If-Match 조건부 요청을 쓴다.",
+          "probe": "'재고를 1 줄여라'를 담은 PATCH를 네트워크 오류로 두 번 보내면, 결과는 한 번 보낸 것과 같을까요?",
+          "source": { "title": "RFC 5789: PATCH Method for HTTP", "url": "https://www.rfc-editor.org/rfc/rfc5789", "where": "2. The PATCH Method" } }
+      ],
+      "scenarios": [
+        { "id": "net.rest.s1", "text": "결제 승인 API를 POST로 만들었는데, 모바일 클라이언트가 타임아웃 뒤 자동 재시도해 중복 결제가 생겼다.", "faces": ["principle", "rationale"] },
+        { "id": "net.rest.s2", "text": "모바일 화면마다 필요한 필드가 달라 REST 엔드포인트를 화면별로 만들다 보니 수십 개가 됐다.", "faces": ["tradeoff", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "표준 인터페이스 대 맞춤 효율", "a": "REST: HTTP 의미(메서드, 캐시)를 그대로 써 중간 장치와 HTTP 캐시의 도움을 받지만 화면에 딱 맞는 응답을 만들기 어렵다", "b": "GraphQL 등: 클라이언트가 필요한 필드만 받지만 URL 기반 HTTP 캐시를 그대로 쓰기 어렵다" }
+      ]
+    },
+    {
+      "id": "net.timeout",
+      "name": "타임아웃, 재시도, 백오프",
+      "kind": "decision",
+      "core": false,
+      "aliases": ["타임아웃", "timeout", "재시도", "retry", "지수 백오프", "exponential backoff", "지터", "jitter"],
+      "prereq": ["net.rest"],
+      "alt": ["dist.breaker"],
+      "summary": "원격 호출은 응답을 무한정 기다리지 않도록 타임아웃(timeout)을 두고 일시적 실패는 재시도(retry)한다. 재시도는 부하를 늘리므로 지수 백오프(exponential backoff)와 지터(jitter)로 간격을 벌리고, 횟수와 예산을 제한하며, 멱등한 작업에만 쓴다.",
+      "faces": {
+        "rationale": [
+          { "id": "net.timeout.rationale.1", "must": true,
+            "text": "타임아웃은 하위 서비스의 지연 분포(높은 백분위수)를 보고, 끊겨도 되는 정상 요청의 비율을 정한 뒤 그에 맞춰 고른다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Timeouts" } },
+          { "id": "net.timeout.rationale.2", "must": true,
+            "text": "평균 지연보다 지나치게 긴 데드라인은 멈춘 요청이 스레드를 오래 붙잡게 해 해롭다는 점을 말한다",
+            "source": { "title": "Google SRE Book 22장: Addressing Cascading Failures", "url": "https://sre.google/sre-book/addressing-cascading-failures/", "where": "Bimodal latency" } },
+          { "id": "net.timeout.rationale.3", "must": true,
+            "text": "재시도는 부작용이 한 번만 일어나도록 보장하는 멱등한 작업에서 안전하다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Retries and backoff" } },
+          { "id": "net.timeout.rationale.4", "must": false,
+            "text": "같은 요청으로는 성공할 수 없는 클라이언트 오류(예: 400, 401, 403, 404)는 재시도하지 않되, 처리율 제한(429)처럼 일시적인 것은 Retry-After나 백오프를 지켜 다시 보낼 수 있다는 점을 말한다",
+            "source": { "title": "RFC 6585: Additional HTTP Status Codes", "url": "https://www.rfc-editor.org/rfc/rfc6585", "where": "4. 429 Too Many Requests" } }
+        ],
+        "tradeoff": [
+          { "id": "net.timeout.tradeoff.1", "must": true,
+            "text": "재시도는 일시적 실패를 가려 주지만, 하위 서비스가 과부하일 때는 부하를 더 얹어 회복을 늦춘다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Retries and backoff" } },
+          { "id": "net.timeout.tradeoff.2", "must": true,
+            "text": "여러 계층이 각자 재시도하면 맨 아래 계층에 가는 시도 횟수가 계층마다 곱해져 불어난다는 점을 말한다",
+            "source": { "title": "Google SRE Book 22장: Addressing Cascading Failures", "url": "https://sre.google/sre-book/addressing-cascading-failures/", "where": "Retries" } },
+          { "id": "net.timeout.tradeoff.3", "must": false,
+            "text": "타임아웃을 짧게 잡으면 느린 정상 응답까지 끊는 거짓 타임아웃이 늘고, 길게 잡으면 요청마다 스레드나 연결을 붙잡는 구조에서 하위 장애 때 그 자원을 오래 붙잡는다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Timeouts" } }
+        ],
+        "alternative": [
+          { "id": "net.timeout.alternative.1", "must": true,
+            "text": "고정 간격 대신 실패할 때마다 대기 시간을 늘리되 상한을 두는 지수 백오프를 쓴다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Retries and backoff" } },
+          { "id": "net.timeout.alternative.2", "must": true,
+            "text": "백오프에 무작위성(지터)을 더해 여러 클라이언트의 재시도가 같은 순간에 몰리지 않게 흩뜨린다는 점을 말한다",
+            "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Jitter" } },
+          { "id": "net.timeout.alternative.3", "must": false,
+            "text": "요청별 재시도 횟수 제한에 더해 서버 전체의 재시도 예산(retry budget)을 두어, 용량 부족이 전체 장애로 번지지 않게 한다는 점을 말한다",
+            "source": { "title": "Google SRE Book 22장: Addressing Cascading Failures", "url": "https://sre.google/sre-book/addressing-cascading-failures/", "where": "Retries" } },
+          { "id": "net.timeout.alternative.4", "must": false,
+            "text": "호출 단계마다 타임아웃을 새로 정하지 않고, 맨 위에서 정한 데드라인의 남은 시간을 하위 호출로 넘기는 데드라인 전파(deadline propagation)를 쓴다는 점을 말한다",
+            "source": { "title": "Google SRE Book 22장: Addressing Cascading Failures", "url": "https://sre.google/sre-book/addressing-cascading-failures/", "where": "Latency and Deadlines" } }
+        ]
+      },
+      "misconceptions": [
+        { "id": "net.timeout.m1",
+          "claim": "실패하면 바로, 여러 번 재시도할수록 언제나 성공률이 올라가 안전하다",
+          "fix": "하위 서비스가 과부하로 실패하는 중이라면 즉시·반복 재시도는 부하를 더 늘려 회복을 막는다. 백오프와 지터로 간격을 벌리고 재시도 양을 제한해야 한다.",
+          "probe": "DB가 과부하로 느려진 상황에서 앱 서버 100대가 실패할 때마다 즉시 세 번씩 재시도하면 DB 부하는 어떻게 될까요?",
+          "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Retries and backoff" } },
+        { "id": "net.timeout.m2",
+          "claim": "타임아웃은 길게 잡을수록 언제나 안전하다",
+          "fix": "평균보다 지나치게 긴 데드라인은 하위 서비스가 멈췄을 때 요청이 스레드를 오래 붙잡게 해, 일부 요청의 문제가 서버 전체의 장애로 번진다.",
+          "probe": "평균 50ms인 호출에 타임아웃을 60초로 두었는데 하위 서비스가 멈추면, 스레드 200개짜리 서버는 곧 어떤 상태가 될까요?",
+          "source": { "title": "Google SRE Book 22장: Addressing Cascading Failures", "url": "https://sre.google/sre-book/addressing-cascading-failures/", "where": "Bimodal latency" } },
+        { "id": "net.timeout.m3",
+          "claim": "지수 백오프만 쓰면 재시도가 한꺼번에 몰리는 문제는 해결된다",
+          "fix": "같은 순간에 실패한 클라이언트들이 같은 간격으로 재시도하면 몰림이 그대로 반복된다. 백오프에 지터를 더해 재시도 시각을 흩뜨려야 한다.",
+          "probe": "배포 직후 동시에 실패한 클라이언트 1만 개가 모두 정확히 1초, 2초, 4초 뒤에 재시도한다면 서버에는 어떤 모양의 부하가 올까요?",
+          "source": { "title": "Amazon Builders' Library: Timeouts, retries, and backoff with jitter", "url": "https://builder.aws.com/content/3EumjoZascWd1oZiEgL8ORlv3qE/timeouts-retries-and-backoff-with-jitter", "where": "Jitter" } }
+      ],
+      "scenarios": [
+        { "id": "net.timeout.s1", "text": "API 게이트웨이, 주문 서비스, 재고 서비스가 각자 세 번씩 재시도하도록 설정된 상태에서 재고 DB가 느려졌다.", "faces": ["tradeoff", "alternative"] },
+        { "id": "net.timeout.s2", "text": "결제 대행사 호출이 가끔 30초씩 멈추고, 그때마다 우리 서버의 스레드 풀이 바닥난다.", "faces": ["rationale", "alternative"] }
+      ],
+      "tradeoffs": [
+        { "axis": "짧은 타임아웃 대 긴 타임아웃", "a": "짧게: 멈춘 호출의 자원을 빨리 풀지만 느린 정상 응답까지 끊어 재시도가 늘어난다", "b": "길게: 느린 정상 응답을 살리지만 하위 장애 때 스레드와 연결이 오래 묶인다" }
+      ]
+    }
+  ]
+}
