@@ -391,11 +391,21 @@ void main() {
         ),
         findsWidgets,
       );
+      // 근거를 묻는 꼬리질문에서 떨어진 면의 카드도 다음에 말할 것(빠진 축)이 비지 않는다.
+      await tap(tester, rest);
+      expect(find.text('다음에 말할 것'), findsNWidgets(2));
+      expect(find.text(keepAll('수치나 구체적인 사례를 댄다')), findsOneWidget);
+      expect(find.text(keepAll('한계나 조건, 다시 한다면 바꿀 점을 말한다')), findsOneWidget);
       // 나머지 묶음은 제목과 개수만 보이고 누르면 펼친다.
       expect(find.text('바로잡을 것'), findsOneWidget);
       expect(find.text('틀린 생각'), findsNothing);
       await tap(tester, find.text('바로잡을 것'));
       expect(find.text('틀린 생각'), findsOneWidget);
+      // 주장 방어: 근거를 묻는 질문의 축마다 판정과 인용.
+      expect(find.text('주장 방어'), findsOneWidget);
+      await tap(tester, find.text('주장 방어'));
+      expect(find.text(keepAll('수치나 구체적인 사례를 댄다 — “1번 답”')), findsOneWidget);
+      expect(find.text('빠짐'), findsNWidgets(2));
       expect(find.text('주제별 깊이'), findsOneWidget);
       expect(find.text('도달 3 / 목표 3'), findsNothing);
       await tap(tester, find.text('주제별 깊이'));

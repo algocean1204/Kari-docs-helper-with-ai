@@ -104,7 +104,15 @@ pub fn start(years: Years, n: usize) -> usize {
     usize::from(years != Years::New && n >= 2)
 }
 
+/// 계획: 순서대로 늘어놓은 개념 가운데 앞의 [`count`]개.
 pub fn plan(p: &PlanIn) -> Vec<Planned> {
+    let mut all = ordered(p);
+    all.truncate(count(p.minutes));
+    all
+}
+
+/// 물을 만한 개념 전부를 계획의 순서대로. 앞의 [`count`]개가 계획이고, 뒤는 계획을 다 돌고 시간이 남을 때 잇는다.
+pub fn ordered(p: &PlanIn) -> Vec<Planned> {
     let pack = p.pack;
     let in_pack = |id: &str| pack.concept(id).is_some();
     let must = |id: &str| {
@@ -179,7 +187,6 @@ pub fn plan(p: &PlanIn) -> Vec<Planned> {
         .map(|c| c.id.clone())
         .collect();
     push(cores, usize::MAX);
-    order.truncate(count(p.minutes));
 
     let years = p.posting.and_then(|po| po.years).unwrap_or(p.years);
     let mut leads = 0;

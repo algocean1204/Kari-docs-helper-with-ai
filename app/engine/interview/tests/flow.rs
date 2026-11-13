@@ -319,7 +319,7 @@ fn i5_depth_only_after_a_follow_up() {
     assert!(s.report.as_ref().unwrap().table[0].reach >= 1);
 }
 
-/// 갈래를 세션으로: 반만 맞음 → 한 번 더(근거 요구), 오개념 → 반례(시나리오), 모르겠습니다 → 내림·대처.
+/// 갈래를 세션으로: 겨냥한 것을 반쯤 → 한 번 더(심화, 같은 겨냥), 오개념 → 반례(시나리오), 모르겠습니다 → 내림·대처.
 #[test]
 fn i5_branches_in_a_session() {
     let pack = test_pack();
@@ -330,13 +330,11 @@ fn i5_branches_in_a_session() {
     let c = s.turns[0].concept.clone();
     assert_eq!(s.plan[0].start, 1);
     assert_eq!(s.turns[0].kind, QType::Switch);
-    s.answer("[반]", 1).unwrap();
+    s.answer("[일부]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
-    assert_eq!(
-        s.turns[1].kind,
-        QType::Evidence,
-        "0.5: 근거 요구로 한 번 더"
-    );
+    assert_eq!(s.turns[1].kind, QType::Deepen, "0.5: 심화로 한 번 더");
+    assert!(s.turns[1].aim.is_some());
+    assert_eq!(s.turns[1].aim, s.turns[0].aim, "한 번 더는 같은 것을 겨냥");
     s.answer("[없음]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     // 둘째 면 실패 → 첫째 면으로 내림.
@@ -614,18 +612,20 @@ fn scripted_cost() -> Option<f64> {
     s.report.unwrap().session.cost
 }
 
-/// 필수 체크포인트: 면의 점수는 필수(앞의 셋)로만 낸다. 꼬리질문은 0.75 이상이거나 그 턴에 새로 met이
-/// 된 체크포인트(필수가 아닌 넷째도)가 있으면 버틴다.
+/// 필수 체크포인트: 면의 점수는 필수(앞의 셋)로만 낸다. 꼬리질문은 필수가 새로 met이 되어야 버틴다(필수가 아닌
+/// 넷째는 세지 않는다). 필수를 다 말했으면 꼬리질문은 근거 요구 같은 방어 축 유형이다.
 #[test]
 fn must_checkpoints_score_and_new_met_holds_the_follow_up() {
     let pack = test_pack();
     let save = &mut |_: &Session| Ok(());
     // (첫 답, 꼬리질문의 답, 첫 답 뒤 상태, 꼬리질문 뒤 상태)
     for (first, follow, after_first, after_follow) in [
-        // 필수 셋을 다 말하면 1.0(넷째가 빠져도). 넷을 모두 분모에 넣으면 0.75였을 것이다.
-        ("[필수]", "[없음]", Status::FirstPass, Status::Confirmed),
-        // 필수 둘이면 0.67: 첫 통과. 모두 분모면 0.5(한 번 더)였을 것이다.
-        ("[둘]", "[넷째]", Status::FirstPass, Status::Confirmed),
+        // 필수 셋을 다 말하면 1.0(넷째가 빠져도). 꼬리질문은 남은 필수가 없어 근거 요구(방어 축)다.
+        ("[필수]", "[없음]", Status::FirstPass, Status::Failed),
+        ("[필수]", "[전부]", Status::FirstPass, Status::Confirmed),
+        // 필수 둘이면 0.67: 첫 통과. 꼬리질문은 셋째 필수를 겨냥한다.
+        ("[둘]", "[필수]", Status::FirstPass, Status::Confirmed),
+        ("[둘]", "[넷째]", Status::FirstPass, Status::Failed),
         ("[둘]", "[없음]", Status::FirstPass, Status::Failed),
         // 필수가 아닌 넷째만: 점수 0, 실패.
         ("[넷째]", "", Status::Failed, Status::Failed),
@@ -640,6 +640,13 @@ fn must_checkpoints_score_and_new_met_holds_the_follow_up() {
             continue;
         }
         assert_eq!(s.turns[1].face, Some(f), "같은 면에 꼬리질문");
+        if first == "[필수]" {
+            assert_eq!(
+                s.turns[1].kind,
+                QType::Evidence,
+                "남은 필수가 없으면 심화를 내지 않는다"
+            );
+        }
         s.answer(follow, 1).unwrap();
         run(&mut s, &pack, &mut scripted, save).unwrap();
         assert_eq!(
@@ -688,7 +695,11 @@ fn report_lists_musts_first_and_once() {
     };
     let mut s = Session::new(start(10, Years::New, Pressure::Standard), &pack).unwrap();
     drive(&mut s, &pack, &mut scripted, &act, &mut Vec::new()).unwrap();
-    let r = s.report.unwrap();
+    // 겨냥 기록이 없는 세션(앞서 저장한 것)의 리포트: 면의 체크포인트 전부를 본다.
+    for f in &mut s.faces {
+        f.aimed.clear();
+    }
+    let r = kari_interview::report::build(&s, &pack);
     assert!(r.improvements.len() >= 2, "{:?}", r.improvements);
     assert_eq!(
         r.improvements[0].missing.len(),
@@ -710,6 +721,625 @@ fn report_lists_musts_first_and_once() {
     uniq.sort();
     uniq.dedup();
     assert_eq!(uniq.len(), texts.len(), "같은 문장은 한 번만: {texts:?}");
+}
+
+/// 겨냥: 첫 질문은 첫 필수를, 꼬리질문은 아직 겨냥하지 않은 다음 필수를 겨냥한다. 겨냥한 것을 말하면 필수 전부의
+/// 점수가 낮아도 첫 통과이고, 꼬리질문에서 새 필수를 말하면 확인됨이 되어 더 높은 면으로 올린다.
+#[test]
+fn aimed_answer_passes_then_follow_confirms_and_raises() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    let id = |i: u32| Some(format!("{c}.{}.{i}", f.as_str()));
+    assert_eq!(s.turns[0].aim, id(1));
+    // 질문 프롬프트에는 겨냥한 체크포인트의 글이 간다.
+    let seen = RefCell::new(Vec::new());
+    let mut m = |call: &Call| {
+        seen.borrow_mut().push((call.what, data(call)));
+        scripted(call)
+    };
+    s.answer("[반]", 1).unwrap(); // 첫 필수만: 필수 전부로는 0.33
+    run(&mut s, &pack, &mut m, save).unwrap();
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::FirstPass));
+    assert_eq!(s.turns[1].phase, Some(kari_interview::pick::Phase::Follow));
+    assert_eq!(s.turns[1].aim, id(2), "꼬리질문은 다음 필수");
+    let ask = seen
+        .borrow()
+        .iter()
+        .find(|(w, _)| *w == "ask")
+        .unwrap()
+        .1
+        .clone();
+    assert_eq!(
+        ask["aim"],
+        format!("{c}의 {} 내용 2번을 말한다", f.as_str())
+    );
+    assert!(ask.get("missing").is_none());
+    s.answer("[둘]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::Confirmed));
+    assert_eq!(s.turns[2].concept, c);
+    assert_eq!(s.turns[2].intent, kari_interview::pick::Intent::Raise);
+    assert_eq!(s.turns[2].face, Some(s.plan[0].faces[1]));
+    let run_ = s
+        .faces
+        .iter()
+        .find(|r| r.concept == c && r.face == f)
+        .unwrap();
+    assert_eq!(run_.aimed, [id(1).unwrap(), id(2).unwrap()]);
+    // 올린 면에서도 첫 통과 뒤 꼬리질문은 다음 필수를 겨냥한다. 시나리오도 겨냥이 있다(재료는 그대로).
+    let f2 = s.plan[0].faces[1];
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(s.turns[3].kind, QType::Scenario);
+    assert_eq!(s.turns[3].aim, Some(format!("{c}.{}.2", f2.as_str())));
+    s.answer("[둘]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f2.as_str()), Some(Status::Confirmed));
+}
+
+/// 꼬리질문의 트레이드오프도 다음 필수를 겨냥하고, 필수가 새로 met이면 확인됨이다(재료는 팩의 축).
+#[test]
+fn a_tradeoff_follow_up_aims_at_the_next_must() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    // 4년 이상: 둘째 면(한계)부터 시작하고 목표가 높아 셋째 면(대안)까지 묻는다.
+    let mut s = new(10, Years::Senior, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let c = s.turns[0].concept.clone();
+    for a in ["[반]", "[둘]", "[반]"] {
+        s.answer(a, 1).unwrap();
+        run(&mut s, &pack, &mut scripted, save).unwrap();
+    }
+    let f3 = s.plan[0].faces[2];
+    assert_eq!(s.turns[2].face, Some(f3));
+    assert_eq!(s.turns[3].kind, QType::Tradeoff);
+    assert_eq!(s.turns[3].aim, Some(format!("{c}.{}.2", f3.as_str())));
+    s.answer("[둘]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f3.as_str()), Some(Status::Confirmed));
+}
+
+/// 반박 턴에서 방어 축 하나가 반대 진술이어도 방어 점수가 기준 이상이면 확인됨이다(반례 확인으로 넘기지 않는다).
+#[test]
+fn a_contra_on_a_defense_axis_does_not_open_a_probe() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let mut s = new(10, Years::New, Pressure::Real);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(s.turns[1].kind, QType::Rebut);
+    s.answer("[전부] [축반대]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let g = s.turns[1].graded.as_ref().unwrap();
+    assert!(g
+        .checks
+        .iter()
+        .any(|x| x.id == "d.stance" && x.verdict == kari_interview::grade::Verdict::Contra));
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::Confirmed));
+    assert!(s
+        .turns
+        .iter()
+        .all(|t| t.phase != Some(kari_interview::pick::Phase::Probe)));
+}
+
+/// 올린 면의 첫 질문은 심화다. 그 답이 반쯤이면 한 번 더도 심화로 연다(같은 유형을 앞서 썼어도).
+/// 한 번 더에서 겨냥을 말하면 필수 전부가 낮아도 첫 통과다.
+#[test]
+fn a_raised_face_gets_its_retry_and_passes_on_the_aim() {
+    use kari_interview::pick::Phase;
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let c = s.turns[0].concept.clone();
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    s.answer("[둘]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let f2 = s.plan[0].faces[1];
+    assert_eq!(
+        (s.turns[2].face, s.turns[2].kind),
+        (Some(f2), QType::Deepen)
+    );
+    s.answer("[일부]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(s.turns[3].phase, Some(Phase::Retry));
+    assert_eq!(s.turns[3].kind, QType::Deepen);
+    assert_eq!(s.turns[3].aim, s.turns[2].aim);
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f2.as_str()), Some(Status::FirstPass));
+    assert_eq!(s.turns[4].phase, Some(Phase::Follow));
+}
+
+/// 두 번 새서 겨냥을 뗀 꼬리질문(심화)은 방어 축 없이 면의 체크포인트로 보고, 필수가 새로 met이면 확인됨이다.
+#[test]
+fn a_follow_up_asked_without_its_aim_holds_on_a_new_must() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let seen = RefCell::new(Vec::new());
+    let mut m = |call: &Call| {
+        let d = data(call);
+        seen.borrow_mut().push((call.what, d.clone()));
+        match (d["aim"].as_str(), d["type"].as_str()) {
+            (Some(aim), Some("deepen")) if call.what == "ask" => Ok(Got {
+                text: serde_json::json!({ "question": format!("{aim}?") }).to_string(),
+                ..Got::default()
+            }),
+            _ => scripted(call),
+        }
+    };
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut m, save).unwrap();
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut m, save).unwrap();
+    assert_eq!(s.turns[1].kind, QType::Deepen);
+    assert_eq!(s.turns[1].aim, None);
+    assert_eq!(s.leak, 1);
+    s.answer("[둘]", 1).unwrap();
+    run(&mut s, &pack, &mut m, save).unwrap();
+    let grade = seen
+        .borrow()
+        .iter()
+        .rev()
+        .find(|(w, _)| *w == "grade")
+        .unwrap()
+        .1
+        .clone();
+    assert!(grade["checkpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|x| !x["id"].as_str().unwrap().starts_with("d.")));
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::Confirmed));
+}
+
+/// 힌트가 겨냥 글을 옮기면 수만 세고 겨냥은 남는다: 사람이 청한 힌트와 코칭의 한 번 더 힌트.
+#[test]
+fn a_leaking_hint_is_counted_and_keeps_its_aim() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let copy = |call: &Call| {
+        let d = data(call);
+        match d["aim"].as_str() {
+            Some(aim) if call.what == "hint" || d["type"] == "hint" => Ok(Got {
+                text: serde_json::json!({ "question": format!("{aim}?") }).to_string(),
+                ..Got::default()
+            }),
+            _ => scripted(call),
+        }
+    };
+    // 사람이 청한 힌트.
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut { copy }, save).unwrap();
+    let aim = s.turns[0].aim.clone();
+    assert!(aim.is_some());
+    s.request_hint().unwrap();
+    run(&mut s, &pack, &mut { copy }, save).unwrap();
+    assert!(s.turns[0].hint.as_deref().unwrap().contains("내용 1번"));
+    assert_eq!((s.leak, s.turns[0].aim.clone()), (1, aim));
+    // 코칭의 한 번 더 힌트: 두 번 새도 겨냥 없이 다시 묻지 않는다.
+    let asks = Cell::new(0);
+    let mut counted = |call: &Call| {
+        if call.what == "ask" {
+            asks.set(asks.get() + 1);
+        }
+        copy(call)
+    };
+    let mut s = new(10, Years::New, Pressure::Coaching);
+    run(&mut s, &pack, &mut counted, save).unwrap();
+    s.answer("[일부]", 1).unwrap();
+    let before = asks.get();
+    run(&mut s, &pack, &mut counted, save).unwrap();
+    assert_eq!(s.turns[1].kind, QType::Hint);
+    assert_eq!(s.turns[1].aim, s.turns[0].aim);
+    assert_eq!(
+        asks.get() - before,
+        2,
+        "옮김 → 다시 묻기, 그 뒤 겨냥 없이 묻지 않는다"
+    );
+    assert_eq!(s.leak, 1);
+}
+
+/// 필수를 다 말한 면의 꼬리질문: 근거 요구, 본인 기여, 요약이 차례로 나오고 각자의 기준으로 버틴다.
+#[test]
+fn follow_ups_without_open_musts_use_evidence_contribution_and_summary() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let seen = RefCell::new(Vec::new());
+    let mut m = |call: &Call| {
+        seen.borrow_mut().push((call.what, data(call)));
+        scripted(call)
+    };
+    let mut s = new(10, Years::New, Pressure::Coaching);
+    run(&mut s, &pack, &mut m, save).unwrap();
+    assert_eq!(s.turns[0].concept, "db.index", "주장이 걸린 개념이 먼저");
+    for a in ["[필수]", "[전부]", "[필수]", "[전부]", "[필수]", "[필수]"] {
+        s.answer(a, 1).unwrap();
+        run(&mut s, &pack, &mut m, save).unwrap();
+    }
+    // 첫 개념(목표 3: 면 둘)은 근거 요구·본인 기여로, 둘째 개념(주장 없음)은 요약으로 확인된다.
+    assert_eq!(
+        kinds(&s)[..6],
+        [
+            QType::Switch,
+            QType::Evidence,
+            QType::Deepen,
+            QType::Contribution,
+            QType::Switch,
+            QType::Summary
+        ]
+    );
+    for f in &s.plan[0].faces {
+        assert_eq!(
+            status(&s, "db.index", f.as_str()),
+            Some(Status::Confirmed),
+            "{f:?}"
+        );
+    }
+    let (c2, f2) = (s.turns[5].concept.clone(), s.turns[5].face.unwrap());
+    assert_eq!(status(&s, &c2, f2.as_str()), Some(Status::Confirmed));
+    let grades: Vec<Value> = seen
+        .borrow()
+        .iter()
+        .filter(|(w, _)| *w == "grade")
+        .map(|(_, d)| d.clone())
+        .collect();
+    let axes = |k: usize| -> Vec<String> {
+        grades[k]["checkpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| {
+                x["id"]
+                    .as_str()
+                    .filter(|id| id.starts_with("d."))
+                    .map(str::to_string)
+            })
+            .collect()
+    };
+    assert_eq!(axes(1), ["d.specific", "d.method", "d.limit"]);
+    assert_eq!(axes(3), ["d.specific", "d.method", "d.limit", "d.own"]);
+    assert!(axes(5).is_empty(), "요약은 이 턴의 필수 점수로 본다");
+}
+
+/// 겨냥한 필수를 다 말하고 방어 축 꼬리질문에서 떨어진 면: 먼저 고칠 것에 그 꼬리질문과 답, 빠진 축을 싣는다.
+#[test]
+fn a_face_lost_on_defense_reports_the_follow_up_and_missing_axes() {
+    let pack = test_pack();
+    let act = |s: &Session| {
+        Act::Answer(match s.turns.len() {
+            1 => "[필수]".to_string(),
+            2 => "근거는 잘 모르겠습니다 [없음]".to_string(),
+            n => format!("{n}번 [없음]"),
+        })
+    };
+    let mut s = new(10, Years::New, Pressure::Standard);
+    drive(&mut s, &pack, &mut scripted, &act, &mut Vec::new()).unwrap();
+    assert_eq!(s.turns[1].kind, QType::Evidence);
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::Failed));
+    let r = s.report.unwrap();
+    let card = r
+        .improvements
+        .iter()
+        .find(|i| i.concept == c && i.face == f)
+        .expect("떨어진 면의 카드");
+    assert!(card.missing.is_empty(), "겨냥한 필수는 다 말했다");
+    assert_eq!(card.question, s.turns[1].question);
+    assert_eq!(card.quote, "근거는 잘 모르겠습니다 [없음]");
+    assert_eq!(
+        card.axes,
+        [
+            "수치나 구체적인 사례를 댄다",
+            "그 수치를 어떻게 쟀는지, 무엇을 보고 알았는지 말한다",
+            "한계나 조건, 다시 한다면 바꿀 점을 말한다"
+        ]
+    );
+    // 다른 카드에는 빠진 축이 없다.
+    assert!(r
+        .improvements
+        .iter()
+        .filter(|i| !(i.concept == c && i.face == f))
+        .all(|i| i.axes.is_empty() && !i.missing.is_empty()));
+}
+
+/// 방어 축으로 보는 꼬리질문을 모르겠습니다로 넘긴 면: 카드에 그 꼬리질문과 그 유형의 축 전부를 싣는다.
+#[test]
+fn a_skipped_defense_follow_up_reports_all_its_axes() {
+    let pack = test_pack();
+    for (pressure, first, kind) in [
+        (Pressure::Real, "[반]", QType::Rebut),
+        (Pressure::Standard, "[필수]", QType::Evidence),
+    ] {
+        let act = move |s: &Session| match s.turns.len() {
+            1 => Act::Answer(first.to_string()),
+            2 => Act::Skip,
+            n => Act::Answer(format!("{n}번 [없음]")),
+        };
+        let mut s = new(10, Years::New, pressure);
+        drive(&mut s, &pack, &mut scripted, &act, &mut Vec::new()).unwrap();
+        assert_eq!(s.turns[1].kind, kind);
+        assert!(s.turns[1].skipped);
+        let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+        let r = s.report.as_ref().unwrap();
+        let card = r
+            .improvements
+            .iter()
+            .find(|i| i.concept == c && i.face == f)
+            .expect("넘긴 면의 카드");
+        assert!(card.missing.is_empty());
+        assert_eq!(card.question, s.turns[1].question, "{kind:?}");
+        assert_eq!(card.quote, "모르겠습니다");
+        let want: Vec<&str> = kari_interview::score::defense_axes(kind)
+            .iter()
+            .map(|a| a.1)
+            .collect();
+        assert_eq!(card.axes, want, "{kind:?}");
+    }
+}
+
+/// 반박은 겨냥이 없고 방어 축(입장, 수치·사례, 한계)으로 본다. 기준은 0.6.
+#[test]
+fn rebut_is_held_by_defense_axes() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    for (follow, want) in [("[전부]", Status::Confirmed), ("[반]", Status::Failed)] {
+        let mut s = new(10, Years::New, Pressure::Real);
+        run(&mut s, &pack, &mut scripted, save).unwrap();
+        let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+        s.answer("[반]", 1).unwrap();
+        run(&mut s, &pack, &mut scripted, save).unwrap();
+        assert_eq!(s.turns[1].kind, QType::Rebut, "실전은 반박을 먼저");
+        assert_eq!(s.turns[1].aim, None);
+        let seen = RefCell::new(Vec::new());
+        let mut m = |call: &Call| {
+            seen.borrow_mut().push((call.what, data(call)));
+            scripted(call)
+        };
+        s.answer(follow, 1).unwrap();
+        run(&mut s, &pack, &mut m, save).unwrap();
+        let grade = seen
+            .borrow()
+            .iter()
+            .find(|(w, _)| *w == "grade")
+            .unwrap()
+            .1
+            .clone();
+        let ids: Vec<&str> = grade["checkpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(&ids[4..], ["d.stance", "d.specific", "d.limit"]);
+        assert_eq!(status(&s, &c, f.as_str()), Some(want), "{follow}");
+    }
+}
+
+/// 다시 물어도 겨냥 글을 옮긴 질문은 겨냥 없이 한 번 더 묻고, 그 턴은 겨냥 없음으로 적는다.
+#[test]
+fn a_question_that_copies_the_aim_twice_is_asked_again_without_it() {
+    let pack = test_pack();
+    let seen = RefCell::new(Vec::new());
+    let mut m = |call: &Call| {
+        let d = data(call);
+        seen.borrow_mut().push((call.what, d.clone()));
+        match d["aim"].as_str() {
+            Some(aim) if call.what == "ask" => Ok(Got {
+                text: serde_json::json!({ "question": format!("{aim}?") }).to_string(),
+                ..Got::default()
+            }),
+            _ => scripted(call),
+        }
+    };
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut m, &mut |_| Ok(())).unwrap();
+    let asks: Vec<Value> = seen
+        .borrow()
+        .iter()
+        .filter(|(w, _)| *w == "ask")
+        .map(|(_, d)| d["aim"].clone())
+        .collect();
+    assert_eq!(asks.len(), 3, "옮김 → 다시 묻기 → 또 옮김 → 겨냥 없이");
+    assert!(asks[0].is_string() && asks[1].is_string());
+    assert!(asks[2].is_null());
+    assert_eq!(s.turns.len(), 1);
+    assert_eq!(s.turns[0].aim, None);
+    assert!(!s.turns[0].question.contains("내용 1번"));
+    assert_eq!(s.leak, 1);
+    assert!(s.faces[0].aimed.is_empty());
+}
+
+/// 계획한 개념을 다 돌았는데 시간이 남으면 계획 순서의 다음 개념을 잇는다.
+#[test]
+fn time_left_after_the_plan_continues_with_the_next_concept() {
+    let pack = test_pack();
+    let mut st = start(10, Years::New, Pressure::Standard);
+    // 지난 세션에서 약했던 개념이 앞에 들어 계획 순서가 넷이 된다(계획은 셋).
+    st.weak = vec![("db.pool".into(), 0.2)];
+    let mut s = Session::new(st, &pack).unwrap();
+    drive(
+        &mut s,
+        &pack,
+        &mut scripted,
+        &always("[없음]"),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(s.plan.len(), 4, "{:?}", s.plan);
+    assert!(s.spare.is_empty());
+    let last = &s.plan[3].concept;
+    assert!(s.turns.iter().any(|t| &t.concept == last));
+    assert_eq!(s.report.as_ref().unwrap().table.len(), 4);
+}
+
+/// 꼬리질문은 겨냥한 것만의 점수로 저절로 통과하지 않는다. 첫 통과에 닿았던 면이 실패하면 내리지 않고 다음 개념으로
+/// 간다(첫 질문에서 실패한 면만 내린다: `i5_branches_in_a_session`).
+#[test]
+fn follow_does_not_pass_by_itself_and_a_passed_face_is_not_lowered() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    // 1~3년: 둘째 면부터 시작하므로 아래 면이 있다.
+    let mut s = new(10, Years::Junior, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    s.answer("[반]", 1).unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::FirstPass));
+    s.answer("[반]", 1).unwrap(); // 새로 말한 것이 없다
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(status(&s, &c, f.as_str()), Some(Status::Failed));
+    assert_ne!(s.turns[2].concept, c, "내리지 않고 다음 개념");
+    assert_eq!(s.turns[2].kind, QType::Switch);
+}
+
+/// 근거 요구는 방어 축을 붙여 채점하고, 리포트의 주장 방어 칸에 축마다의 판정과 인용이 실린다.
+/// 방어 축은 면의 체크포인트 판정(가장 좋은 판정)에 들지 않는다.
+#[test]
+fn evidence_is_graded_with_defense_axes_and_reported() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
+    s.answer("[반대]", 1).unwrap();
+    let seen = RefCell::new(Vec::new());
+    let mut m = |call: &Call| {
+        seen.borrow_mut().push((call.what, data(call)));
+        scripted(call)
+    };
+    run(&mut s, &pack, &mut m, save).unwrap();
+    assert_eq!(s.turns[1].kind, QType::Evidence, "반대 진술: 근거 요구");
+    assert_eq!(s.turns[1].aim, None, "근거 요구는 겨냥이 없다");
+    s.answer("연락은 kim@example.com [전부]", 1).unwrap();
+    let seen2 = RefCell::new(Vec::new());
+    let mut m2 = |call: &Call| {
+        seen2.borrow_mut().push((call.what, data(call)));
+        scripted(call)
+    };
+    run(&mut s, &pack, &mut m2, save).unwrap();
+    let grade = seen2
+        .borrow()
+        .iter()
+        .find(|(w, _)| *w == "grade")
+        .unwrap()
+        .1
+        .clone();
+    let ids: Vec<&str> = grade["checkpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(&ids[4..], ["d.specific", "d.method", "d.limit"]);
+    let run_ = s
+        .faces
+        .iter()
+        .find(|r| r.concept == c && r.face == f)
+        .unwrap();
+    assert!(
+        run_.best.keys().all(|k| !k.starts_with("d.")),
+        "{:?}",
+        run_.best
+    );
+    s.end().unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    let d = &s.report.as_ref().unwrap().defense;
+    assert_eq!(d.len(), 1);
+    assert_eq!(d[0].question, s.turns[1].question);
+    assert_eq!(d[0].axes.len(), 3);
+    assert!(d[0]
+        .axes
+        .iter()
+        .all(|a| a.verdict == kari_interview::grade::Verdict::Met));
+    assert_eq!(d[0].axes[0].text, "수치나 구체적인 사례를 댄다");
+    assert_eq!(
+        d[0].axes[0].quote.as_deref(),
+        Some("연락은 kim@example.com [전부]"),
+        "인용은 원래 값으로"
+    );
+}
+
+/// 리포트의 먼저 고칠 것: 질문이 겨냥한 필수 가운데 met이 아닌 것만(묻지 않은 필수는 오르지 않는다).
+#[test]
+fn report_lists_only_aimed_musts() {
+    let pack = test_pack();
+    let mut s = new(10, Years::New, Pressure::Standard);
+    drive(
+        &mut s,
+        &pack,
+        &mut scripted,
+        &always("[없음]"),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let r = s.report.unwrap();
+    assert!(!r.improvements.is_empty());
+    for i in &r.improvements {
+        let run_ = s
+            .faces
+            .iter()
+            .find(|f| f.concept == i.concept && f.face == i.face)
+            .unwrap();
+        assert!(!i.missing.is_empty());
+        for m in &i.missing {
+            let id = format!(
+                "{}.{}.{}",
+                i.concept,
+                i.face.as_str(),
+                m.text
+                    .split("내용 ")
+                    .nth(1)
+                    .unwrap()
+                    .split('번')
+                    .next()
+                    .unwrap()
+            );
+            assert!(run_.aimed.contains(&id), "{id}: {:?}", run_.aimed);
+        }
+        assert!(
+            i.missing.iter().all(|m| !m.text.contains("4번")),
+            "필수가 아닌 것은 겨냥하지 않는다"
+        );
+    }
+}
+
+/// 새 칸(겨냥, 첫 통과 기록, 샌 질문 수)이 없는 앞서 저장한 세션을 읽어 끝까지 이어 간다.
+#[test]
+fn an_old_session_without_the_new_fields_resumes() {
+    let pack = test_pack();
+    let (_, saves) = full(&mixed);
+    for k in [3, saves.len() / 2, saves.len() - 2] {
+        let mut v = saves[k].clone();
+        let o = v.as_object_mut().unwrap();
+        o.remove("leak");
+        o.remove("spare");
+        for t in o["turns"].as_array_mut().unwrap() {
+            t.as_object_mut().unwrap().remove("aim");
+        }
+        for f in o["faces"].as_array_mut().unwrap() {
+            let f = f.as_object_mut().unwrap();
+            f.remove("aimed");
+            f.remove("first_passed");
+        }
+        if let Some(t) = o["target"].as_object_mut() {
+            t.remove("aim");
+            t.insert("missing".into(), Value::Null);
+        }
+        let text = serde_json::to_string(&v).unwrap();
+        assert!(!text.contains("\"aim\"") && !text.contains("aimed"));
+        let mut s: Session = serde_json::from_str(&text).unwrap();
+        drive(&mut s, &pack, &mut scripted, &mixed, &mut Vec::new()).unwrap();
+        assert_eq!(s.node, Node::Done, "저장 지점 {k}");
+        assert!(s.report.is_some());
+    }
 }
 
 /// 실패한 세션의 보기에도 다루던 질문이 실린다(다시 시도 전에 무엇을 하던 중인지 보이게).

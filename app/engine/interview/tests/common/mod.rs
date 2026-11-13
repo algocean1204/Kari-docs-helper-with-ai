@@ -87,7 +87,8 @@ pub fn data(call: &Call) -> Value {
 /// 대본대로 채점한다. 체크포인트는 면마다 넷이고 앞의 셋이 필수다. 답에 든 표시에 따라:
 /// `[전부]` 모두 met, `[필수]` 필수 셋만 met, `[둘]` 앞의 둘만 met, `[넷째]` 필수가 아닌 넷째만 met,
 /// `[반]` 첫 체크포인트만 met, `[일부]` 첫 체크포인트만 partial, `[없음]`·표시 없음 모두 unmet, `[반대]` 첫 체크포인트 contra,
-/// `[오개념]` 첫 오개념, `[모순]` 첫 답과의 확인되는 모순, `[지어낸모순]` 앞 답에 없는 인용의 모순.
+/// `[오개념]` 첫 오개념, `[모순]` 첫 답과의 확인되는 모순, `[지어낸모순]` 앞 답에 없는 인용의 모순,
+/// `[축반대]` 방어 축 `d.stance`만 contra.
 /// 인용은 답 전체(답에 그대로 있다).
 pub fn script_grade(d: &Value) -> Value {
     let answer = d["answer"].as_str().unwrap();
@@ -101,7 +102,9 @@ pub fn script_grade(d: &Value) -> Value {
                 || (answer.contains("[둘]") && i < 2)
                 || (answer.contains("[넷째]") && i == 3)
                 || (answer.contains("[반]") && i == 0);
-            let v = if met {
+            let v = if answer.contains("[축반대]") && cp["id"] == "d.stance" {
+                "contra"
+            } else if met {
                 "met"
             } else if answer.contains("[일부]") && i == 0 {
                 "partial"
@@ -131,13 +134,20 @@ pub fn script_grade(d: &Value) -> Value {
 }
 
 /// 요청에만 기대는 모델(같은 요청이면 같은 답). 질문은 의도와 유형과 앞에 낸 질문 수로 짓는다.
+/// 개념 이름은 뒤집어 넣는다: 체크포인트 글에 개념 id가 들어 있어, 그대로 넣으면 겨냥 글을 옮긴 질문으로 걸린다.
 pub fn scripted(call: &Call) -> Result<Got, AiError> {
     let d = data(call);
     let text = match call.what {
         "ask" | "hint" => {
             let n = d["history"].as_array().map_or(0, Vec::len) + 1;
-            json!({"question": format!("{n}번 질문: {} {} {} {}?",
-                d["concept"]["name"].as_str().unwrap(), d["face"].as_str().unwrap_or("-"),
+            let name: String = d["concept"]["name"]
+                .as_str()
+                .unwrap()
+                .chars()
+                .rev()
+                .collect();
+            json!({"question": format!("{n}번 질문: {name} {} {} {}?",
+                d["face"].as_str().unwrap_or("-"),
                 d["type"].as_str().unwrap(), d["intent"].as_str().unwrap())})
         }
         "grade" => script_grade(&d),

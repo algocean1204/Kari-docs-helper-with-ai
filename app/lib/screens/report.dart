@@ -168,7 +168,7 @@ class _ReportTabState extends State<ReportTab> {
 }
 
 /// 리포트 본문: 먼저 고칠 것 하나가 큰 카드(주인공)이고, 나머지 개선점은 그 아래 작은 줄,
-/// 바로잡을 것·잘한 점·주제별 깊이·화면 밖 구간은 제목과 개수만 보이는 접힌 묶음이다.
+/// 바로잡을 것·잘한 점·주장 방어·주제별 깊이·화면 밖 구간은 제목과 개수만 보이는 접힌 묶음이다.
 /// 묶음 안의 내용은 그대로다. 그 아래 다음에 다시 낼 주제, 이번 연습.
 class _Report extends StatelessWidget {
   const _Report({required this.report, this.onPractice});
@@ -186,6 +186,7 @@ class _Report extends StatelessWidget {
     final fixes = _list('improvements');
     final corrections = _list('corrections');
     final strengths = _list('strengths');
+    final defense = _list('defense');
     final table = _list('table');
     final again = _list('again');
     final s = report['session'] as Json? ?? const {};
@@ -315,6 +316,38 @@ class _Report extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+          ]),
+        // 주장 방어: 근거 요구·본인 기여·반박 질문마다 축(입장, 수치, 측정 방법, 한계, 본인 몫)의 판정과 인용.
+        if (defense.isNotEmpty)
+          fold('주장 방어', defense.length, [
+            for (final x in defense)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.x3),
+                child: Panel(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        x['name'] as String,
+                        style: AppText.caption.copyWith(color: c.textMuted),
+                      ),
+                      _Part(name: '질문', text: x['question'] as String),
+                      for (final a
+                          in (x['axes'] as List? ?? const []).cast<Json>())
+                        _Part(
+                          name: switch (a['verdict']) {
+                            'met' => '함',
+                            'partial' => '일부',
+                            _ => '빠짐',
+                          },
+                          text:
+                              '${a['text']}'
+                              '${a['quote'] == null ? '' : ' — “${a['quote']}”'}',
+                        ),
+                    ],
+                  ),
                 ),
               ),
           ]),
@@ -491,6 +524,7 @@ class _SourceLine extends StatelessWidget {
 }
 
 /// 고칠 것 하나(개념과 면은 바깥의 제목이 보인다): 질문, 내 답, 다음에 말할 것(빠진 체크포인트, 필수가 먼저)과 출처, 다음 행동.
+/// 빠진 체크포인트 없이 근거를 묻는 꼬리질문에서 떨어진 면은 그 답에서 빠진 축이 다음에 말할 것이다.
 class _Fix extends StatelessWidget {
   const _Fix({required this.fix});
 
@@ -499,6 +533,7 @@ class _Fix extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final missing = (fix['missing'] as List? ?? const []).cast<Json>();
+    final axes = (fix['axes'] as List? ?? const []).cast<String>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -508,6 +543,8 @@ class _Fix extends StatelessWidget {
           _Part(name: i == 0 ? '다음에 말할 것' : '', text: m['text'] as String),
           _SourceLine(source: m['source'] as Json),
         ],
+        for (final (i, a) in axes.indexed)
+          _Part(name: missing.isEmpty && i == 0 ? '다음에 말할 것' : '', text: a),
         _Part(name: '다음 행동', text: fix['next'] as String? ?? ''),
       ],
     );

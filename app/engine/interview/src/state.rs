@@ -90,6 +90,12 @@ pub struct FaceRun {
     pub caught: Vec<String>,
     pub probed: bool,
     pub followed: bool,
+    /// 이 면에서 질문이 겨냥한 필수 체크포인트 id(겨냥한 순서)
+    #[serde(default)]
+    pub aimed: Vec<String>,
+    /// 이 면이 첫 통과에 한 번이라도 닿았다(그 뒤 실패해도 내리지 않는다)
+    #[serde(default)]
+    pub first_passed: bool,
 }
 
 /// 다음에 물을 자리(채점 뒤 정한다).
@@ -113,8 +119,9 @@ pub struct Target {
     pub intent: Intent,
     /// 시나리오, 트레이드오프, 반례 질문, 모순의 두 진술(유형에 따라)
     pub material: Option<String>,
-    /// 힌트 유형에만: 빠진 체크포인트 하나의 글
-    pub missing: Option<String>,
+    /// 질문이 겨냥한 필수 체크포인트 id(주제 전환, 심화, 힌트, 꼬리질문의 시나리오·트레이드오프)
+    #[serde(default)]
+    pub aim: Option<String>,
 }
 
 /// 턴 하나. 글은 가린 글이다.
@@ -134,6 +141,9 @@ pub struct Turn {
     pub graded: Option<Graded>,
     /// 코칭에서 답 뒤에 보여 주는 글("핵심 n개 중 m개를 짚었습니다")
     pub feedback: Option<String>,
+    /// 이 질문이 겨냥한 필수 체크포인트 id
+    #[serde(default)]
+    pub aim: Option<String>,
 }
 
 /// 마지막 실행의 오류. 상태는 마지막 저장 지점 그대로이고 `iv.resume`으로 이어 간다.
@@ -160,6 +170,9 @@ pub struct Session {
     pub claims: Vec<Claim>,
     pub posting_parsed: Option<Posting>,
     pub plan: Vec<Planned>,
+    /// 계획 순서에서 계획 뒤에 오는 개념들. 계획을 다 돌고 시간이 남으면 앞에서부터 계획에 잇는다
+    #[serde(default)]
+    pub spare: Vec<Planned>,
     /// 지금 묻는 개념(계획의 번호)
     pub cursor: usize,
     pub faces: Vec<FaceRun>,
@@ -178,6 +191,9 @@ pub struct Session {
     #[serde(default)]
     pub models: BTreeMap<String, crate::Pin>,
     pub quote_fail: u32,
+    /// 다시 물어도 겨냥 글을 그대로 옮긴 질문의 수
+    #[serde(default)]
+    pub leak: u32,
     pub evidence: Vec<Evidence>,
     pub report: Option<Report>,
     pub out: Option<Prepared>,
@@ -279,6 +295,7 @@ impl Session {
             claims,
             posting_parsed,
             plan: Vec::new(),
+            spare: Vec::new(),
             cursor: 0,
             faces: Vec::new(),
             turns: Vec::new(),
@@ -291,6 +308,7 @@ impl Session {
             calls: Vec::new(),
             models: s.models,
             quote_fail: 0,
+            leak: 0,
             evidence: Vec::new(),
             report: None,
             out: None,

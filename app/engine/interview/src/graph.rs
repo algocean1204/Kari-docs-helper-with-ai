@@ -151,7 +151,7 @@ fn prepare(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Erro
         });
         return Ok(Next::Go(Node::Prepare));
     }
-    s.plan = plan::plan(&PlanIn {
+    let mut all = plan::ordered(&PlanIn {
         pack,
         years: s.years,
         minutes: s.minutes,
@@ -160,6 +160,8 @@ fn prepare(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Erro
         weak: &s.prep.weak,
         recent: &s.prep.recent,
     });
+    s.spare = all.split_off(all.len().min(plan::count(s.minutes)));
+    s.plan = all;
     s.prep = Default::default();
     let Some(first) = s.plan.first() else {
         return Ok(Next::Go(Node::Finish));
@@ -180,13 +182,17 @@ fn run_index(s: &Session, concept: &str, face: Face) -> Option<usize> {
         .position(|r| r.concept == concept && r.face == face)
 }
 
-/// 면이 끝난 뒤의 자리: 확인됨이면 더 높은 안 물은 면(올림), 아니면 더 낮은 안 물은 면(내림), 없으면 다음 개념.
+/// 면이 끝난 뒤의 자리: 확인됨이면 더 높은 안 물은 면(올림), 첫 질문을 통과하지 못한 면이면 더 낮은 안 물은 면(내림),
+/// 그 밖(첫 통과에 닿았던 면)이나 갈 면이 없으면 다음 개념. 첫 질문을 통과한 사람에게 더 쉬운 면을 묻는 것은 연습이 되지 않는다.
 fn route(s: &Session, idx: usize, face: Face, status: Status) -> Option<Slot> {
     let planned = &s.plan[idx];
     let pos = planned.faces.iter().position(|f| *f == face)?;
     let unasked = |f: &&Face| run_index(s, &planned.concept, **f).is_none();
+    let passed = run_index(s, &planned.concept, face).is_some_and(|i| s.faces[i].first_passed);
     let (found, intent) = if status == Status::Confirmed {
         (planned.faces[pos + 1..].iter().find(unasked), Intent::Raise)
+    } else if passed {
+        return None;
     } else {
         (
             planned.faces[..pos].iter().rev().find(unasked),
@@ -216,7 +222,7 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
             kind: QType::Cope,
             intent: Intent::Keep,
             material: None,
-            missing: None,
+            aim: None,
         });
         return Ok(Next::Go(Node::Ask));
     }
@@ -224,6 +230,11 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         Some(slot) => slot,
         None => {
             let idx = s.cursor + 1;
+            // 계획을 다 돌았는데 시간이 남으면 계획 순서의 다음 개념을 잇는다.
+            if idx == s.plan.len() && !s.spare.is_empty() {
+                let next = s.spare.remove(0);
+                s.plan.push(next);
+            }
             let Some(p) = s.plan.get(idx) else {
                 return Ok(Next::Go(Node::Finish));
             };
@@ -266,6 +277,7 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         claim: s.claims.iter().any(|x| x.concepts.contains(&id)),
         conflict: conflict.is_some(),
         probe: caught.is_some(),
+        open_musts: next_aim(s, c, face).is_some(),
         used: &used,
         count: &count,
     };
@@ -301,9 +313,16 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         }),
         _ => None,
     };
-    let missing = (kind == QType::Hint)
-        .then(|| missing_checkpoint(s, c, face))
-        .flatten();
+    // 한 번 더는 바로 앞 턴의 겨냥을 그대로 쓴다(반쯤 맞힌 것을 한 번 더).
+    let aim = match kind {
+        _ if slot.phase == Phase::Retry => last
+            .and_then(|t| t.aim.clone())
+            .or_else(|| next_aim(s, c, face)),
+        QType::Switch | QType::Deepen | QType::Hint => next_aim(s, c, face),
+        // 꼬리질문의 시나리오·트레이드오프도 다음 필수를 겨냥한다(재료의 글은 그대로 준다).
+        QType::Scenario | QType::Tradeoff if slot.phase == Phase::Follow => next_aim(s, c, face),
+        _ => None,
+    };
     if kind == QType::Conflict {
         s.conflict_used = true;
     }
@@ -314,25 +333,34 @@ fn pick_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         kind,
         intent: slot.intent,
         material,
-        missing,
+        aim,
     });
     Ok(Next::Go(Node::Ask))
 }
 
-/// 아직 met이 아닌 첫 체크포인트의 글(힌트의 재료). 필수를 먼저 본다.
-fn missing_checkpoint(s: &Session, c: &Concept, face: Face) -> Option<String> {
+/// 질문이 겨냥할 필수 체크포인트(`pick::aim`).
+fn next_aim(s: &Session, c: &Concept, face: Face) -> Option<String> {
     let run = run_index(s, &c.id, face).map(|i| &s.faces[i]);
-    let missing =
-        |cp: &&crate::pack::Checkpoint| run.and_then(|r| r.best.get(&cp.id)) != Some(&Verdict::Met);
-    let cps = c.checkpoints(face);
-    cps.iter()
+    let musts: Vec<&str> = c
+        .checkpoints(face)
+        .iter()
         .filter(|cp| cp.must)
-        .find(missing)
-        .or_else(|| cps.iter().find(missing))
-        .map(|cp| cp.text.clone())
+        .map(|cp| cp.id.as_str())
+        .collect();
+    let met = |id: &str| run.and_then(|r| r.best.get(id)) == Some(&Verdict::Met);
+    pick::aim(&musts, met, run.map_or(&[], |r| &r.aimed)).map(str::to_string)
 }
 
-/// 질문 프롬프트의 자료. 체크포인트의 글은 넣지 않는다(힌트의 `missing`만 예외).
+/// 겨냥한 체크포인트의 글.
+fn aim_text<'a>(c: &'a Concept, t: &Target) -> Option<&'a str> {
+    let (id, face) = (t.aim.as_deref()?, t.face?);
+    c.checkpoints(face)
+        .iter()
+        .find(|cp| cp.id == id)
+        .map(|cp| cp.text.as_str())
+}
+
+/// 질문 프롬프트의 자료. 체크포인트의 글은 겨냥한 것(`aim`, 지원자에게 보이지 않는 채점 기준) 하나만 넣는다.
 /// 실제 서버에서 고친 것(10a, 10c): 이력서 인용은 그 개념을 여는 질문과 본인 기여 질문에만 준다(주면 모든 질문이
 /// "이력서에 …라고 쓰셨는데"로 시작했다). 앞서 낸 질문 목록은 따로 주지 않는다(같은 개념의 질문은 history에 있고,
 /// 반복은 코드가 모든 질문과 견주어 막는다).
@@ -359,7 +387,21 @@ fn ask_data(s: &Session, c: &Concept, t: &Target) -> Value {
         "history": history,
         "claims": claims,
         "material": t.material,
-        "missing": t.missing,
+        "aim": aim_text(c, t),
+    })
+}
+
+/// 질문이 겨냥 글을 옮겼는가(`ask::ask`가 한 번 다시 물은 뒤의 질문).
+fn leaked(c: &Concept, t: &Target, q: &str) -> bool {
+    aim_text(c, t).is_some_and(|a| ask::leaks(q, a) > ask::LEAK)
+}
+
+/// 질문 하나를 받는다. 앞서 낸 질문과 같은지는 모든 질문과 견준다.
+fn ask_turn(s: &mut Session, c: &Concept, t: &Target, model: &mut Model) -> Result<Asked, Error> {
+    with_calls(s, |s, calls| {
+        let data = ask_data(s, c, t);
+        let before: Vec<&str> = s.turns.iter().map(|x| x.question.as_str()).collect();
+        ask::ask(model, "ask", &data, &before, calls)
     })
 }
 
@@ -368,13 +410,19 @@ fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Err
         .target
         .clone()
         .ok_or_else(|| Error::Invalid("만들 질문이 없습니다.".into()))?;
+    let mut t = t;
     let id = s.plan[t.concept].concept.clone();
     let c = concept(pack, &id)?;
-    let asked = with_calls(s, |s, calls| {
-        let data = ask_data(s, c, &t);
-        let before: Vec<&str> = s.turns.iter().map(|x| x.question.as_str()).collect();
-        ask::ask(model, "ask", &data, &before, calls)
-    })?;
+    let mut asked = ask_turn(s, c, &t, model)?;
+    // 다시 물어도 겨냥 글을 옮겼으면 겨냥 없이 한 번 더 묻고, 그 턴은 겨냥 없음으로 적는다(면 전체로 점수를 낸다).
+    // 힌트는 겨냥을 실마리로 쓰는 질문이라 떼지 않고 세기만 한다.
+    if matches!(&asked, Asked::Question(q) if leaked(c, &t, q)) {
+        s.leak += 1;
+        if t.kind != QType::Hint {
+            t.aim = None;
+            asked = ask_turn(s, c, &t, model)?;
+        }
+    }
     s.target = None;
     let q = match asked {
         Asked::Question(q) => q,
@@ -398,6 +446,8 @@ fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Err
                     caught: Vec::new(),
                     probed: false,
                     followed: false,
+                    aimed: Vec::new(),
+                    first_passed: false,
                 });
                 s.faces.len() - 1
             }
@@ -406,6 +456,9 @@ fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Err
             Phase::Follow => s.faces[i].followed = true,
             Phase::Probe => s.faces[i].probed = true,
             _ => {}
+        }
+        if let Some(a) = t.aim.as_ref().filter(|a| !s.faces[i].aimed.contains(a)) {
+            s.faces[i].aimed.push(a.clone());
         }
     }
     s.turns.push(Turn {
@@ -421,6 +474,7 @@ fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Err
         skipped: false,
         graded: None,
         feedback: None,
+        aim: t.aim,
     });
     Ok(Next::Wait)
 }
@@ -435,10 +489,12 @@ fn grade_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, E
         return Ok(Next::Go(Node::Score));
     };
     let c = concept(pack, &s.turns[i].concept)?;
+    // 근거 요구·본인 기여·반박은 면의 체크포인트 뒤에 방어 축을 붙여 같은 호출로 본다.
     let cps: Vec<(&str, &str)> = c
         .checkpoints(face)
         .iter()
         .map(|cp| (cp.id.as_str(), cp.text.as_str()))
+        .chain(score::defense_axes(s.turns[i].kind).iter().copied())
         .collect();
     let mis: Vec<(&str, &str)> = c
         .misconceptions
@@ -515,18 +571,29 @@ fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
                     run.caught.push(m.id.clone());
                 }
             }
-            // 그 턴에 새로 met이 된 체크포인트(필수든 아니든).
-            let new_met = ids.iter().any(|id| {
+            // 그 턴에 새로 met이 된 필수 체크포인트.
+            let new_met = musts.iter().any(|id| {
                 turn_v(id) == Some(Verdict::Met) && before.get(*id) != Some(&Verdict::Met)
             });
+            let best = |id: &str| run.best.get(id).copied();
+            let aimed: Vec<&str> = run.aimed.iter().map(String::as_str).collect();
+            let axes = score::defense_axes(t.kind);
+            let aim: Vec<&str> = t.aim.as_deref().into_iter().collect();
             Facts {
                 skipped: false,
-                turn_score: score::face_score(musts.iter().copied(), turn_v),
-                face_score: score::face_score(musts.iter().copied(), |id| {
-                    run.best.get(id).copied()
-                }),
+                turn_score: score::with_aim(&musts, &aim, turn_v),
+                face_score: score::face_score(musts.iter().copied(), best),
+                aim_score: if aimed.is_empty() {
+                    0.0
+                } else {
+                    score::face_score(aimed.iter().copied(), best)
+                },
+                defended: (!axes.is_empty())
+                    .then(|| score::face_score(axes.iter().map(|x| x.0), turn_v)),
                 new_met,
-                contra: g.checks.iter().any(|x| x.verdict == Verdict::Contra)
+                summary: t.kind == QType::Summary,
+                // 반례 확인으로 넘기는 반대 진술은 면의 체크포인트에서만 본다(방어 축의 contra는 방어 점수의 0점일 뿐이다).
+                contra: ids.iter().any(|id| turn_v(id) == Some(Verdict::Contra))
                     || g.conflict.is_some(),
                 misconception: !g.misconceptions.is_empty(),
                 hinted: t.hint.is_some(),
@@ -538,6 +605,7 @@ fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
     };
     let d = pick::decide(phase, run.status, &facts);
     run.status = d.status;
+    run.first_passed |= d.status == Status::FirstPass;
     let met = musts
         .iter()
         .filter(|id| run.best.get(**id) == Some(&Verdict::Met))
@@ -576,12 +644,17 @@ fn hint_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Er
         kind: QType::Hint,
         intent: Intent::Keep,
         material: Some(t.question.clone()),
-        missing: missing_checkpoint(s, c, face),
+        // 그 질문이 겨냥한 것. 겨냥이 없는 질문이면 아직 met이 아닌 필수.
+        aim: t.aim.clone().or_else(|| next_aim(s, c, face)),
     };
     let got = with_calls(s, |s, calls| {
         ask::ask(model, "hint", &ask_data(s, c, &target), &[], calls)
     })?;
     if let Asked::Question(h) = got {
+        // 힌트는 겨냥을 실마리로 쓰는 질문이라 겨냥을 떼지 않고 세기만 한다.
+        if leaked(c, &target, &h) {
+            s.leak += 1;
+        }
         if let Some(last) = s.turns.last_mut() {
             last.hint = Some(h);
         }

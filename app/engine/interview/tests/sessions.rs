@@ -187,7 +187,7 @@ fn live_sessions_to_the_end() {
             "session": i, "resume": rid, "pressure": pressure, "persona": persona, "posting": with_posting,
             "done": s.node == Node::Done, "questions": s.turns.len(), "elapsedMs": s.elapsed_ms(),
             "broken": broken, "repeats": repeats, "conflictQuestions": conflicts, "misconceptions": mis,
-            "metChecks": met, "quoteFail": s.quote_fail, "reportImprovements": report.improvements.len(),
+            "metChecks": met, "quoteFail": s.quote_fail, "leak": s.leak, "reportImprovements": report.improvements.len(),
             "calls": s.calls.len(), "input": tokens(&|c| c.input), "output": tokens(&|c| c.output),
             "thinking": tokens(&|c| c.thinking), "cacheRead": tokens(&|c| c.cache_read),
             "cacheWrite": tokens(&|c| c.cache_write), "cost": cost,

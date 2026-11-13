@@ -192,8 +192,12 @@ class FakeIv {
             'status': i == 0 ? 'failed' : 'firstPass',
             'question': t['question'],
             'quote': quote(t),
+            // 둘째 카드: 겨냥한 내용은 다 말하고 근거를 묻는 꼬리질문에서 떨어진 면(빠진 축을 싣는다).
             'missing': [
-              {'text': _missing[_concepts[i].$1], 'source': _src},
+              if (i == 0) {'text': _missing[_concepts[i].$1], 'source': _src},
+            ],
+            'axes': [
+              if (i == 1) ...['수치나 구체적인 사례를 댄다', '한계나 조건, 다시 한다면 바꿀 점을 말한다'],
             ],
             'next': '‘${_concepts[i].$2}’의 한계가 드러나는 조건을 예 두 가지로 적어 봅니다.',
           },
@@ -217,6 +221,34 @@ class FakeIv {
             'face': 'rationale',
             'faceName': '선택 근거',
             'quote': quote(answered[2]),
+          },
+      ],
+      'defense': [
+        for (final t in answered.skip(1).take(1))
+          {
+            'concept': 'db.index',
+            'name': 'B-트리 인덱스',
+            'question': t['question'],
+            'axes': [
+              {
+                'id': 'd.specific',
+                'text': '수치나 구체적인 사례를 댄다',
+                'verdict': t['skipped'] == true ? 'unmet' : 'met',
+                'quote': t['skipped'] == true ? null : quote(t),
+              },
+              {
+                'id': 'd.method',
+                'text': '그 수치를 어떻게 쟀는지, 무엇을 보고 알았는지 말한다',
+                'verdict': 'unmet',
+                'quote': null,
+              },
+              {
+                'id': 'd.limit',
+                'text': '한계나 조건, 다시 한다면 바꿀 점을 말한다',
+                'verdict': 'unmet',
+                'quote': null,
+              },
+            ],
           },
       ],
       'table': [
