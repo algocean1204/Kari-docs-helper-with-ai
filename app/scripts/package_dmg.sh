@@ -90,6 +90,8 @@ APP="$WORK/Kari.app"
 step "앱 묶음을 복사해 서명한다(원본: $APP_IN)"
 ditto "$APP_IN" "$APP"
 xattr -cr "$APP"  # Finder 정보 같은 확장 속성이 있으면 서명이 거절된다
+# 실행 파일의 디버그 기호에는 빌드한 폴더의 경로가 들어 있다. 걷어 낸다(서명은 바로 아래에서 다시 한다).
+strip -S -x "$APP/Contents/MacOS/Kari"
 SIGN=(codesign --force --sign "${IDENTITY:--}")
 [ -n "$IDENTITY" ] && SIGN+=(--options runtime --timestamp)
 # 안쪽부터 바깥으로: 프레임워크 안의 dylib → 프레임워크 → 앱. 앱에는 Release.entitlements의 권한만 준다.
