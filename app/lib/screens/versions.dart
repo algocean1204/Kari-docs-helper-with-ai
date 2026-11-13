@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design/components.dart';
 import '../design/tokens.dart';
-import '../editing/session.dart';
+import '../editing/version_host.dart';
 import '../engine/engine.dart';
 import '../library.dart';
 import 'dialogs.dart';
@@ -33,7 +33,7 @@ class VersionPanel extends StatefulWidget {
     required this.onClose,
   });
 
-  final EditSession session;
+  final VersionHost session;
   final DateTime Function() now;
   final VoidCallback onClose;
 
@@ -49,7 +49,7 @@ class _VersionPanelState extends State<VersionPanel> {
   List<String>? _preview;
   int _rev = -1;
 
-  EditSession get _s => widget.session;
+  VersionHost get _s => widget.session;
   EngineApi get _engine => _s.engine;
 
   @override
@@ -110,9 +110,13 @@ class _VersionPanelState extends State<VersionPanel> {
     });
     try {
       final at = await _engine.docStateAt(_s.id, v['seq'] as int);
-      final paras = paragraphs([
-        for (final n in at['nodes'] as List) n as Json,
-      ]);
+      final nodes = [for (final n in at['nodes'] as List) n as Json];
+      final boards = nodes.where((n) => n['type'] == 'page').length;
+      final paras = [
+        // 캔버스 문서는 대지와 노드의 수를 먼저 보인다(도형만 있어도 빈 문서로 보이지 않게).
+        if (boards > 0) '대지 $boards개 · 노드 ${nodes.length - boards}개',
+        ...paragraphs(nodes),
+      ];
       if (mounted && _selected == id) {
         setState(() => _preview = paras.take(_previewParas).toList());
       }

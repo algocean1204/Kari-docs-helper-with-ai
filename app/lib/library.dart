@@ -146,6 +146,13 @@ class Library extends ChangeNotifier {
     return id;
   }
 
+  /// 캔버스 문서 "제목 없는 캔버스"(대지 하나)를 만들고 그 id를 돌려준다. 실패하면 null.
+  Future<int?> createCanvas() async {
+    int? id;
+    await _run(() async => id = await engine.docsCreate('canvas', '제목 없는 캔버스'));
+    return id;
+  }
+
   Future<void> rename(DocInfo d, String name) =>
       _run(() => engine.docsRename(d.id, name.trim()));
 

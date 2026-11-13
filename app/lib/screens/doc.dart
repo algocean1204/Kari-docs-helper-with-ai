@@ -116,10 +116,10 @@ class _DocScreenState extends State<DocScreen> {
     super.dispose();
   }
 
-  /// 흐름 문서만 편집 세션을 연다. 캔버스 문서는 아직 편집하지 않는다.
+  /// 흐름 문서의 편집 세션을 연다(캔버스 문서는 셸이 캔버스 화면으로 보낸다).
   void _start() {
     final id = widget.docId;
-    if (id == null || _doc?.kind == 'canvas') return;
+    if (id == null) return;
     final s = _session = EditSession(
       widget.library.engine,
       id,
@@ -415,22 +415,7 @@ class _DocScreenState extends State<DocScreen> {
       );
     }
     final s = _session;
-    if (s == null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _TopBar(doc: doc, library: widget.library),
-          Expanded(
-            child: Center(
-              child: Text(
-                '${kindLabel(doc.kind)} 편집은 아직 만들고 있습니다',
-                style: AppText.body.copyWith(color: c.textMuted),
-              ),
-            ),
-          ),
-        ],
-      );
-    }
+    if (s == null) return const SizedBox.shrink();
     return ListenableBuilder(
       listenable: Listenable.merge([s, widget.library]),
       builder: (context, _) {

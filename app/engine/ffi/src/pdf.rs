@@ -1,6 +1,7 @@
-//! `doc.exportPdf`. 명령 잠금은 문서를 복사하는 동안만 잡고, 배치와 PDF 만들기와
-//! 파일 쓰기는 잠금 밖에서 한다.
+//! `doc.exportPdf`(흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나). 명령 잠금은 문서를 복사하는 동안만 잡고,
+//! 배치와 PDF 만들기와 파일 쓰기는 잠금 밖에서 한다.
 
+use std::cell::RefCell;
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -8,43 +9,73 @@ use std::path::{Path, PathBuf};
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{Document, Kind};
 use kari_layout::Layouter;
-use kari_pdf::{export, Error, Meta};
+use kari_pdf::{export, export_canvas, Error, Meta};
+use kari_render::{Images, IMAGE_BUDGET};
 
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::library::{engine, on};
 use crate::session;
 
 pub(crate) fn export_pdf(a: &Args) -> Res {
-    let (path, doc, assets) = flow_doc(a, "PDF")?;
+    let (path, doc, assets) = doc_copy(a)?;
     let fonts =
         session::current_fonts().ok_or_else(|| bad("글꼴을 먼저 넘겨야 합니다(kari_font_add)."))?;
     let mut lay = Layouter::new(fonts);
-    lay.layout(&doc, None);
-    let root = doc.children(None).into_iter().find(|n| n.kind == "flow");
-    let lang = root
-        .and_then(|r| doc.prop(&r.id, "lang"))
-        .and_then(Value::as_str)
-        .unwrap_or("ko");
-    let meta = Meta {
-        title: doc.name(),
-        lang,
-    };
     let read = |h: &str| kari_store::read_asset(&assets, h);
-    let bytes = export(&doc, lay.output(), lay.fonts(), &meta, &read).map_err(|e| {
+    let pdf_err = |e: Error| {
         let code = if e == Error::Stale {
             "stale"
         } else {
             "bad_request"
         };
         fail(code, e.to_string())
-    })?;
+    };
+    let (bytes, pages) = if doc.kind() == Kind::Canvas {
+        // 그림의 크기는 화면과 같은 길(`Images`)로 읽어 놓임이 화면과 같게 한다.
+        let dir = assets.clone();
+        let mut images = Images::new(
+            Box::new(move |h| kari_store::read_asset(&dir, h)),
+            IMAGE_BUDGET,
+        );
+        let images = RefCell::new(&mut images);
+        let scene = lay.scene(&doc, &|h| images.borrow_mut().size(h));
+        let meta = Meta {
+            title: doc.name(),
+            lang: "ko",
+        };
+        let bytes = export_canvas(&doc, &scene, lay.fonts(), &meta, &read).map_err(pdf_err)?;
+        (bytes, scene.boards.len())
+    } else {
+        lay.layout(&doc, None);
+        let root = doc.children(None).into_iter().find(|n| n.kind == "flow");
+        let lang = root
+            .and_then(|r| doc.prop(&r.id, "lang"))
+            .and_then(Value::as_str)
+            .unwrap_or("ko");
+        let meta = Meta {
+            title: doc.name(),
+            lang,
+        };
+        let bytes = export(&doc, lay.output(), lay.fonts(), &meta, &read).map_err(pdf_err)?;
+        (bytes, lay.output().pages.len())
+    };
     write_whole(&path, &bytes, "PDF")?;
-    Ok(json!({"pages": lay.output().pages.len(), "bytes": bytes.len()}))
+    Ok(json!({"pages": pages, "bytes": bytes.len()}))
 }
 
-/// 인자의 경로(절대 경로)와 내보낼 흐름 문서의 사본, 에셋 폴더. 명령 잠금은 복사하는 동안만 잡는다.
-/// 편집 세션이 있으면 그 앞 사본, 메모리에 연 문서가 있으면 그것, 없으면 저장소에서 읽는다.
+/// 인자의 경로(절대 경로)와 내보낼 흐름 문서의 사본, 에셋 폴더.
 pub(crate) fn flow_doc(a: &Args, what: &str) -> Result<(PathBuf, Document, PathBuf), Fail> {
+    let (path, doc, assets) = doc_copy(a)?;
+    if doc.kind() != Kind::Flow {
+        return Err(bad(format!("흐름 문서만 {what}로 내보냅니다.")));
+    }
+    Ok((path, doc, assets))
+}
+
+/// 인자의 경로(절대 경로)와 문서의 사본, 에셋 폴더. 명령 잠금은 복사하는 동안만 잡는다.
+/// 편집 세션이 있으면 그 앞 사본, 메모리에 연 문서가 있으면 그것, 없으면 저장소에서 읽는다.
+/// 캔버스 문서는 저장한 뒤 사본(뒤 사본)을 쓴다: 끌기 미리 보기나 조합 중인 글이 PDF에 들어가지 않는다.
+fn doc_copy(a: &Args) -> Result<(PathBuf, Document, PathBuf), Fail> {
     let id = a.id("id")?;
     let path = PathBuf::from(a.str("path")?);
     if !path.is_absolute() {
@@ -60,9 +91,6 @@ pub(crate) fn flow_doc(a: &Args, what: &str) -> Result<(PathBuf, Document, PathB
         };
         (doc, e.lib.assets_dir())
     };
-    if doc.kind() != Kind::Flow {
-        return Err(bad(format!("흐름 문서만 {what}로 내보냅니다.")));
-    }
     Ok((path, doc, assets))
 }
 

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../editing/canvas_keys.dart';
+import '../editing/canvas_session.dart';
 import '../editing/session.dart';
 import 'edit_dialogs.dart';
 import 'format_dialogs.dart';
@@ -116,6 +118,29 @@ class DocMenu {
   final VoidCallback toggleGuides;
 }
 
+/// 캔버스 화면이 메뉴 막대에 내주는 것. 화면이 상태가 바뀔 때마다 새로 만든다.
+class CanvasMenu {
+  const CanvasMenu({
+    required this.session,
+    required this.focusCanvas,
+    required this.exportPdf,
+    required this.versions,
+    required this.versionsOpen,
+    required this.openImage,
+  });
+
+  final CanvasSession session;
+  final VoidCallback focusCanvas;
+
+  /// 하는 중(PDF를 만드는 중)이면 null.
+  final VoidCallback? exportPdf;
+  final VoidCallback versions;
+  final bool versionsOpen;
+
+  /// 넣을 그림 고르기. 없으면 `그림…`이 꺼진다.
+  final Future<String?> Function()? openImage;
+}
+
 /// 오늘 날짜를 넣는 세 가지 꼴: `2026-11-13`, `2026. 11. 13.`, `2026년 11월 13일`.
 List<String> dateTexts(DateTime d) {
   String two(int n) => n.toString().padLeft(2, '0');
@@ -133,14 +158,50 @@ SingleActivator _meta(
   bool control = false,
 }) => SingleActivator(k, meta: true, shift: shift, alt: alt, control: control);
 
+/// Kari 메뉴(macOS가 주는 항목과 설정).
+MenuEntry _kariMenu(
+  AppActions app,
+  VoidCallback? Function(VoidCallback) nav,
+) => MenuEntry.sub('Kari', [
+  const MenuEntry.provided(PlatformProvidedMenuItemType.about),
+  MenuEntry.divider,
+  MenuEntry(
+    '설정…',
+    keys: _meta(LogicalKeyboardKey.comma),
+    run: nav(app.settings),
+  ),
+  MenuEntry.divider,
+  const MenuEntry.provided(PlatformProvidedMenuItemType.servicesSubmenu),
+  MenuEntry.divider,
+  const MenuEntry.provided(PlatformProvidedMenuItemType.hide),
+  const MenuEntry.provided(PlatformProvidedMenuItemType.hideOtherApplications),
+  const MenuEntry.provided(PlatformProvidedMenuItemType.showAllApplications),
+  MenuEntry.divider,
+  const MenuEntry.provided(PlatformProvidedMenuItemType.quit),
+]);
+
+/// 창과 도움말 메뉴.
+final _windowMenus = [
+  MenuEntry.sub('창', const [
+    MenuEntry.provided(PlatformProvidedMenuItemType.minimizeWindow),
+    MenuEntry.provided(PlatformProvidedMenuItemType.zoomWindow),
+    MenuEntry.divider,
+    MenuEntry.provided(PlatformProvidedMenuItemType.arrangeWindowsInFront),
+  ]),
+  // 비어 있어도 macOS가 메뉴 검색 칸을 둔다(MainFlutterWindow.swift가 도움말 메뉴로 알린다).
+  const MenuEntry.sub('도움말', []),
+];
+
 /// 메뉴 막대 전체. [doc]이 없으면(편집 화면이 아니거나 대화 상자가 떠 있으면) 문서 명령은 꺼진다.
 /// [modal]이면(대화 상자가 떠 있으면) 화면을 옮기는 일도 꺼진다.
 List<MenuEntry> appMenus({
   required AppActions app,
   required DocMenu? doc,
+  CanvasMenu? canvas,
   bool modal = false,
 }) {
   VoidCallback? nav(VoidCallback f) => modal ? null : f;
+  if (canvas != null) return canvasMenus(app: app, canvas: canvas, nav: nav);
   final d = doc;
   final s = d?.session;
   final st = s?.state;
@@ -160,27 +221,7 @@ List<MenuEntry> appMenus({
   final zoomNow = st?.zoom ?? s?.zoom ?? 1;
   final line = st?.paras.line;
   return [
-    MenuEntry.sub('Kari', [
-      const MenuEntry.provided(PlatformProvidedMenuItemType.about),
-      MenuEntry.divider,
-      MenuEntry(
-        '설정…',
-        keys: _meta(LogicalKeyboardKey.comma),
-        run: nav(app.settings),
-      ),
-      MenuEntry.divider,
-      const MenuEntry.provided(PlatformProvidedMenuItemType.servicesSubmenu),
-      MenuEntry.divider,
-      const MenuEntry.provided(PlatformProvidedMenuItemType.hide),
-      const MenuEntry.provided(
-        PlatformProvidedMenuItemType.hideOtherApplications,
-      ),
-      const MenuEntry.provided(
-        PlatformProvidedMenuItemType.showAllApplications,
-      ),
-      MenuEntry.divider,
-      const MenuEntry.provided(PlatformProvidedMenuItemType.quit),
-    ]),
+    _kariMenu(app, nav),
     MenuEntry.sub('파일', [
       MenuEntry(
         '새 문서',
@@ -447,14 +488,140 @@ List<MenuEntry> appMenus({
         run: send({'k': 'clearChar'}),
       ),
     ]),
-    MenuEntry.sub('창', const [
-      MenuEntry.provided(PlatformProvidedMenuItemType.minimizeWindow),
-      MenuEntry.provided(PlatformProvidedMenuItemType.zoomWindow),
+    ..._windowMenus,
+  ];
+}
+
+/// 캔버스 문서가 열려 있을 때의 메뉴 막대. 단축키는 ⌘가 든 것뿐이다: 한 글자 키(V, ⇧1)는 Flutter가 받지 않은 키를
+/// macOS 메뉴가 가로채므로, 글 상자에서 그 글자를 칠 때 삼킨다. 그 키는 화면(`canvasKey`)이 받는다.
+List<MenuEntry> canvasMenus({
+  required AppActions app,
+  required CanvasMenu canvas,
+  required VoidCallback? Function(VoidCallback) nav,
+}) {
+  final s = canvas.session;
+  final st = s.state;
+  final editing = st?.text != null;
+  final has = st?.selection.isNotEmpty == true;
+  // 문서 명령: 세션 상태가 있어야 켜진다. 누른 뒤 판으로 초점을 돌린다.
+  VoidCallback? on(VoidCallback f, {bool when = true}) => st == null || !when
+      ? null
+      : () {
+          f();
+          canvas.focusCanvas();
+        };
+  VoidCallback? cmd(
+    String name, {
+    bool when = true,
+    Map<String, Object?> a = const {},
+  }) => on(() => s.cmd(name, a), when: when);
+  VoidCallback? zoom(double by) => on(() => s.zoomAt(by: by));
+  return [
+    _kariMenu(app, nav),
+    MenuEntry.sub('파일', [
+      MenuEntry(
+        '새 문서',
+        keys: _meta(LogicalKeyboardKey.keyN),
+        run: nav(app.newDoc),
+      ),
+      MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
-      MenuEntry.provided(PlatformProvidedMenuItemType.arrangeWindowsInFront),
+      MenuEntry(
+        'PDF로 내보내기…',
+        run: canvas.exportPdf == null ? null : on(canvas.exportPdf!),
+      ),
+      MenuEntry(
+        '버전 기록',
+        run: on(canvas.versions),
+        checked: canvas.versionsOpen,
+      ),
     ]),
-    // 비어 있어도 macOS가 메뉴 검색 칸을 둔다(MainFlutterWindow.swift가 도움말 메뉴로 알린다).
-    const MenuEntry.sub('도움말', []),
+    MenuEntry.sub('편집', [
+      MenuEntry(
+        '되돌리기',
+        keys: _meta(LogicalKeyboardKey.keyZ),
+        run: st?.canUndo == true ? () => s.undo() : null,
+      ),
+      MenuEntry(
+        '다시 하기',
+        keys: _meta(LogicalKeyboardKey.keyZ, shift: true),
+        run: st?.canRedo == true ? () => s.redo() : null,
+      ),
+      MenuEntry.divider,
+      // 글 상자 안의 글만 오간다. 노드 복사·붙여넣기는 없다.
+      MenuEntry(
+        '잘라내기',
+        keys: _meta(LogicalKeyboardKey.keyX),
+        run: editing
+            ? () => s.copyOut().then((_) => s.text({'k': 'cut'}))
+            : null,
+      ),
+      MenuEntry(
+        '복사',
+        keys: _meta(LogicalKeyboardKey.keyC),
+        run: editing ? s.copyOut : null,
+      ),
+      MenuEntry(
+        '붙여넣기',
+        keys: _meta(LogicalKeyboardKey.keyV),
+        run: editing ? s.pasteIn : null,
+      ),
+      MenuEntry.divider,
+      MenuEntry(
+        '복제',
+        keys: _meta(LogicalKeyboardKey.keyD),
+        run: cmd('duplicate', when: has && !editing),
+      ),
+      MenuEntry('지우기', run: cmd('delete', when: has && !editing)),
+      MenuEntry(
+        '모두 선택',
+        keys: _meta(LogicalKeyboardKey.keyA),
+        run: editing ? () => s.text({'k': 'selectAll'}) : cmd('selectAll'),
+      ),
+    ]),
+    MenuEntry.sub('보기', [
+      MenuEntry(
+        '확대',
+        keys: _meta(LogicalKeyboardKey.add),
+        run: zoom(zoomFactor),
+      ),
+      MenuEntry(
+        '축소',
+        keys: _meta(LogicalKeyboardKey.minus),
+        run: zoom(1 / zoomFactor),
+      ),
+      MenuEntry(
+        '실제 크기',
+        keys: _meta(LogicalKeyboardKey.digit0),
+        run: on(() => s.viewOp('actual')),
+      ),
+      MenuEntry('모두 보기', run: on(() => s.viewOp('fitAll'))),
+      MenuEntry(
+        '고른 것에 맞추기',
+        run: on(() => s.viewOp('fitSelection'), when: has),
+      ),
+      MenuEntry.divider,
+      const MenuEntry.provided(PlatformProvidedMenuItemType.toggleFullScreen),
+    ]),
+    MenuEntry.sub('도구', [
+      for (final (name, label, _) in canvasTools)
+        MenuEntry(
+          label,
+          run: on(() => s.tool(name), when: !editing),
+          checked: (st?.tool ?? 'select') == name,
+        ),
+      MenuEntry(
+        '그림…',
+        run: canvas.openImage == null
+            ? null
+            : on(() async {
+                final path = await canvas.openImage!();
+                if (path != null) await s.image(path);
+              }, when: !editing),
+        checked: st?.tool == 'image',
+      ),
+    ]),
+    ..._windowMenus,
   ];
 }
 
@@ -482,8 +649,23 @@ class MenuHost extends ChangeNotifier {
     super.dispose();
   }
 
+  CanvasMenu? Function()? _canvas;
+
   /// 지금 편집 화면의 메뉴(없으면 null).
   DocMenu? get doc => _doc?.call();
+
+  /// 지금 캔버스 화면의 메뉴(없으면 null).
+  CanvasMenu? get canvas => _canvas?.call();
+
+  void attachCanvas(CanvasMenu? Function() f) {
+    _canvas = f;
+    touch();
+  }
+
+  void detachCanvas(CanvasMenu? Function() f) {
+    if (identical(_canvas, f)) _canvas = null;
+    touch();
+  }
 
   void attach(DocMenu? Function() f) {
     _doc = f;
@@ -561,13 +743,24 @@ class _AppMenuBarState extends State<AppMenuBar> {
     appMenus(
       app: widget.app,
       doc: _modal ? null : widget.host.doc,
+      canvas: _modal ? null : widget.host.canvas,
       modal: _modal,
     ),
     path,
   )?.run?.call();
 
   /// 메뉴의 모양(이름, 켜짐, 체크)을 정하는 값. 같으면 항목을 다시 만들지 않는다(편집 상태는 글자마다 바뀐다).
-  static Object _keyOf(bool modal, DocMenu? d) {
+  static Object _keyOf(bool modal, DocMenu? d, CanvasMenu? c) {
+    if (c != null) {
+      final cs = c.session.state;
+      return (
+        modal,
+        c.session,
+        (cs?.canUndo, cs?.canRedo, cs?.selection.isNotEmpty, cs?.tool),
+        (cs?.text != null, cs == null, c.versionsOpen),
+        (c.exportPdf == null, c.openImage == null),
+      );
+    }
     final s = d?.session;
     final st = s?.state;
     final now = d?.now;
@@ -617,10 +810,16 @@ class _AppMenuBarState extends State<AppMenuBar> {
     // 대화 상자가 떠 있으면 셸의 경로가 맨 위가 아니다.
     final modal = _modal = ModalRoute.of(context)?.isCurrent == false;
     final doc = modal ? null : widget.host.doc;
-    final key = _keyOf(modal, doc);
+    final canvas = modal ? null : widget.host.canvas;
+    final key = _keyOf(modal, doc, canvas);
     if (key != _key) {
       _key = key;
-      final entries = appMenus(app: widget.app, doc: doc, modal: modal);
+      final entries = appMenus(
+        app: widget.app,
+        doc: doc,
+        canvas: canvas,
+        modal: modal,
+      );
       final sig = entries.map((e) => e.sig).join('\n');
       if (sig != _sig) {
         _sig = sig;

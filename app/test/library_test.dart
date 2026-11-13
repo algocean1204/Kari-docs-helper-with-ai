@@ -291,9 +291,11 @@ void main() {
       await pumpReal(tester, seed: false);
       expect(find.text('이력서부터 씁니다'), findsOneWidget);
       expect(find.text('준비 0/4'), findsOneWidget);
-      // 채운 단추는 새 문서 하나. 준비 줄의 넷과 공고 추가. 문서가 없으면 문서 구역을 두지 않는다.
-      expect(find.byType(TextButton), findsNWidgets(6));
+      // 채운 단추는 새 문서 하나, 그 옆에 조용한 캔버스 문서 만들기. 준비 줄의 넷과 공고 추가.
+      // 문서가 없으면 문서 구역을 두지 않는다.
+      expect(find.byType(TextButton), findsNWidgets(7));
       expect(button(tester, '새 문서').onPressed, isNotNull);
+      expect(button(tester, '캔버스 문서 만들기').onPressed, isNotNull);
       for (final step in ['이력서', 'AI 연결', '채용공고', '첫 연습']) {
         expect(button(tester, step).onPressed, isNotNull, reason: step);
       }

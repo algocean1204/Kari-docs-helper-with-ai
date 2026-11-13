@@ -20,6 +20,7 @@ class LibraryHome extends StatelessWidget {
     required this.library,
     required this.onOpen,
     required this.onCreate,
+    required this.onCreateCanvas,
     required this.onOpenSettings,
     required this.onAddPosting,
     required this.onStartInterview,
@@ -30,6 +31,9 @@ class LibraryHome extends StatelessWidget {
   final Library library;
   final OpenDoc onOpen;
   final VoidCallback onCreate;
+
+  /// 캔버스 문서를 만들고 연다.
+  final VoidCallback onCreateCanvas;
   final VoidCallback onOpenSettings;
   final VoidCallback onAddPosting;
   final StartInterview onStartInterview;
@@ -79,10 +83,17 @@ class LibraryHome extends StatelessWidget {
         '${kindLabel(d.kind)} · ${formatWhen(d.updated, now)}';
     final docList = _Section(
       title: '문서',
-      action: AppButton(
-        '새 문서',
-        icon: Icons.note_add_outlined,
-        onPressed: onCreate,
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppButton(
+            '캔버스 문서 만들기',
+            icon: Icons.dashboard_outlined,
+            onPressed: onCreateCanvas,
+          ),
+          const SizedBox(width: Space.x2),
+          AppButton('새 문서', icon: Icons.note_add_outlined, onPressed: onCreate),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -254,6 +265,13 @@ class LibraryHome extends StatelessWidget {
     return _Hero(
       title: '이력서부터 씁니다',
       about: '이력서에 쓴 문장이 면접 질문의 출발점이 됩니다.',
+      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스 문서도 여기서 만든다.
+      extra: AppButton(
+        '캔버스 문서 만들기',
+        kind: ButtonKind.quiet,
+        icon: Icons.dashboard_outlined,
+        onPressed: onCreateCanvas,
+      ),
       action: AppButton(
         '새 문서',
         kind: ButtonKind.primary,
