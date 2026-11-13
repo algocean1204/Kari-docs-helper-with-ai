@@ -143,6 +143,7 @@ enum MenuTest {
 
   static func register(_ messenger: FlutterBinaryMessenger) {
     guard ProcessInfo.processInfo.environment["KARI_MENU_TEST"] == "1" else { return }
+    recordExit()
     if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { e in
       let responder = e.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "-"
       route.append(
@@ -197,6 +198,36 @@ enum MenuTest {
     }
   }
 
+  /// 시험 도중 앱이 끝난 까닭을 앱 컨테이너의 `tmp/kari-menu-test-exit.log`에 남긴다: 끝내기(terminate)와 문서 창
+  /// 닫기는 그때의 호출 스택, 그 밖의 exit는 atexit에서의 스택, flutter 도구가 보낸 SIGTERM은 그 표시.
+  /// 충돌(abort, 잘못된 메모리 접근)은 macOS 충돌 보고서에 남으므로 여기서 잡지 않는다.
+  private static var exitLog: Int32 = -1
+
+  private static func note(_ s: String) {
+    _ = "\(Date()) \(s)\n".withCString { write(exitLog, $0, strlen($0)) }
+  }
+
+  private static func recordExit() {
+    exitLog = open(
+      NSTemporaryDirectory() + "kari-menu-test-exit.log", O_WRONLY | O_CREAT | O_TRUNC | O_APPEND,
+      0o644)
+    let stack = { Thread.callStackSymbols.joined(separator: "\n") }
+    let center = NotificationCenter.default
+    watchers.append(
+      center.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil)
+      { _ in note("terminate\n\(stack())") })
+    watchers.append(
+      center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: nil) { n in
+        if n.object is MainFlutterWindow { note("window close\n\(stack())") }
+      })
+    atexit { MenuTest.note("exit\n" + Thread.callStackSymbols.joined(separator: "\n")) }
+    signal(SIGTERM) { _ in
+      MenuTest.note("SIGTERM")
+      signal(SIGTERM, SIG_DFL)
+      raise(SIGTERM)
+    }
+  }
+
   private static func describe(_ item: NSMenuItem) -> [String: Any] {
     var mods: [String] = []
     let m = item.keyEquivalentModifierMask
@@ -220,33 +251,48 @@ enum MenuTest {
     if !NSApp.isActive && !MainFlutterWindow.background { NSApp.activate(ignoringOtherApps: true) }
   }
 
-  /// 키 하나(누름, 뗌)와 수정 키를 놓는 변화를 보낸다.
+  /// 수정 키: 이름, 왼쪽 키의 keyCode(kVK_*), 그 키가 눌렸을 때의 플래그. 플래그에는 왼쪽 키를 가리키는 장치 비트
+  /// (NX_DEVICEL*KEYMASK)도 넣는다. 실제 자판이 넣는 값이고, Flutter는 이 비트로 어느 수정 키가 눌렸는지 본다.
+  private static let modifierKeys: [(String, UInt16, NSEvent.ModifierFlags)] = [
+    ("shift", 56, [.shift, NSEvent.ModifierFlags(rawValue: 0x02)]),
+    ("ctrl", 59, [.control, NSEvent.ModifierFlags(rawValue: 0x01)]),
+    ("alt", 58, [.option, NSEvent.ModifierFlags(rawValue: 0x20)]),
+    ("cmd", 55, [.command, NSEvent.ModifierFlags(rawValue: 0x08)]),
+  ]
+
+  /// 실제 자판처럼 키 하나를 보낸다: 수정 키를 하나씩 누르고(flagsChanged), 키를 누르고 떼고(keyDown, keyUp),
+  /// 수정 키를 누른 반대 차례로 하나씩 놓는다.
   private static func key(_ a: [String: Any]) -> Bool {
     activate()
     guard let window = NSApp.keyWindow ?? NSApp.windows.first else { return false }
     window.makeKey()
-    var flags: NSEvent.ModifierFlags = []
-    for m in a["mods"] as? [String] ?? [] {
-      switch m {
-      case "cmd": flags.insert(.command)
-      case "shift": flags.insert(.shift)
-      case "alt": flags.insert(.option)
-      case "ctrl": flags.insert(.control)
-      default: break
-      }
-    }
+    let mods = Set(a["mods"] as? [String] ?? [])
+    let held = modifierKeys.filter { mods.contains($0.0) }
     let code = UInt16(a["code"] as? Int ?? 0)
     let chars = a["chars"] as? String ?? ""
     let plain = a["plain"] as? String ?? chars
-    func event(_ type: NSEvent.EventType, _ f: NSEvent.ModifierFlags) -> NSEvent? {
+    func event(_ type: NSEvent.EventType, _ f: NSEvent.ModifierFlags, _ keyCode: UInt16)
+      -> NSEvent?
+    {
       NSEvent.keyEvent(
         with: type, location: .zero, modifierFlags: f,
         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
         context: nil, characters: type == .flagsChanged ? "" : chars,
         charactersIgnoringModifiers: type == .flagsChanged ? "" : plain, isARepeat: false,
-        keyCode: type == .flagsChanged ? 55 : code)
+        keyCode: keyCode)
     }
-    let events = [event(.keyDown, flags), event(.keyUp, flags), event(.flagsChanged, [])]
+    var events: [NSEvent?] = []
+    var flags: NSEvent.ModifierFlags = []
+    for (_, keyCode, f) in held {
+      flags.formUnion(f)
+      events.append(event(.flagsChanged, flags, keyCode))
+    }
+    events.append(event(.keyDown, flags, code))
+    events.append(event(.keyUp, flags, code))
+    for (_, keyCode, f) in held.reversed() {
+      flags.subtract(f)
+      events.append(event(.flagsChanged, flags, keyCode))
+    }
     for e in events {
       guard let e else { return false }
       NSApp.postEvent(e, atStart: false)

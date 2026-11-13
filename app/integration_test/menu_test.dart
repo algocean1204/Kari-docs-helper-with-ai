@@ -3,9 +3,12 @@
 //   cd app && KARI_MENU_TEST=1 flutter test integration_test/menu_test.dart -d macos
 //
 // KARI_MENU_TEST=1이면 앱이 시험용 채널 `kari/menu-test`를 연다(MainFlutterWindow.swift의 MenuTest). 키는 앱 안에서
-// NSEvent를 만들어 NSApp.sendEvent로 보낸다. 그래서 키가 사람이 친 키와 같은 길(창의 보기가 먼저, 다루지 않은 키는
-// 주 메뉴)을 지나고, 사용자의 자판이나 다른 앱에는 가지 않는다. 조합 중인 글은 입력 채널의 setMarkedText로 넣는다.
+// NSEvent를 만들어 앱의 이벤트 줄에 넣는다. 실제 자판처럼 수정 키를 하나씩 누르고(flagsChanged), 키를 누르고 떼고,
+// 수정 키를 놓는다. 그래서 키가 사람이 친 키와 같은 길(창의 보기가 먼저, 다루지 않은 키는 주 메뉴)을 지나고, Flutter는
+// 수정 키를 본 채로 키를 받는다. 사용자의 자판이나 다른 앱에는 가지 않는다. 조합 중인 글은 입력 채널의 setMarkedText로 넣는다.
 // 시스템 클립보드와 인쇄 창은 가로챈다(사용자의 클립보드를 건드리지 않고, 인쇄 창을 띄우지 않는다).
+// 앱이 도중에 끝나면 그 까닭(끝내기·창 닫기·exit의 호출 스택, 도구가 보낸 SIGTERM)이
+// ~/Library/Containers/dev.clonamic.kari/Data/tmp/kari-menu-test-exit.log에 남는다.
 //
 // 보는 것: 메뉴 막대가 붙어 있다(제목, 단축키, 도움말 메뉴, 체크). 메뉴에 단축키가 있는 문서 명령을 키로 누르면
 // 명령이 한 번 나간다(⌘Q, ⌘H, ⌥⌘H, ⌘M, ⌃⌘F처럼 앱을 끄거나 가리는 macOS 항목은 빼고). 한글 조합 중 ⌘B, ⌘Z.
@@ -74,6 +77,12 @@ const codes = {
 /// Flutter가 받은 누름(논리 키와 그때 눌린 수정 키). [press]가 기록에 남기고 비운다.
 final flutterKeys = <String>[];
 
+/// Flutter가 누른 수정 키를 보지 못한 채 받은 키. 끝에서 비어 있어야 한다.
+final keyProblems = <String>[];
+
+/// 수정 키 자신의 누름(`Meta Left+meta`처럼 적힌다).
+final _modifierKey = RegExp(r'^(Meta|Shift|Alt|Control) ');
+
 bool logKey(KeyEvent e) {
   final k = HardwareKeyboard.instance;
   if (e is KeyDownEvent) {
@@ -115,6 +124,13 @@ Future<void> press(
   final route = await menuTest.invokeListMethod<String>('route');
   // ignore: avoid_print
   print('KARI_ROUTE key ${jsonEncode(key)} app=$route flutter=$flutterKeys');
+  // 실제 자판처럼 Flutter도 키를 그 수정 키와 함께 받는다.
+  final want = [if (cmd) 'meta', if (shift) 'shift', if (alt) 'alt'].join('+');
+  final got = [
+    for (final k in flutterKeys)
+      if (!_modifierKey.hasMatch(k)) k.split('+').skip(1).join('+'),
+  ];
+  if (!got.contains(want)) keyProblems.add('$key: $flutterKeys');
   flutterKeys.clear();
 }
 
@@ -135,6 +151,7 @@ void main() {
   Future<(Library, Counting, int, List<String>)> start(
     WidgetTester tester,
   ) async {
+    keyProblems.clear();
     final dir = Directory.systemTemp.createTempSync('kari-menu-').path;
     final engine = Counting();
     final library = Library(engine, dir);
@@ -449,6 +466,7 @@ void main() {
       reason: '키 한 번에 명령 한 번',
     );
     expect(problems, isEmpty);
+    expect(keyProblems, isEmpty, reason: 'Flutter가 수정 키를 본 채로 받는다');
   });
 
   testWidgets('한글 조합 중 ⌘B와 ⌘Z는 조합을 확정하고 한 번만 듣는다', (tester) async {
@@ -489,6 +507,7 @@ void main() {
     await pump(tester, const Duration(milliseconds: 300));
     expect(engine.calls.where((c) => c['m'] == 'edit.undo').length, 1);
     expect(session.state!.composingStart, -1);
+    expect(keyProblems, isEmpty, reason: 'Flutter가 수정 키를 본 채로 받는다');
   });
 
   testWidgets('메뉴 항목을 고르면 동작한다: 서식 → 굵게, 넣기 → 표…, 보기 → 확대', (tester) async {
