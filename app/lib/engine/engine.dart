@@ -7,6 +7,10 @@ library;
 
 import 'dart:convert';
 
+import 'canvas_state.dart' show CanvasState;
+
+export 'canvas_state.dart' show CanvasSel, CanvasState, CanvasText;
+
 typedef Json = Map<String, Object?>;
 
 /// 엔진이 돌려준 오류. 코드는 엔진의 오류 목록(bad_request, not_open, not_found, …)이다.
@@ -795,7 +799,7 @@ abstract class EngineApi {
   Future<List<Object?>> docVerify(int id) async =>
       await call('doc.verify', {'id': id}) as List<Object?>;
 
-  /// 흐름 문서를 [path](절대 경로)에 PDF로 쓴다. {pages, bytes}.
+  /// 문서를 [path](절대 경로)에 PDF로 쓴다. 흐름은 쪽마다, 캔버스는 대지마다 쪽 하나다. {pages, bytes}.
   Future<Json> docExportPdf(int id, String path) async =>
       await call('doc.exportPdf', {'id': id, 'path': path}) as Json;
 
@@ -1037,6 +1041,59 @@ abstract class EngineApi {
               })
               as Json)['url']
           as String?;
+
+  // 캔버스 편집 세션. 문서를 먼저 연다(doc.open). 좌표는 보이는 영역 기준 화면 논리 화소다.
+  Future<CanvasState> _canvas(String m, Json a) async =>
+      CanvasState.fromJson(await call(m, a) as Json);
+
+  Future<CanvasState> canvasOpen(int id) => _canvas('canvas.open', {'id': id});
+  Future<void> canvasClose(int id) => call('canvas.close', {'id': id});
+  Future<CanvasState> canvasState(int id) =>
+      _canvas('canvas.state', {'id': id});
+
+  /// 보이는 영역의 크기와 색(`bg`) 또는 보기 연산 [op]: `pan`(`dx`, `dy`), `zoom`(`zoom`이나 `by`, 기준점 `x`, `y`),
+  /// `actual`, `fitAll`, `fitSelection`.
+  Future<CanvasState> canvasView(int id, Json view) =>
+      _canvas('canvas.view', {'id': id, ...view});
+
+  /// [phase]: down, move, up, double, hover, cancel.
+  Future<CanvasState> canvasPointer(
+    int id,
+    String phase,
+    double x,
+    double y, {
+    bool shift = false,
+    bool meta = false,
+    bool alt = false,
+  }) => _canvas('canvas.pointer', {
+    'id': id,
+    'phase': phase,
+    'x': x,
+    'y': y,
+    if (shift) 'shift': true,
+    if (meta) 'meta': true,
+    if (alt) 'alt': true,
+  });
+
+  /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, editText, endText, cancel.
+  Future<CanvasState> canvasCmd(
+    int id,
+    String name, {
+    Json args = const {},
+    required int now,
+  }) => _canvas('canvas.cmd', {'id': id, 'name': name, ...args, 'now': now});
+
+  /// 글 상자 안 명령(`cmd`의 `k`: insert, enter, backspace, move, paste, cut, ...).
+  Future<CanvasState> canvasText(int id, Json cmd, {required int now}) =>
+      _canvas('canvas.text', {'id': id, 'cmd': cmd, 'now': now});
+
+  /// 입력기의 변경. [change]는 `start16`, `end16`, `text`, `composing` 가운데 준 것.
+  Future<CanvasState> canvasIme(int id, Json change, {required int now}) =>
+      _canvas('canvas.ime', {'id': id, ...change, 'now': now});
+
+  /// 편집 중인 글 상자에서 고른 글.
+  Future<String> canvasCopy(int id) async =>
+      (await call('canvas.copy', {'id': id}) as Json)['text'] as String;
 
   // 텍스트 면접. 세션 보기는 {id, status, turn, question, kind, hint, elapsedMs,
   // budgetMs, hintsLeft, feedback, history: [{question, answer, skipped}], error: {code, message}?}다.

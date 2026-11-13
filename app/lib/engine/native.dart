@@ -125,13 +125,23 @@ class NativeEngine extends EngineApi {
   /// 편집 세션은 글꼴이 있어야 연다. 처음 열 때 앱의 글꼴 바이트를 한 번 넘긴다.
   @override
   Future<EditState> editOpen(int id) async {
+    await _ready();
+    return super.editOpen(id);
+  }
+
+  @override
+  Future<CanvasState> canvasOpen(int id) async {
+    await _ready();
+    return super.canvasOpen(id);
+  }
+
+  Future<void> _ready() async {
     try {
       await (_fonts ??= _addFonts());
     } catch (_) {
       _fonts = null;
       rethrow;
     }
-    return super.editOpen(id);
   }
 
   static Future<void> _addFonts() async {

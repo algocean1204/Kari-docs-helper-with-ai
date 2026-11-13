@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'engine.dart';
 import 'fake_ai.dart';
 
+part 'fake_canvas.dart';
 part 'fake_edit.dart';
 part 'fake_iv.dart';
 
@@ -50,6 +51,17 @@ class FakeEngine extends EngineApi {
 
   /// 편집 상태에 덮어 쓸 값(섞인 선택처럼 흉내가 만들지 못하는 상태). 시험용.
   Json stateOverride = {};
+
+  /// 받은 `canvas.*`와 `doc.undo` 호출(이름 `m`과 인자). 시험용.
+  final List<Json> canvasCalls = [];
+
+  /// 넣어 두면 다음 `canvas.cmd`나 `canvas.pointer` 하나를 이 사유로 거절한다. 시험용.
+  String? canvasRefuse;
+
+  /// `canvas.copy`가 돌려줄 글. 시험용.
+  String canvasCopyText = '';
+  final Map<int, Json> _canvasStates = {};
+  int _canvasGen = 0;
 
   /// 개요에 더 보일 제목(`{para, level, text, page}`). 흉내 문서는 첫 문단만 가지므로 시험이 넣는다.
   final List<Json> headings = [];
@@ -218,9 +230,7 @@ class FakeEngine extends EngineApi {
           ],
         };
       case 'doc.exportPdf':
-        if (doc()['kind'] != 'flow') {
-          throw const EngineError('bad_request', '흐름 문서만 PDF로 내보냅니다.');
-        }
+        doc();
         exported.add(a['path'] as String);
         // 흉내: 폴더가 있으면(인쇄·공유의 임시 폴더) 작은 PDF를 정말 쓴다.
         final file = File(a['path'] as String);
@@ -237,6 +247,12 @@ class FakeEngine extends EngineApi {
       case 'settings.set':
         settings[a['key'] as String] = a['value'];
         return null;
+    }
+    if (m.startsWith('canvas.') ||
+        m == 'doc.undo' ||
+        m == 'doc.redo' ||
+        m == 'doc.restore') {
+      return _canvasCall(m, a, doc());
     }
     if (m.startsWith('edit.')) return _edit(m, a, doc());
     throw EngineError('bad_request', '흉내 내지 않는 호출입니다: $m');

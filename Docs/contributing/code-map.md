@@ -54,7 +54,7 @@
 | 문단 테두리와 바탕 | 배치는 `app/engine/layout/src/frame.rs`, 이웃 문단 잇기는 `layouter.rs`, 창의 묶음은 `style_dialog.dart`의 `BorderGroup` |
 | 자동 서식 | `app/engine/edit/src/auto.rs`, 따로 된 묶음으로 잇는 것은 `app/engine/ffi/src/edit.rs`의 `run_auto`, 설정은 `app/lib/screens/settings.dart` |
 | 개요, 쪽으로 가기 | `app/engine/edit/src/outline.rs`, `motion.rs`의 `go_to`, 화면은 `app/lib/screens/navigate.dart` |
-| 메뉴 막대 | `app/lib/screens/app_menu.dart` |
+| 메뉴 막대 | `app/lib/screens/app_menu.dart`(캔버스 문서의 메뉴는 `canvasMenus`) |
 | Word 문서, 텍스트 내보내기 | `app/engine/docx/src/`(`body.rs` 본문·표·목록·머리글, `props.rs` 글자·문단 모양과 스타일, `txt.rs` 텍스트, `zip.rs` 꾸러미), 호출은 `app/engine/ffi/src/docx.rs` |
 | 글자·문단 모양, 서식 지우기 | `app/engine/edit/src/format.rs`, 쪽 나누기는 `text.rs`, 번호 시작 값은 `list.rs`, 사용자 지정 용지는 `page.rs` |
 | 첨자, 자간, 형광펜, 줄 간격의 배치 | `app/engine/layout/src/style.rs`, `para.rs`, `lines.rs` |
@@ -65,7 +65,8 @@
 | 도구 줄, 글자·문단 모양 창 | `app/lib/screens/toolbar.dart`, `format_dialogs.dart`, 문서 색 견본은 `app/lib/editing/doc_colors.dart` |
 | 보기 배율 | `app/engine/render/src/geo.rs`, `edit.zoom`은 `app/engine/ffi/src/edit.rs`, 벌리기·가로 스크롤·커서 따라가기는 `app/lib/screens/paper.dart`, 상태 줄의 배율 단추는 `find_bar.dart` |
 | 인쇄, 공유 | `app/lib/screens/print_share.dart`, `app/macos/Runner/Printing.swift`, 채널은 `MainFlutterWindow.swift` |
-| 한글 입력 | `app/lib/editing/ime.dart`, `app/lib/editing/session.dart`, `app/engine/edit/src/utf16.rs` |
+| 한글 입력 | `app/lib/editing/ime.dart`, `app/lib/editing/session.dart`(캔버스는 `canvas_session.dart`), `app/engine/edit/src/utf16.rs` |
+| 캔버스 화면 | 화면과 도구 줄은 `app/lib/screens/canvas.dart`, 판(포인터·스크롤·키)은 `canvas_surface.dart`, 속성 패널은 `canvas_props.dart`, 세션은 `app/lib/editing/canvas_session.dart`, 키 표는 `app/lib/editing/canvas_keys.dart`, 상태 모양은 `app/lib/engine/canvas_state.dart`. 쓰는 법은 [guide/canvas.md](../guide/canvas.md) |
 | 화면 그리기 | `app/engine/render/src/lib.rs`, 텍스처는 `app/lib/editing/surface.dart`, `app/macos/Runner/MainFlutterWindow.swift` |
 | 그림 넣기와 정리 | `app/engine/render/src/image.rs`, `app/engine/edit/src/image.rs`, `app/engine/store/src/assets.rs` |
 | PDF | `app/engine/pdf/src/lib.rs`, 호출은 `app/engine/ffi/src/pdf.rs` |
@@ -82,7 +83,7 @@
 | 지식 팩 | `app/engine/interview/pack/backend/*.json`, 검사는 `app/engine/interview/src/pack.rs`와 `app/scripts/pack_check.py`. 작성법은 [knowledge-pack-authoring.md](knowledge-pack-authoring.md) |
 | 색과 글자 값 | `app/lib/design/tokens.dart`(대비 검사는 `app/test/design_test.dart`) |
 | 공용 화면 부품 | `app/lib/design/components.dart` |
-| 화면 | `app/lib/screens/`: `home.dart`(홈), `doc.dart`(문서 화면과 위쪽 줄), `name_field.dart`(문서 이름 칸), `paper.dart`(종이), `toolbar.dart`, `style_dialog.dart`(스타일 메뉴와 창), `table_props.dart`, `format_dialogs.dart`, `edit_dialogs.dart`(링크, 탭 정지, 쪽 설정, 그림 크기, 표 넣기 창), `navigate.dart`(개요 패널, 쪽으로 가기 창), `app_menu.dart`(메뉴 막대), `find_bar.dart`(찾기 막대, 상태 줄), `editor.dart`(견본 문서 화면), `versions.dart`, `print_share.dart`, `interview.dart`, `gaze.dart`, `report.dart`, `settings.dart`, `ai.dart`(키 넣기 창), `ai_tasks.dart`, `dialogs.dart`(공고 추가, 보내는 내용, 이름 바꾸기, 휴지통 창) |
+| 화면 | `app/lib/screens/`: `home.dart`(홈), `doc.dart`(문서 화면과 위쪽 줄), `name_field.dart`(문서 이름 칸), `paper.dart`(종이), `toolbar.dart`, `style_dialog.dart`(스타일 메뉴와 창), `table_props.dart`, `format_dialogs.dart`, `edit_dialogs.dart`(링크, 탭 정지, 쪽 설정, 그림 크기, 표 넣기 창), `navigate.dart`(개요 패널, 쪽으로 가기 창), `app_menu.dart`(메뉴 막대), `find_bar.dart`(찾기 막대, 상태 줄), `editor.dart`(견본 문서 화면), `versions.dart`, `canvas.dart`(캔버스 문서 화면), `canvas_surface.dart`, `canvas_props.dart`, `print_share.dart`, `interview.dart`, `gaze.dart`, `report.dart`, `settings.dart`, `ai.dart`(키 넣기 창), `ai_tasks.dart`, `dialogs.dart`(공고 추가, 보내는 내용, 이름 바꾸기, 휴지통 창) |
 | 엔진 라이브러리를 앱에 싣는 것 | `app/hook/build.dart` |
 | 앱의 권한 | `app/macos/Runner/Release.entitlements`, `DebugProfile.entitlements` |
 

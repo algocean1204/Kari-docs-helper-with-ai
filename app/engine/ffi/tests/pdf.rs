@@ -81,12 +81,10 @@ fn failed_write_leaves_no_temporary_file() {
 fn rejects_bad_arguments() {
     let _case = Case::new("pdf-args");
     let id = ok("docs.create", json!({"kind": "flow", "name": "가"}))["id"].clone();
-    let canvas = ok("docs.create", json!({"kind": "canvas", "name": "나"}))["id"].clone();
     let abs = std::env::temp_dir().join("kari-never-written.pdf");
     for (a, code) in [
         (json!({"id": id, "path": "relative.pdf"}), "bad_request"),
         (json!({"id": id}), "bad_request"),
-        (json!({"id": canvas, "path": abs}), "bad_request"),
         (json!({"id": 9999, "path": abs}), "not_found"),
     ] {
         assert_eq!(err("doc.exportPdf", a.clone())["code"], code, "{a}");

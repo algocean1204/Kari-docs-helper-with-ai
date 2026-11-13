@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../engine/engine.dart';
 import 'ime.dart';
 import 'keys.dart';
+import 'version_host.dart';
 
 /// 스타일이 문서에 적혀 있지 않을 때의 문단 스타일(문서 코어의 기본값과 같다).
 const defaultStyles = [
@@ -38,11 +39,14 @@ const outlineAfter = Duration(milliseconds: 300);
 /// 상대도 이것이다. 입력 칸 값은 엔진이 준 커서 문단이고, 입력기가 바꾸면 견주어 `edit.ime`로 보낸다.
 /// 위젯을 모르므로 입력 채널 없이도 쓴다(통합 시험).
 class EditSession extends ChangeNotifier
-    with TextInputClient, DeltaTextInputClient {
+    with TextInputClient, DeltaTextInputClient
+    implements VersionHost {
   EditSession(this.engine, this.id, {DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
+  @override
   final EngineApi engine;
+  @override
   final int id;
   final DateTime Function() _now;
 
@@ -63,6 +67,7 @@ class EditSession extends ChangeNotifier
   String? notice;
 
   /// 엔진이 버전을 새로 만들 때마다 오른다(자동 버전, 되돌리기 전). 버전 패널이 다시 읽는다.
+  @override
   int versionsRev = 0;
 
   /// 찾을 글과 대소문자 구분. 찾기 막대를 닫아도 ⌘G가 쓰도록 남긴다.
@@ -359,6 +364,7 @@ class EditSession extends ChangeNotifier
   }
 
   /// 버전으로 돌아간다. 엔진이 돌아가기 전 상태를 자동 버전으로 남긴다.
+  @override
   Future<void> restore(int seq, String label) {
     _commitComposing();
     return _run(

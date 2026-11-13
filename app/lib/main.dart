@@ -14,6 +14,7 @@ import 'engine/native.dart';
 import 'gaze.dart';
 import 'library.dart';
 import 'screens/app_menu.dart';
+import 'screens/canvas.dart';
 import 'screens/doc.dart';
 import 'screens/editor.dart';
 import 'screens/home.dart';
@@ -349,6 +350,16 @@ class _ShellState extends State<Shell> {
     if (id != null && mounted) _open(id);
   }
 
+  /// 캔버스 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
+  Future<void> _createCanvas() async {
+    if (widget.library == null) {
+      _go(AppRoute.editor);
+      return;
+    }
+    final id = await widget.library!.createCanvas();
+    if (id != null && mounted) _open(id);
+  }
+
   void _startInterview({int? doc, String? posting}) => setState(() {
     _ivDoc = doc;
     _ivPosting = posting;
@@ -392,6 +403,7 @@ class _ShellState extends State<Shell> {
         ? _go(AppRoute.editor)
         : _open(d.id, reveal: reveal),
     onCreate: _create,
+    onCreateCanvas: _createCanvas,
     onOpenSettings: () => _go(AppRoute.settings),
     onAddPosting: _addPosting,
     onStartInterview: _startInterview,
@@ -401,13 +413,21 @@ class _ShellState extends State<Shell> {
 
   Widget _real(Library lib) => switch (_route) {
     AppRoute.home => _home(lib),
-    AppRoute.editor => DocScreen(
-      library: lib,
-      docId: _doc,
-      reveal: _reveal,
-      onCreate: _create,
-      menu: _menu,
-    ),
+    AppRoute.editor =>
+      lib.docs.any((d) => d.id == _doc && d.kind == 'canvas')
+          ? CanvasScreen(
+              key: ValueKey(_doc),
+              library: lib,
+              docId: _doc!,
+              menu: _menu,
+            )
+          : DocScreen(
+              library: lib,
+              docId: _doc,
+              reveal: _reveal,
+              onCreate: _create,
+              menu: _menu,
+            ),
     AppRoute.interview => _interview(lib),
     AppRoute.report => _report(lib),
     AppRoute.settings => SettingsScreen(library: lib),

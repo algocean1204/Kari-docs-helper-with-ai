@@ -84,7 +84,7 @@ flowchart BT
 | `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
 | `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
 | `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy` → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
-| `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기 |
+| `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
@@ -130,6 +130,18 @@ sequenceDiagram
 그리기는 명령 잠금을 잡지 않고, 편집 세션의 앞 사본 잠금만 짧게 잡는다 → [layout-and-editing.md](layout-and-editing.md).
 
 캔버스 문서도 같은 C 함수와 텍스처로 그린다. `kari_edit_gen`과 `kari_edit_render`는 문서 번호로 흐름 세션을 먼저, 없으면 캔버스 세션을 찾는다. 캔버스 세션은 보기(배율과 스크롤)를 스스로 가지므로 `scroll_x`, `scroll_y`는 쓰지 않고, `scale`은 레티나 배율(논리 화소당 화소)이다. 장면 위에 고른 상자와 손잡이도 엔진이 같은 버퍼에 덧그린다. 글 상자를 편집 중이면 선택 영역, 조합 밑줄, 커서도 덧그린다.
+
+### 캔버스 화면(앱)
+
+캔버스 문서는 `Shell`이 연 문서의 종류를 보고 `app/lib/screens/canvas.dart`로 보낸다(흐름 문서는 `doc.dart`). 흐름 문서의 `EditSession`과 따로 `app/lib/editing/canvas_session.dart`의 `CanvasSession`이 `canvas.*`를 부른다.
+
+- **한 줄**: 엔진 호출은 한 줄로 순서대로 보낸다. 끌기 중의 `move`, 수치 끌기의 `set`(미리 보기), 확대는 줄 끝에서 아직 나가지 않은 같은 종류와 값만 바꿔 합치고, 스크롤은 델타를 더한다. 다른 입력과는 합치지 않아 순서가 바뀌지 않는다.
+- **판**(`canvas_surface.dart`): 흐름 문서의 종이와 같은 텍스처 다리(`editing/surface.dart`)로 엔진이 그린 화소를 올린다. 포인터는 화면 좌표 그대로 `canvas.pointer`(같은 자리의 짧은 두 번째 누름은 `double`)로, 트랙패드와 휠의 스크롤·핀치는 `canvas.view`로 보낸다. 고른 상자, 손잡이, 글 커서는 엔진이 같은 버퍼에 그리므로 앱은 덧그리지 않는다.
+- **키**(`editing/canvas_keys.dart`): 키 → 할 일 표가 순수 함수다. 글 상자를 편집하는 중에는 흐름 문서의 키 표(`keys.dart`) 가운데 `canvas.text`가 받는 것만 통과시킨다.
+- **한글 입력**: 글 상자 편집이 시작되면(`state.text`가 생기면) 입력 채널을 붙이고 끝나면 뗀다. 입력 칸 값은 상태의 `text.ime`이고, 입력기의 변경은 흐름 문서와 같은 견주기(`editing/ime.dart`)를 거쳐 `canvas.ime`로 간다.
+- **속성 패널**(`canvas_props.dart`): 값은 상태의 `selection[].props`가 정한다. 입력은 `canvas.cmd set`을 한 번 보낸다. 수치 끌기는 `preview: true`로 앞 사본에만 적용하고, 놓을 때 같은 값을 `preview` 없이 보낸다.
+- **메뉴 막대**: 캔버스 문서가 열려 있으면 `appMenus`가 캔버스 메뉴를 낸다(`app_menu.dart`의 `CanvasMenu`). 키는 ⌘가 든 것만 건다.
+- **버전 패널**은 `VersionHost`(`editing/version_host.dart`) 인터페이스로 두 세션이 함께 쓴다. 복원은 `doc.restore`, 되돌리기는 `doc.undo`다. 둘 다 엔진이 캔버스 세션의 앞 사본을 따라가게 한다.
 
 ## 플랫폼 채널
 
