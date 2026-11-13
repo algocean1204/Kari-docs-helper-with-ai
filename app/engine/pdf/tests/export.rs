@@ -1800,3 +1800,543 @@ fn 선을_골라_넣은_표는_pdf와_화면의_선_자리가_같다() {
     // 눈금선은 PDF에 들어가지 않는다(표시 목록에 없다).
     assert!(!out.pages[0].guides.is_empty());
 }
+
+// ---- 캔버스 장면 ----
+
+/// 대지 둘: 첫째(200×150)에 도형, 잘라낸 프레임, 돌린 사각형, 링크가 든 글 상자. 둘째(300×100)는 판 위 (400, 0).
+fn canvas_doc() -> Document {
+    let mut d = Document::new(Kind::Canvas, "캔버스 견본").unwrap();
+    let solid = |c: &str| json!([{"type": "SOLID", "color": c}]);
+    let node = |id: &str, ty: &str, parent: &str, props: Value| {
+        let parent = if ty == "page" {
+            Value::Null
+        } else {
+            json!(parent)
+        };
+        json!({"op": "add", "node": {"id": id, "type": ty, "parent": parent, "props": props}})
+    };
+    let ops = vec![
+        json!({"op": "set", "id": "n1", "props": {"w": 200, "h": 150}}),
+        node(
+            "r",
+            "rect",
+            "n1",
+            json!({"x": 10, "y": 10, "w": 80, "h": 60, "radius": [20, 20, 20, 20], "fills": solid("#FF0000FF"), "strokes": solid("#000000FF"), "stroke": {"weight": 3, "align": "OUTSIDE"}}),
+        ),
+        node(
+            "e",
+            "ellipse",
+            "n1",
+            json!({"x": 110, "y": 10, "w": 80, "h": 60, "fills": solid("#0000FFFF")}),
+        ),
+        node(
+            "l",
+            "line",
+            "n1",
+            json!({"x": 10, "y": 100, "w": 100, "strokes": solid("#336699FF"), "stroke": {"weight": 4, "align": "CENTER", "capStart": "ROUND"}}),
+        ),
+        node(
+            "f",
+            "frame",
+            "n1",
+            json!({"x": 120, "y": 70, "w": 60, "h": 40, "radius": [6, 6, 6, 6], "fills": solid("#EEEEEEFF")}),
+        ),
+        node(
+            "c",
+            "rect",
+            "f",
+            json!({"x": -10, "y": -10, "w": 100, "h": 100, "fills": solid("#00FF00FF")}),
+        ),
+        node(
+            "o",
+            "rect",
+            "n1",
+            json!({"x": 60, "y": 115, "w": 40, "h": 10, "rotation": 33, "flipX": true, "fills": solid("#FF8000FF")}),
+        ),
+        node(
+            "t",
+            "text",
+            "n1",
+            json!({"x": 10, "y": 112, "runs": [{"t": "한글 "}, {"t": "Kari", "s": {"weight": 700}}, {"t": " 링크", "link": "https://example.com/a"}], "style": {"font": "Pretendard", "weight": 400, "size": 14}}),
+        ),
+        node(
+            "b2",
+            "page",
+            "",
+            json!({"w": 300, "h": 100, "cx": 400, "cy": 0}),
+        ),
+        node(
+            "u",
+            "text",
+            "b2",
+            json!({"x": 20, "y": 30, "runs": [{"t": "둘째 대지의 글"}], "style": {"font": "Pretendard", "weight": 400, "size": 18}, "rotation": 10}),
+        ),
+    ];
+    d.apply(&Value::Array(ops), Guard::default()).unwrap();
+    assert!(d.check().is_empty());
+    d
+}
+
+/// 시험 그림 둘: 'a'를 64번 쓴 해시는 40x20 PNG(왼쪽 반 빨강, 오른쪽 반 파랑), 'b'는 20x40 JPEG(초록).
+fn canvas_asset(hash: &str) -> Option<Vec<u8>> {
+    use skia_safe::{surfaces, Color, EncodedImageFormat, Paint};
+    let (w, h, format) = match hash.chars().next()? {
+        'a' if hash == "a".repeat(64) => (40, 20, EncodedImageFormat::PNG),
+        'b' if hash == "b".repeat(64) => (20, 40, EncodedImageFormat::JPEG),
+        _ => return None,
+    };
+    let mut s = surfaces::raster_n32_premul((w, h)).unwrap();
+    let c = s.canvas();
+    let mut p = Paint::default();
+    if format == EncodedImageFormat::JPEG {
+        c.clear(Color::from_rgb(0, 200, 0));
+    } else {
+        c.clear(Color::from_rgb(255, 0, 0));
+        p.set_color(Color::from_rgb(0, 0, 255));
+        c.draw_rect(skia_safe::Rect::from_xywh(20.0, 0.0, 20.0, 20.0), &p);
+    }
+    let img = s.image_snapshot();
+    img.peek_pixels().unwrap().encode(format, Some(95))
+}
+
+fn canvas_image_size(hash: &str) -> Option<(u32, u32)> {
+    match canvas_asset(hash).is_some() {
+        true if hash.starts_with('a') => Some((40, 20)),
+        true => Some((20, 40)),
+        false => None,
+    }
+}
+
+fn canvas_scene(d: &Document) -> (Layouter, kari_layout::Scene) {
+    let mut l = Layouter::new(fonts());
+    let s = l.scene(d, &canvas_image_size);
+    (l, s)
+}
+
+fn write_canvas(name: &str, d: &Document) -> (kari_layout::Scene, String) {
+    let (l, s) = canvas_scene(d);
+    let pdf = kari_pdf::export_canvas(d, &s, l.fonts(), &META, &canvas_asset).unwrap();
+    let path = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
+    std::fs::write(&path, pdf).unwrap();
+    (s, path)
+}
+
+/// 표시 목록을 걸으며 (잘라내기와 경로의 꼭짓점 묶음, 글리프 원점, 링크 경계 상자)를 낸다. 좌표는 대지 왼쪽 위 기준 pt.
+type Walked = (Vec<Vec<(f64, f64)>>, Vec<(f64, f64)>, Vec<[f64; 4]>);
+
+fn walk(items: &[Item]) -> Walked {
+    let id: M = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let mut stack = vec![id];
+    let (mut groups, mut glyphs, mut links) = (Vec::new(), Vec::new(), Vec::new());
+    let at = |m: &M, p: [f32; 2]| {
+        let (x, y) = (f64::from(p[0]), f64::from(p[1]));
+        (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+    };
+    let verts = |m: &M, path: &[kari_layout::Seg]| -> Vec<(f64, f64)> {
+        use kari_layout::Seg;
+        path.iter()
+            .flat_map(|s| match *s {
+                Seg::Move(p) | Seg::Line(p) => vec![at(m, p)],
+                Seg::Cubic(a, b, p) => vec![at(m, a), at(m, b), at(m, p)],
+                Seg::Close => vec![],
+            })
+            .collect()
+    };
+    for it in items {
+        let cur = *stack.last().unwrap();
+        match it {
+            Item::Push {
+                transform, clip, ..
+            } => {
+                let t = transform.map(f64::from);
+                let m = mul(&t, &cur);
+                if let Some(c) = clip {
+                    groups.push(verts(&m, c));
+                }
+                stack.push(m);
+            }
+            Item::Pop => {
+                stack.pop();
+            }
+            Item::Path { path, .. } => groups.push(verts(&cur, path)),
+            Item::Rect { rect: r, .. } => groups.push(vec![
+                at(&cur, [r[0], r[1]]),
+                at(&cur, [r[0] + r[2], r[1]]),
+                at(&cur, [r[0] + r[2], r[1] + r[3]]),
+                at(&cur, [r[0], r[1] + r[3]]),
+            ]),
+            Item::Glyphs { glyphs: g, .. } => {
+                glyphs.extend(g.iter().map(|g| at(&cur, [g.x, g.y])));
+            }
+            Item::Link { rect, .. } => {
+                let p = [
+                    at(&cur, [rect[0], rect[1]]),
+                    at(&cur, [rect[0] + rect[2], rect[1]]),
+                    at(&cur, [rect[0], rect[1] + rect[3]]),
+                    at(&cur, [rect[0] + rect[2], rect[1] + rect[3]]),
+                ];
+                let lo = |f: fn(&(f64, f64)) -> f64| p.iter().map(f).fold(f64::MAX, f64::min);
+                let hi = |f: fn(&(f64, f64)) -> f64| p.iter().map(f).fold(f64::MIN, f64::max);
+                let (x0, y0) = (lo(|q| q.0), lo(|q| q.1));
+                links.push([x0, y0, hi(|q| q.0) - x0, hi(|q| q.1) - y0]);
+            }
+            _ => {}
+        }
+    }
+    (groups, glyphs, links)
+}
+
+/// 쪽 하나에서 그린 경로와 잘라내기 경로마다의 꼭짓점들(쪽 왼쪽 위 기준 pt), 나온 차례대로.
+fn path_points(pdf: &Pdf, page: &Value, height: f64) -> Vec<Vec<(f64, f64)>> {
+    let id: M = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let (mut ctm, mut saved) = (id, Vec::new());
+    let (mut pts, mut args): (Vec<(f64, f64)>, Vec<f64>) = (Vec::new(), Vec::new());
+    let mut out = Vec::new();
+    let at = |x: f64, y: f64, m: &M| (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
+    for t in lex(&pdf.content(page)) {
+        let op = match t {
+            Tok::Num(n) => {
+                args.push(n);
+                continue;
+            }
+            Tok::Op(op) => op,
+            _ => {
+                args.clear();
+                continue;
+            }
+        };
+        match op.as_str() {
+            "q" => saved.push(ctm),
+            "Q" => ctm = saved.pop().unwrap(),
+            "cm" => ctm = mul(&args[args.len() - 6..].try_into().unwrap(), &ctm),
+            "m" | "l" => pts.push(at(args[0], args[1], &ctm)),
+            "c" => pts.extend((0..3).map(|i| at(args[2 * i], args[2 * i + 1], &ctm))),
+            "re" => {
+                let (x, y, w, h) = (args[0], args[1], args[2], args[3]);
+                pts.extend([
+                    at(x, y, &ctm),
+                    at(x + w, y, &ctm),
+                    at(x + w, y + h, &ctm),
+                    at(x, y + h, &ctm),
+                ]);
+            }
+            "f" | "f*" | "F" | "S" | "s" | "B" | "B*" | "b" | "b*" | "n" => {
+                out.push(pts.drain(..).map(|p| (p.0, height - p.1)).collect());
+            }
+            _ => {}
+        }
+        args.clear();
+    }
+    out
+}
+
+fn max_diff(a: &[(f64, f64)], b: &[(f64, f64)]) -> f64 {
+    assert_eq!(a.len(), b.len(), "점 수");
+    a.iter()
+        .zip(b)
+        .map(|(p, q)| (p.0 - q.0).abs().max((p.1 - q.1).abs()))
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn 캔버스_쪽은_대지마다_하나이고_쪽_크기가_대지_크기다() {
+    let (s, path) = write_canvas("canvas1.pdf", &canvas_doc());
+    assert_eq!(s.boards.len(), 2);
+    let info = tool("pdfinfo", &[&path]);
+    assert_eq!(field(&info, "Pages"), Some("2"));
+    let sizes = page_sizes(&path, 2);
+    assert_eq!(sizes.len(), 2);
+    for ((sw, sh), b) in sizes.iter().zip(&s.boards) {
+        assert!((sw - f64::from(b.w)).abs() <= 0.01 && (sh - f64::from(b.h)).abs() <= 0.01);
+    }
+    assert_eq!(sizes[0], (200.0, 150.0));
+    assert_eq!(sizes[1], (300.0, 100.0));
+}
+
+#[test]
+fn 캔버스_pdf에서_뽑은_글이_원문과_같다() {
+    let d = canvas_doc();
+    let (_, path) = write_canvas("canvas2.pdf", &d);
+    let text = tool("pdftotext", &["-enc", "UTF-8", &path, "-"]);
+    let want = format!("{}{}", d.text("t").unwrap(), d.text("u").unwrap());
+    assert_eq!(squeeze(&text), squeeze(&want), "{text}");
+}
+
+#[test]
+fn 캔버스_글꼴이_담겨_있다() {
+    let (_, path) = write_canvas("canvas3.pdf", &canvas_doc());
+    let out = tool("pdffonts", &[&path]);
+    let rows: Vec<&str> = out.lines().skip(2).collect();
+    assert_eq!(rows.len(), 2, "굵기 400과 700: {out}");
+    for row in rows {
+        assert!(
+            row.contains("Pretendard") && !row.contains("Type 3"),
+            "{row}"
+        );
+        let f: Vec<&str> = row.split_whitespace().collect();
+        assert_eq!((f[f.len() - 5], f[f.len() - 4]), ("yes", "yes"), "{row}");
+    }
+}
+
+#[test]
+fn 캔버스_pdf의_경로_꼭짓점과_글리프_원점과_링크가_표시_목록과_같다() {
+    let (s, path) = write_canvas("canvas4.pdf", &canvas_doc());
+    let pdf = Pdf::open(&path);
+    let (mut paths, mut glyph_n) = (0, 0);
+    let (mut worst_path, mut worst_glyph) = (0.0_f64, 0.0_f64);
+    for (page, b) in pdf.pages().iter().zip(&s.boards) {
+        let h = f64::from(b.h);
+        let (want_paths, want_glyphs, want_links) = walk(&b.items);
+        let got = path_points(&pdf, page, h);
+        assert_eq!(got.len(), want_paths.len(), "{}: 경로 묶음 수", b.id);
+        for (g, w) in got.iter().zip(&want_paths) {
+            worst_path = worst_path.max(max_diff(g, w));
+        }
+        paths += got.len();
+        let got = origins(&pdf, page, h);
+        worst_glyph = worst_glyph.max(max_diff(&got, &want_glyphs));
+        glyph_n += got.len();
+        // 링크 영역: 돌려도 변환한 경계 상자
+        let annots = page["/Annots"].as_array().cloned().unwrap_or_default();
+        assert_eq!(annots.len(), want_links.len());
+        for (a, w) in annots.iter().zip(&want_links) {
+            let a = pdf.get(a);
+            assert_eq!(pdf.get(&a["/A"])["/URI"], "u:https://example.com/a");
+            let r: Vec<f64> = a["/Rect"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect();
+            let got = [r[0], h - r[3], r[2] - r[0], r[3] - r[1]];
+            for (g, w) in got.iter().zip(w) {
+                assert!((g - w).abs() <= 0.5, "{got:?} / {w:?}");
+            }
+        }
+    }
+    println!("경로 묶음 {paths}개 가장 큰 차이 {worst_path:.6}pt, 글리프 {glyph_n}개 가장 큰 차이 {worst_glyph:.6}pt");
+    assert!(paths >= 12 && glyph_n >= 10);
+    assert!(worst_path <= 0.01, "경로 꼭짓점 {worst_path}pt");
+    assert!(worst_glyph <= 0.001, "글리프 원점 {worst_glyph}pt");
+}
+
+/// P6 PPM 하나: (너비, 높이, 화소 RGB).
+fn ppm(path: &str) -> (usize, usize, Vec<u8>) {
+    let b = std::fs::read(path).unwrap();
+    let mut at = 0;
+    let mut field = || {
+        while b[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        let s = at;
+        while !b[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        String::from_utf8_lossy(&b[s..at]).to_string()
+    };
+    assert_eq!(field(), "P6");
+    let (w, h): (usize, usize) = (field().parse().unwrap(), field().parse().unwrap());
+    assert_eq!(field(), "255");
+    at += 1;
+    (w, h, b[at..].to_vec())
+}
+
+/// 쪽 `n`(1부터)을 72dpi로 그려 (너비, 높이, RGB)로 읽는다.
+fn raster(path: &str, n: usize, name: &str) -> (usize, usize, Vec<u8>) {
+    let out = format!("{}/{name}", env!("CARGO_TARGET_TMPDIR"));
+    let n = n.to_string();
+    tool(
+        "pdftoppm",
+        &["-r", "72", "-f", &n, "-l", &n, "-singlefile", path, &out],
+    );
+    ppm(&format!("{out}.ppm"))
+}
+
+/// 같은 대지를 Skia로 1배율로 그린 (너비, 높이, RGB).
+fn skia(s: &kari_layout::Scene, d: &Document, index: usize) -> (usize, usize, Vec<u8>) {
+    use kari_render::{draw_canvas, Faces, Frame, Images, IMAGE_BUDGET};
+    let files = [
+        font_bytes("Pretendard-Regular.ttf"),
+        font_bytes("Pretendard-Bold.ttf"),
+    ];
+    let faces = Faces::new(files.iter().map(Vec::as_slice));
+    let b = &s.boards[index];
+    let (w, h) = (b.w as i32, b.h as i32);
+    let mut px = vec![0u8; (w * h * 4) as usize];
+    let mut images = Images::new(Box::new(canvas_asset), IMAGE_BUDGET);
+    draw_canvas(
+        Frame {
+            pixels: &mut px,
+            width: w,
+            height: h,
+            stride: (w * 4) as usize,
+            scale: 1.0,
+            scroll_x: b.x,
+            scroll_y: b.y,
+        },
+        &faces,
+        s,
+        [255, 255, 255, 255],
+        &mut images,
+    )
+    .unwrap();
+    let _ = d;
+    let rgb = px.chunks(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+    (w as usize, h as usize, rgb)
+}
+
+#[test]
+fn 화면_그리기와_pdf_래스터가_같은_점에서_같은_색이고_프레임_밖은_둘_다_잘린다() {
+    let d = canvas_doc();
+    let (s, path) = write_canvas("canvas5.pdf", &d);
+    let (w, h, a) = skia(&s, &d, 0);
+    let (pw, ph, b) = raster(&path, 1, "canvas5-p1");
+    assert_eq!((w, h), (pw, ph));
+    let px = |v: &[u8], x: usize, y: usize| -> [i32; 3] {
+        let i = (y * w + x) * 3;
+        [i32::from(v[i]), i32::from(v[i + 1]), i32::from(v[i + 2])]
+    };
+    // 정해 둔 점: 두 그리기가 모두 이 색이다
+    let picks: [((usize, usize), [i32; 3]); 8] = [
+        ((50, 40), [255, 0, 0]),
+        ((150, 40), [0, 0, 255]),
+        ((130, 80), [0, 255, 0]),
+        ((150, 105), [0, 255, 0]),
+        // 프레임 밖으로 나간 자식: 오른쪽, 왼쪽, 아래
+        ((190, 90), [255, 255, 255]),
+        ((115, 75), [255, 255, 255]),
+        ((150, 112), [255, 255, 255]),
+        // 잘린 둥근 모서리: 프레임 왼쪽 위 끝
+        ((120, 70), [255, 255, 255]),
+    ];
+    for (p, want) in picks {
+        for (name, v) in [("화면", &a), ("PDF", &b)] {
+            let got = px(v, p.0, p.1);
+            let ok = got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 6);
+            assert!(ok, "{name} {p:?}: {got:?} != {want:?}");
+        }
+    }
+    // 가장자리 안티앨리어싱만 다르다: 크게 다른 화소는 전체의 1.5% 아래
+    let far = (0..w * h)
+        .filter(|i| (0..3).any(|c| (i32::from(a[i * 3 + c]) - i32::from(b[i * 3 + c])).abs() > 64))
+        .count();
+    println!("크게 다른 화소 {far} / {}", w * h);
+    assert!(far * 1000 < w * h * 15, "크게 다른 화소 {far} / {}", w * h);
+}
+
+#[test]
+fn 반투명_묶음은_pdf에서도_회색으로_합성된다() {
+    let mut d = Document::new(Kind::Canvas, "반투명").unwrap();
+    let ops = json!([
+        {"op": "set", "id": "n1", "props": {"w": 60, "h": 40}},
+        {"op": "add", "node": {"id": "r", "type": "rect", "parent": "n1", "props": {"x": 10, "y": 10, "w": 20, "h": 20, "opacity": 0.5, "fills": [{"type": "SOLID", "color": "#000000FF"}], "strokes": [{"type": "SOLID", "color": "#000000FF"}], "stroke": {"weight": 2, "align": "INSIDE"}}}},
+        {"op": "add", "node": {"id": "q", "type": "rect", "parent": "n1", "props": {"x": 35, "y": 10, "w": 20, "h": 20, "opacity": 0.5, "fills": [{"type": "SOLID", "color": "#000000FF"}]}}},
+    ]);
+    d.apply(&ops, Guard::default()).unwrap();
+    let (s, path) = write_canvas("canvas6.pdf", &d);
+    let (w, _, b) = raster(&path, 1, "canvas6-p1");
+    let (_, _, a) = skia(&s, &d, 0);
+    // 칠과 선이 함께인 것은 묶음 하나로, 칠만인 것은 알파에 곱해 합성한다
+    for (name, v) in [("화면", &a), ("PDF", &b)] {
+        for x in [20, 45] {
+            let got = i32::from(v[(20 * w + x) * 3]);
+            assert!((got - 128).abs() <= 3, "{name} {x}: {got}");
+        }
+    }
+}
+
+#[test]
+fn 캔버스_pdf는_같은_입력이면_같은_바이트이고_대지가_없거나_너무_작으면_오류다() {
+    let d = canvas_doc();
+    let (l, s) = canvas_scene(&d);
+    let go = |s: &kari_layout::Scene| kari_pdf::export_canvas(&d, s, l.fonts(), &META, &|_| None);
+    assert_eq!(go(&s).unwrap(), go(&s).unwrap());
+    assert!(matches!(
+        go(&kari_layout::Scene::default()),
+        Err(Error::Pdf(_))
+    ));
+    let mut tiny = s.clone();
+    tiny.boards[0].w = 1.0;
+    assert_eq!(go(&tiny), Err(Error::Page));
+}
+
+/// (너비, 높이, RGB).
+type Shot = (usize, usize, Vec<u8>);
+
+/// 두 그리기의 (너비, 높이, RGB)에서 같은 점의 색이 `tol` 안에서 같고 `want`와도 맞는지 본다.
+fn check_points(
+    name: &str,
+    shots: [(&str, &Shot); 2],
+    picks: &[((usize, usize), [i32; 3])],
+    tol: i32,
+) {
+    for (who, (w, _, v)) in shots {
+        for (p, want) in picks {
+            let i = (p.1 * w + p.0) * 3;
+            let got = [i32::from(v[i]), i32::from(v[i + 1]), i32::from(v[i + 2])];
+            assert!(
+                got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol),
+                "{name} {who} {p:?}: {got:?} != {want:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn 잘라낸_프레임_안의_png_채우기와_jpeg_맞추기가_화면과_pdf에서_같다() {
+    let mut d = Document::new(Kind::Canvas, "그림").unwrap();
+    let img = |a: &str, mode: &str| json!([{"type": "IMAGE", "asset": a.repeat(64), "mode": mode}]);
+    let ops = json!([
+        {"op": "set", "id": "n1", "props": {"w": 140, "h": 80}},
+        {"op": "add", "node": {"id": "f", "type": "frame", "parent": "n1", "props": {"x": 10, "y": 10, "w": 80, "h": 40, "fills": [{"type": "SOLID", "color": "#EEEEEEFF"}]}}},
+        {"op": "add", "node": {"id": "p1", "type": "rect", "parent": "f", "props": {"x": 0, "y": 0, "w": 40, "h": 40, "fills": img("a", "FILL")}}},
+        {"op": "add", "node": {"id": "p2", "type": "rect", "parent": "f", "props": {"x": 40, "y": 0, "w": 40, "h": 40, "fills": img("b", "FIT")}}},
+        {"op": "add", "node": {"id": "p3", "type": "rect", "parent": "f", "props": {"x": 70, "y": 20, "w": 40, "h": 40, "fills": img("a", "FILL")}}},
+    ]);
+    d.apply(&ops, Guard::default()).unwrap();
+    let (s, path) = write_canvas("canvas7.pdf", &d);
+    // 목록에 그림 셋이 있고 PDF에 그림 개체가 셋 든다
+    let n = s.boards[0]
+        .items
+        .iter()
+        .filter(|i| matches!(i, Item::Image { .. }))
+        .count();
+    assert_eq!(n, 3);
+    let screen = skia(&s, &d, 0);
+    let pdf = raster(&path, 1, "canvas7-p1");
+    // 틀 (10, 10) 기준. 채우기: 40x20을 40x40에 덮어 가운데를 자른다(빨강 | 파랑). 맞추기: 20x40이 가운데에 들고
+    // 양옆은 틀의 회색. 틀 밖으로 나간 셋째 그림은 잘린다(틀 오른쪽 바깥은 대지의 흰색).
+    let picks = [
+        ((20, 30), [255, 0, 0]),
+        ((40, 30), [0, 0, 255]),
+        ((55, 30), [238, 238, 238]),
+        ((70, 30), [0, 200, 0]),
+        ((100, 40), [255, 255, 255]),
+        ((100, 60), [255, 255, 255]),
+    ];
+    check_points("그림", [("화면", &screen), ("PDF", &pdf)], &picks, 14);
+}
+
+#[test]
+fn 크기가_없는_프레임의_자식은_화면과_pdf_모두에서_보이지_않는다() {
+    for (w, h) in [(0, 40), (40, 0), (0, 0)] {
+        let mut d = Document::new(Kind::Canvas, "빈 프레임").unwrap();
+        let ops = json!([
+            {"op": "set", "id": "n1", "props": {"w": 80, "h": 80}},
+            {"op": "add", "node": {"id": "f", "type": "frame", "parent": "n1", "props": {"x": 10, "y": 10, "w": w, "h": h}}},
+            {"op": "add", "node": {"id": "c", "type": "rect", "parent": "f", "props": {"x": 0, "y": 0, "w": 50, "h": 50, "fills": [{"type": "SOLID", "color": "#FF0000FF"}]}}},
+        ]);
+        d.apply(&ops, Guard::default()).unwrap();
+        let (s, path) = write_canvas("canvas8.pdf", &d);
+        let screen = skia(&s, &d, 0);
+        let pdf = raster(&path, 1, "canvas8-p1");
+        let white = [255, 255, 255];
+        let picks = [((20, 20), white), ((40, 40), white), ((55, 55), white)];
+        check_points(
+            &format!("{w}x{h}"),
+            [("화면", &screen), ("PDF", &pdf)],
+            &picks,
+            2,
+        );
+    }
+}

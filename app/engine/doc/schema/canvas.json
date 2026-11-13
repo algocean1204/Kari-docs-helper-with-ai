@@ -111,7 +111,7 @@
     },
     "text": {
       "runs": {"kind": "array", "default": [{"t": ""}]},
-      "style": {"kind": "object", "default": {"font": "Inter", "weight": 400, "italic": false, "size": 24, "lineHeight": {"unit": "AUTO", "value": 0}, "letterSpacing": {"unit": "PERCENT", "value": 0}, "decoration": "NONE", "case": "ORIGINAL"}},
+      "style": {"kind": "object", "default": {"font": "Pretendard", "weight": 400, "italic": false, "size": 24, "lineHeight": {"unit": "AUTO", "value": 0}, "letterSpacing": {"unit": "PERCENT", "value": 0}, "decoration": "NONE", "case": "ORIGINAL"}},
       "paras": {"kind": "array", "default": []},
       "autoResize": {"kind": "enum", "enum": "autoResize", "default": "WIDTH_AND_HEIGHT"},
       "maxLines": {"kind": "int", "min": 0, "default": 0},

@@ -10,6 +10,7 @@ mod nav;
 mod page;
 mod para;
 mod query;
+mod scene;
 mod style;
 mod table;
 
@@ -18,6 +19,7 @@ use std::fmt;
 pub use fonts::Fonts;
 pub use layouter::Layouter;
 pub use layouter::{ordered_text, BULLETS};
+pub use scene::{Board, Scene};
 pub use style::{char_style, CharStyle, List, ListKind, Side, Vertical, SIDES};
 pub use table::{cell_lines, cell_of, flow_paras, resolve, table_grid, Anchor, Grid, Line};
 
@@ -248,6 +250,60 @@ pub enum Item {
     Link { rect: [f32; 4], url: String },
     /// 그림. `asset`은 저장소 에셋의 내용 해시다.
     Image { rect: [f32; 4], asset: String },
+    /// 경로 하나. 칠을 먼저, 선을 그 위에 그린다. 캔버스 문서에서만 나온다.
+    Path {
+        path: Vec<Seg>,
+        fill: Option<[u8; 4]>,
+        stroke: Option<Stroke>,
+    },
+    /// 묶음을 연다. 변환 → 잘라내기 → 불투명도 순으로 겹쳐 쌓이고, 짝이 되는 `Pop`까지의 항목이 그 안에 든다.
+    /// `transform`은 [a, b, c, d, e, f](x' = a·x + c·y + e, y' = b·x + d·y + f)이고, `clip`은 변환한 뒤의
+    /// 좌표계로 적는다. `opacity`가 1보다 작으면 묶음을 하나로 합성해 그 값을 곱한다. `bounds`는 묶음 안의 그림이
+    /// 닿는 범위 [x, y, w, h](변환한 좌표계)로, 합성하는 층의 크기를 줄이는 데 쓴다(없으면 잘라낸 영역 전체).
+    /// 캔버스 문서에서만 나온다.
+    Push {
+        transform: [f32; 6],
+        clip: Option<Vec<Seg>>,
+        opacity: f32,
+        bounds: Option<[f32; 4]>,
+    },
+    /// 가장 가까운 `Push`를 닫는다.
+    Pop,
+}
+
+/// 경로의 한 마디. 좌표는 그 경로가 든 묶음의 좌표계다. 둥근 모서리와 타원도 3차 베지어로 풀어 내서
+/// 화면과 PDF가 같은 꼭짓점을 받는다.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Seg {
+    Move([f32; 2]),
+    Line([f32; 2]),
+    /// 두 제어점과 끝점.
+    Cubic([f32; 2], [f32; 2], [f32; 2]),
+    Close,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cap {
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Join {
+    Miter,
+    Round,
+    Bevel,
+}
+
+/// 선 모양. 경로의 가운데를 따라 `width`로 긋는다.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stroke {
+    pub width: f32,
+    pub color: [u8; 4],
+    pub cap: Cap,
+    pub join: Join,
+    pub miter: f32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
