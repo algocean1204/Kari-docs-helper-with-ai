@@ -9,7 +9,7 @@
   스크립트용 제외). 라이선스 글은 각 크레이트 폴더(~/.cargo/registry/src/...)의 LICENSE*, COPYING*, NOTICE*.
 - Dart: app/.dart_tool/package_graph.json과 package_config.json(`flutter pub get`이 만든다). kari의
   dependencies만 따라간다(dev_dependencies 제외). 라이선스 글은 각 패키지 폴더의 LICENSE*.
-- Skia와 Skia가 품은 라이브러리: skia-bindings 크레이트 안의 skia/ 폴더.
+- Skia와 Skia가 품은 라이브러리: app/scripts/licenses/skia-bindings-<판>/skia/에 둔 그 판의 라이선스 글.
 - 글꼴: app/assets/fonts/Pretendard-LICENSE.txt.
 - 지식 팩의 출처: app/engine/interview/pack/의 source 항목.
 """
@@ -217,8 +217,9 @@ def others():
     rows = [{"name": "Pretendard", "version": "글꼴", "license": "OFL-1.1",
              "url": "https://github.com/orioncactus/pretendard",
              "files": [FONTS / "Pretendard-LICENSE.txt"], "note": "앱에 넣은 글꼴", "folder": None}]
-    reg = Path.home() / ".cargo/registry/src"
-    skia = sorted(reg.glob("*/skia-bindings-*/skia"))
+    # Skia와 그 안의 라이브러리의 라이선스 글은 크레이트 꾸러미에 없다(Skia 소스를 받아 빌드한 기기에만 생긴다).
+    # 그래서 그 판의 글을 저장소에 둔 사본에서 읽는다. skia-bindings의 판을 올리면 이 폴더도 새 판의 글로 바꾼다.
+    skia = sorted((HERE / "licenses").glob("skia-bindings-*/skia"))
     for name, lic, url, rel in SKIA_PARTS:
         files = [skia[-1] / r for r in rel if skia and (skia[-1] / r).is_file()]
         rows.append({"name": name, "version": "skia-bindings에 포함", "license": lic, "url": url,
