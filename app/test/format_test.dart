@@ -472,14 +472,36 @@ void main() {
       ]) {
         expect(meta(k, shift: true), {'k': 'setPara', 'align': a});
       }
-      expect(meta(LogicalKeyboardKey.period), {
-        'k': 'toggleVertical',
-        'to': 'super',
-      });
-      expect(meta(LogicalKeyboardKey.comma), {
+      // ⌃⌘+ ⌃⌘−: 위·아래 첨자. +는 글자판에 따라 ⇧와 =로도, +로도 온다.
+      Json? ctrl(LogicalKeyboardKey k, {bool shift = false}) =>
+          keyCommand(k, meta: true, control: true, shift: shift);
+      const sup = {'k': 'toggleVertical', 'to': 'super'};
+      expect(ctrl(LogicalKeyboardKey.equal, shift: true), sup);
+      expect(ctrl(LogicalKeyboardKey.add, shift: true), sup);
+      expect(ctrl(LogicalKeyboardKey.add), sup);
+      expect(ctrl(LogicalKeyboardKey.minus), {
         'k': 'toggleVertical',
         'to': 'sub',
       });
+      expect(ctrl(LogicalKeyboardKey.equal), isNull);
+      // macOS가 정해 둔 키는 앱이 받지 않는다(메뉴와 시스템으로 간다):
+      // ⌘, 설정, ⌘. 취소, ⌘Q 끝내기, ⌘H 가리기, ⌘M 최소화, ⌘W 닫기, ⌘Space·⌃⌘Space 입력기.
+      for (final (k, control) in [
+        (LogicalKeyboardKey.comma, false),
+        (LogicalKeyboardKey.period, false),
+        (LogicalKeyboardKey.keyQ, false),
+        (LogicalKeyboardKey.keyH, false),
+        (LogicalKeyboardKey.keyM, false),
+        (LogicalKeyboardKey.keyW, false),
+        (LogicalKeyboardKey.space, false),
+        (LogicalKeyboardKey.space, true),
+      ]) {
+        expect(
+          keyCommand(k, meta: true, control: control),
+          isNull,
+          reason: '${control ? '⌃' : ''}⌘${k.keyLabel}',
+        );
+      }
       expect(meta(LogicalKeyboardKey.backslash), {'k': 'clearChar'});
       expect(meta(LogicalKeyboardKey.enter), {'k': 'pageBreak'});
       expect(meta(LogicalKeyboardKey.numpadEnter), {'k': 'pageBreak'});
@@ -493,8 +515,11 @@ void main() {
 
     testWidgets('종이에서 단축키가 명령이 되고, 첨자는 켜고 끈다', (tester) async {
       final (rig, _) = await openCv(tester);
-      Future<void> press(LogicalKeyboardKey k, {bool shift = false}) =>
-          shortcut(tester, k, shift: shift);
+      Future<void> press(
+        LogicalKeyboardKey k, {
+        bool shift = false,
+        bool control = false,
+      }) => shortcut(tester, k, shift: shift, control: control);
       await press(LogicalKeyboardKey.period, shift: true);
       expect(lastCmd(rig), {'k': 'setChar', 'sizeStep': 1});
       expect(tester.widget<TextField>(sizeField()).controller!.text, '11');
@@ -502,11 +527,11 @@ void main() {
       expect(tester.widget<TextField>(sizeField()).controller!.text, '10.5');
       await press(LogicalKeyboardKey.keyE, shift: true);
       expect(lastCmd(rig), {'k': 'setPara', 'align': 'center'});
-      await press(LogicalKeyboardKey.period);
+      await press(LogicalKeyboardKey.equal, shift: true, control: true);
       expect(lastCmd(rig), {'k': 'setChar', 'vertical': 'super'});
-      await press(LogicalKeyboardKey.period);
+      await press(LogicalKeyboardKey.equal, shift: true, control: true);
       expect(lastCmd(rig), {'k': 'setChar', 'vertical': 'none'});
-      await press(LogicalKeyboardKey.comma);
+      await press(LogicalKeyboardKey.minus, control: true);
       expect(lastCmd(rig), {'k': 'setChar', 'vertical': 'sub'});
       await press(LogicalKeyboardKey.backslash);
       expect(lastCmd(rig), {'k': 'clearChar'});
@@ -516,12 +541,13 @@ void main() {
 
     testWidgets('조합 중에 눌러도 조합 글을 먼저 확정한다', (tester) async {
       final (rig, id) = await openCv(tester);
-      for (final (key, shift, want) in [
-        (LogicalKeyboardKey.period, false, 'setChar'),
-        (LogicalKeyboardKey.period, true, 'setChar'),
-        (LogicalKeyboardKey.keyE, true, 'setPara'),
-        (LogicalKeyboardKey.backslash, false, 'clearChar'),
-        (LogicalKeyboardKey.enter, false, 'pageBreak'),
+      for (final (key, shift, control, want) in [
+        (LogicalKeyboardKey.equal, true, true, 'setChar'),
+        (LogicalKeyboardKey.minus, false, true, 'setChar'),
+        (LogicalKeyboardKey.period, true, false, 'setChar'),
+        (LogicalKeyboardKey.keyE, true, false, 'setPara'),
+        (LogicalKeyboardKey.backslash, false, false, 'clearChar'),
+        (LogicalKeyboardKey.enter, false, false, 'pageBreak'),
       ]) {
         final text = (await stateOf(rig, id)).imeText;
         tester.testTextInput.updateEditingValue(
@@ -532,7 +558,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await shortcut(tester, key, shift: shift);
+        await shortcut(tester, key, shift: shift, control: control);
         expect((await stateOf(rig, id)).imeText, '$textㅎ', reason: want);
         expect(lastCmd(rig)['k'], want);
         final sent = tester.testTextInput.log.lastWhere(

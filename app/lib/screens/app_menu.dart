@@ -356,13 +356,14 @@ List<MenuEntry> appMenus({
       MenuEntry.divider,
       MenuEntry(
         '위 첨자',
-        keys: _meta(LogicalKeyboardKey.period),
+        // 글자로 걸어야 macOS 메뉴에 Pages처럼 ⌃⌘+로 보이고 ⇧=로 눌린다.
+        keys: const CharacterActivator('+', meta: true, control: true),
         run: send({'k': 'toggleVertical', 'to': 'super'}),
         checked: st?.chars.vertical == 'super',
       ),
       MenuEntry(
         '아래 첨자',
-        keys: _meta(LogicalKeyboardKey.comma),
+        keys: _meta(LogicalKeyboardKey.minus, control: true),
         run: send({'k': 'toggleVertical', 'to': 'sub'}),
         checked: st?.chars.vertical == 'sub',
       ),

@@ -70,12 +70,15 @@ Future<void> shortcut(
   WidgetTester tester,
   LogicalKeyboardKey key, {
   bool shift = false,
+  bool control = false,
 }) async {
+  if (control) await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
   await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
   if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
   await tester.sendKeyEvent(key);
   if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
   await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+  if (control) await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
   await tester.pumpAndSettle();
 }
 

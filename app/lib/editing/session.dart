@@ -329,7 +329,7 @@ class EditSession extends ChangeNotifier
   }
 
   /// 편집 명령(JSON). 누르기와 끌기는 [scrollY]가 필요하다.
-  /// `toggleVertical`(⌘. ⌘,)은 앱의 명령이다: 지금 첨자가 그 쪽이면 끄고, 아니면 켠다.
+  /// `toggleVertical`(⌃⌘+ ⌃⌘−)은 앱의 명령이다: 지금 첨자가 그 쪽이면 끄고, 아니면 켠다.
   Future<void> cmd(Json c, {double? scrollY}) {
     if (c['k'] == 'toggleVertical') {
       final to = c['to'];

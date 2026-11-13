@@ -79,7 +79,10 @@ Future<void> _pick(WidgetTester tester, _Delegate d, List<String> path) async {
 
 /// 단축키 표시(⌃⌥⇧⌘ + 글쇠).
 String _keys(MenuSerializableShortcut? k) {
-  if (k is CharacterActivator) return '⌘${k.character}';
+  if (k is CharacterActivator) {
+    return '${k.control ? '⌃' : ''}${k.alt ? '⌥' : ''}${k.meta ? '⌘' : ''}'
+        '${k.character}';
+  }
   if (k is! SingleActivator) return '';
   final names = {
     LogicalKeyboardKey.add: '+',
@@ -219,8 +222,8 @@ void main() {
         '기울임 ⌘I',
         '밑줄 ⌘U',
         '취소선 ⇧⌘X',
-        '위 첨자 ⌘.',
-        '아래 첨자 ⌘,',
+        '위 첨자 ⌃⌘+',
+        '아래 첨자 ⌃⌘−',
         '글자 크게 ⌘>',
         '글자 작게 ⌘<',
         '대소문자',
@@ -266,6 +269,63 @@ void main() {
         ],
         ['2026-11-11', '2026. 11. 11.', '2026년 11월 11일'],
       );
+    });
+
+    testWidgets('같은 단축키가 두 항목에 걸리지 않고, macOS가 정해 둔 키는 그 항목에만 있다', (
+      tester,
+    ) async {
+      final (_, d) = await _open(tester);
+      // macOS가 주는 항목의 키.
+      const provided = {
+        PlatformProvidedMenuItemType.hide: '⌘H',
+        PlatformProvidedMenuItemType.hideOtherApplications: '⌥⌘H',
+        PlatformProvidedMenuItemType.quit: '⌘Q',
+        PlatformProvidedMenuItemType.minimizeWindow: '⌘M',
+        PlatformProvidedMenuItemType.toggleFullScreen: '⌃⌘F',
+      };
+      // macOS가 정해 둔 키와 그 키를 가질 수 있는 항목(null이면 메뉴 막대의 어느 항목도 갖지 않는다).
+      const reserved = {
+        '⌘,': 'Kari/설정…',
+        '⌘Q': 'Kari/[quit]',
+        '⌘H': 'Kari/[hide]',
+        '⌘M': '창/[minimizeWindow]',
+        '⌘W': null,
+        '⌘.': null,
+        '⌘ ': null,
+        '⌃⌘ ': null,
+      };
+      final owners = <String, List<String>>{};
+      void walk(List<PlatformMenuItem> xs, String at) {
+        for (final x in _flat(xs)) {
+          final path = at.isEmpty ? _name(x) : '$at/${_name(x)}';
+          if (x is PlatformMenu) {
+            walk(x.menus, path);
+            continue;
+          }
+          final k = x is PlatformProvidedMenuItem
+              ? provided[x.type]
+              : _keys(x.shortcut);
+          if (k != null && k.isNotEmpty) (owners[k] ??= []).add(path);
+        }
+      }
+
+      walk(d.menus, '');
+      expect(owners, isNotEmpty);
+      expect(
+        {
+          for (final e in owners.entries)
+            if (e.value.length > 1) e.key: e.value,
+        },
+        isEmpty,
+        reason: '같은 키가 두 항목에',
+      );
+      for (final MapEntry(key: k, value: only) in reserved.entries) {
+        expect(
+          owners[k] ?? const <String>[],
+          only == null ? isEmpty : [only],
+          reason: k,
+        );
+      }
     });
 
     testWidgets('편집 화면 밖과 대화 상자 중에는 문서 명령이 꺼진다', (tester) async {
@@ -368,12 +428,17 @@ void main() {
             (
               ['서식', '위 첨자'],
               () => format('위 첨자'),
-              () => shortcut(tester, LogicalKeyboardKey.period),
+              () => shortcut(
+                tester,
+                LogicalKeyboardKey.equal,
+                shift: true,
+                control: true,
+              ),
             ),
             (
               ['서식', '아래 첨자'],
               () => format('아래 첨자'),
-              () => shortcut(tester, LogicalKeyboardKey.comma),
+              () => shortcut(tester, LogicalKeyboardKey.minus, control: true),
             ),
             (
               ['서식', '정렬', '가운데'],

@@ -528,8 +528,8 @@ class _FormatMenuState extends State<_FormatMenu> {
       controller: _menu,
       shortcuts: const {
         '취소선': '⇧⌘X',
-        '위 첨자': '⌘.',
-        '아래 첨자': '⌘,',
+        '위 첨자': '⌃⌘+',
+        '아래 첨자': '⌃⌘−',
         '쪽 나누기': '⌘↩',
         '서식 지우기': '⌘\\',
       },

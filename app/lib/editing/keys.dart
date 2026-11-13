@@ -62,6 +62,16 @@ Json? keyCommand(
   if (control && !meta && !alt && key == LogicalKeyboardKey.tab) {
     return {'k': shift ? 'previous' : 'next'};
   }
+  // ⌃⌘+ 위 첨자, ⌃⌘− 아래 첨자(Pages와 같다). ⌘.은 macOS의 취소, ⌘,는 설정이라 비워 둔다.
+  // +는 ⇧=로 치므로 글자판에 따라 ⇧와 =로도, +로도 온다.
+  if (control && meta && !alt) {
+    return switch (key) {
+      LogicalKeyboardKey.equal when shift => _vertical('super'),
+      LogicalKeyboardKey.add => _vertical('super'),
+      LogicalKeyboardKey.minus when !shift => _vertical('sub'),
+      _ => null,
+    };
+  }
   if (control) return null;
   // ⌥⌘G: 쪽으로 가기 창. ⌥⌘O: 개요 패널.
   if (meta && alt && !shift && key == LogicalKeyboardKey.keyG) {
@@ -101,8 +111,6 @@ Json? keyCommand(
       LogicalKeyboardKey.greater => _sizeStep(1),
       LogicalKeyboardKey.comma when shift => _sizeStep(-1),
       LogicalKeyboardKey.less => _sizeStep(-1),
-      LogicalKeyboardKey.period => _vertical('super'),
-      LogicalKeyboardKey.comma => _vertical('sub'),
       LogicalKeyboardKey.keyL when shift => _align('left'),
       LogicalKeyboardKey.keyE when shift => _align('center'),
       LogicalKeyboardKey.keyR when shift => _align('right'),

@@ -511,12 +511,20 @@ void main() {
   ) async {
     await newDoc(tester);
     EditState st() => paperOf(tester).session.state!;
-    Future<void> keys(LogicalKeyboardKey key, {bool shift = false}) async {
+    Future<void> keys(
+      LogicalKeyboardKey key, {
+      bool shift = false,
+      bool control = false,
+    }) async {
+      if (control) {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      }
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
       await tester.sendKeyEvent(key);
       if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      if (control) await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     }
 
     typeAll('이력서 첫 줄');
@@ -538,10 +546,10 @@ void main() {
     await tester.tap(find.byTooltip('빨강'));
     await until(tester, () async => st().chars.color == '#C00000', '글자색');
 
-    // ⌘.: 위 첨자 켜고 끄기.
-    await keys(LogicalKeyboardKey.period);
+    // ⌃⌘+(⌃⇧⌘=): 위 첨자 켜고 끄기.
+    await keys(LogicalKeyboardKey.equal, shift: true, control: true);
     await until(tester, () async => st().chars.vertical == 'super', '위 첨자');
-    await keys(LogicalKeyboardKey.period);
+    await keys(LogicalKeyboardKey.equal, shift: true, control: true);
     await until(tester, () async => st().chars.vertical == 'none', '위 첨자 끄기');
 
     // 서식 → 문단 모양…: 문단 앞 간격 6pt.

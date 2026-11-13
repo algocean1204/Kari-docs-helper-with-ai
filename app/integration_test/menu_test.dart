@@ -92,6 +92,7 @@ bool logKey(KeyEvent e) {
         if (k.isMetaPressed) 'meta',
         if (k.isShiftPressed) 'shift',
         if (k.isAltPressed) 'alt',
+        if (k.isControlPressed) 'control',
       ].join('+'),
     );
   }
@@ -105,18 +106,24 @@ Future<void> press(
   String key, {
   bool shift = false,
   bool alt = false,
+  bool ctrl = false,
   bool cmd = true,
   String? shifted,
 }) async {
   // 어디까지 갔는지 남긴다(앱이 도중에 멈추면 기록에 마지막 키가 보인다).
   // ignore: avoid_print
-  print('KARI_STEP key $key shift=$shift alt=$alt cmd=$cmd');
+  print('KARI_STEP key $key shift=$shift alt=$alt ctrl=$ctrl cmd=$cmd');
   final chars = shifted ?? (shift ? key.toUpperCase() : key);
   final ok = await menuTest.invokeMethod<bool>('key', {
     'code': codes[key],
     'chars': chars,
     'plain': chars,
-    'mods': [if (cmd) 'cmd', if (shift) 'shift', if (alt) 'alt'],
+    'mods': [
+      if (cmd) 'cmd',
+      if (shift) 'shift',
+      if (alt) 'alt',
+      if (ctrl) 'ctrl',
+    ],
   });
   expect(ok, isTrue, reason: '키를 보내지 못했다(앱 창이 없다)');
   await pump(tester, const Duration(milliseconds: 200));
@@ -125,7 +132,12 @@ Future<void> press(
   // ignore: avoid_print
   print('KARI_ROUTE key ${jsonEncode(key)} app=$route flutter=$flutterKeys');
   // 실제 자판처럼 Flutter도 키를 그 수정 키와 함께 받는다.
-  final want = [if (cmd) 'meta', if (shift) 'shift', if (alt) 'alt'].join('+');
+  final want = [
+    if (cmd) 'meta',
+    if (shift) 'shift',
+    if (alt) 'alt',
+    if (ctrl) 'control',
+  ].join('+');
   final got = [
     for (final k in flutterKeys)
       if (!_modifierKey.hasMatch(k)) k.split('+').skip(1).join('+'),
@@ -298,9 +310,16 @@ void main() {
       () => press(tester, 'x', shift: true),
       () => cmds('toggle'),
     );
-    for (final k in ['.', ',']) {
-      await once('⌘$k', () => press(tester, k), () => cmds('setChar'));
-    }
+    await once(
+      '⌃⌘+',
+      () => press(tester, '=', shift: true, ctrl: true, shifted: '+'),
+      () => cmds('setChar'),
+    );
+    await once(
+      '⌃⌘−',
+      () => press(tester, '-', ctrl: true),
+      () => cmds('setChar'),
+    );
     for (final (k, s) in [('.', '>'), (',', '<')]) {
       await once(
         '⇧⌘$s',
