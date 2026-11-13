@@ -329,10 +329,12 @@ fn generated(item: Item, src: &str) -> Option<Item> {
 }
 
 pub struct Layouter {
-    fonts: Fonts,
-    lcx: LayoutContext<u32>,
+    pub(crate) fonts: Fonts,
+    pub(crate) lcx: LayoutContext<u32>,
     pub(crate) cache: IdMap<(Key, ParaBox)>,
-    gen: u64,
+    /// 캔버스 글 상자: 노드 id → (노드의 rev, 배치한 상자).
+    pub(crate) boxes: IdMap<(u64, crate::scene::TextBox)>,
+    pub(crate) gen: u64,
     out: Layout,
     sigs: Vec<Sig>,
     /// 머리글·바닥글 설정과 그 모양 잡은 글. 루트의 rev가 바뀌면 버린다.
@@ -383,6 +385,7 @@ impl Layouter {
             fonts,
             lcx: LayoutContext::new(),
             cache: IdMap::default(),
+            boxes: IdMap::default(),
             gen: 0,
             out: Layout::default(),
             sigs: Vec::new(),
@@ -816,6 +819,11 @@ impl Layouter {
             }
         }
         best.map(|(_, e)| e)
+    }
+
+    /// 지금까지 문단(캔버스는 글 상자)을 새로 배치한 횟수. 캐시가 맞았는지 가르는 데 쓴다.
+    pub fn built(&self) -> u64 {
+        self.gen
     }
 
     /// 배치에 쓰는 글꼴.

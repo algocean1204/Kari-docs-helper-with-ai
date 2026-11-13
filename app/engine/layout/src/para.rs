@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use kari_doc::serde_json::Value;
+use kari_doc::serde_json::{Map, Value};
 use kari_doc::Document;
 use parley::{
     Alignment, AlignmentOptions, Cluster, FontFamily, FontFamilyName, FontStyle, FontWeight,
@@ -168,7 +168,7 @@ pub(crate) fn build(
     doc: &Document,
     root: &str,
     id: &str,
-    (body_w, body_h): (f32, f32),
+    body: (f32, f32),
     overlay: Option<&Overlay>,
     gen: u64,
 ) -> ParaBox {
@@ -178,6 +178,21 @@ pub(crate) fn build(
         .and_then(Value::as_array)
         .unwrap_or(&empty);
     let (base, pf) = para_styles(doc, root, id);
+    build_from(cx, runs, &base, pf, id, body, overlay, gen)
+}
+
+/// 글 조각(`runs`), 기준 글자 모양, 문단 모양을 받아 문단 하나를 배치한다. 흐름의 문단과 캔버스의 글 상자가 함께 쓴다.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_from(
+    cx: Cx,
+    runs: &[Value],
+    base: &Map<String, Value>,
+    pf: ParaFormat,
+    id: &str,
+    (body_w, body_h): (f32, f32),
+    overlay: Option<&Overlay>,
+    gen: u64,
+) -> ParaBox {
     let src: String = runs
         .iter()
         .filter_map(|r| r.get("t").and_then(Value::as_str))
@@ -241,7 +256,7 @@ pub(crate) fn build(
         let mut style = match &cache {
             Some((k, st)) if *k == *s => st.clone(),
             _ => {
-                let st = char_style(&base, *s);
+                let st = char_style(base, *s);
                 cache = Some((*s, st.clone()));
                 st
             }
@@ -273,7 +288,7 @@ pub(crate) fn build(
         segs.push(Seg {
             start: 0,
             end: 0,
-            style: char_style(&base, None),
+            style: char_style(base, None),
             link: None,
             obj: false,
             asset: None,
@@ -370,7 +385,7 @@ pub(crate) fn build(
     let (lo, hi) = if lo.is_finite() { (lo, hi) } else { (0.0, 0.0) };
     let base_w = (body_w - pf.left - pf.right).clamp(1.0, 1_000_000.0);
     layout.set_text_indent(pf.first, IndentOptions::default());
-    let base_cs = char_style(&base, None);
+    let base_cs = char_style(base, None);
     // 줄마다 마지막 묶음의 자간(없는 줄은 가장 작은 자간). 섞인 문단은 나눈 결과로 다시 나누기를 되풀이한다.
     // 한계: 세 번 안에 줄 끝이 바뀌지 않게 되지 않으면 마지막 결과를 쓴다(줄 끝이 자간 차이만큼 어긋날 수 있다)
     let mut extra: Vec<f32> = Vec::new();

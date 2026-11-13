@@ -240,6 +240,16 @@ pub(crate) fn page_digest(page: &Page) -> [u8; 32] {
                 rect.iter().for_each(|v| put_f(&mut h, *v));
                 h.update(asset.as_bytes());
             }
+            // 캔버스 항목은 흐름에 나오지 않는다. 해시를 쓰는 곳이 없어도 종류가 다르면 값이 달라지게만 한다.
+            Item::Path { path, fill, stroke } => {
+                h.update([5u8]);
+                h.update(format!("{path:?}{fill:?}{stroke:?}"));
+            }
+            push @ Item::Push { .. } => {
+                h.update([6u8]);
+                h.update(format!("{push:?}"));
+            }
+            Item::Pop => h.update([7u8]),
         }
     }
     h.finalize().into()
@@ -299,6 +309,8 @@ pub(crate) fn shift(item: &Item, dx: f32, dy: f32) -> Item {
             rect: mv(rect),
             asset: asset.clone(),
         },
+        // 줄 기준 항목에는 나오지 않는다.
+        other => other.clone(),
     }
 }
 
