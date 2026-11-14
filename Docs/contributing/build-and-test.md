@@ -92,6 +92,15 @@ KARI_TEST_BACKGROUND=1 flutter test integration_test/app_test.dart -d macos   # 
 KARI_TEST_BACKGROUND=1 flutter test integration_test/canvas_test.dart -d macos   # 캔버스 문서: 사각형·글 상자(한글)·옮기기·크기·되돌리기·돌리기·맞춤·복사와 붙여넣기·PDF
 ```
 
+## 시연 그림 다시 만들기
+
+README의 대표 그림과 기능 표의 움직이는 그림(`Docs/assets/readme/`)은 `app/scripts/demo.sh`로 다시 만든다. 화면이나 기능이 바뀌면 다시 돌려 그림을 맞춘다. 창을 띄우지 않는다: 위젯 시험 `app/test/demo/demo_test.dart`가 문서와 캔버스는 진짜 엔진으로, 면접과 리포트는 흉내 엔진으로 앱을 그리고, 1/30초씩 시계를 보내며 프레임을 PNG로 남긴다. 마우스 커서와 누름 표시, 단축키 표시는 시험이 그 위에 그리고, 누르기와 글자 입력(한글은 자모 조합 과정까지)은 같은 자리에 진짜 이벤트로 보낸다. 스크립트는 프레임을 `ffmpeg`와 `img2webp`(`brew install ffmpeg webp`)로 기능마다의 `webp`와 멈춘 그림(`poster.jpg`, 클립에서 고른 한 장면)으로 묶고, 처음부터 끝까지 이은 영상을 `.cache/demo/kari-demo.mp4`(저장소 밖)에 쓴다. 보통의 `flutter test`에서는 이 시험이 건너뛰어진다(`KARI_DEMO_DIR`이 있을 때만 돈다). `--encode`를 주면 찍어 둔 프레임을 다시 묶기만 한다. 화면의 사람, 회사, 공고, 면접 질문과 리포트는 견본 자료다.
+
+```bash
+app/scripts/demo.sh            # 찍고 묶는다
+app/scripts/demo.sh --encode   # 묶기만 다시
+```
+
 ## 실제 서버 시험
 
 실제 Anthropic, OpenAI 서버를 부르는 시험이다. 키가 있을 때만 돌고 API 요금이 든다. CI에서는 돌지 않는다.

@@ -443,11 +443,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
                   fit: StackFit.expand,
                   children: [
                     ColoredBox(color: c.bg),
-                    if (surface != null)
-                      Texture(
-                        textureId: surface.textureId,
-                        filterQuality: FilterQuality.none,
-                      ),
+                    if (surface != null) Surface.view(surface.textureId),
                   ],
                 ),
               ),
