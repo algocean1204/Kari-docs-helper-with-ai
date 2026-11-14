@@ -867,6 +867,23 @@ impl Layouter {
         })
     }
 
+    /// 개체 앞 바이트 자리 `pos`에 놓인 그림 상자(쪽 기준 pt). 줄 폭에 맞춰 줄여 놓았으면 줄인 크기다. 없으면 `None`.
+    pub fn object_rect(&self, pos: &Pos) -> Option<Rect> {
+        let pi = *self.index.get(&pos.para)?;
+        let pb = self.pb(pi);
+        pb.lines.iter().enumerate().find_map(|(li, l)| {
+            let (r, _) = l.objects.iter().find(|(_, at)| *at == pos.off)?;
+            let p = self.placed.get(self.first[pi] + li)?;
+            Some(Rect {
+                page: p.page,
+                x: p.x - pb.pf.left + r[0],
+                y: p.y + r[1],
+                w: r[2],
+                h: r[3],
+            })
+        })
+    }
+
     /// 쪽의 한 점에 놓인 링크의 주소. 없으면 `None`.
     pub fn link_at(&self, page: usize, x: f32, y: f32) -> Option<&str> {
         self.out

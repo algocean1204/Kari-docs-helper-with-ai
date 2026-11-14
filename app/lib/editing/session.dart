@@ -24,6 +24,22 @@ double zoomStep(double now, {required bool up}) => up
     ? zoomSteps.firstWhere((z) => z > now + 1e-3, orElse: () => zoomSteps.last)
     : zoomSteps.lastWhere((z) => z < now - 1e-3, orElse: () => zoomSteps.first);
 
+/// 붙여넣기 판의 서식 있는 글을 운영체제에 묻는 채널(macOS의 MainFlutterWindow.swift). `pasteRich`는 판의 HTML
+/// (`public.html`, 없으면 `public.rtf`를 바꾼 것)을 주고, 없으면 null이다.
+const _board = MethodChannel('kari/files');
+
+/// 판의 HTML. 없거나 비었거나 채널이 없는 곳(위젯 시험)이면 null.
+Future<String?> _richHtml() async {
+  try {
+    final html = await _board.invokeMethod<String>('pasteRich');
+    return html == null || html.trim().isEmpty ? null : html;
+  } on PlatformException {
+    return null;
+  } on MissingPluginException {
+    return null;
+  }
+}
+
 /// 편집이 멈춘 뒤 자동 버전(`doc.idle`)을 남기기까지의 시간.
 const idleAfter = Duration(minutes: 5);
 
@@ -339,12 +355,17 @@ class EditSession extends ChangeNotifier
     }
   }
 
-  /// 클립보드의 글을 붙인다. [plain](서식 없이 붙여넣기)이면 앱 안에서 복사한 조각(모양, 그림)을 쓰지 않고
+  /// 클립보드의 글을 붙인다. 다른 앱(웹 브라우저, Pages, Word)에서 서식 있는 글을 복사했으면 그 서식(굵게, 링크, 제목,
+  /// 목록, 표)을 살려 붙인다. [plain](서식 없이 붙여넣기)이면 서식도, 앱 안에서 복사한 조각(모양, 그림)도 쓰지 않고
   /// 붙는 자리의 글자 모양을 따른다.
   Future<void> pasteIn({bool plain = false}) async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text;
-    if (text != null) {
+    // 앱 안의 복사는 판을 비우고 글만 쓰므로 판에 HTML이 있으면 다른 앱에서 온 것이다.
+    final html = plain || !engine.readsRichBoard ? null : await _richHtml();
+    if (html != null) {
+      await cmd({'k': 'pasteHtml', 'html': html, 'text': ?text});
+    } else if (text != null) {
       await cmd({'k': 'paste', 'text': text, if (plain) 'plain': true});
     }
   }
@@ -467,6 +488,13 @@ class EditSession extends ChangeNotifier
   /// 보이는 영역 기준 한 점에서 4px 안의 표 경계(끌어서 열 폭·행 높이를 바꾼다). 없거나 실패하면 null.
   Future<TableEdge?> tableEdge(double x, double y, double scrollY) =>
       _ask(() => engine.editTableEdge(id, x, y, scrollY: scrollY), null);
+
+  /// 그림을 끄는 동안 놓일 글 자리(내용 기준 커서 자리). 보이는 영역 기준 한 점을 준다. 없거나 실패하면 null.
+  Future<({double x, double y, double h})?> dropAt(
+    double x,
+    double y,
+    double scrollY,
+  ) => _ask(() => engine.editDropAt(id, x, y, scrollY: scrollY), null);
 
   /// 표 눈금선 보기(선이 없는 변을 화면에만 옅은 점선으로). 앱 설정이 정하고 [showGuides]로 바꾼다.
   bool guides = true;

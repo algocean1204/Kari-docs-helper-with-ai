@@ -19,11 +19,11 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 
 | 라이선스 표현 | 개수 |
 |---|---|
-| MIT OR Apache-2.0 | 70 |
+| MIT OR Apache-2.0 | 79 |
 | Unicode-3.0 | 22 |
 | Apache-2.0 OR MIT | 20 |
 | BSD-3-Clause | 19 |
-| MIT | 15 |
+| MIT | 19 |
 | MIT/Apache-2.0 | 3 |
 | Zlib | 3 |
 | Apache-2.0 | 2 |
@@ -92,6 +92,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | harfrust | 0.12.0 | MIT | https://github.com/harfbuzz/harfrust |  | [c17f624547](#t-c17f624547) |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |  | [0ffddef9e4](#t-0ffddef9e4) [7e1f7cb813](#t-7e1f7cb813) |
 | hashlink | 0.12.2 | MIT OR Apache-2.0 | https://github.com/djc/hashlink |  | [0ffddef9e4](#t-0ffddef9e4) [b318f80d74](#t-b318f80d74) |
+| html5ever | 0.40.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |  | [0ffddef9e4](#t-0ffddef9e4) [b48a00dcdd](#t-b48a00dcdd) |
 | http | 1.5.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http |  | [e725d090e9](#t-e725d090e9) [c5bce82bfe](#t-c5bce82bfe) |
 | httparse | 1.10.1 | MIT OR Apache-2.0 | https://github.com/seanmonstar/httparse |  | [0ffddef9e4](#t-0ffddef9e4) [5af244df04](#t-5af244df04) |
 | hybrid-array | 0.4.15 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hybrid-array |  | [0ffddef9e4](#t-0ffddef9e4) [11347be29e](#t-11347be29e) |
@@ -118,14 +119,19 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | libsqlite3-sys | 0.40.0 | MIT | https://github.com/rusqlite/rusqlite |  | [284f5d7703](#t-284f5d7703) |
 | linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | https://github.com/linebender/raw_resource_handle |  | [59d8f0ba87](#t-59d8f0ba87) [7c9b48b52d](#t-7c9b48b52d) |
 | litemap | 0.8.3 | Unicode-3.0 | https://github.com/unicode-org/icu4x |  | [96fb22b42a](#t-96fb22b42a) |
+| lock_api | 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |  | [0ffddef9e4](#t-0ffddef9e4) [2810737fc5](#t-2810737fc5) |
 | log | 0.4.35 | MIT OR Apache-2.0 | https://github.com/rust-lang/log |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
+| markup5ever | 0.40.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |  | [0ffddef9e4](#t-0ffddef9e4) [b48a00dcdd](#t-b48a00dcdd) |
 | memchr | 2.8.3 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |  | [7e7a2c785f](#t-7e7a2c785f) [952115fb93](#t-952115fb93) [2069c208cb](#t-2069c208cb) |
 | memmap2 | 0.9.12 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/memmap2-rs |  | [c7b80bdde4](#t-c7b80bdde4) [8b7b00e749](#t-8b7b00e749) |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |  | [9a3c7889be](#t-9a3c7889be) [59d8f0ba87](#t-59d8f0ba87) [9a3c7889be](#t-9a3c7889be) [f6f0628213](#t-f6f0628213) |
 | miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |  | [9a3c7889be](#t-9a3c7889be) [59d8f0ba87](#t-59d8f0ba87) [9a3c7889be](#t-9a3c7889be) [f6f0628213](#t-f6f0628213) |
 | native-tls | 0.2.18 | MIT OR Apache-2.0 | https://github.com/rust-native-tls/rust-native-tls |  | [958e28cd3f](#t-958e28cd3f) [c375b96e2a](#t-c375b96e2a) |
+| new_debug_unreachable | 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable |  | [e0d942dfe6](#t-e0d942dfe6) |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell |  | [0ffddef9e4](#t-0ffddef9e4) [fe2a981798](#t-fe2a981798) |
+| parking_lot | 0.12.5 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |  | [0ffddef9e4](#t-0ffddef9e4) [2810737fc5](#t-2810737fc5) |
+| parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |  | [0ffddef9e4](#t-0ffddef9e4) [2810737fc5](#t-2810737fc5) |
 | parlance | 0.1.1 | Apache-2.0 OR MIT | https://github.com/linebender/parley |  | [0ffddef9e4](#t-0ffddef9e4) [08df299cbd](#t-08df299cbd) |
 | parley | 0.12.0 | Apache-2.0 OR MIT | https://github.com/linebender/parley |  | [0ffddef9e4](#t-0ffddef9e4) [08df299cbd](#t-08df299cbd) |
 | parley_data | 0.12.0 | Apache-2.0 OR MIT | https://github.com/linebender/parley |  | [0ffddef9e4](#t-0ffddef9e4) [08df299cbd](#t-08df299cbd) |
@@ -134,9 +140,12 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | pdf-writer | 0.15.0 | MIT OR Apache-2.0 | https://github.com/typst/pdf-writer |  | [59d8f0ba87](#t-59d8f0ba87) [7c9b48b52d](#t-7c9b48b52d) |
 | pem-rfc7468 | 1.0.0 | Apache-2.0 OR MIT | https://github.com/RustCrypto/formats |  | [0ffddef9e4](#t-0ffddef9e4) [e2ec694809](#t-e2ec694809) |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url/ |  | [0ffddef9e4](#t-0ffddef9e4) [754203e3cf](#t-754203e3cf) |
+| phf | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |  | [1c1151f8ed](#t-1c1151f8ed) |
+| phf_shared | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |  | [1c1151f8ed](#t-1c1151f8ed) |
 | png | 0.18.1 | MIT OR Apache-2.0 | https://github.com/image-rs/image-png |  | [0ffddef9e4](#t-0ffddef9e4) [eb328b0264](#t-eb328b0264) |
 | polycool | 0.4.0 | MIT OR Apache-2.0 | https://github.com/linebender/kurbo |  | [0ffddef9e4](#t-0ffddef9e4) [2282235099](#t-2282235099) |
 | potential_utf | 0.1.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x |  | [96fb22b42a](#t-96fb22b42a) |
+| precomputed-hash | 0.1.1 | MIT | https://github.com/emilio/precomputed-hash |  | [fd6f93135f](#t-fd6f93135f) |
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
 | quick-error | 2.0.1 | MIT/Apache-2.0 | http://github.com/tailhook/quick-error |  | [958e28cd3f](#t-958e28cd3f) [f8045e4596](#t-f8045e4596) |
 | quote | 1.0.47 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
@@ -147,6 +156,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/rustix |  | [175bdea6e6](#t-175bdea6e6) [0ffddef9e4](#t-0ffddef9e4) [f42a00ac54](#t-f42a00ac54) [fe2a981798](#t-fe2a981798) |
 | rustls-pki-types | 1.16.0 | MIT OR Apache-2.0 | https://github.com/rustls/pki-types |  | [2e9b290051](#t-2e9b290051) [43d78f3759](#t-43d78f3759) |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | https://github.com/dtolnay/ryu |  | [59d8f0ba87](#t-59d8f0ba87) [a796d5730b](#t-a796d5730b) |
+| scopeguard | 1.2.0 | MIT OR Apache-2.0 | https://github.com/bluss/scopeguard |  | [0ffddef9e4](#t-0ffddef9e4) [4e212f4528](#t-4e212f4528) |
 | security-framework | 3.7.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |  | [0ffddef9e4](#t-0ffddef9e4) [1705306625](#t-1705306625) |
 | security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |  | [0ffddef9e4](#t-0ffddef9e4) [1705306625](#t-1705306625) |
 | serde | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
@@ -163,10 +173,12 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | smallvec | 1.16.5 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec |  | [0ffddef9e4](#t-0ffddef9e4) [2736d79cae](#t-2736d79cae) |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |  | [0ffddef9e4](#t-0ffddef9e4) [194d6cf951](#t-194d6cf951) |
 | strict-num | 0.1.1 | MIT | https://github.com/RazrFalcon/strict-num |  | [3f5e640ded](#t-3f5e640ded) |
+| string_cache | 0.11.0 | MIT OR Apache-2.0 | https://github.com/servo/string-cache |  | [0ffddef9e4](#t-0ffddef9e4) [f68b2461e0](#t-f68b2461e0) |
 | subsetter | 0.2.6 | MIT OR Apache-2.0 | https://github.com/typst/subsetter |  | [59d8f0ba87](#t-59d8f0ba87) [7c9b48b52d](#t-7c9b48b52d) [b202929771](#t-b202929771) |
 | syn | 3.0.10 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
 | synstructure | 0.14.0 | MIT | https://github.com/mystor/synstructure |  | [902fd48c97](#t-902fd48c97) |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 | https://github.com/Stebalien/tempfile |  | [0ffddef9e4](#t-0ffddef9e4) [b6191798a5](#t-b6191798a5) |
+| tendril | 0.5.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |  | [0ffddef9e4](#t-0ffddef9e4) [4a71fc4666](#t-4a71fc4666) |
 | tiny-skia-path | 0.12.0 | BSD-3-Clause | https://github.com/linebender/tiny-skia/tree/master/path |  | [9c6b11f6a8](#t-9c6b11f6a8) |
 | tinystr | 0.8.5 | Unicode-3.0 | https://github.com/unicode-org/icu4x |  | [96fb22b42a](#t-96fb22b42a) |
 | typenum | 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |  | [db11fec994](#t-db11fec994) [3c2971a948](#t-3c2971a948) [574f47f354](#t-574f47f354) |
@@ -176,6 +188,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | utf8-zero | 0.8.1 | MIT OR Apache-2.0 | https://github.com/algesten/utf8-zero |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
 | utf8_iter | 1.1.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter |  | [0636525ad3](#t-0636525ad3) [0ffddef9e4](#t-0ffddef9e4) [69fb5adae1](#t-69fb5adae1) |
 | utf_types | 1.0.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf_types |  | [2cc17dd562](#t-2cc17dd562) [0ffddef9e4](#t-0ffddef9e4) [69fb5adae1](#t-69fb5adae1) |
+| web_atoms | 0.3.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |  | [0ffddef9e4](#t-0ffddef9e4) [b48a00dcdd](#t-b48a00dcdd) |
 | webpki-root-certs | 1.0.12 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |  | [44912421a0](#t-44912421a0) |
 | weezl | 0.1.12 | MIT OR Apache-2.0 | https://github.com/image-rs/weezl |  | [0ffddef9e4](#t-0ffddef9e4) [2ea8b3dfe3](#t-2ea8b3dfe3) |
 | write-fonts | 0.48.1 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |  | [0849650722](#t-0849650722) [cff000a3ae](#t-cff000a3ae) |
@@ -999,7 +1012,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### 0ffddef9e4
 
-쓰는 곳: arrayvec 0.7.8 (LICENSE-APACHE), base64 0.22.1 (LICENSE-APACHE), base64 0.23.1 (LICENSE-APACHE), base64ct 1.8.3 (LICENSE-APACHE), bitflags 2.13.2 (LICENSE-APACHE), block-buffer 0.12.1 (LICENSE-APACHE), bumpalo 3.20.3 (LICENSE-APACHE), bytemuck 1.25.2 (LICENSE-APACHE), bytemuck_derive 1.12.1 (LICENSE-APACHE), cfg-if 1.0.5 (LICENSE-APACHE), cmov 0.5.4 (LICENSE-APACHE), const-oid 0.10.3 (LICENSE-APACHE), core-foundation 0.10.1 (LICENSE-APACHE), core-foundation-sys 0.8.7 (LICENSE-APACHE), cpufeatures 0.3.1 (LICENSE-APACHE), crypto-common 0.2.2 (LICENSE-APACHE), ctutils 0.4.8 (LICENSE-APACHE), der 0.8.3 (LICENSE-APACHE), digest 0.11.3 (LICENSE-APACHE), displaydoc 0.2.7 (LICENSE-APACHE), equivalent 1.0.3 (LICENSE-APACHE), errno 0.3.14 (LICENSE-APACHE), euclid 0.22.14 (LICENSE-APACHE), fastrand 2.5.0 (LICENSE-APACHE), flate2 1.1.11 (LICENSE-APACHE), fontique 0.12.0 (LICENSE-APACHE), gif 0.14.2 (LICENSE-APACHE), hashbrown 0.17.1 (LICENSE-APACHE), hashlink 0.12.2 (LICENSE-APACHE), httparse 1.10.1 (LICENSE-APACHE), hybrid-array 0.4.15 (LICENSE-APACHE), indexmap 2.14.2 (LICENSE-APACHE), krilla 0.8.2 (LICENSE_APACHE), kurbo 0.13.1 (LICENSE-APACHE), log 0.4.35 (LICENSE-APACHE), num-traits 0.2.19 (LICENSE-APACHE), once_cell 1.21.4 (LICENSE-APACHE), parlance 0.1.1 (LICENSE-APACHE), parley 0.12.0 (LICENSE-APACHE), parley_data 0.12.0 (LICENSE-APACHE), pem-rfc7468 1.0.0 (LICENSE-APACHE), percent-encoding 2.3.2 (LICENSE-APACHE), png 0.18.1 (LICENSE-APACHE), polycool 0.4.0 (LICENSE-APACHE), rustix 1.1.6 (LICENSE-APACHE), security-framework 3.7.0 (LICENSE-APACHE), security-framework-sys 2.17.0 (LICENSE-APACHE), sha2 0.11.1 (LICENSE-APACHE), siphasher 1.0.4 (LICENSE-APACHE), smallvec 1.16.5 (LICENSE-APACHE), stable_deref_trait 1.2.1 (LICENSE-APACHE), tempfile 3.27.0 (LICENSE-APACHE), ureq 3.5.1 (LICENSE-APACHE), ureq-proto 0.7.1 (LICENSE-APACHE.txt), utf8_iter 1.1.0 (LICENSE-APACHE), utf_types 1.0.0 (LICENSE-APACHE), weezl 0.1.12 (LICENSE-APACHE), zeroize 1.9.1 (LICENSE-APACHE), zune-core 0.5.3 (LICENSE-APACHE), zune-jpeg 0.5.15 (LICENSE-APACHE)
+쓰는 곳: arrayvec 0.7.8 (LICENSE-APACHE), base64 0.22.1 (LICENSE-APACHE), base64 0.23.1 (LICENSE-APACHE), base64ct 1.8.3 (LICENSE-APACHE), bitflags 2.13.2 (LICENSE-APACHE), block-buffer 0.12.1 (LICENSE-APACHE), bumpalo 3.20.3 (LICENSE-APACHE), bytemuck 1.25.2 (LICENSE-APACHE), bytemuck_derive 1.12.1 (LICENSE-APACHE), cfg-if 1.0.5 (LICENSE-APACHE), cmov 0.5.4 (LICENSE-APACHE), const-oid 0.10.3 (LICENSE-APACHE), core-foundation 0.10.1 (LICENSE-APACHE), core-foundation-sys 0.8.7 (LICENSE-APACHE), cpufeatures 0.3.1 (LICENSE-APACHE), crypto-common 0.2.2 (LICENSE-APACHE), ctutils 0.4.8 (LICENSE-APACHE), der 0.8.3 (LICENSE-APACHE), digest 0.11.3 (LICENSE-APACHE), displaydoc 0.2.7 (LICENSE-APACHE), equivalent 1.0.3 (LICENSE-APACHE), errno 0.3.14 (LICENSE-APACHE), euclid 0.22.14 (LICENSE-APACHE), fastrand 2.5.0 (LICENSE-APACHE), flate2 1.1.11 (LICENSE-APACHE), fontique 0.12.0 (LICENSE-APACHE), gif 0.14.2 (LICENSE-APACHE), hashbrown 0.17.1 (LICENSE-APACHE), hashlink 0.12.2 (LICENSE-APACHE), html5ever 0.40.1 (LICENSE-APACHE), httparse 1.10.1 (LICENSE-APACHE), hybrid-array 0.4.15 (LICENSE-APACHE), indexmap 2.14.2 (LICENSE-APACHE), krilla 0.8.2 (LICENSE_APACHE), kurbo 0.13.1 (LICENSE-APACHE), lock_api 0.4.14 (LICENSE-APACHE), log 0.4.35 (LICENSE-APACHE), markup5ever 0.40.0 (LICENSE-APACHE), num-traits 0.2.19 (LICENSE-APACHE), once_cell 1.21.4 (LICENSE-APACHE), parking_lot 0.12.5 (LICENSE-APACHE), parking_lot_core 0.9.12 (LICENSE-APACHE), parlance 0.1.1 (LICENSE-APACHE), parley 0.12.0 (LICENSE-APACHE), parley_data 0.12.0 (LICENSE-APACHE), pem-rfc7468 1.0.0 (LICENSE-APACHE), percent-encoding 2.3.2 (LICENSE-APACHE), png 0.18.1 (LICENSE-APACHE), polycool 0.4.0 (LICENSE-APACHE), rustix 1.1.6 (LICENSE-APACHE), scopeguard 1.2.0 (LICENSE-APACHE), security-framework 3.7.0 (LICENSE-APACHE), security-framework-sys 2.17.0 (LICENSE-APACHE), sha2 0.11.1 (LICENSE-APACHE), siphasher 1.0.4 (LICENSE-APACHE), smallvec 1.16.5 (LICENSE-APACHE), stable_deref_trait 1.2.1 (LICENSE-APACHE), string_cache 0.11.0 (LICENSE-APACHE), tempfile 3.27.0 (LICENSE-APACHE), tendril 0.5.1 (LICENSE-APACHE), ureq 3.5.1 (LICENSE-APACHE), ureq-proto 0.7.1 (LICENSE-APACHE.txt), utf8_iter 1.1.0 (LICENSE-APACHE), utf_types 1.0.0 (LICENSE-APACHE), web_atoms 0.3.0 (LICENSE-APACHE), weezl 0.1.12 (LICENSE-APACHE), zeroize 1.9.1 (LICENSE-APACHE), zune-core 0.5.3 (LICENSE-APACHE), zune-jpeg 0.5.15 (LICENSE-APACHE)
 
 ```text
 Apache License
@@ -1707,7 +1720,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### f68b2461e0
 
-쓰는 곳: core-foundation 0.10.1 (LICENSE-MIT), core-foundation-sys 0.8.7 (LICENSE-MIT), euclid 0.22.14 (LICENSE-MIT)
+쓰는 곳: core-foundation 0.10.1 (LICENSE-MIT), core-foundation-sys 0.8.7 (LICENSE-MIT), euclid 0.22.14 (LICENSE-MIT), string_cache 0.11.0 (LICENSE-MIT)
 
 ```text
 Copyright (c) 2012-2013 Mozilla Foundation
@@ -3156,6 +3169,40 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+<a id="t-b48a00dcdd"></a>
+
+### b48a00dcdd
+
+쓰는 곳: html5ever 0.40.1 (LICENSE-MIT), markup5ever 0.40.0 (LICENSE-MIT), web_atoms 0.3.0 (LICENSE-MIT)
+
+```text
+Copyright (c) 2014 The html5ever Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 <a id="t-e725d090e9"></a>
 
 ### e725d090e9
@@ -4101,6 +4148,40 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+<a id="t-2810737fc5"></a>
+
+### 2810737fc5
+
+쓰는 곳: lock_api 0.4.14 (LICENSE-MIT), parking_lot 0.12.5 (LICENSE-MIT), parking_lot_core 0.9.12 (LICENSE-MIT)
+
+```text
+Copyright (c) 2016 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 <a id="t-7e7a2c785f"></a>
 
 ### 7e7a2c785f
@@ -4443,6 +4524,40 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+<a id="t-e0d942dfe6"></a>
+
+### e0d942dfe6
+
+쓰는 곳: new_debug_unreachable 1.0.6 (LICENSE-MIT)
+
+```text
+Copyright (c) 2015 Jonathan Reem
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 <a id="t-08df299cbd"></a>
 
 ### 08df299cbd
@@ -4615,6 +4730,35 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+<a id="t-1c1151f8ed"></a>
+
+### 1c1151f8ed
+
+쓰는 곳: phf 0.14.0 (LICENSE), phf_shared 0.14.0 (LICENSE)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2014-2022 Steven Fackler, Yuki Okushi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 <a id="t-eb328b0264"></a>
 
 ### eb328b0264
@@ -4647,6 +4791,36 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+<a id="t-fd6f93135f"></a>
+
+### fd6f93135f
+
+쓰는 곳: precomputed-hash 0.1.1 (LICENSE)
+
+```text
+MIT License
+
+Copyright (c) 2017 Emilio Cobos Álvarez
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 <a id="t-f8045e4596"></a>
@@ -5215,6 +5389,40 @@ FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. IN NO EVENT
 SHALL THE COPYRIGHT HOLDERS OR ANYONE DISTRIBUTING THE SOFTWARE BE LIABLE
 FOR ANY DAMAGES OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+<a id="t-4e212f4528"></a>
+
+### 4e212f4528
+
+쓰는 곳: scopeguard 1.2.0 (LICENSE-MIT)
+
+```text
+Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
@@ -6022,6 +6230,40 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ```text
 Copyright (c) 2015 Steven Allen
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+<a id="t-4a71fc4666"></a>
+
+### 4a71fc4666
+
+쓰는 곳: tendril 0.5.1 (LICENSE-MIT)
+
+```text
+Copyright (c) 2015 Keegan McAllister
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated

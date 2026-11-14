@@ -456,6 +456,14 @@ pub(crate) fn dispatch(state_: &mut Option<Engine>, m: &str, a: &Args) -> Res {
                     Some(f) => Command::PasteFragment(f.clone()),
                     None => Command::Paste(t),
                 },
+                // 판의 HTML이 앱 안의 복사가 남긴 옛 것일 수 있다(앱 안의 복사는 판을 비우고 글만 쓰지만 여기서 한 번 더 막는다):
+                // 붙여넣기로 온 글(비어 있지 않은)이 마지막으로 복사한 조각의 글과 같으면 HTML이 아니라 조각을 넣는다.
+                Command::PasteHtml { html, text } if !plain && !text.is_empty() => {
+                    match clip().as_ref().filter(|f| f.text == text) {
+                        Some(f) => Command::PasteFragment(f.clone()),
+                        None => Command::PasteHtml { html, text },
+                    }
+                }
                 c => c,
             };
             run_auto(&mut e.lib, d, &s, &cmd, now)?
@@ -504,6 +512,24 @@ pub(crate) fn dispatch(state_: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let f = s.lock(d.doc());
             let (page, px, py) = f.geo().to_pt(x, y + scroll);
             return Ok(json!({"url": f.lay.link_at(page, px, py)}));
+        }
+        "edit.dropAt" => {
+            // 그림을 끄는 동안 놓일 글 자리: 보이는 영역 기준 한 점에서 가장 가까운 커서 자리(내용 기준 논리 화소).
+            let scroll = a.maybe("scrollY", crate::fail::finite)?.unwrap_or(0.0);
+            let (x, y) = (a.num("x")?, a.num("y")?);
+            let d = back(&mut e.docs, id)?;
+            let f = s.lock(d.doc());
+            let geo = f.geo();
+            let (page, px, py) = geo.to_pt(x, y + scroll);
+            let caret = f
+                .lay
+                .hit(page, px, py)
+                .and_then(|(p, aw)| f.lay.caret(&p, aw))
+                .map(|r| {
+                    let (cx, cy) = geo.to_px(r.page, r.x, r.y);
+                    json!({"x": cx, "y": cy, "h": r.h * geo.k})
+                });
+            return Ok(json!({"caret": caret}));
         }
         "edit.tableEdge" => {
             let scroll = a.maybe("scrollY", crate::fail::finite)?.unwrap_or(0.0);

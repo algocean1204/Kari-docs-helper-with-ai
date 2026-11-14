@@ -210,6 +210,21 @@ pub(crate) fn parse(v: &Value, f: &Front, scroll_y: f32) -> Result<Command, Fail
         "deleteWord" => Command::DeleteWord,
         "backspaceLine" => Command::BackspaceLine,
         "paste" => Command::Paste(c.text()?),
+        "pasteHtml" => Command::PasteHtml {
+            html: c.string("html")?,
+            text: c
+                .maybe("text", |v| v.as_str().map(str::to_string))?
+                .unwrap_or_default(),
+        },
+        "moveImage" => {
+            let (page, x, y) = at(&c)?;
+            Command::MoveImage {
+                page,
+                x,
+                y,
+                copy: c.flag("copy"),
+            }
+        }
         "cut" => Command::Cut,
         "selectAll" => Command::SelectAll,
         "move" => {
@@ -409,6 +424,7 @@ pub(crate) fn parse(v: &Value, f: &Front, scroll_y: f32) -> Result<Command, Fail
         },
         "setImage" => Command::SetImage {
             w: c.opt_num("w")?,
+            h: c.opt_num("h")?,
             alt: c.maybe("alt", |v| v.as_str().map(str::to_string))?,
         },
         "findNext" => Command::FindNext {

@@ -411,7 +411,8 @@ class MainFlutterWindow: NSWindow {
     // 주소와 파일을 운영체제에 넘기는 채널. `openUrl`은 링크를 기본 브라우저로 연다.
     // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `openFolder`는 폴더를 Finder로 연다. `savePath`는 저장 대화 상자로
     // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을 고른다.
-    // `pasteImage`는 붙여넣기 판의 그림을 파일 경로로 준다(캔버스 문서의 그림 붙여넣기).
+    // `pasteImage`는 붙여넣기 판의 그림을 파일 경로로 준다(캔버스 문서의 그림 붙여넣기). `pasteRich`는 판의 서식 있는 글을
+    // HTML 글로 준다(흐름 문서의 붙여넣기).
     // `print`와 `share`는 앱이 만든 PDF를 인쇄 창과 공유 창에 넘기고(Printing.swift), 창이 닫히거나 공유가 끝나면 답한다.
     let files = FlutterMethodChannel(
       name: "kari/files",
@@ -472,6 +473,8 @@ class MainFlutterWindow: NSWindow {
         }
       case "pasteImage":
         result(pasteboardImage())
+      case "pasteRich":
+        result(pasteboardHtml())
       case "print":
         // 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 닫히면 끝까지 인쇄했는지(참·거짓).
         guard let self, let args = call.arguments as? [String: Any],
@@ -575,6 +578,33 @@ func pasteboardImage() -> Any? {
   } catch {
     return fail("클립보드의 그림을 임시 파일로 쓰지 못했습니다")
   }
+}
+
+/// 붙여넣기 판의 서식 있는 글을 HTML 글로. `public.html`이 있으면 그것을(UTF-8로 읽히는 것만), 없으면 `public.rtf`를
+/// NSAttributedString으로 읽어 HTML로 바꾼 것을 준다. 없거나, 글로 읽지 못하거나, 엔진이 읽는 상한(6MB)을 넘으면 nil이고
+/// 앱은 평문을 붙인다. RTF 변환은 메인 스레드에서 돌므로 512KB를 넘으면 바꾸지 않는다. 엔진이 스크립트,
+/// 스타일, 그림을 버리고 서식을 읽으므로 여기서는 걸러내지 않는다.
+func pasteboardHtml() -> String? {
+  let board = NSPasteboard.general
+  let maxBytes = 6 << 20
+  let maxRtfBytes = 512 << 10
+  if let data = board.data(forType: .html) {
+    guard data.count <= maxBytes else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+  guard let rtf = board.data(forType: .rtf), rtf.count <= maxRtfBytes,
+    let text = try? NSAttributedString(
+      data: rtf, options: [.documentType: NSAttributedString.DocumentType.rtf],
+      documentAttributes: nil),
+    let html = try? text.data(
+      from: NSRange(location: 0, length: text.length),
+      documentAttributes: [
+        .documentType: NSAttributedString.DocumentType.html,
+        .characterEncoding: String.Encoding.utf8.rawValue,
+      ]),
+    html.count <= maxBytes
+  else { return nil }
+  return String(data: html, encoding: .utf8)
 }
 
 /// 창은 하나뿐이라 닫으면 앱이 끝난다. 창을 먼저 닫으면 저장하지 못한 것이 있을 때 묻는 창을 띄울 자리가 없으므로,

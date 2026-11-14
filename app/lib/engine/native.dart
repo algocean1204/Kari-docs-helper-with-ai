@@ -136,6 +136,9 @@ class NativeEngine extends EngineApi {
   Future<void>? _fonts;
 
   @override
+  bool get readsRichBoard => true;
+
+  @override
   Future<String> send(String request) =>
       (netLane(request)
               ? _net
