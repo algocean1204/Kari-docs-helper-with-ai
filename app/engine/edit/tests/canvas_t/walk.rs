@@ -1,5 +1,5 @@
 //! 캔버스 무작위 걷기: 무작위 문서에 누르기·끌기(옮기기, 크기)·영역 고르기·두 번 누름·취소·되돌리기·다시 하기와
-//! 만들기·지우기·복제·속성 바꾸기·글 상자 편집을 섞는다.
+//! 만들기·지우기·복제·속성 바꾸기·글 상자 편집, 돌리기·수정 키 끌기·⌥ 복제·뒤집기·정렬·분배·복사와 붙여넣기를 섞는다.
 //!
 //! 모형은 편집기의 계산을 되풀이하지 않고 결과만 본다:
 //! - 만들기: 놓인 자리의 부모 규칙, 크기와 끈 두 점, 하나만 골라짐. 지우기: 남은 노드 집합. 복제: 개수와 속성과 비킨 자리.
@@ -7,6 +7,9 @@
 //! - 옮기기: 고른 노드의 판 위 네 모서리가 포인터의 이동만큼 그대로 옮겨진다.
 //! - 크기: 한 노드는 새 상자의 네 모서리가 `기준점 ~ 포인터`로 이루어진 시작 지역 좌표계의 상자와 같은 점들이다
 //!   (뒤집힘 여부와 상관없이). 선은 움직이지 않은 끝이 그대로이고 끝이 포인터로 간다.
+//! - 돌리기: 고른 노드의 판 위 네 모서리가 눌렀을 때의 상자 가운데 둘레로 포인터가 돈 각만큼 돈 자리다.
+//! - 뒤집기: 부모 좌표의 네 모서리가 기준 축의 거울 자리다. 정렬·분배: 경계가 맞고 다른 축과 크기는 그대로다.
+//! - 붙여넣기: 개수, 새 id, 속성, 부모 규칙, 뿌리들이 함께 옮겨짐.
 //! - 모든 걸음: 뒤 사본의 불변식, 끌기 중 커밋 0번, 손을 떼면 최대 한 묶음, 두 사본의 해시, 되돌리기 쌓기.
 
 use kari_doc::serde_json::{json, Value};
@@ -34,6 +37,12 @@ pub struct Tally {
     pub dups: usize,
     pub sets: usize,
     pub texts: usize,
+    pub rotates: usize,
+    pub mods: usize,
+    pub alt_dups: usize,
+    pub flips: usize,
+    pub aligns: usize,
+    pub pastes: usize,
 }
 
 /// 되돌리기 쌓기의 모형: 커밋마다의 해시 내력과 지금 자리.
@@ -41,12 +50,20 @@ pub struct Hist {
     hash: Vec<String>,
     at: usize,
     seen: usize,
+    /// 이미 센 `CanvasT::pres`.
+    pres: usize,
 }
 
 impl Hist {
     /// 새 커밋이 있으면 내력을 잇는다(다시 하기 쪽은 버린다). 한 걸음이 낸 커밋은 하나다.
+    /// 누름이 글 상자 편집을 끝내며 빈 글 상자를 지운 묶음은 따로 센다.
     pub fn sync(&mut self, t: &CanvasT, tag: &str) {
-        assert!(t.commits <= self.seen + 1, "{tag}: 한 걸음에 묶음 하나");
+        let pre = t.pres - self.pres;
+        self.pres = t.pres;
+        assert!(
+            t.commits <= self.seen + 1 + pre,
+            "{tag}: 한 걸음에 묶음 하나"
+        );
         self.sync_all(t, tag);
     }
 
@@ -166,6 +183,17 @@ pub fn target(r: &mut Rng, t: &mut CanvasT) -> (f64, f64) {
                 true => (r.below(600) as f64 - 50.0, r.below(400) as f64 - 50.0),
                 false => {
                     let h = r.pick(&c.handles).1;
+                    // 가끔은 손잡이의 바깥(돌리기 자리): 손잡이들의 가운데에서 멀어지는 쪽으로 화면 10 화소
+                    if r.chance(30) {
+                        let n = c.handles.len() as f64;
+                        let mid = c
+                            .handles
+                            .iter()
+                            .fold([0.0, 0.0], |m, h| [m[0] + h.1[0] / n, m[1] + h.1[1] / n]);
+                        let (dx, dy) = (h[0] - mid[0], h[1] - mid[1]);
+                        let len = dx.hypot(dy).max(1e-9);
+                        return (h[0] + dx / len * 10.0 * t.px, h[1] + dy / len * 10.0 * t.px);
+                    }
                     (
                         h[0] + r.below(5) as f64 - 2.0,
                         h[1] + r.below(5) as f64 - 2.0,
@@ -176,6 +204,34 @@ pub fn target(r: &mut Rng, t: &mut CanvasT) -> (f64, f64) {
         7 => (r.below(80) as f64, -(r.below(20) as f64) - 3.0),
         _ => (r.below(900) as f64 - 100.0, r.below(500) as f64 - 100.0),
     }
+}
+
+/// `p`를 `o` 둘레로 `rad`만큼(화면 기준 시계 방향이 양수) 돌린 점.
+pub fn turn(p: [f64; 2], o: [f64; 2], rad: f64) -> [f64; 2] {
+    let (s, c) = rad.sin_cos();
+    let (x, y) = (p[0] - o[0], p[1] - o[1]);
+    [o[0] + c * x - s * y, o[1] + s * x + c * y]
+}
+
+/// 고른 것을 감싼 상자의 가운데(판 좌표): 하나면 그 노드의 가운데, 여럿이면 부모 좌표 경계의 가운데.
+pub fn frame_center(geos: &[kari_layout::NodeGeo]) -> [f64; 2] {
+    if let [g] = geos {
+        return apply(&g.world(), g.w / 2.0, g.h / 2.0);
+    }
+    let pts = geos.iter().flat_map(|g| g.parent_quad());
+    let r = pts.fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |r, p| {
+        [
+            r[0].min(p[0]),
+            r[1].min(p[1]),
+            r[2].max(p[0]),
+            r[3].max(p[1]),
+        ]
+    });
+    apply(
+        &geos[0].parent_world,
+        (r[0] + r[2]) / 2.0,
+        (r[1] + r[3]) / 2.0,
+    )
 }
 
 pub fn near(a: [f64; 2], b: [f64; 2], tol: f64) -> bool {
@@ -195,11 +251,12 @@ pub fn run(seed: u64) -> Tally {
             hash: vec![start.clone()],
             at: 0,
             seen: 0,
+            pres: 0,
         };
         for step in 0..STEPS {
             let tag = format!("씨앗 {seed:#x} 문서 {session} 걸음 {step}");
             let before_commits = t.commits;
-            match r.below(150) {
+            match r.below(200) {
                 0..=44 => {
                     let p0 = target(&mut r, &mut t);
                     drag(&mut r, &mut t, p0, &mut tally, &tag);
@@ -275,8 +332,9 @@ pub fn run(seed: u64) -> Tally {
                 90..=99 => {
                     // 끌기 도중 취소
                     let p0 = target(&mut r, &mut t);
-                    let h0 = t.back.hash();
                     t.down(p0.0, p0.1);
+                    // 누름이 글 상자 편집을 끝내며 빈 글 상자를 지웠을 수 있다. 그 뒤부터 본다.
+                    let (h0, before_commits) = (t.back.hash(), t.commits);
                     let p1 = target(&mut r, &mut t);
                     t.mv((p0.0 + p1.0) / 2.0, (p0.1 + p1.1) / 2.0);
                     t.mv(p1.0, p1.1);
@@ -319,9 +377,10 @@ pub fn run(seed: u64) -> Tally {
 
 /// 누르기 → 몇 걸음 끌기 → 떼기 한 번과 그 결과를 모형으로 본다.
 fn drag(r: &mut Rng, t: &mut CanvasT, p0: (f64, f64), tally: &mut Tally, tag: &str) {
+    let down = t.down(p0.0, p0.1);
+    // 누름이 글 상자 편집을 끝내며 빈 글 상자를 지웠을 수 있다(그 누름의 묶음이다). 끌기는 그 뒤부터 본다.
     let hash0 = t.back.hash();
     let commits0 = t.commits;
-    let down = t.down(p0.0, p0.1);
     let handle = down.handle;
     // 눌렀을 때의 선택과 기하(뒤 사본 기준)
     let sel: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
@@ -369,6 +428,23 @@ fn drag(r: &mut Rng, t: &mut CanvasT, p0: (f64, f64), tally: &mut Tally, tag: &s
                             5e-3 * t.px.max(1.0) + 3e-3
                         ),
                         "{tag}: {id} 옮기기 {a:?} + {delta:?} != {b:?}"
+                    );
+                }
+            }
+        }
+        End::Commit("돌리기") => {
+            tally.rotates += 1;
+            assert_eq!(handle, Some("rotate"), "{tag}");
+            let o = frame_center(&geos);
+            let ang = |p: (f64, f64)| (p.1 - o[1]).atan2(p.0 - o[0]);
+            let rad = ang(last) - ang(p0);
+            for (g, id) in geos.iter().zip(&sel) {
+                let after = t.lay.node_geo(&t.back, id).unwrap();
+                for (a, b) in g.quad().iter().zip(after.quad()) {
+                    let want = turn(*a, o, rad);
+                    assert!(
+                        near(want, b, 0.02),
+                        "{tag}: {id} 돌리기 {a:?} → {want:?} != {b:?}"
                     );
                 }
             }

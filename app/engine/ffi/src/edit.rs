@@ -26,12 +26,15 @@ fn clip() -> std::sync::MutexGuard<'static, Option<Fragment>> {
 /// 마지막으로 복사한 조각에 든 그림의 에셋 해시. 문서를 완전히 지울 때 이것은 남긴다(지운 문서에서 복사해 둔
 /// 그림을 다른 문서에 붙이면 그 에셋을 쓴다).
 pub(crate) fn clip_assets() -> std::collections::BTreeSet<String> {
-    clip().as_ref().map_or_else(Default::default, |f| {
-        f.all_runs()
-            .into_iter()
-            .filter_map(|r| r["o"]["asset"].as_str().map(str::to_string))
-            .collect()
-    })
+    let mut out: std::collections::BTreeSet<String> =
+        clip().as_ref().map_or_else(Default::default, |f| {
+            f.all_runs()
+                .into_iter()
+                .filter_map(|r| r["o"]["asset"].as_str().map(str::to_string))
+                .collect()
+        });
+    out.extend(crate::canvas::clip_assets());
+    out
 }
 
 /// 한 명령에서 `again`을 되풀이하는 최대 횟수.

@@ -1056,7 +1056,7 @@ abstract class EngineApi {
   Future<CanvasState> canvasView(int id, Json view) =>
       _canvas('canvas.view', {'id': id, ...view});
 
-  /// [phase]: down, move, up, double, hover, cancel.
+  /// [phase]: down, move, up, double, hover, cancel, context(오른쪽 누름). 끌기 계산은 그 입력의 [shift], [alt]를 쓴다.
   Future<CanvasState> canvasPointer(
     int id,
     String phase,
@@ -1075,7 +1075,8 @@ abstract class EngineApi {
     if (alt) 'alt': true,
   });
 
-  /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, editText, endText, cancel.
+  /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, flip, align,
+  /// distribute, paste, editText, endText, cancel.
   Future<CanvasState> canvasCmd(
     int id,
     String name, {
@@ -1091,7 +1092,8 @@ abstract class EngineApi {
   Future<CanvasState> canvasIme(int id, Json change, {required int now}) =>
       _canvas('canvas.ime', {'id': id, ...change, 'now': now});
 
-  /// 편집 중인 글 상자에서 고른 글.
+  /// 글 상자를 편집하는 중이면 고른 글. 아니면 고른 노드를 엔진이 기억하고(다음 `paste`가 붙인다) 그 안의 글 상자들의
+  /// 글을 준다. 시스템 클립보드에 쓸 글이다.
   Future<String> canvasCopy(int id) async =>
       (await call('canvas.copy', {'id': id}) as Json)['text'] as String;
 

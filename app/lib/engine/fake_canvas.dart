@@ -57,7 +57,7 @@ extension FakeCanvas on FakeEngine {
       final p = n['props'] as Json;
       for (final e in props.entries) {
         switch (e.key) {
-          case 'x' || 'y' || 'w' || 'h':
+          case 'x' || 'y' || 'w' || 'h' || 'rotation':
             n[e.key] = e.value;
           case 'name' || 'opacity' || 'radius':
             p[e.key] = e.value;
@@ -93,6 +93,11 @@ extension FakeCanvas on FakeEngine {
       case 'canvas.close':
         return null;
       case 'canvas.copy':
+        if (canvasCopyFails) throw const EngineError('internal', '복사하지 못했습니다');
+        // 글 상자를 편집하는 중이 아니면 고른 노드를 기억한다(엔진처럼 그 글로 다음 붙여넣기가 조각을 알아본다).
+        if (s['text'] == null && (s['selection'] as List).isNotEmpty) {
+          s['clip'] = canvasCopyText;
+        }
         return {'text': canvasCopyText};
       case 'canvas.view':
         s['width'] = (a['width'] as num?)?.toDouble() ?? s['width'];
@@ -139,7 +144,26 @@ extension FakeCanvas on FakeEngine {
             s['selection'] = <Object?>[];
             changed = true;
             s['canUndo'] = true;
-          case 'duplicate' || 'nudge' || 'create':
+          case 'paste':
+            // 엔진의 거절 규칙: 기억한 조각의 글이면 조각, 아니면 다른 글은 거절, 글이 없으면 그림, 그림도 없으면 거절.
+            final text = a['text'] as String? ?? '';
+            final image = a['image'];
+            if (s['clip'] == text && !(text.isEmpty && image != null)) {
+              changed = true;
+            } else if (text.isNotEmpty) {
+              refused = '붙일 수 없는 내용입니다.';
+            } else if (image == null) {
+              refused = '붙여넣을 것이 없습니다.';
+            } else {
+              changed = true;
+            }
+            if (changed) s['canUndo'] = true;
+          case 'duplicate' ||
+              'nudge' ||
+              'create' ||
+              'flip' ||
+              'align' ||
+              'distribute':
             changed = true;
             s['canUndo'] = true;
           case 'select':

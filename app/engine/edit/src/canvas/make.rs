@@ -17,8 +17,8 @@ pub const DEFAULT_LINE: f64 = 100.0;
 pub const DUP_OFFSET: f64 = 10.0;
 /// 복제한 대지가 원본의 오른쪽에 놓일 때의 간격.
 pub const PAGE_GAP: f64 = 100.0;
-/// 선을 ⇧로 그을 때 각도를 맞추는 단위(도).
-const ANGLE_STEP: f64 = 15.0;
+/// ⇧로 선을 긋거나 끝점을 끌거나 돌릴 때 각도를 맞추는 단위(도).
+pub(crate) const ANGLE_STEP: f64 = 15.0;
 
 /// 만들기 도구.
 #[derive(Clone, Debug, PartialEq)]

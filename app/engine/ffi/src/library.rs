@@ -221,6 +221,7 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             e.lib.purge_doc_keeping(id, &crate::edit::clip_assets())?;
             e.docs.remove(&id);
             session::remove(id);
+            crate::canvas::orphan_clip(id);
             Ok(Value::Null)
         }
         "doc.open" => {

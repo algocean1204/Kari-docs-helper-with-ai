@@ -133,6 +133,119 @@ void main() {
     expect(await engine.docVerify(s.id), isEmpty);
   });
 
+  test('돌리기 → 정렬 → 복사·붙여넣기 → 되돌리기, 그리고 붙여넣기 판의 그림', () async {
+    // 시스템 클립보드와 붙여넣기 판은 가로챈다: 쓴 글을 돌려주고, 그림은 정해 둔 임시 파일의 경로다.
+    String? clip;
+    String? image;
+    var tempFlag = true;
+    final wrote = <String?>[];
+    final m = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const files = MethodChannel('kari/files');
+    m.setMockMethodCallHandler(SystemChannels.platform, (c) async {
+      if (c.method == 'Clipboard.setData') {
+        clip = (c.arguments as Map)['text'] as String?;
+        wrote.add(clip);
+      }
+      if (c.method == 'Clipboard.getData' && clip != null) {
+        return {'text': clip};
+      }
+      return null;
+    });
+    m.setMockMethodCallHandler(
+      files,
+      (c) async => c.method == 'pasteImage' && image != null
+          ? {'path': image, 'temp': tempFlag}
+          : null,
+    );
+    addTearDown(() {
+      m.setMockMethodCallHandler(SystemChannels.platform, null);
+      m.setMockMethodCallHandler(files, null);
+    });
+
+    final s = await open();
+    await s.cmd('create', {'tool': 'rect', 'x': 100, 'y': 100});
+    await s.settled;
+    final id = s.state!.selection.single.id;
+    Future<Json> rect([String? node]) async =>
+        props(await engine.docNodes(s.id), node ?? id)!;
+
+    // 돌리기: 오른쪽 아래 모서리 (200, 200)의 바깥을 눌러 가운데 (150, 150) 둘레로 90도 끈다.
+    final seq = s.state!.seq;
+    s.pointer('down', 208, 208);
+    s.pointer('move', 150, 232);
+    await s.settled;
+    expect(s.state!.seq, seq, reason: '끌기 중에는 커밋이 없다');
+    expect(s.state!.selection.single.rotation, closeTo(45, 1e-6));
+    s.pointer('up', 92, 208);
+    await s.settled;
+    expect(s.state!.seq, seq + 1, reason: '뗄 때 한 번');
+    expect(s.state!.selection.single.rotation, closeTo(90, 1e-6));
+    expect((await rect())['rotation'], closeTo(90, 1e-6));
+    expect((await rect())['x'], 100);
+
+    // 각도 칸이 보내는 값과 정렬(하나면 대지에 맞춘다).
+    await s.set({'rotation': 45});
+    await s.cmd('align', {'to': 'left'});
+    await s.settled;
+    expect((await rect())['x'], closeTo(20.711, 1e-3));
+    expect(s.state!.seq, seq + 3);
+
+    // 복사: 문서는 그대로이고, 글 상자가 없어 클립보드에는 빈 글이 간다. 붙이면 같은 대지에 비켜서 새 노드로.
+    await s.copyNodes();
+    await s.settled;
+    expect(wrote, ['']);
+    expect(s.state!.seq, seq + 3);
+    final before = (await engine.docNodes(s.id)).length;
+    await s.pasteNodes();
+    await s.settled;
+    expect(s.state!.refused, isNull);
+    final pasted = s.state!.selection.single.id;
+    expect(pasted, isNot(id));
+    expect((await engine.docNodes(s.id)).length, before + 1);
+    expect((await rect(pasted))['x'], closeTo(30.711, 1e-3));
+    expect((await rect(pasted))['rotation'], 45);
+
+    // 되돌리기 한 번에 붙인 것만 사라진다.
+    await s.undo();
+    await s.settled;
+    final nodes = await engine.docNodes(s.id);
+    expect(nodes, hasLength(before));
+    expect(nodes.any((n) => n['id'] == pasted), isFalse);
+    expect((await rect())['x'], closeTo(20.711, 1e-3));
+
+    // 다른 앱의 그림: 붙여넣기 판 채널이 준 임시 파일(`kari-paste-`로 시작)이 그림 노드가 되고 그 파일은 지워진다.
+    // 글이 함께 있으면(우리 조각이 아닌 글) 그림 노드를 만들지 않고 거절한다.
+    final bytes = File('engine/render/tests/data/photo.png').readAsBytesSync();
+    final temp = File('${tmp.path}/kari-paste-붙일-그림.png')
+      ..writeAsBytesSync(bytes);
+    image = temp.path;
+    clip = '다른 앱에서 복사한 글';
+    final count = (await engine.docNodes(s.id)).length;
+    await s.pasteNodes();
+    await s.settled;
+    expect(s.state!.refused, '붙일 수 없는 내용입니다.');
+    expect((await engine.docNodes(s.id)).length, count);
+    expect(temp.existsSync(), isFalse, reason: '거절해도 임시 파일은 지운다');
+    temp.writeAsBytesSync(bytes);
+    clip = '';
+    await s.pasteNodes();
+    await s.settled;
+    expect(s.state!.refused, isNull);
+    expect(s.state!.selection.single.fill!['type'], 'IMAGE');
+    expect(temp.existsSync(), isFalse);
+    // Finder에서 복사한 그림 파일은 그 파일 자신의 경로로 온다. 이름이 임시 파일과 닮아도 붙인 뒤에 남는다.
+    final mine = File('${tmp.path}/kari-paste-내-그림.png')
+      ..writeAsBytesSync(bytes);
+    image = mine.path;
+    tempFlag = false;
+    await s.pasteNodes();
+    await s.settled;
+    expect(s.state!.refused, isNull);
+    expect(s.state!.selection.single.fill!['type'], 'IMAGE');
+    expect(mine.existsSync(), isTrue);
+    expect(await engine.docVerify(s.id), isEmpty);
+  });
+
   test('글 상자를 만들어 한글을 조합하고 끝낸 글이 문서에 남는다', () async {
     final s = await open();
     await s.cmd('create', {'tool': 'text', 'x': 100, 'y': 100});

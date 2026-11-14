@@ -89,7 +89,7 @@ cd app
 flutter test integration_test/app_test.dart -d macos
 KARI_SHARE_CHECK=1 flutter test integration_test/app_test.dart -d macos   # 공유 시험까지
 KARI_TEST_BACKGROUND=1 flutter test integration_test/app_test.dart -d macos   # 앱을 앞에 띄우지 않고
-KARI_TEST_BACKGROUND=1 flutter test integration_test/canvas_test.dart -d macos   # 캔버스 문서: 사각형·글 상자(한글)·옮기기·크기·되돌리기·PDF
+KARI_TEST_BACKGROUND=1 flutter test integration_test/canvas_test.dart -d macos   # 캔버스 문서: 사각형·글 상자(한글)·옮기기·크기·되돌리기·돌리기·맞춤·복사와 붙여넣기·PDF
 ```
 
 ## 실제 서버 시험

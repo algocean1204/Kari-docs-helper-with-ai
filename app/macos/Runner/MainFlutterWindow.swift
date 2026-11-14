@@ -1,6 +1,7 @@
 import Cocoa
 import CoreVideo
 import FlutterMacOS
+import ImageIO
 import UniformTypeIdentifiers
 
 /// 엔진이 그린 화면을 Flutter Texture로 올리는 접착 코드. 로직은 두지 않는다.
@@ -403,6 +404,7 @@ class MainFlutterWindow: NSWindow {
     // 주소와 파일을 운영체제에 넘기는 채널. `openUrl`은 링크를 기본 브라우저로 연다.
     // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `openFolder`는 폴더를 Finder로 연다. `savePath`는 저장 대화 상자로
     // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을 고른다.
+    // `pasteImage`는 붙여넣기 판의 그림을 파일 경로로 준다(캔버스 문서의 그림 붙여넣기).
     // `print`와 `share`는 앱이 만든 PDF를 인쇄 창과 공유 창에 넘기고(Printing.swift), 창이 닫히거나 공유가 끝나면 답한다.
     let files = FlutterMethodChannel(
       name: "kari/files",
@@ -461,6 +463,8 @@ class MainFlutterWindow: NSWindow {
         panel.beginSheetModal(for: self) { response in
           result(response == .OK ? panel.url?.path : nil)
         }
+      case "pasteImage":
+        result(pasteboardImage())
       case "print":
         // 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 닫히면 끝까지 인쇄했는지(참·거짓).
         guard let self, let args = call.arguments as? [String: Any],
@@ -507,5 +511,60 @@ class MainFlutterWindow: NSWindow {
     MenuTest.register(flutterViewController.registrar(forPlugin: "MenuTest").messenger)
 
     super.awakeFromNib()
+  }
+}
+
+/// 붙여넣기 판의 그림. 그림이 없으면 nil, 있으면 `{path, temp}`(temp는 이 함수가 쓴 임시 파일인가), 받을 수 없으면
+/// FlutterError. 앱은 temp인 파일만 지운다(복사한 사용자의 파일은 이름과 상관없이 지우지 않는다).
+/// Finder에서 파일을 복사했으면(`public.file-url`) 판에 함께 실리는 파일 아이콘이 아니라 그 파일을 본다: 파일 하나가
+/// 그림 파일이면 그 경로, 아니면 그림 없음. 그 밖에는 PNG와 JPEG는 바이트 그대로, TIFF는 PNG로 바꿔 임시 파일
+/// (`kari-paste-`로 시작)에 쓴다(엔진은 PNG와 JPEG만 받는다). 바이트와 화소 상한을 넘으면 바꾸지 않고 오류로 답한다.
+// 한계: 판에서 바이트를 꺼내는 것 자체는 크기를 미리 알 수 없어 한 번 읽는다
+func pasteboardImage() -> Any? {
+  let board = NSPasteboard.general
+  // 엔진이 받는 파일 크기 상한(20MB)과 같다. 화소는 PNG로 바꿀 때 메모리를 지키는 상한이다.
+  let maxBytes = 20 << 20
+  let maxPixels = 25_000_000
+  func fail(_ message: String) -> FlutterError {
+    FlutterError(code: "image", message: message, details: nil)
+  }
+  if board.types?.contains(.fileURL) == true {
+    let urls = board.readObjects(
+      forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
+    guard let urls, urls.count == 1,
+      (try? urls[0].resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .image)
+        == true
+    else { return nil }
+    return ["path": urls[0].path, "temp": false] as [String: Any]
+  }
+  let jpeg = NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+  var found: (Data, String)?
+  if let data = board.data(forType: .png) {
+    found = (data, "png")
+  } else if let data = board.data(forType: jpeg) {
+    found = (data, "jpg")
+  } else if let tiff = board.data(forType: .tiff) {
+    guard tiff.count <= maxBytes else { return fail("클립보드의 그림이 20MB가 넘습니다") }
+    guard let source = CGImageSourceCreateWithData(tiff as CFData, nil),
+      let info = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+      let w = info[kCGImagePropertyPixelWidth] as? Int,
+      let h = info[kCGImagePropertyPixelHeight] as? Int
+    else { return fail("클립보드의 TIFF 그림을 받지 못했습니다") }
+    guard w > 0, h > 0, w * h <= maxPixels else {
+      return fail("클립보드의 그림이 너무 큽니다")
+    }
+    guard let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+    else { return fail("클립보드의 TIFF 그림을 받지 못했습니다") }
+    found = (png, "png")
+  }
+  guard let (data, ext) = found else { return nil }
+  guard data.count <= maxBytes else { return fail("클립보드의 그림이 20MB가 넘습니다") }
+  let url = FileManager.default.temporaryDirectory
+    .appendingPathComponent("kari-paste-\(UUID().uuidString).\(ext)")
+  do {
+    try data.write(to: url)
+    return ["path": url.path, "temp": true] as [String: Any]
+  } catch {
+    return fail("클립보드의 그림을 임시 파일로 쓰지 못했습니다")
   }
 }

@@ -60,6 +60,9 @@ class FakeEngine extends EngineApi {
 
   /// `canvas.copy`가 돌려줄 글. 시험용.
   String canvasCopyText = '';
+
+  /// 참이면 `canvas.copy`가 오류로 답한다. 시험용.
+  bool canvasCopyFails = false;
   final Map<int, Json> _canvasStates = {};
   int _canvasGen = 0;
 

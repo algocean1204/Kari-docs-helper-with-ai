@@ -2120,6 +2120,74 @@ fn 캔버스_pdf의_경로_꼭짓점과_글리프_원점과_링크가_표시_목
     assert!(worst_glyph <= 0.001, "글리프 원점 {worst_glyph}pt");
 }
 
+/// 돌리기와 뒤집기가 겹친 문서: 돌아간 프레임 안의 돌고 뒤집힌 자식, 뒤집힌 프레임 안의 돌아간 자식, 돌아간 선과 글.
+#[test]
+fn 캔버스에서_돌아간_부모_안의_돌고_뒤집힌_노드도_pdf의_꼭짓점이_표시_목록과_같다() {
+    let mut d = Document::new(Kind::Canvas, "돌리기").unwrap();
+    let solid = |c: &str| json!([{"type": "SOLID", "color": c}]);
+    let node = |id: &str, ty: &str, parent: &str, props: Value| json!({"op": "add", "node": {"id": id, "type": ty, "parent": parent, "props": props}});
+    let ops = vec![
+        json!({"op": "set", "id": "n1", "props": {"w": 400, "h": 300}}),
+        node(
+            "f",
+            "frame",
+            "n1",
+            json!({"x": 40, "y": 30, "w": 150, "h": 90, "rotation": 30, "clip": false, "fills": solid("#EEEEEEFF")}),
+        ),
+        node(
+            "k",
+            "rect",
+            "f",
+            json!({"x": 10, "y": 10, "w": 50, "h": 30, "rotation": -40, "flipX": true, "fills": solid("#FF0000FF")}),
+        ),
+        node(
+            "g",
+            "frame",
+            "n1",
+            json!({"x": 220, "y": 40, "w": 120, "h": 80, "flipY": true, "rotation": -160, "fills": solid("#DDDDFFFF")}),
+        ),
+        node(
+            "m",
+            "ellipse",
+            "g",
+            json!({"x": 20, "y": 15, "w": 60, "h": 30, "rotation": 75, "flipY": true, "fills": solid("#00AA00FF")}),
+        ),
+        node(
+            "l",
+            "line",
+            "n1",
+            json!({"x": 60, "y": 220, "w": 120, "rotation": 105, "strokes": solid("#336699FF"), "stroke": {"weight": 3, "align": "CENTER"}}),
+        ),
+        node(
+            "t",
+            "text",
+            "n1",
+            json!({"x": 230, "y": 200, "rotation": -30, "flipX": true, "runs": [{"t": "돌린 글"}], "style": {"font": "Pretendard", "weight": 400, "size": 16}}),
+        ),
+    ];
+    d.apply(&Value::Array(ops), Guard::default()).unwrap();
+    assert!(d.check().is_empty());
+    let (s, path) = write_canvas("canvas-rotated.pdf", &d);
+    let pdf = Pdf::open(&path);
+    let b = &s.boards[0];
+    let h = f64::from(b.h);
+    let (want_paths, want_glyphs, _) = walk(&b.items);
+    let page = &pdf.pages()[0];
+    let got = path_points(&pdf, page, h);
+    assert_eq!(got.len(), want_paths.len(), "경로 묶음 수");
+    assert!(got.len() >= 5, "{}", got.len());
+    let worst = got
+        .iter()
+        .zip(&want_paths)
+        .map(|(g, w)| max_diff(g, w))
+        .fold(0.0, f64::max);
+    assert!(worst <= 0.01, "경로 꼭짓점 {worst}pt");
+    let glyphs = origins(&pdf, page, h);
+    assert!(glyphs.len() >= 4);
+    let worst = max_diff(&glyphs, &want_glyphs);
+    assert!(worst <= 0.001, "글리프 원점 {worst}pt");
+}
+
 /// P6 PPM 하나: (너비, 높이, 화소 RGB).
 fn ppm(path: &str) -> (usize, usize, Vec<u8>) {
     let b = std::fs::read(path).unwrap();

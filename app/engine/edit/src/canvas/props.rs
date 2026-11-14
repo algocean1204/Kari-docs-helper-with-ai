@@ -1,4 +1,4 @@
-//! 속성 바꾸기: 화면이 다루는 값(위치·크기, 칠, 선, 모서리, 불투명도, 이름, 글 모양)을 노드의 `set` op로 바꾼다.
+//! 속성 바꾸기: 화면이 다루는 값(위치·크기, 각도, 칠, 선, 모서리, 불투명도, 이름, 글 모양)을 노드의 `set` op로 바꾼다.
 //!
 //! 같은 요청을 몇 번 적용해도 결과가 같은 절대 값이다. 수치 끌기는 이 묶음을 앞 사본에만 적용해 미리 보고,
 //! 놓을 때 깨끗한 문서를 기준으로 다시 계산해 한 번 커밋한다. 현재 값과 같은 속성은 묶음에 싣지 않는다.
@@ -7,11 +7,12 @@ use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::Document;
 use kari_layout::Layouter;
 
-use super::{pos_keys, r3};
+use super::{norm_deg, pos_keys, r3};
 
 /// 받는 속성 이름.
-const KEYS: [&str; 13] = [
+const KEYS: [&str; 14] = [
     "name",
+    "rotation",
     "opacity",
     "x",
     "y",
@@ -162,6 +163,13 @@ pub(crate) fn set_ops(
                 "x" | "y" => {
                     let (kx, ky) = pos_keys(kind);
                     ch.insert((if k == "x" { kx } else { ky }).into(), json!(r3(num()?)));
+                }
+                // 노드는 제 가운데 둘레로 돈다(자리는 그대로다). 대지는 돌지 않는다.
+                "rotation" => {
+                    if kind == "page" {
+                        continue;
+                    }
+                    ch.insert("rotation".into(), json!(r3(norm_deg(num()?))));
                 }
                 // 선의 높이는 0으로 둔다.
                 "h" if kind == "line" => continue,

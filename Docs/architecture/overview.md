@@ -83,7 +83,7 @@ flowchart BT
 |---|---|---|
 | `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
 | `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
-| `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy` → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
+| `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드) → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
@@ -136,11 +136,12 @@ sequenceDiagram
 캔버스 문서는 `Shell`이 연 문서의 종류를 보고 `app/lib/screens/canvas.dart`로 보낸다(흐름 문서는 `doc.dart`). 흐름 문서의 `EditSession`과 따로 `app/lib/editing/canvas_session.dart`의 `CanvasSession`이 `canvas.*`를 부른다.
 
 - **한 줄**: 엔진 호출은 한 줄로 순서대로 보낸다. 끌기 중의 `move`, 수치 끌기의 `set`(미리 보기), 확대는 줄 끝에서 아직 나가지 않은 같은 종류와 값만 바꿔 합치고, 스크롤은 델타를 더한다. 다른 입력과는 합치지 않아 순서가 바뀌지 않는다.
-- **판**(`canvas_surface.dart`): 흐름 문서의 종이와 같은 텍스처 다리(`editing/surface.dart`)로 엔진이 그린 화소를 올린다. 포인터는 화면 좌표 그대로 `canvas.pointer`(같은 자리의 짧은 두 번째 누름은 `double`)로, 트랙패드와 휠의 스크롤·핀치는 `canvas.view`로 보낸다. 고른 상자, 손잡이, 글 커서는 엔진이 같은 버퍼에 그리므로 앱은 덧그리지 않는다.
+- **판**(`canvas_surface.dart`): 흐름 문서의 종이와 같은 텍스처 다리(`editing/surface.dart`)로 엔진이 그린 화소를 올린다. 포인터는 화면 좌표 그대로 `canvas.pointer`(같은 자리의 짧은 두 번째 누름은 `double`)로, 트랙패드와 휠의 스크롤·핀치는 `canvas.view`로 보낸다. 고른 상자, 손잡이, 글 커서는 엔진이 같은 버퍼에 그리므로 앱은 덧그리지 않는다. 끄는 동안 ⇧나 ⌥를 누르거나 떼면 마지막 자리로 `move`를 다시 보낸다(엔진이 수정 키를 입력마다 읽는다). 오른쪽 누름은 `context`를 보낸 뒤 메뉴(복사, 붙여넣기, 복제, 지우기)를 띄운다.
+- **복사와 붙여넣기**(`canvas_session.dart`): 복사는 `canvas.copy`가 준 글을 시스템 클립보드에 쓴다(글이 없어도 빈 글을 써서 앞서 있던 그림을 비운다). 붙여넣기는 클립보드의 글과, 붙여넣기 판에 그림이 있으면 채널 `kari/files`의 `pasteImage`가 준 경로를 `canvas.cmd paste`에 넘기고, 엔진이 답하면 채널이 임시 파일이라고 알린 것(`temp`)만 지운다. 복사한 사용자의 파일은 이름과 상관없이 지우지 않는다. 무엇을 붙일지는 엔진이 고른다. 그림을 받지 못해 알린 까닭은 엔진의 거절이 덮지 않는다. 복사·잘라내기·붙여넣기의 메뉴 항목은 속성 패널의 칸 같은 글 칸에 초점이 있으면 노드를 건드리지 않는다. 잘라내기는 복사가 실패하면 지우지 않는다. 글 상자를 편집하는 중에는 같은 키가 글 상자 안의 글을 다룬다.
 - **키**(`editing/canvas_keys.dart`): 키 → 할 일 표가 순수 함수다. 글 상자를 편집하는 중에는 흐름 문서의 키 표(`keys.dart`) 가운데 `canvas.text`가 받는 것만 통과시킨다.
 - **한글 입력**: 글 상자 편집이 시작되면(`state.text`가 생기면) 입력 채널을 붙이고 끝나면 뗀다. 입력 칸 값은 상태의 `text.ime`이고, 입력기의 변경은 흐름 문서와 같은 견주기(`editing/ime.dart`)를 거쳐 `canvas.ime`로 간다.
-- **속성 패널**(`canvas_props.dart`): 값은 상태의 `selection[].props`가 정한다. 입력은 `canvas.cmd set`을 한 번 보낸다. 수치 끌기는 `preview: true`로 앞 사본에만 적용하고, 놓을 때 같은 값을 `preview` 없이 보낸다.
-- **메뉴 막대**: 캔버스 문서가 열려 있으면 `appMenus`가 캔버스 메뉴를 낸다(`app_menu.dart`의 `CanvasMenu`). 키는 ⌘가 든 것만 건다.
+- **속성 패널**(`canvas_props.dart`): 맨 위에 맞춤과 간격 단추(`align`, `distribute`), 위치와 크기에 각도 칸(`set`의 `rotation`)과 뒤집기 단추(`flip`)가 있다. 값은 상태의 `selection[]`(`rotation`)과 `selection[].props`가 정한다. 입력은 `canvas.cmd set`을 한 번 보낸다. 수치 끌기는 `preview: true`로 앞 사본에만 적용하고, 놓을 때 같은 값을 `preview` 없이 보낸다.
+- **메뉴 막대**: 캔버스 문서가 열려 있으면 `appMenus`가 캔버스 메뉴를 낸다(`app_menu.dart`의 `CanvasMenu`). 키는 ⌘가 든 것만 건다. 한 글자 키와 ⌥ 키(⇧H, ⌥A 등)는 글 상자에서 그 글자를 칠 때 메뉴가 가로채지 않게 판의 키 표가 받는다.
 - **버전 패널**은 `VersionHost`(`editing/version_host.dart`) 인터페이스로 두 세션이 함께 쓴다. 복원은 `doc.restore`, 되돌리기는 `doc.undo`다. 둘 다 엔진이 캔버스 세션의 앞 사본을 따라가게 한다.
 
 ## 플랫폼 채널
@@ -150,6 +151,7 @@ sequenceDiagram
 | `kari/texture` | `create`, `dispose` | 텍스처 만들기와 풀기 |
 | `kari/files` | `savePath` | 저장 대화 상자(PDF, Word 문서, 텍스트. 고를 수 있는 형식은 기본 이름의 확장자를 따른다) |
 | `kari/files` | `openPath` | 열기 대화 상자(PNG, JPEG) |
+| `kari/files` | `pasteImage` | 붙여넣기 판의 그림을 `{path, temp}`로 준다(없으면 null). `temp`는 채널이 쓴 임시 파일인가이다. Finder에서 복사한 파일(`public.file-url`)은 파일 하나가 그림 파일일 때 그 경로이고 아니면 null이다(판에 함께 실리는 아이콘은 쓰지 않는다). 그 밖에는 앱 임시 폴더에 `kari-paste-`로 시작하는 파일로 쓴다: PNG와 JPEG는 바이트 그대로, TIFF는 PNG로 바꿔 쓴다. 20MB와 화소 2,500만을 넘거나 바꾸지 못하면 오류로 답한다. 캔버스 문서의 붙여넣기가 부르고, 엔진에 넘긴 뒤 `temp`인 파일만 지운다 |
 | `kari/files` | `openUrl` | 기본 브라우저로 주소 열기(`http`, `https`, `mailto`, `tel`만) |
 | `kari/files` | `print {path, name}` | 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 실제 크기, 자동 회전 없음, 용지는 첫 쪽의 크기와 방향. 창이 닫히면 답한다(`app/macos/Runner/Printing.swift`) |
 | `kari/files` | `share {path, name, x, y, w, h}` | 앱이 만든 PDF를 공유 메뉴에 넘긴다. 메뉴는 주어진 사각형(`⋯` 단추) 자리에 뜬다. 고른 서비스가 끝나거나 고르지 않고 닫히면 답한다 |

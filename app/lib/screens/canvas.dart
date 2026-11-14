@@ -16,7 +16,7 @@ import 'paper.dart' show drawsPaper;
 import 'versions.dart';
 
 /// 캔버스 문서 화면. 위쪽 줄(이름, 저장 상태, 되돌리기·다시 하기, 내보내기, 버전 기록), 도구 줄, 판, 오른쪽 속성
-/// 패널, 열었을 때만 보이는 버전 기록 패널. 엔진이 거절한 일은 화면 아래에 짧게 알린다.
+/// 패널(맞춤과 간격, 위치·크기·각도, 칠, 선, 글), 열었을 때만 보이는 버전 기록 패널. 엔진이 거절한 일은 화면 아래에 짧게 알린다.
 class CanvasScreen extends StatefulWidget {
   const CanvasScreen({
     super.key,
@@ -226,7 +226,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
                       ],
                     ),
                   ),
-                  CanvasProps(session: s),
+                  CanvasProps(session: s, onDone: _focus.requestFocus),
                   if (_versions) ...[
                     VerticalDivider(width: 1, color: c.divider),
                     SizedBox(

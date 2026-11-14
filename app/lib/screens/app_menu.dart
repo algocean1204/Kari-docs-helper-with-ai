@@ -492,6 +492,12 @@ List<MenuEntry> appMenus({
   ];
 }
 
+/// 글 칸(속성 패널의 숫자 칸 등)에 초점이 있는가. 판의 글 상자는 입력기로 받으므로 여기에 들지 않는다.
+bool _fieldFocused() =>
+    FocusManager.instance.primaryFocus?.context
+        ?.findAncestorWidgetOfExactType<EditableText>() !=
+    null;
+
 /// 캔버스 문서가 열려 있을 때의 메뉴 막대. 단축키는 ⌘가 든 것뿐이다: 한 글자 키(V, ⇧1)는 Flutter가 받지 않은 키를
 /// macOS 메뉴가 가로채므로, 글 상자에서 그 글자를 칠 때 삼킨다. 그 키는 화면(`canvasKey`)이 받는다.
 List<MenuEntry> canvasMenus({
@@ -507,6 +513,15 @@ List<MenuEntry> canvasMenus({
   VoidCallback? on(VoidCallback f, {bool when = true}) => st == null || !when
       ? null
       : () {
+          f();
+          canvas.focusCanvas();
+        };
+  // 노드를 다루는 복사·잘라내기·붙여넣기. 속성 패널의 칸처럼 글 칸에 초점이 있으면 칸이 받지 않은 ⌘X, ⇧⌘V가 메뉴로
+  // 넘어오므로, 그때는 노드를 건드리지 않는다(초점도 칸에 둔다).
+  VoidCallback? nodes(VoidCallback f, {bool when = true}) => st == null || !when
+      ? null
+      : () {
+          if (_fieldFocused()) return;
           f();
           canvas.focusCanvas();
         };
@@ -548,23 +563,28 @@ List<MenuEntry> canvasMenus({
         run: st?.canRedo == true ? () => s.redo() : null,
       ),
       MenuEntry.divider,
-      // 글 상자 안의 글만 오간다. 노드 복사·붙여넣기는 없다.
+      // 글 상자를 편집하는 중에는 그 안의 글이, 아니면 고른 노드가 오간다.
       MenuEntry(
         '잘라내기',
         keys: _meta(LogicalKeyboardKey.keyX),
         run: editing
             ? () => s.copyOut().then((_) => s.text({'k': 'cut'}))
-            : null,
+            : nodes(s.cutNodes, when: has),
       ),
       MenuEntry(
         '복사',
         keys: _meta(LogicalKeyboardKey.keyC),
-        run: editing ? s.copyOut : null,
+        run: editing ? s.copyOut : nodes(s.copyNodes, when: has),
       ),
       MenuEntry(
         '붙여넣기',
         keys: _meta(LogicalKeyboardKey.keyV),
-        run: editing ? s.pasteIn : null,
+        run: editing ? s.pasteIn : nodes(s.pasteNodes),
+      ),
+      MenuEntry(
+        '제자리에 붙여넣기',
+        keys: _meta(LogicalKeyboardKey.keyV, shift: true),
+        run: nodes(() => s.pasteNodes(inPlace: true), when: !editing),
       ),
       MenuEntry.divider,
       MenuEntry(
@@ -602,6 +622,30 @@ List<MenuEntry> canvasMenus({
       ),
       MenuEntry.divider,
       const MenuEntry.provided(PlatformProvidedMenuItemType.toggleFullScreen),
+    ]),
+    // 한 글자 키와 ⌥ 키는 메뉴에 걸지 않는다(판이 받는다). ⌥와 글자는 macOS에서 특수 문자를 친다.
+    MenuEntry.sub('개체', [
+      for (final (axis, label, _) in canvasFlips)
+        MenuEntry(
+          label,
+          run: cmd('flip', when: has && !editing, a: {'axis': axis}),
+        ),
+      MenuEntry.divider,
+      for (final (to, label, _) in canvasAligns)
+        MenuEntry(
+          label,
+          run: cmd('align', when: has && !editing, a: {'to': to}),
+        ),
+      MenuEntry.divider,
+      for (final (axis, label) in canvasDistributes)
+        MenuEntry(
+          label,
+          run: cmd(
+            'distribute',
+            when: (st?.selection.length ?? 0) >= 3 && !editing,
+            a: {'axis': axis},
+          ),
+        ),
     ]),
     MenuEntry.sub('도구', [
       for (final (name, label, _) in canvasTools)
