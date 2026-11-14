@@ -67,7 +67,7 @@ if [ -z "$APP_IN" ]; then
     WORKTREE="$SRC"
   fi
   SRC="$(cd "$SRC" && pwd)"
-  [ -z "$(git -C "$SRC" status --porcelain)" ] || die "$SRC에 커밋하지 않은 변경이 있습니다(깨끗한 사본에서만 빌드합니다)"
+  [ -z "$(git -C "$SRC" status --porcelain)" ] || die "${SRC}에 커밋하지 않은 변경이 있습니다(깨끗한 사본에서만 빌드합니다)"
   step "릴리스 빌드: $SRC/app"
   BUILD_ARGS=()
   [ -n "${KARI_BUILD_NUMBER:-}" ] && BUILD_ARGS=(--build-number "$KARI_BUILD_NUMBER")
@@ -88,7 +88,7 @@ DMG="$OUT/Kari-$VERSION-beta-arm64.dmg"
 # 받는 사람용 안내. KARI_GUIDE로 다른 글 파일을 줄 수 있다.
 GUIDE="${KARI_GUIDE:-$DOCS/Docs/guide/install.md}"
 NOTICE="$DOCS/Docs/THIRD_PARTY_LICENSES.md"
-for f in "$GUIDE" "$DOCS/LICENSE" "$NOTICE"; do [ -f "$f" ] || die "$f가 없습니다"; done
+for f in "$GUIDE" "$DOCS/LICENSE" "$NOTICE"; do [ -f "$f" ] || die "${f}가 없습니다"; done
 python3 "$DOCS/$SCRIPTS_REL/third_party.py" --check || die "THIRD_PARTY_LICENSES.md가 의존성과 맞지 않습니다"
 
 # ── 2. 다시 서명(D2) ─────────────────────────────────────────

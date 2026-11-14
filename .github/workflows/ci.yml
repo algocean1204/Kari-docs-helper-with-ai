@@ -96,6 +96,56 @@ jobs:
           esac
           exit "$fail"
 
+  version:
+    name: version
+    # 판 번호 규칙(.github/CONTRIBUTING.md의 '판 번호')을 본다. main으로 가는 PR은 판이 지난 태그 뒤의 규칙에 맞아야 하고,
+    # develop으로 가는 PR이 판을 바꾸면 릴리스 PR이어야 한다. 바깥 액션은 checkout뿐이다.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # 글은 환경 변수로만 받는다.
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_BASE: ${{ github.event.pull_request.base.ref }}
+      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 지난 태그와 그 뒤의 커밋 제목을 보려면 기록과 태그가 모두 있어야 한다.
+          fetch-depth: 0
+      - name: 판 번호
+        run: |
+          pub_version() { sed -n 's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p' | head -n 1; }
+          new=$(pub_version < app/pubspec.yaml)
+          if [ -z "$new" ]; then
+            echo "::error title=판 번호::app/pubspec.yaml에서 version을 읽지 못했습니다"
+            exit 1
+          fi
+          if [ "$PR_BASE" = main ]; then
+            # main에 develop이 아닌 곳에서 오는 PR은 pr 작업이 거절한다.
+            [ "$PR_BRANCH" = develop ] || exit 0
+            # 이 저장소의 develop만 본다. 포크의 같은 이름 가지가 올린 스크립트는 돌리지 않는다.
+            if [ "$PR_HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+              echo "::error title=판 번호::main으로 가는 PR은 이 저장소의 develop에서만 열 수 있습니다"
+              exit 1
+            fi
+            if ! bash app/scripts/next_version.sh --check "$new"; then
+              echo "::error title=판 번호::app/pubspec.yaml의 판($new)이 규칙에 맞지 않습니다. develop에서 릴리스 PR(제목 'chore(release): <판>')로 판을 먼저 올려 주세요(.github/CONTRIBUTING.md의 '판 번호', Docs/contributing/release.md)"
+              exit 1
+            fi
+          else
+            old=$(git show "origin/$PR_BASE:app/pubspec.yaml" | pub_version)
+            if [ "$new" != "$old" ]; then
+              if [ "$PR_TITLE" != "chore(release): $new" ] || [ "$PR_BRANCH" != "chore/release-$new" ]; then
+                echo "::error title=판 번호::판 번호($old → $new)는 릴리스 PR에서만 바꿉니다. 제목은 'chore(release): $new', 가지는 'chore/release-$new'여야 합니다(.github/CONTRIBUTING.md의 '판 번호')"
+                exit 1
+              fi
+            fi
+          fi
+
   engine:
     name: engine
     runs-on: ubuntu-latest
@@ -173,7 +223,7 @@ jobs:
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [repo, engine, app, macos, pr]
+    needs: [repo, engine, app, macos, pr, version]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -185,9 +235,11 @@ jobs:
           done
           # macos는 비공개 저장소에서 건너뛴다.
           case "${{ needs.macos.result }}" in success|skipped) ;; *) exit 1 ;; esac
-          # pr은 PR에서만 돈다. push(main)에서 건너뛴 것만 통과로 본다.
-          case "${{ needs.pr.result }}" in
-            success) ;;
-            skipped) [ "${{ github.event_name }}" = push ] || exit 1 ;;
-            *) exit 1 ;;
-          esac
+          # pr과 version은 PR에서만 돈다. push(main, develop)에서 건너뛴 것만 통과로 본다.
+          for result in "${{ needs.pr.result }}" "${{ needs.version.result }}"; do
+            case "$result" in
+              success) ;;
+              skipped) [ "${{ github.event_name }}" = push ] || exit 1 ;;
+              *) exit 1 ;;
+            esac
+          done
