@@ -292,6 +292,14 @@ void main() {
       await tester.tap(find.text('안녕'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('layer-rename')), findsOneWidget);
+      // 판이 초점을 쥔 채여도 이름 칸이 바로 글자를 받는다.
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('layer-rename')))
+            .focusNode!
+            .hasFocus,
+        isTrue,
+      );
       await tester.enterText(find.byKey(const Key('layer-rename')), '제목');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();

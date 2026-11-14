@@ -627,6 +627,10 @@ class _RenameFieldState extends State<_RenameField> {
     _focus.addListener(() {
       if (!_focus.hasFocus) _end(true);
     });
+    // autofocus는 판이 이미 초점을 쥔 범위에서는 듣지 않으므로 직접 요청한다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
   }
 
   @override
