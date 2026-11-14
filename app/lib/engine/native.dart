@@ -96,6 +96,7 @@ bool slowLane(String request) {
         m == 'doc.exportPdf' ||
         m == 'doc.exportDocx' ||
         m == 'doc.exportTxt' ||
+        m == 'canvas.layers' ||
         (m.startsWith('iv.') && !_quickIv.contains(m));
   } on FormatException {
     return false;

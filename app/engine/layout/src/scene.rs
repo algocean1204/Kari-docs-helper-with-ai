@@ -499,7 +499,9 @@ impl Ctx<'_> {
                 _ => {}
             }
         }
-        let kids = self.doc.children(Some(id));
+        // 숨긴 자식은 아무것도 내지 않으므로, 그것뿐이면 잘라내기 묶음도 열지 않는다(PDF에 빈 묶음이 남지 않게).
+        let mut kids = self.doc.children(Some(id));
+        kids.retain(|k| self.visible(&k.id));
         let clip = self
             .flag(id, "clip", true)
             .then(|| outline(shape, w, h, 0.0));

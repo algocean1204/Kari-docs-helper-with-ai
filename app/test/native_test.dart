@@ -99,6 +99,9 @@ void main() {
       expect(slowLane(jsonEncode({'a': {}, 'm': 'ai.tasks'})), isTrue);
       expect(slowLane(jsonEncode({'m': 'doc.exportPdf', 'a': {}})), isTrue);
       expect(slowLane(jsonEncode({'m': 'doc.open', 'a': {}})), isFalse);
+      // 레이어 패널의 줄(수만 노드에서 수십 ms)은 캔버스 입력 앞에 서지 않게 느린 줄로.
+      expect(slow('canvas.layers'), isTrue);
+      expect(slow('canvas.cmd'), isFalse);
       for (final m in [
         'iv.start',
         'iv.answer',

@@ -83,7 +83,7 @@ flowchart BT
 |---|---|---|
 | `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
 | `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
-| `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드) → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
+| `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드), `canvas.layers`(레이어 패널의 줄). `canvas.cmd`는 묶기·풀기·쌓임 순서·레이어 끌어 놓기·숨기기·잠그기·대지 더하기도 받는다 → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
@@ -99,7 +99,7 @@ Dart 쪽 함수는 `app/lib/engine/engine.dart`(`EngineApi`)에 이름마다 하
 
 | 줄 | 아이솔레이트 | 요청 |
 |---|---|---|
-| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*` |
+| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
 | 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
 
 느린 줄의 요청은 오래 걸리는 동안 명령 잠금을 쥐고 있지 않는다. 그래서 키 확인, PDF 내보내기, 면접 질문을 기다리는 동안에도 편집이 이어진다.
@@ -140,6 +140,7 @@ sequenceDiagram
 - **복사와 붙여넣기**(`canvas_session.dart`): 복사는 `canvas.copy`가 준 글을 시스템 클립보드에 쓴다(글이 없어도 빈 글을 써서 앞서 있던 그림을 비운다). 붙여넣기는 클립보드의 글과, 붙여넣기 판에 그림이 있으면 채널 `kari/files`의 `pasteImage`가 준 경로를 `canvas.cmd paste`에 넘기고, 엔진이 답하면 채널이 임시 파일이라고 알린 것(`temp`)만 지운다. 복사한 사용자의 파일은 이름과 상관없이 지우지 않는다. 무엇을 붙일지는 엔진이 고른다. 그림을 받지 못해 알린 까닭은 엔진의 거절이 덮지 않는다. 복사·잘라내기·붙여넣기의 메뉴 항목은 속성 패널의 칸 같은 글 칸에 초점이 있으면 노드를 건드리지 않는다. 잘라내기는 복사가 실패하면 지우지 않는다. 글 상자를 편집하는 중에는 같은 키가 글 상자 안의 글을 다룬다.
 - **키**(`editing/canvas_keys.dart`): 키 → 할 일 표가 순수 함수다. 글 상자를 편집하는 중에는 흐름 문서의 키 표(`keys.dart`) 가운데 `canvas.text`가 받는 것만 통과시킨다.
 - **한글 입력**: 글 상자 편집이 시작되면(`state.text`가 생기면) 입력 채널을 붙이고 끝나면 뗀다. 입력 칸 값은 상태의 `text.ime`이고, 입력기의 변경은 흐름 문서와 같은 견주기(`editing/ime.dart`)를 거쳐 `canvas.ime`로 간다.
+- **레이어 패널**(`canvas_layers.dart`): `canvas.layers`의 줄을 나무로 보인다(보이는 줄만 만든다). 패널이 열려 있을 때만, 문서가 바뀌고 0.25초 멈추면 세션이 줄을 한 번 다시 읽는다(연달은 커밋은 하나로 모은다. 입력의 줄과 따로 부르고 엔진은 느린 줄에서 받는다). 닫혀 있으면 읽지 않고, 열 때 낡았으면 읽는다. 고르기는 `select`, 이름은 `rename`(고른 것은 그대로), 눈·자물쇠는 그 줄의 `toggle`, 끌어 놓기는 놓을 때 `place` 하나, 머리의 `+`는 `addBoard`다. 대지 줄을 누르면 고르고 `fitSelection`으로 보기를 옮긴다.
 - **속성 패널**(`canvas_props.dart`): 맨 위에 맞춤과 간격 단추(`align`, `distribute`), 위치와 크기에 각도 칸(`set`의 `rotation`)과 뒤집기 단추(`flip`)가 있다. 값은 상태의 `selection[]`(`rotation`)과 `selection[].props`가 정한다. 입력은 `canvas.cmd set`을 한 번 보낸다. 수치 끌기는 `preview: true`로 앞 사본에만 적용하고, 놓을 때 같은 값을 `preview` 없이 보낸다.
 - **메뉴 막대**: 캔버스 문서가 열려 있으면 `appMenus`가 캔버스 메뉴를 낸다(`app_menu.dart`의 `CanvasMenu`). 키는 ⌘가 든 것만 건다. 한 글자 키와 ⌥ 키(⇧H, ⌥A 등)는 글 상자에서 그 글자를 칠 때 메뉴가 가로채지 않게 판의 키 표가 받는다.
 - **버전 패널**은 `VersionHost`(`editing/version_host.dart`) 인터페이스로 두 세션이 함께 쓴다. 복원은 `doc.restore`, 되돌리기는 `doc.undo`다. 둘 다 엔진이 캔버스 세션의 앞 사본을 따라가게 한다.

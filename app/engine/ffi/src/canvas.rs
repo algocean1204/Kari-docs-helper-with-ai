@@ -13,7 +13,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{strip_revs, Document, Guard, Kind};
-use kari_edit::{boards, label_rect, CanvasEditor, End, Phase, Pointer, TextCmd};
+use kari_edit::{
+    boards, follow_groups, group_offset, label_rect, watch_groups, CanvasEditor, End, Phase,
+    Pointer, TextCmd,
+};
 use kari_layout::{Layouter, Scene};
 use kari_render::{
     draw_canvas, draw_canvas_marks, draw_canvas_overlay, draw_canvas_text, CanvasMarks, CanvasView,
@@ -129,6 +132,35 @@ impl CFront {
             })?;
         Some([r[0], r[1], r[2] - r[0], r[3] - r[1]])
     }
+}
+
+/// 묶음을 앞 사본에 적용하고, 그룹이 따라오게 하는 op(그룹 크기에 맞춘 자식 비례, `commit`이면 그룹 상자 맞추기와 빈
+/// 그룹 지우기)를 이어 적용해 `ops` 끝에 붙인다. 뒤 사본에도 같은 묶음이 가게 한다. 문서가 바뀌었으면 참.
+/// 따라온 op의 적용이 실패하면 앞 사본이 묶음의 중간에 있으므로 부르는 쪽이 뒤 사본에서 새로 만든다.
+pub(crate) fn apply_follow(
+    f: &mut CFront,
+    ops: &mut Vec<Value>,
+    commit: bool,
+) -> Result<bool, kari_doc::Error> {
+    let watch = watch_groups(&f.doc, ops);
+    let batch = Value::Array(std::mem::take(ops));
+    let applied = if commit {
+        f.doc.apply_unbounded(&batch, Guard::default())
+    } else {
+        f.doc.apply_trusted(&batch)
+    };
+    if let Value::Array(b) = batch {
+        *ops = b;
+    }
+    if applied?.ops.is_empty() {
+        return Ok(false);
+    }
+    if !watch.is_empty() {
+        let more = follow_groups(&mut f.doc, &mut f.lay, &watch, commit)?;
+        ops.extend(more);
+        f.ed.prune(&f.doc);
+    }
+    Ok(true)
 }
 
 pub(crate) struct CSession {
@@ -350,9 +382,16 @@ fn state(lib: &Library, back: &OpenDoc, f: &mut CFront, gen: u64, changed: bool)
         .filter_map(|i| {
             let g = f.lay.node_geo(&f.doc, i)?;
             let (kx, ky) = if g.kind == "page" { ("cx", "cy") } else { ("x", "y") };
-            let p = |k: &str| f.doc.prop(i, k).cloned().unwrap_or(Value::Null);
+            // 그룹 안의 노드는 가장 가까운 프레임·대지 기준의 자리를 보인다(속성 패널의 X·Y. `set`도 같은 기준이다).
+            let off = group_offset(&f.doc, i).unwrap_or((0.0, 0.0));
+            let p = |k: &str, d: f64| match f.doc.prop(i, k) {
+                Some(v) if d == 0.0 => v.clone(),
+                v => v
+                    .and_then(Value::as_f64)
+                    .map_or(Value::Null, |v| json!(v + d)),
+            };
             Some(json!({
-                "id": i, "type": g.kind, "parent": g.parent, "x": p(kx), "y": p(ky), "w": g.w, "h": g.h,
+                "id": i, "type": g.kind, "parent": g.parent, "x": p(kx, off.0), "y": p(ky, off.1), "w": g.w, "h": g.h,
                 "rotation": g.rotation, "quad": g.quad(), "props": edit::node_info(&f.doc, i),
             }))
         })
@@ -464,6 +503,31 @@ fn view(f: &mut CFront, a: &Args) -> Result<(), Fail> {
             Some(r) => f.view.fit(r, w, h, margin),
             None => f.view = CanvasView::default(),
         },
+        // 대지 사이 이동: 보이는 영역의 가운데가 든(없으면 가장 가까운) 대지의 다음·앞 대지(문서 차례, 끝에서 돈다)에 맞춘다.
+        Some("board") => {
+            let list = boards(&f.doc);
+            let step: isize = match a.str("to")? {
+                "next" => 1,
+                "prev" => -1,
+                _ => return Err(bad("to는 next나 prev입니다.")),
+            };
+            let (px, py) = f.view.to_board(w / 2.0, h / 2.0);
+            let gap = |b: &kari_edit::BoardRect| {
+                let dx = (b.x - px).max(px - b.x - b.w).max(0.0);
+                let dy = (b.y - py).max(py - b.y - b.h).max(0.0);
+                dx.hypot(dy)
+            };
+            let cur = list
+                .iter()
+                .enumerate()
+                .min_by(|a, b| gap(a.1).total_cmp(&gap(b.1)))
+                .map(|(i, _)| i as isize);
+            if let Some(cur) = cur {
+                let n = list.len() as isize;
+                let b = &list[(cur + step).rem_euclid(n) as usize];
+                f.view.fit([b.x, b.y, b.w, b.h], w, h, margin);
+            }
+        }
         Some("fitSelection") => {
             if let Some(r) = f.ed.bounds(&f.doc, &mut f.lay) {
                 f.view.fit(r, w, h, margin);
@@ -514,21 +578,21 @@ fn finish(
     if f.dirty {
         f.rebuild_keep(back.doc());
     }
-    let batch = Value::Array(ops);
-    let applied = if batch.as_array().is_some_and(Vec::is_empty) {
-        None
-    } else {
-        Some(
-            f.doc
-                .apply_unbounded(&batch, Guard::default())
-                .map_err(Error::Doc)?,
-        )
+    let mut ops = ops;
+    let changed = match apply_follow(&mut f, &mut ops, true) {
+        Ok(c) => c,
+        Err(e) => {
+            f.rebuild(back.doc());
+            s.bump();
+            return Err(Error::Doc(e).into());
+        }
     };
+    let batch = Value::Array(ops);
     f.relayout();
     s.bump();
-    let Some(a) = applied.filter(|a| !a.ops.is_empty()) else {
+    if !changed {
         return Ok(false);
-    };
+    }
     drop(f);
     let meta = Meta {
         label,
@@ -543,7 +607,6 @@ fn finish(
         Ok(Outcome::Committed(_) | Outcome::Nothing) => {}
         Err(e) => {
             // 앞 사본을 뒤 사본에서 새로 만든다(역연산을 적용하는 길보다 어긋남이 없다).
-            let _ = a;
             f.rebuild(back.doc());
             s.bump();
             return Err(e.into());
@@ -607,10 +670,10 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
             f = s.lock(d.doc());
         }
         _ if !out.ops.is_empty() => {
-            f.doc
-                .apply_trusted(&Value::Array(out.ops))
-                .map_err(Error::Doc)?;
+            let mut ops = out.ops;
+            let res = apply_follow(&mut f, &mut ops, false);
             f.dirty = true;
+            res.map_err(Error::Doc)?;
             f.relayout();
         }
         _ if hover => {
@@ -659,6 +722,11 @@ pub(crate) fn dispatch(state_: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             s.bump();
         }
         "canvas.pointer" => return pointer_cmd(e, id, &s, a),
+        // 레이어 패널의 줄들(저장된 문서). 앱은 `seq`가 바뀔 때 다시 읽는다.
+        "canvas.layers" => {
+            let d = back(&mut e.docs, id)?;
+            return Ok(json!({"seq": d.doc().seq(), "rows": kari_edit::layer_rows(d.doc())}));
+        }
         "canvas.cmd" | "canvas.text" | "canvas.ime" | "canvas.copy" => {
             return edit::dispatch(e, id, &s, m, a)
         }
