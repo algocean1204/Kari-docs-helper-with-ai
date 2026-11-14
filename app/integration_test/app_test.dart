@@ -409,8 +409,8 @@ void main() {
       // 3. 문서 끝(표 뒤 문단)에 그림을 넣는다.
       await shortcut(tester, LogicalKeyboardKey.arrowDown);
       await until(tester, () async => st().table == null, '표 뒤 문단');
-      await tapThen(tester, find.byTooltip('넣기'), find.text('이미지'), '넣기 메뉴');
-      await tester.tap(find.text('이미지').last);
+      await tapThen(tester, find.byTooltip('넣기'), find.text('그림'), '넣기 메뉴');
+      await tester.tap(find.text('그림').last);
       await until(tester, () async => images(await nodes()) == 1, '그림');
       await paper();
 
@@ -446,8 +446,8 @@ void main() {
 
       // 5. 쪽 설정에서 바닥글에 쪽 번호를 넣는다.
       // 쪽 설정은 위 막대의 ⋯ 메뉴 안에 있다.
-      await tapThen(tester, find.byTooltip('문서 메뉴'), find.text('쪽 설정'), '⋯ 메뉴');
-      await tapThen(tester, find.text('쪽 설정'), find.text('쪽 번호 넣기'), '쪽 설정 창');
+      await tapThen(tester, find.byTooltip('문서 메뉴'), find.text('쪽 설정…'), '⋯ 메뉴');
+      await tapThen(tester, find.text('쪽 설정…'), find.text('쪽 번호 넣기'), '쪽 설정 창');
       await tester.tap(find.text('쪽 번호 넣기'));
       await pump(tester, const Duration(milliseconds: 100));
       await tester.tap(find.text('적용'));
