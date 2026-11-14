@@ -1,12 +1,13 @@
-# 푸시와 PR마다 저장소 구성, 엔진, 앱을 검사한다. 보호 규칙의 필수 검사는 마지막의 ci-passed 하나다.
+# 푸시와 PR마다 저장소 구성, 엔진, 앱을 검사한다. 보호 규칙의 필수 검사는 마지막의 ci-passed다(PR 제목·가지·판 번호는 pr-meta.yml).
+# 아껴 돌린다: 같은 가지의 앞 실행은 취소하고, PR에서 바뀐 경로에 닿지 않는 무거운 작업(엔진, 앱, macOS)은 건너뛴다.
 name: CI
 
 on:
   push:
-    branches: [main]
-  # edited: 제목이나 본문을 고친 뒤 pr 작업이 다시 보게 한다(다른 작업도 다시 돈다).
+    branches: [main, develop]
+  # 제목·본문만 고친 것(edited)으로는 돌지 않는다. 그 검사는 pr-meta.yml이 한다.
   pull_request:
-    types: [opened, edited, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -34,63 +35,39 @@ jobs:
       - name: 문서의 상대 링크
         run: python3 app/scripts/check_links.py
 
-  pr:
-    name: pr
-    # 스쿼시 병합의 커밋 제목이 되는 PR 제목, 가지 이름, 연결 이슈를 본다. 바깥 액션 없이 셸로만 한다.
-    if: github.event_name == 'pull_request'
+  changes:
+    name: changes
+    # 무거운 작업을 돌릴지 정한다. PR은 대상 가지와의 차이로 보고, main·develop에 밀 때와 알 수 없을 때는 모두 돌린다.
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-    env:
-      # 글자 수(한글 한 자 = 1)로 세려면 UTF-8 로케일이 필요하다.
-      LC_ALL: C.UTF-8
-      # 글은 환경 변수로만 받는다. 셸 줄에 직접 끼우면 제목의 글자가 명령이 된다.
-      PR_TITLE: ${{ github.event.pull_request.title }}
-      PR_BODY: ${{ github.event.pull_request.body }}
-      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-      PR_ASSOC: ${{ github.event.pull_request.author_association }}
-      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    outputs:
+      engine: ${{ steps.paths.outputs.engine }}
+      app: ${{ steps.paths.outputs.app }}
+      macos: ${{ steps.paths.outputs.macos }}
     steps:
-      - name: 제목, 가지 이름, 연결 이슈
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: 바뀐 경로
+        id: paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          types='feat|fix|docs|test|refactor|perf|build|ci|chore|revert'
-          title_re="^($types)(\([a-z0-9-]+\))?!?: .{1,72}$"
-          branch_re="^($types)/[a-z0-9][a-z0-9._-]*$"
-          issue_re='(Fixes|Closes|Resolves|Refs) #[0-9]+'
-          fail=0
-          probe=가
-          if [ "${#probe}" != 1 ]; then
-            echo "::error::러너의 로케일이 UTF-8이 아니라 제목의 글자 수를 셀 수 없습니다"
-            exit 1
-          fi
-          if ! [[ "$PR_TITLE" =~ $title_re ]]; then
-            echo "::error title=PR 제목::제목을 'type(scope): 설명' 꼴로 고쳐 주세요. type은 feat, fix, docs, test, refactor, perf, build, ci, chore, revert 중 하나, scope는 소문자·숫자·하이픈이고 생략할 수 있으며, 호환이 깨지면 콜론 앞에 !를 붙입니다. 설명은 1자 이상 72자 이하입니다. 예: fix(layout): 머리 행이 다음 쪽에서 빠지는 문제를 고침. 제목은 PR 화면에서 고치면 검사가 다시 돕니다(.github/CONTRIBUTING.md)"
-            fail=1
-          fi
-          case "$PR_BRANCH" in
-            dependabot/*) ;;
-            *)
-              if ! [[ "$PR_BRANCH" =~ $branch_re ]]; then
-                echo "::error title=가지 이름::가지 이름을 '<type>/<짧은-주제>'로 지어 주세요. type은 feat, fix, docs, test, refactor, perf, build, ci, chore, revert 중 하나이고 주제는 소문자, 숫자, 하이픈입니다. 예: fix/table-header-repeat. 가지를 새로 만들어 PR을 다시 열어 주세요(.github/CONTRIBUTING.md)"
-                fail=1
-              fi
-              ;;
-          esac
-          case "$PR_ASSOC" in
-            OWNER|MEMBER|COLLABORATOR) ;;
-            *)
-              # 의존성 도구가 여는 PR에는 이슈가 없다.
-              if [ "$PR_AUTHOR" != 'dependabot[bot]' ] && ! [[ "$PR_BODY" =~ $issue_re ]]; then
-                echo "::error title=연결 이슈::본문에 연결 이슈를 'Fixes #번호'(Closes, Resolves, Refs도 됩니다) 꼴로 적어 주세요. 연결된 이슈가 없는 외부 PR은 검토하지 않습니다(.github/CONTRIBUTING.md)"
-                fail=1
-              fi
-              ;;
-          esac
-          exit "$fail"
+          all() { for k in engine app macos; do echo "$k=true" >> "$GITHUB_OUTPUT"; done; exit 0; }
+          [ "${{ github.event_name }}" = pull_request ] && [ -n "$BASE" ] || all
+          files=$(git diff --name-only "$BASE" HEAD) || all
+          printf '%s\n' "$files"
+          # 워크플로가 바뀌면 모두 돈다.
+          if printf '%s\n' "$files" | grep -q '^\.github/workflows/'; then all; fi
+          has() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
+          echo "engine=$(has '^app/engine/|^Docs/architecture/knowledge-pack\.md$|^app/scripts/pack_check\.py$')" >> "$GITHUB_OUTPUT"
+          echo "app=$(has '^app/')" >> "$GITHUB_OUTPUT"
+          echo "macos=$(has '^app/|^Docs/THIRD_PARTY_LICENSES\.md$')" >> "$GITHUB_OUTPUT"
 
   engine:
     name: engine
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -104,6 +81,16 @@ jobs:
           sudo apt-get install -y libssl-dev pkg-config libfreetype6-dev libfontconfig1-dev poppler-utils qpdf
           rustup update stable
           rustup component add rustfmt clippy
+      - name: Cargo 캐시
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            app/engine/target
+          key: engine-${{ runner.os }}-${{ hashFiles('app/engine/Cargo.lock', 'app/engine/rust-toolchain.toml') }}
+          restore-keys: engine-${{ runner.os }}-
       - name: 형식, 정적 분석, 시험
         working-directory: app/engine
         # kari-store의 강제 종료 시험은 기본 횟수(20번)로 돈다. 200번은 KARI_CRASH_RUNS=200.
@@ -119,6 +106,8 @@ jobs:
 
   app:
     name: app
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -127,6 +116,7 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
       - name: 필요한 도구
         # flutter test가 빌드 훅(app/hook/build.dart)으로 엔진 라이브러리(kari-ffi)를 cargo로 빌드한다.
         # 통합 시험(test/native_test.dart)이 그 라이브러리를 부른다.
@@ -134,6 +124,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libssl-dev pkg-config libfreetype6-dev libfontconfig1-dev
           rustup update stable
+      - name: Cargo 내려받기 캐시
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-dl-${{ runner.os }}-${{ hashFiles('app/engine/Cargo.lock') }}
+          restore-keys: cargo-dl-${{ runner.os }}-
       - name: 정적 분석과 시험
         working-directory: app
         run: |
@@ -144,7 +143,8 @@ jobs:
   macos:
     name: macos
     # macOS 앱이 컴파일되는지 본다(Swift, 권한 파일, 빌드 훅의 엔진 빌드). 공개 저장소에서만 돈다.
-    if: github.event.repository.private == false
+    needs: changes
+    if: github.event.repository.private == false && needs.changes.outputs.macos == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -153,8 +153,18 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+          cache: true
       - name: 필요한 도구
         run: rustup update stable
+      - name: Cargo 내려받기 캐시
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-dl-${{ runner.os }}-${{ hashFiles('app/engine/Cargo.lock') }}
+          restore-keys: cargo-dl-${{ runner.os }}-
       - name: 디버그 빌드
         working-directory: app
         run: |
@@ -166,21 +176,23 @@ jobs:
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [repo, engine, app, macos, pr]
+    needs: [repo, changes, engine, app, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: 모든 검사 통과
         run: |
           # 하나씩 본다(&&로 이으면 가운데 것이 실패해도 셸이 멈추지 않는다).
-          for result in "${{ needs.repo.result }}" "${{ needs.engine.result }}" "${{ needs.app.result }}"; do
+          for result in "${{ needs.repo.result }}" "${{ needs.changes.result }}"; do
             [ "$result" = success ] || exit 1
           done
-          # macos는 비공개 저장소에서 건너뛴다.
-          case "${{ needs.macos.result }}" in success|skipped) ;; *) exit 1 ;; esac
-          # pr은 PR에서만 돈다. push(main)에서 건너뛴 것만 통과로 본다.
-          case "${{ needs.pr.result }}" in
-            success) ;;
-            skipped) [ "${{ github.event_name }}" = push ] || exit 1 ;;
-            *) exit 1 ;;
-          esac
+          # 무거운 작업은 바뀐 경로에 닿지 않아 건너뛴 것만 통과로 본다(changes가 성공했을 때만 여기 온다).
+          ok() { case "$1" in success) ;; skipped) [ "$2" != true ] || exit 1 ;; *) exit 1 ;; esac; }
+          ok "${{ needs.engine.result }}" "${{ needs.changes.outputs.engine }}"
+          ok "${{ needs.app.result }}" "${{ needs.changes.outputs.app }}"
+          # macos는 비공개 저장소에서도 건너뛴다.
+          if [ "${{ github.event.repository.private }}" = true ]; then
+            case "${{ needs.macos.result }}" in success|skipped) ;; *) exit 1 ;; esac
+          else
+            ok "${{ needs.macos.result }}" "${{ needs.changes.outputs.macos }}"
+          fi

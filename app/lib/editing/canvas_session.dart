@@ -225,8 +225,70 @@ class CanvasSession extends ChangeNotifier
     }
   }
 
+  /// 레이어 패널의 줄들(저장된 문서). 패널이 열려 있을 때만, 문서가 바뀌고(`seq`) 잠시 멈추면 다시 읽는다.
+  /// 수만 노드에서는 줄을 읽고 푸는 데 수십 ms가 들어, 글자 하나마다 읽거나 입력과 같은 줄에 세우면 입력이 밀린다.
+  List<CanvasLayer> layers = const [];
+  int? _layersSeq;
+  bool _layersOn = false;
+  bool _layersBusy = false;
+
+  /// 읽은 줄이 문서보다 낡았다(닫혀 있는 동안이나 읽는 동안 문서가 바뀌었다).
+  bool _layersStale = true;
+  Timer? _layersTimer;
+
+  /// 연달아 커밋하는 동안(글 입력, 방향키) 다시 읽기를 미루는 시간.
+  static const layersQuiet = Duration(milliseconds: 250);
+
+  /// 레이어 패널이 열렸는가. 열 때 줄이 낡았으면 바로 읽는다.
+  void showLayers(bool on) {
+    _layersOn = on;
+    if (!on) {
+      _layersTimer?.cancel();
+    } else if (state != null && _layersStale) {
+      _readLayers();
+    }
+  }
+
+  void _refreshLayers(CanvasState s) {
+    if (_closed || (s.seq == _layersSeq && !s.changed)) return;
+    _layersStale = true;
+    if (!_layersOn) return;
+    _layersTimer?.cancel();
+    // 아직 한 번도 읽지 않았으면(문서를 연 때) 기다리지 않는다.
+    if (layers.isEmpty) {
+      _readLayers();
+      return;
+    }
+    _layersTimer = Timer(layersQuiet, _readLayers);
+  }
+
+  /// 입력의 줄과 따로 부른다(엔진은 느린 줄에서 받는다). 도는 동안 문서가 또 바뀌었으면 끝난 뒤 한 번 더 읽는다.
+  Future<void> _readLayers() async {
+    if (_closed || !_layersOn || _layersBusy) return;
+    _layersBusy = true;
+    _layersStale = false;
+    try {
+      final r = await engine.canvasLayers(id);
+      if (_closed) return;
+      layers = r.rows;
+      _layersSeq = r.seq;
+      notifyListeners();
+    } on EngineError {
+      // 다음에 문서가 바뀔 때 다시 읽는다.
+      _layersStale = true;
+      return;
+    } finally {
+      _layersBusy = false;
+    }
+    if (!_closed && _layersOn && _layersStale) {
+      _layersTimer?.cancel();
+      _layersTimer = Timer(layersQuiet, _readLayers);
+    }
+  }
+
   void _apply(CanvasState s, {bool fromIme = false}) {
     state = s;
+    _refreshLayers(s);
     if (s.refused != null && _keepNotice == null) {
       notice = s.refused;
       noticeRev++;
@@ -494,6 +556,7 @@ class CanvasSession extends ChangeNotifier
     _commitComposing();
     _detach();
     _idle?.cancel();
+    _layersTimer?.cancel();
     final done = closingDoc(
       id,
       _then(() async {
@@ -679,6 +742,7 @@ class CanvasSession extends ChangeNotifier
   @override
   void dispose() {
     _idle?.cancel();
+    _layersTimer?.cancel();
     _closed = true;
     super.dispose();
   }

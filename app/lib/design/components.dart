@@ -884,6 +884,10 @@ ShapeBorder segmentShape(AppColors c, {required bool selected}) =>
       side: selected ? BorderSide(color: c.border) : BorderSide.none,
     );
 
+/// 단추가 붙은 알림 띠가 떠 있는 시간. 글을 읽고 단추를 누를 틈을 주려고 단추 없는 것(4초)보다 길다.
+/// 단추가 있으면 Flutter는 기본으로 닫지 않으므로, 이 시간과 `persist: false`를 함께 준다.
+const actionNoticeDuration = Duration(seconds: 8);
+
 /// 알림 띠(스낵바)의 내용. 실패는 색에만 맡기지 않고 아이콘을 앞에 둔다.
 class NoticeText extends StatelessWidget {
   const NoticeText(this.message, {super.key, this.failed = false});

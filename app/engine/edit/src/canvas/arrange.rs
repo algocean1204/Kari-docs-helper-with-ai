@@ -6,6 +6,7 @@ use kari_doc::serde_json::{json, Value};
 use kari_doc::Document;
 use kari_layout::{apply, inv, Layouter};
 
+use super::layers::group_offset;
 use super::{norm_deg, pos_keys, snap, union_rect, Put, Start};
 
 /// 맞출 쪽.
@@ -57,14 +58,26 @@ pub(super) fn align_ops(
 ) -> Result<Vec<Value>, &'static str> {
     let target = match &*starts {
         [] => return Err("고른 것이 없습니다."),
+        // 그룹은 자식을 따라가는 상자라 맞출 곳이 아니다: 그룹 안이면 가장 가까운 프레임·대지에 맞춘다(Figma와 같다).
+        // 사이의 그룹이 돌거나 뒤집혔으면 축이 달라 바로 위의 그룹에 맞춘다.
         [one] => {
-            let parent = one
-                .geo
-                .parent
+            let off = group_offset(doc, &one.geo.id);
+            let mut up = one.geo.parent.clone();
+            if off.is_some() {
+                while let Some(g) = up
+                    .as_deref()
+                    .and_then(|u| doc.node(u))
+                    .filter(|n| n.kind == "group")
+                {
+                    up = g.parent.clone();
+                }
+            }
+            let off = off.unwrap_or((0.0, 0.0));
+            let parent = up
                 .as_deref()
                 .and_then(|p| lay.node_geo(doc, p))
                 .ok_or("대지 하나는 맞출 곳이 없습니다.")?;
-            [0.0, 0.0, parent.w, parent.h]
+            [-off.0, -off.1, parent.w - off.0, parent.h - off.1]
         }
         many => union_rect(many.iter().flat_map(|s| {
             let b = bounds(s);

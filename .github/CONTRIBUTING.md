@@ -25,15 +25,28 @@ Kari는 유지 관리자 한 사람이 검토하고 병합합니다. 모든 이�
 
 ## 가지
 
-- 오래 두는 가지는 `main` 하나입니다. `main`은 언제나 빌드되고 시험을 통과하는 상태입니다.
-- 작업은 `main`에서 딴 짧은 가지에서 합니다. 이슈 하나에 가지 하나, PR 하나입니다. 병합되면 가지는 자동으로 지워집니다.
+- 오래 두는 가지는 둘입니다. `develop`은 다음 판을 모으는 가지이고(저장소의 기본 가지), `main`은 릴리스한 판과 릴리스할 판만 두는 가지입니다. 둘 다 언제나 빌드되고 시험을 통과하는 상태입니다.
+- 흐름은 언제나 작업 가지 → `develop` → `main`입니다. 작업은 `develop`에서 딴 짧은 가지에서 하고, PR의 대상(base)은 `develop`입니다. 이슈 하나에 가지 하나, PR 하나입니다. 병합되면 가지는 자동으로 지워집니다.
 - 이름은 `<type>/<짧은-주제>`입니다. type은 아래 [커밋과 PR 제목](#커밋과-pr-제목)의 type과 같고, 주제는 소문자, 숫자, 하이픈(`.`, `_`도 됨)으로 쓰며 첫 글자는 소문자나 숫자입니다. 예: `fix/table-header-repeat`, `feat/table-sort`, `docs/install-guide`, `test/docx-export`, `chore/ci-cache`. 규칙은 `^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)/[a-z0-9][a-z0-9._-]*$`이고 CI가 봅니다(의존성 도구의 `dependabot/` 가지는 그대로 통과합니다).
-- `main`에는 PR로만 들어갑니다. 유지 관리자도 같은 순서(이슈 → 가지 → PR)로 일합니다.
+- `develop`과 `main`에는 PR로만 들어갑니다. 유지 관리자도 같은 순서(이슈 → 가지 → `develop`으로 PR)로 일합니다.
+- `main`으로 가는 PR은 유지 관리자가 `develop`에서 엽니다. 다른 가지에서 `main`으로 연 PR은 CI가 거절합니다.
 - 릴리스 태그(`v*`)는 유지 관리자만 만듭니다. 릴리스용 가지는 두지 않습니다.
+
+## 판 번호
+
+[유의적 판 번호(SemVer 2.0.0)](https://semver.org/lang/ko/)의 `MAJOR.MINOR.PATCH` 꼴을 쓰되, 1.0.0 전까지는 언제나 `0.MINOR.PATCH`입니다. SemVer에서 0.y.z는 초기 개발의 판이라 무엇이든 바뀔 수 있다는 뜻이고, 이 저장소도 같습니다. 1.0.0은 유지 관리자가 정할 때까지 올리지 않습니다.
+
+- 큰 업데이트는 두 번째 숫자(MINOR)를 올리고 세 번째 숫자는 0으로 되돌립니다. 작은 이슈 수정은 세 번째 숫자(PATCH)를 올립니다. 0.1.1 → 0.2.0처럼 MINOR는 한 번에 하나씩 오릅니다.
+- 가르는 기준은 지난 `v*` 태그 이후 `main`에 들어갈 커밋 제목(`develop`에 스쿼시 병합된 PR 제목)입니다. `feat`나 `!`가 붙은 제목이 하나라도 있으면 MINOR, 아니면(`fix`, `perf`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`, `revert`만 있으면) PATCH입니다. 그래서 PR 제목의 type이 곧 판 번호를 정합니다.
+- 판은 `app/pubspec.yaml`의 `version`에 적고(빌드 번호는 릴리스 빌드가 커밋 수로 붙입니다), 태그는 `v<판>`입니다. 시험판 꼴의 태그(`-beta` 등)는 쓰지 않습니다.
+- 판 번호는 유지 관리자가 `develop`에서 여는 릴리스 PR(제목 `chore(release): <판>`, 가지 `chore/release-<판>`)에서만 바꿉니다. 다른 PR이 `version` 줄을 바꾸면 CI가 거절합니다.
+- 릴리스의 순서는 릴리스 PR → `develop`에서 `main`으로 PR(병합 커밋) → `main`에 태그 `v<판>` → 초안 릴리스 → 게시입니다([Docs/contributing/release.md](../Docs/contributing/release.md)).
+
+`pr-meta`의 `version` 검사는 `main`으로 가는 PR의 판이 지난 태그보다 크고 위 기준이 계산한 판과 같은지 봅니다(지난 판이 0.x일 때 `1.0.0`은 유지 관리자의 결정이라 받습니다). 릴리스 워크플로는 태그의 꼴(`v0.MINOR.PATCH` 또는 `v1.0.0`), 태그가 가리키는 커밋이 `main`에 들어 있는지, 태그의 판과 `app/pubspec.yaml`의 판이 같은지, 판이 지난 태그보다 큰지를 다시 보고, 하나라도 어긋나면 릴리스를 만들지 않습니다. 다음 판은 `app/scripts/next_version.sh [<끝>]`이 계산합니다(`git fetch --tags` 뒤에).
 
 ## 커밋과 PR 제목
 
-[Conventional Commits 1.0.0](https://www.conventionalcommits.org/ko/v1.0.0/)을 따릅니다. 병합은 스쿼시라 PR 제목이 곧 `main`의 커밋 제목이므로, 검사는 PR 제목에 합니다. 가지 안의 커밋 제목은 자유롭지만 같은 꼴로 쓰면 좋습니다([로컬 검사](#로컬에서-커밋-제목-검사하기)).
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/ko/v1.0.0/)을 따릅니다. `develop`으로의 병합은 스쿼시라 PR 제목이 곧 커밋 제목이므로, 검사는 PR 제목에 합니다. 가지 안의 커밋 제목은 자유롭지만 같은 꼴로 쓰면 좋습니다([로컬 검사](#로컬에서-커밋-제목-검사하기)).
 
 ```
 type(scope): 설명
@@ -61,7 +74,7 @@ type(scope): 설명
   - `docs: 설치 안내에 처음 여는 법을 더함`
   - `refactor(store)!: 저장 꼴을 바꿈`
 
-PR 제목, 가지 이름, 연결 이슈는 PR마다 CI의 `pr` 검사가 봅니다. 실패하면 무엇이 틀렸는지 알려 주고, 제목은 PR 화면에서 고치면 검사가 다시 돕니다.
+PR 제목, 가지 이름, 연결 이슈는 PR마다 `pr-meta` 검사(`.github/workflows/pr-meta.yml`)가 봅니다. 실패하면 무엇이 틀렸는지 알려 주고, 제목은 PR 화면에서 고치면 검사가 다시 돕니다.
 
 ### 로컬에서 커밋 제목 검사하기
 
@@ -106,8 +119,9 @@ python3 app/scripts/public_check.py
 ## PR의 검토와 병합
 
 - PR 양식을 모두 채웁니다. 화면이 바뀌면 전후 그림을 붙입니다.
-- `main`에는 PR로만 들어갑니다. CI의 집계 검사(`ci-passed`)가 통과해야 병합할 수 있습니다. 집계에는 PR 제목, 가지 이름, 연결 이슈 검사(`pr`)도 들어 있습니다.
-- 병합은 스쿼시 병합 하나입니다. PR 하나가 커밋 하나가 되고, PR 제목이 커밋 제목이 됩니다. 제목은 [위의 규칙](#커밋과-pr-제목)을 따릅니다.
+- `develop`과 `main`에는 PR로만 들어갑니다. CI의 집계 검사(`ci-passed`)와 PR 검사(`pr-meta`: 제목, 가지 이름, 연결 이슈, 판 번호)가 모두 통과해야 병합할 수 있습니다. CI는 PR에서 바뀐 경로에 닿는 무거운 검사(엔진, 앱, macOS)만 돌립니다. 문서만 고친 PR은 저장소 검사와 PR 검사만 돕니다.
+- `develop`으로의 병합은 스쿼시 병합 하나입니다. PR 하나가 커밋 하나가 되고, PR 제목이 커밋 제목이 됩니다. 제목은 [위의 규칙](#커밋과-pr-제목)을 따릅니다.
+- `develop`에서 `main`으로의 병합은 병합 커밋으로 합니다. `develop`의 커밋이 그대로 `main`에 남아 릴리스 글이 그 제목으로 묶입니다.
 - 유지 관리자가 PR 가지에 커밋을 얹어 마무리하거나, 같은 내용을 새 PR로 다시 만들어 병합할 수 있습니다. 다시 만들 때는 원 작성자를 `Co-authored-by`로 남깁니다.
 - 받지 않는 PR은 까닭을 적고 닫습니다.
 - CLA나 DCO 서명은 요구하지 않습니다.

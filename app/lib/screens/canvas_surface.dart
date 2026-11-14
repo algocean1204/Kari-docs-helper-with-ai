@@ -224,7 +224,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
       case 'view':
         a['op'] == 'zoom'
             ? _s.zoomAt(by: a['by'] as double)
-            : _s.viewOp(a['op'] as String);
+            : _s.viewOp(a['op'] as String, rest);
       case 'undo':
         _s.undo();
       case 'redo':
@@ -443,11 +443,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
                   fit: StackFit.expand,
                   children: [
                     ColoredBox(color: c.bg),
-                    if (surface != null)
-                      Texture(
-                        textureId: surface.textureId,
-                        filterQuality: FilterQuality.none,
-                      ),
+                    if (surface != null) Surface.view(surface.textureId),
                   ],
                 ),
               ),

@@ -5,9 +5,12 @@
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{strip_revs, Document, Guard, Kind};
-use kari_edit::{CPlan, CanvasCmd, CanvasEditor, End, Out, Phase, Pointer, TextCmd};
+use kari_edit::{
+    follow_groups, watch_groups, CPlan, CanvasCmd, CanvasEditor, End, Out, Phase, Pointer, TextCmd,
+};
 use kari_layout::Layouter;
 
+pub mod layers;
 pub mod steps;
 pub mod walk;
 
@@ -39,6 +42,8 @@ pub struct CanvasT {
     pub snap: bool,
     /// 누름이 글 상자 편집을 끝내며 먼저 낸 묶음(빈 글 상자 지우기)의 수. 그 입력 자신의 묶음과 따로 센다.
     pub pres: usize,
+    /// 그룹이 따라오게 하느라 커밋에 덧붙인 op의 수(걷기가 그 길을 지났는지 본다).
+    pub follows: usize,
     fresh: fn() -> Layouter,
 }
 
@@ -91,6 +96,7 @@ impl CanvasT {
             alt: false,
             snap: false,
             pres: 0,
+            follows: 0,
             fresh,
         }
     }
@@ -117,12 +123,26 @@ impl CanvasT {
         if ops.is_empty() {
             return;
         }
-        let batch = Value::Array(ops.to_vec());
+        // 엔진 경계와 같다: 앞 사본에 적용한 뒤 그룹이 따라오게 하는 op를 이어 붙여 같은 묶음으로 커밋한다.
+        let watch = watch_groups(&self.front, ops);
+        let mut ops = ops.to_vec();
+        let batch = Value::Array(ops.clone());
         self.front
             .apply_unbounded(&batch, Guard::default())
             .unwrap_or_else(|e| panic!("{e}: {batch}"));
+        ops.extend(follow_groups(&mut self.front, &mut self.lay, &watch, true).unwrap());
+        self.ed.prune(&self.front);
+        let followed = ops.len() - batch.as_array().unwrap().len();
+        self.follows += followed;
+        let batch = Value::Array(ops);
         let a = self.back.apply_unbounded(&batch, Guard::default()).unwrap();
         assert_eq!(self.front.hash(), self.back.hash(), "두 사본의 해시");
+        // 앞 사본은 따라온 op를 따로 적용해 노드의 rev가 뒤 사본보다 하나 앞선다. 시험은 배치기 하나로 두 사본을 재므로
+        // (글 상자 크기의 캐시 열쇠가 rev다) 앞 사본을 뒤 사본에서 새로 만들어 rev를 맞춘다.
+        if followed > 0 {
+            self.front = self.back.clone();
+            self.lay = (self.fresh)();
+        }
         assert!(self.back.check().is_empty(), "{:?}", self.back.check());
         if !a.ops.is_empty() {
             self.commits += 1;
@@ -130,6 +150,16 @@ impl CanvasT {
             self.done.push((a.inverse, a.ops, group));
             self.undone.clear();
         }
+    }
+
+    /// 끌기·수치 끌기의 미리 보기: 앞 사본에만 적용한다(크기가 바뀐 그룹의 자식도 따라 늘어난다).
+    fn preview(&mut self, ops: &[Value]) {
+        let watch = watch_groups(&self.front, ops);
+        self.front
+            .apply_trusted(&Value::Array(ops.to_vec()))
+            .unwrap();
+        follow_groups(&mut self.front, &mut self.lay, &watch, false).unwrap();
+        self.dirty = true;
     }
 
     /// 이름과 인자로 부르는 명령 하나. 미리 보기(`Set`의 `preview`)는 앞 사본에만 적용한다.
@@ -171,10 +201,7 @@ impl CanvasT {
         if plan.refused.is_some() {
             self.ed = before;
         } else if plan.preview {
-            self.front
-                .apply_trusted(&Value::Array(plan.ops.clone()))
-                .unwrap();
-            self.dirty = true;
+            self.preview(&plan.ops);
         } else {
             self.commit(&plan.ops, plan.group);
         }
@@ -223,12 +250,7 @@ impl CanvasT {
         }
         match out.end {
             End::Commit(_) => self.commit(&out.ops, None),
-            End::None if !out.ops.is_empty() => {
-                self.front
-                    .apply_trusted(&Value::Array(out.ops.clone()))
-                    .unwrap();
-                self.dirty = true;
-            }
+            End::None if !out.ops.is_empty() => self.preview(&out.ops),
             _ => {}
         }
         self.lay.set_text_overlay(self.ed.overlay());

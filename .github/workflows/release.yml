@@ -26,6 +26,21 @@ jobs:
         with:
           # 빌드 번호(커밋 수)를 세려면 기록 전체가 있어야 한다.
           fetch-depth: 0
+      - name: 태그와 판 번호
+        # 규칙(.github/CONTRIBUTING.md의 '판 번호')에 어긋나면 빌드 전에 실패해 릴리스를 만들지 않는다. 손으로 돌릴 때는 태그가 없어 건너뛴다.
+        if: github.event_name == 'push'
+        run: |
+          fail() { echo "::error title=태그::$*"; exit 1; }
+          tag=$GITHUB_REF_NAME
+          ver=${tag#v}
+          re='^v(0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)|1\.0\.0)$'
+          [[ $tag =~ $re ]] || fail "태그 '$tag'는 v0.MINOR.PATCH 또는 v1.0.0 꼴이어야 합니다"
+          sha=$(git rev-parse "refs/tags/$tag^{commit}")
+          git merge-base --is-ancestor "$sha" origin/main || fail "태그가 가리키는 커밋이 main에 들어 있지 않습니다. develop에서 main으로 병합한 뒤 main에 태그를 다세요"
+          pub=$(sed -n 's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p' app/pubspec.yaml | head -n 1)
+          [ "$pub" = "$ver" ] || fail "태그의 판($ver)이 app/pubspec.yaml의 판($pub)과 다릅니다"
+          # 지난 태그보다 크고, 그 뒤 커밋 제목으로 계산한 규칙의 판과 같아야 한다(1.0.0은 유지 관리자가 정하므로 받는다).
+          bash app/scripts/next_version.sh --check "$ver" "$sha" || fail "판 ${ver}가 판 번호 규칙에 맞지 않습니다"
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -79,7 +94,7 @@ jobs:
           BUILD="$(plutil -extract CFBundleVersion raw "$PLIST")"
           APP_KEY="$(plutil -extract SUPublicEDKey raw "$PLIST" || true)"
           hdiutil detach -quiet mnt
-          [ "$BUILD" = "$KARI_BUILD_NUMBER" ] || { echo "::error::앱의 빌드 번호($BUILD)가 $KARI_BUILD_NUMBER가 아닙니다"; exit 1; }
+          [ "$BUILD" = "$KARI_BUILD_NUMBER" ] || { echo "::error::앱의 빌드 번호($BUILD)가 ${KARI_BUILD_NUMBER}가 아닙니다"; exit 1; }
           # 서명은 macOS의 CryptoKit으로만 한다(받아 온 실행 파일에 비밀 키를 넘기지 않는다). 확인은 앱의 공개 키로만 한다.
           SIGNER="$GITHUB_WORKSPACE/app/scripts/update_sign.swift"
           # 앱의 공개 키가 이 비밀 키의 짝인지 본다. 짝이 아니면 받는 쪽이 설치를 거절한다.
@@ -124,4 +139,10 @@ jobs:
           cd "$RUNNER_TEMP"
           files=(Kari-macos-arm64.dmg Kari-macos-arm64.dmg.sha256)
           [ -f appcast.xml ] && files+=(Kari-macos-arm64.zip Kari-macos-arm64.zip.sha256 appcast.xml)
-          gh release create "$GITHUB_REF_NAME" --draft --notes-file notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"
+          # 릴리스 글 머리에 처음 여는 법을 붙인다(appcast의 바뀐 점에는 넣지 않는다: 이미 열어 쓰는 사람에게 가는 글이다).
+          {
+            echo "> **처음 열 때.** Apple 공증을 받지 않은 앱이라 처음 열면 macOS가 막습니다. 경고 창에서 **완료**를 누른 뒤 시스템 설정 → **개인정보 보호 및 보안** → **그래도 열기**를 누릅니다. 자세한 방법은 [설치 안내](https://github.com/$GITHUB_REPOSITORY/blob/main/Docs/guide/install.md)에 있습니다."
+            echo
+            cat notes.md
+          } > release-notes.md
+          gh release create "$GITHUB_REF_NAME" --draft --notes-file release-notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"

@@ -16,6 +16,7 @@ import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/fake.dart';
 import 'package:kari/main.dart';
 import 'package:kari/screens/app_menu.dart';
+import 'package:kari/screens/canvas_layers.dart';
 import 'package:kari/screens/canvas_props.dart';
 import 'package:kari/screens/canvas_surface.dart';
 
@@ -83,6 +84,12 @@ Future<Opened> openCanvas(
   await tester.pumpAndSettle();
   return Opened(rig, id);
 }
+
+/// 도구 줄의 배율 단추에 [text]가 보이는가.
+Finder zoomLabel(String text) => find.descendant(
+  of: find.byKey(const Key('canvas-zoom')),
+  matching: find.text(text),
+);
 
 CanvasSession sessionOf(WidgetTester tester) =>
     tester.widget<CanvasSurface>(find.byType(CanvasSurface)).session;
@@ -649,23 +656,37 @@ void main() {
       await tester.pump();
       final zoom = o.calls('canvas.view').lastWhere((v) => v['op'] == 'zoom');
       expect(zoom['zoom'], 2.0);
-      expect(find.byKey(const Key('canvas-zoom')), findsOneWidget);
-      expect(
-        tester.widget<Text>(find.byKey(const Key('canvas-zoom'))).data,
-        '200%',
-      );
+      expect(zoomLabel('200%'), findsOneWidget);
     });
 
-    testWidgets('모두 보기와 100% 단추', (tester) async {
+    testWidgets('배율 단추 하나가 지금 배율을 보이고 확대·축소·실제 크기·맞추기를 모은다', (tester) async {
       final o = await openCanvas(tester);
-      await tester.tap(find.text('모두 보기'));
-      await tester.pumpAndSettle();
+      // 따로 놓였던 `모두 보기`와 `100%` 단추는 없다.
+      expect(find.text('모두 보기'), findsNothing);
+      expect(find.text('100%'), findsOneWidget);
+      expect(zoomLabel('100%'), findsOneWidget);
+      Future<void> pick(String item) async {
+        await tester.tap(find.byKey(const Key('canvas-zoom')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(item).last);
+        await tester.pumpAndSettle();
+      }
+
+      await pick('모두 보기');
       expect(o.calls('canvas.view').last['op'], 'fitAll');
-      expect(find.text('50%'), findsOneWidget);
-      await tester.tap(find.text('100%'));
-      await tester.pumpAndSettle();
+      expect(zoomLabel('50%'), findsOneWidget);
+      await pick('실제 크기');
       expect(o.calls('canvas.view').last['op'], 'actual');
-      expect(find.text('100%'), findsWidgets);
+      await pick('확대');
+      expect(o.calls('canvas.view').last['by'], zoomFactor);
+      await pick('축소');
+      expect(o.calls('canvas.view').last['by'], 1 / zoomFactor);
+      // 고른 것이 없으면 맞추기는 꺼져 있다.
+      await tester.tap(find.byKey(const Key('canvas-zoom')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('고른 것에 맞추기').last);
+      await tester.pumpAndSettle();
+      expect(o.calls('canvas.view').last['op'], isNot('fitSelection'));
     });
   });
 
@@ -1059,22 +1080,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(o.fake.sent, contains('doc.undo'));
       expect(o.calls('doc.undo').single['actor'], 'user');
-      // 되돌린 뒤 상태를 다시 읽는다.
-      expect(o.fake.sent.last, 'canvas.state');
+      // 되돌린 뒤 상태를 다시 읽는다(레이어 줄도 다시 읽을 수 있다).
+      final after = o.fake.sent.sublist(o.fake.sent.lastIndexOf('doc.undo'));
+      expect(after, contains('canvas.state'));
+      expect(
+        after.toSet().difference({'doc.undo', 'canvas.state', 'canvas.layers'}),
+        isEmpty,
+      );
     });
 
-    testWidgets('⋯ 메뉴의 버전 기록으로 버전 목록이 열린다', (tester) async {
-      final o = await openCanvas(tester);
+    testWidgets('버전 기록 단추로 버전 목록이 열리고, 여는 동안 속성 패널은 접힌다', (tester) async {
+      final o = await openCanvas(tester, selection: [node('n2', 'rect')]);
       await o.fake.versionCreate(o.id, '제출본');
-      await tester.tap(find.byTooltip('문서 메뉴'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('버전 기록'));
+      // 항목이 하나뿐인 ⋯ 메뉴 대신 단추다.
+      expect(find.byTooltip('문서 메뉴'), findsNothing);
+      expect(find.byType(CanvasProps), findsOneWidget);
+      await tester.tap(find.byTooltip('버전 기록'));
       await tester.pumpAndSettle();
       expect(find.text('지금 상태에 이름 붙이기'), findsOneWidget);
       expect(find.text('제출본'), findsOneWidget);
+      expect(find.byType(CanvasProps), findsNothing);
       await tester.tap(find.byTooltip('버전 기록 닫기').first);
       await tester.pumpAndSettle();
       expect(find.text('지금 상태에 이름 붙이기'), findsNothing);
+      expect(find.byType(CanvasProps), findsOneWidget);
     });
 
     testWidgets('채운 단추가 없고 창 크기 셋, 두 테마에서 넘치지 않는다', (tester) async {
@@ -1182,6 +1211,14 @@ void main() {
       expect(
         [for (final x in menu(d, '개체')) name(x)],
         [
+          '묶기',
+          '묶음 풀기',
+          '앞으로 가져오기',
+          '뒤로 보내기',
+          '맨 앞으로 가져오기',
+          '맨 뒤로 보내기',
+          '숨기기·보이기',
+          '잠그기·잠금 풀기',
           '가로로 뒤집기',
           '세로로 뒤집기',
           '왼쪽 맞춤',
@@ -1196,7 +1233,17 @@ void main() {
       );
       expect(
         [for (final x in menu(d, '보기')) name(x)],
-        ['확대', '축소', '실제 크기', '모두 보기', '고른 것에 맞추기', '[toggleFullScreen]'],
+        [
+          '확대',
+          '축소',
+          '실제 크기',
+          '모두 보기',
+          '고른 것에 맞추기',
+          '다음 대지',
+          '앞 대지',
+          '레이어 패널',
+          '[toggleFullScreen]',
+        ],
       );
       expect(
         [for (final x in menu(d, '도구')) name(x)],
@@ -1337,6 +1384,89 @@ void main() {
       expect(owners['⌘,'], ['설정…']);
       // 화면의 단축키(V F R O L T, ⇧1, ⇧2)는 메뉴에 걸지 않는다.
       expect(owners.keys.where((k) => !k.contains('⌘')), isEmpty);
+    });
+
+    testWidgets('개체의 묶기·순서·숨기기·잠그기와 보기의 대지 이동·레이어 패널', (tester) async {
+      final (d, o) = await openWithMenu(tester);
+      PlatformMenuItem item(String m, String n) =>
+          menu(d, m).firstWhere((x) => name(x) == n);
+      const objects = [
+        '묶기',
+        '묶음 풀기',
+        '앞으로 가져오기',
+        '뒤로 보내기',
+        '맨 앞으로 가져오기',
+        '맨 뒤로 보내기',
+        '숨기기·보이기',
+        '잠그기·잠금 풀기',
+      ];
+      for (final n in objects) {
+        expect(item('개체', n).onSelected, isNull, reason: '고른 것이 없다: $n');
+      }
+      // 사각형만 골랐으면 풀 그룹이 없다.
+      o.fake.canvas(o.id)['selection'] = [node('a', 'rect')];
+      await sessionOf(tester).viewOp('actual');
+      await tester.pumpAndSettle();
+      expect(item('개체', '묶음 풀기').onSelected, isNull);
+      for (final (n, cmd, k, v) in [
+        ('묶기', 'group', null, null),
+        ('앞으로 가져오기', 'order', 'to', 'forward'),
+        ('뒤로 보내기', 'order', 'to', 'backward'),
+        ('맨 앞으로 가져오기', 'order', 'to', 'front'),
+        ('맨 뒤로 보내기', 'order', 'to', 'back'),
+        ('숨기기·보이기', 'toggle', 'key', 'visible'),
+        ('잠그기·잠금 풀기', 'toggle', 'key', 'locked'),
+      ]) {
+        item('개체', n).onSelected!();
+        await tester.pumpAndSettle();
+        final last = o.calls('canvas.cmd').last;
+        expect(last['name'], cmd, reason: n);
+        if (k != null) expect(last[k], v, reason: n);
+      }
+      o.fake.canvas(o.id)['selection'] = [node('g', 'group')];
+      await sessionOf(tester).viewOp('actual');
+      await tester.pumpAndSettle();
+      item('개체', '묶음 풀기').onSelected!();
+      await tester.pumpAndSettle();
+      expect(o.calls('canvas.cmd').last['name'], 'ungroup');
+      item('보기', '다음 대지').onSelected!();
+      await tester.pumpAndSettle();
+      expect(o.calls('canvas.view').last, containsPair('to', 'next'));
+      item('보기', '앞 대지').onSelected!();
+      await tester.pumpAndSettle();
+      expect(
+        o.calls('canvas.view').last,
+        allOf(containsPair('op', 'board'), containsPair('to', 'prev')),
+      );
+      expect(item('보기', '레이어 패널').label.startsWith(checkMark), isTrue);
+      item('보기', '레이어 패널').onSelected!();
+      await tester.pumpAndSettle();
+      expect(find.byType(CanvasLayers), findsNothing);
+      expect(item('보기', '레이어 패널').label.startsWith(checkMark), isFalse);
+      // 키 표시: ⌘G, ⇧⌘G, ⌘], ⌥⌘[, ⇧⌘H, ⇧⌘L.
+      final keys = {
+        for (final e in _walk(
+          appMenus(
+            app: (newDoc: () {}, home: () {}, settings: () {}),
+            doc: null,
+            canvas: CanvasMenu(
+              session: CanvasSession(FakeEngine(), 1),
+              focusCanvas: () {},
+              exportPdf: () {},
+              versions: () {},
+              versionsOpen: false,
+              openImage: () async => null,
+            ),
+          ),
+        ))
+          e.label: _keysOf(e),
+      };
+      expect(keys['묶기'], '⌘G');
+      expect(keys['묶음 풀기'], '⇧⌘G');
+      expect(keys['앞으로 가져오기'], '⌘]');
+      expect(keys['맨 뒤로 보내기'], '⌥⌘[');
+      expect(keys['숨기기·보이기'], '⇧⌘H');
+      expect(keys['잠그기·잠금 풀기'], '⇧⌘L');
     });
 
     testWidgets('고른 것이 없으면 잘라내기·복사·뒤집기·맞춤이 꺼지고, 셋을 고르면 간격 고르게가 켜진다', (

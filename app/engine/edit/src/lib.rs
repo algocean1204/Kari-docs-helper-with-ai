@@ -18,6 +18,7 @@ mod list;
 mod motion;
 mod outline;
 mod page;
+mod rich;
 mod style;
 mod table;
 mod table_look;
@@ -25,16 +26,19 @@ mod text;
 mod utf16;
 
 pub use canvas::{
-    boards, label_rect, BoardRect, CPlan, CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, Chrome,
-    End, Handle, Marks, Measure, Out, Phase, Pointer, TextChrome, TextCmd, Tool, DRAG_PX,
+    boards, follow_groups, group_offset, label_rect, layer_rows, watch_groups, BoardRect, CPlan,
+    CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, CanvasOrder, Chrome, End, GroupWatch, Handle,
+    Marks, Measure, Out, Phase, Pointer, TextChrome, TextCmd, Tool, BOARD_SIZES, DRAG_PX,
     HANDLE_HIT_PX, LABEL_GAP, LABEL_H, LABEL_MIN_W, ROTATE_PX, SLOP_PX, SNAP_PX,
 };
 pub use clip::{FragCell, FragPara, FragRow, FragTable, Fragment, MAX_FRAGMENT};
 pub use editor::{Editor, Plan};
 pub use find::{count, find, Counts, Found, Hit, MAX_HITS};
+pub use image::MIN_IMAGE;
 pub use kari_layout::{ListKind, Overlay, Pos, Vertical};
 pub use link::normalize_url;
 pub use outline::{outline, Heading, HEADINGS};
+pub use rich::html_fragment;
 pub use table::{cell_range, AlignV, MIN_COL};
 pub use utf16::{from_utf16, to_utf16};
 
@@ -203,10 +207,24 @@ pub enum Command {
         asset: String,
         px: (u32, u32),
     },
-    /// 선택된 그림 하나의 폭(pt, 비율을 지킨다)과 대체 글.
+    /// 선택된 그림 하나의 크기(pt)와 대체 글. 폭이나 높이 하나만 주면 비율을 지키고, 둘 다 주면 그 크기로 바꾼다
+    /// (본문 상자 안, `MIN_IMAGE` 이상).
     SetImage {
         w: Option<f64>,
+        h: Option<f64>,
         alt: Option<String>,
+    },
+    /// 선택된 그림 하나를 쪽의 한 점 가까이의 글 자리로 옮긴다(`copy`면 복사). 옮긴 그림이 선택으로 남는다.
+    MoveImage {
+        page: usize,
+        x: f32,
+        y: f32,
+        copy: bool,
+    },
+    /// 다른 앱에서 복사한 HTML을 붙인다. 읽을 만한 글이 없으면 `text`를 평문으로 붙인다. 되돌리기 이름은 `붙여넣기`.
+    PasteHtml {
+        html: String,
+        text: String,
     },
     /// 앱 안에서 복사한 조각을 붙인다(글자 모양, 링크, 그림, 문단 모양을 지킨다). 되돌리기 이름은 `붙여넣기`.
     PasteFragment(Fragment),
@@ -362,6 +380,8 @@ pub struct TablePatch {
 /// 선택된 그림 하나의 정보(도구 막대의 `그림 크기`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImageInfo {
+    /// 그림 개체가 있는 자리(개체 앞).
+    pub at: Pos,
     pub asset: String,
     pub w: f64,
     pub h: f64,

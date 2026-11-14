@@ -96,6 +96,7 @@ bool slowLane(String request) {
         m == 'doc.exportPdf' ||
         m == 'doc.exportDocx' ||
         m == 'doc.exportTxt' ||
+        m == 'canvas.layers' ||
         (m.startsWith('iv.') && !_quickIv.contains(m));
   } on FormatException {
     return false;
@@ -134,6 +135,9 @@ class NativeEngine extends EngineApi {
   final _Lane _slow;
   final _Lane _net;
   Future<void>? _fonts;
+
+  @override
+  bool get readsRichBoard => true;
 
   @override
   Future<String> send(String request) =>

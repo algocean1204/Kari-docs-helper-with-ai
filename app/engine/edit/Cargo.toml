@@ -9,3 +9,5 @@ kari-doc = { path = "../doc" }
 kari-layout = { path = "../layout" }
 # 글자 수(사람이 보는 글자)와 찾기의 자소 묶음 경계. parley가 이미 쓰는 판과 기능이라 새로 빌드되는 것은 없다.
 icu_segmenter = { version = "2.4", default-features = false, features = ["compiled_data"] }
+# 다른 앱에서 복사한 HTML을 읽는다. Servo의 HTML5 파서라 브라우저와 같은 규칙으로 깨진 태그도 고쳐 읽는다.
+html5ever = "0.40"

@@ -13,6 +13,8 @@ pub use image::{
 };
 pub use view::{CanvasView, CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN};
 
+use std::sync::{Mutex, PoisonError};
+
 use kari_layout::{Cap, FontId, Item, Join, Layout, Rect, Seg, SLANT};
 use skia_safe::{
     paint, surfaces, AlphaType, BlurStyle, Borrows, Canvas, ClipOp, Color, ColorType, Data,
@@ -37,6 +39,10 @@ const PREEDIT_LINE: f32 = 1.5;
 /// 표 눈금선: 옅은 회색 점선(논리 화소 2 그리고 2 비움, 굵기 1화소).
 const GUIDE: [u8; 4] = [0xB4, 0xB4, 0xB4, 0xFF];
 const GUIDE_DASH: f32 = 2.0;
+/// 캔버스를 가로 띠로 나눠 그릴 때 띠 수의 상한과 띠 하나의 최소 줄 수. 레티나 화면 한 장은 화소 칠하기가 시간의 대부분이라
+/// 띠마다 다른 스레드에서 칠하면 그만큼 줄어든다. 띠가 너무 얇으면 띠마다 표시 목록을 도는 몫이 커진다.
+const BANDS_MAX: usize = 4;
+const BAND_ROWS: i32 = 256;
 
 /// 앱이 정하는 색(RGBA). 종이는 테마와 무관하게 흰색이라 여기에 없다.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -115,10 +121,10 @@ struct Target<'a> {
     height: i32,
 }
 
-/// `bg`가 없으면 바탕을 지우지 않고 그 위에 덧그린다.
-fn target(frame: Frame, bg: Option<[u8; 4]>) -> Result<Target, &'static str> {
-    let Frame {
-        pixels,
+/// 버퍼가 크기와 값에 맞는지 보고, 쓸 바이트 수(`stride × height`)를 돌려준다.
+fn checked(frame: &Frame) -> Result<usize, &'static str> {
+    let &Frame {
+        ref pixels,
         width,
         height,
         stride,
@@ -138,6 +144,21 @@ fn target(frame: Frame, bg: Option<[u8; 4]>) -> Result<Target, &'static str> {
     if stride < row || pixels.len() < need {
         return Err("버퍼가 크기보다 작습니다.");
     }
+    Ok(need)
+}
+
+/// `bg`가 없으면 바탕을 지우지 않고 그 위에 덧그린다. `top`은 이 버퍼의 첫 줄이 전체 화면에서 몇째 줄인지(띠로 나눠 그릴 때).
+fn target(frame: Frame, bg: Option<[u8; 4]>, top: i32) -> Result<Target, &'static str> {
+    let need = checked(&frame)?;
+    let Frame {
+        pixels,
+        width,
+        height,
+        stride,
+        scale,
+        scroll_x,
+        scroll_y,
+    } = frame;
     let info = ImageInfo::new(
         (width, height),
         ColorType::BGRA8888,
@@ -149,6 +170,9 @@ fn target(frame: Frame, bg: Option<[u8; 4]>) -> Result<Target, &'static str> {
     let canvas = surface.canvas();
     if let Some(bg) = bg {
         canvas.clear(color(bg));
+    }
+    if top != 0 {
+        canvas.translate((0.0, -(top as f32)));
     }
     canvas.scale((scale, scale));
     canvas.translate((-scroll_x, -scroll_y));
@@ -169,7 +193,7 @@ pub fn draw(
     scene: &Scene,
     images: &mut Images,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, Some(scene.colors.bg))?;
+    let mut t = target(frame, Some(scene.colors.bg), 0)?;
     let (scale, scroll_y, height) = (t.scale, t.scroll_y, t.height);
     let canvas = t.surface.canvas();
     let g = scene.geo;
@@ -189,7 +213,7 @@ pub fn draw(
         for r in scene.selection.iter().filter(|r| r.page == i) {
             canvas.draw_rect(sk_rect(r.x, r.y, r.w, r.h), &sel);
         }
-        draw_items(canvas, faces, images, &page.items);
+        draw_items(canvas, faces, &Mutex::new(&mut *images), &page.items);
         if scene.guides && !page.guides.is_empty() {
             guides(canvas, &page.guides, g.k);
         }
@@ -205,6 +229,7 @@ pub fn draw(
 
 /// 캔버스 장면을 그린다. 대지마다 판 위의 자리(`x`, `y`)에 놓고 항목을 그린다. 판의 1 단위가
 /// 논리 화소 `frame.scale`개이고 `frame.scroll_x`, `frame.scroll_y`는 판 좌표다. 대지 바깥은 `bg`로 칠한다.
+/// 큰 화면은 가로 띠로 나눠 띠마다 다른 스레드에서 그린다(`draw_canvas_bands`).
 // 한계: 보이는 영역 밖의 대지도 건너뛰지 않고 그린다, 대지가 많아지면 대지의 판 위 경계로 거른다
 pub fn draw_canvas(
     frame: Frame,
@@ -213,7 +238,75 @@ pub fn draw_canvas(
     bg: [u8; 4],
     images: &mut Images,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, Some(bg))?;
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let bands = cores
+        .min(BANDS_MAX)
+        .min((frame.height / BAND_ROWS).max(1) as usize);
+    draw_canvas_bands(frame, faces, scene, bg, images, bands)
+}
+
+/// `draw_canvas`를 띠 `bands`개로 나눠 그린다. 띠는 화소 버퍼의 서로 겹치지 않는 줄 묶음이라 스레드끼리 같은 화소를
+/// 쓰지 않는다. 띠마다 전체 표시 목록을 돌고, 띠 밖의 항목은 Skia가 칠하기 전에 버린다. 그림 기억은 잠가 함께 쓴다.
+/// 한계: 띠 경계를 지나는 도형(곡선, 비스듬한 선, 글자, 잘라내기)은 Skia가 띠마다 잘라 칠하고, 돌린 그림은 띠마다 고르는
+/// 텍셀이 한 칸 갈릴 수 있어, 그 가장자리 화소가 한 장으로 그린 것과 조금 다를 수 있다. 칠 안쪽과 바탕은 같다.
+/// 공개하는 까닭: 시험과 측정이 띠 수를 정해 한 장 그리기와 견준다.
+#[doc(hidden)]
+pub fn draw_canvas_bands(
+    frame: Frame,
+    faces: &Faces,
+    scene: &kari_layout::Scene,
+    bg: [u8; 4],
+    images: &mut Images,
+    bands: usize,
+) -> Result<(), &'static str> {
+    let images = Mutex::new(images);
+    if bands <= 1 {
+        return draw_band(frame, 0, faces, scene, bg, &images);
+    }
+    let need = checked(&frame)?;
+    let Frame {
+        pixels,
+        width,
+        height,
+        stride,
+        scale,
+        scroll_x,
+        scroll_y,
+    } = frame;
+    let rows = (height as usize).div_ceil(bands);
+    let images = &images;
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = pixels[..need]
+            .chunks_mut(stride * rows)
+            .enumerate()
+            .map(|(k, pixels)| {
+                let band = Frame {
+                    height: (pixels.len() / stride) as i32,
+                    pixels,
+                    width,
+                    stride,
+                    scale,
+                    scroll_x,
+                    scroll_y,
+                };
+                s.spawn(move || draw_band(band, (k * rows) as i32, faces, scene, bg, images))
+            })
+            .collect();
+        jobs.into_iter()
+            .try_for_each(|j| j.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+    })
+}
+
+/// 띠 하나(`top`은 전체 화면에서 이 띠의 첫 줄).
+fn draw_band(
+    frame: Frame,
+    top: i32,
+    faces: &Faces,
+    scene: &kari_layout::Scene,
+    bg: [u8; 4],
+    images: &Mutex<&mut Images>,
+) -> Result<(), &'static str> {
+    let mut t = target(frame, Some(bg), top)?;
     let canvas = t.surface.canvas();
     for b in &scene.boards {
         canvas.save();
@@ -235,7 +328,7 @@ pub fn draw_canvas_overlay(
     marquee: Option<[f32; 4]>,
     px: f32,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, None)?;
+    let mut t = target(frame, None, 0)?;
     let canvas = t.surface.canvas();
     let blue = [0x0D, 0x99, 0xFF, 0xFF];
     let line = |w: f32| {
@@ -284,7 +377,7 @@ pub fn draw_canvas_marks(
 ) -> Result<(), &'static str> {
     const RED: [u8; 4] = [0xF2, 0x48, 0x22, 0xFF];
     const PINK: [u8; 4] = [0xE8, 0x3E, 0x8C, 0xFF];
-    let mut t = target(frame, None)?;
+    let mut t = target(frame, None, 0)?;
     let canvas = t.surface.canvas();
     let stroke = |c: [u8; 4], w: f32| {
         let mut p = fill(c);
@@ -352,7 +445,7 @@ pub fn draw_canvas_text(
     caret: Option<[[f32; 2]; 2]>,
     px: f32,
 ) -> Result<(), &'static str> {
-    let mut t = target(frame, None)?;
+    let mut t = target(frame, None, 0)?;
     let canvas = t.surface.canvas();
     let blue = [0x0D, 0x99, 0xFF, 0xFF];
     let line = |w: f32| {
@@ -404,7 +497,7 @@ fn sk_path(segs: &[Seg]) -> skia_safe::Path {
 }
 
 /// 표시 목록을 차례로 그린다. `Push`는 변환, 잘라내기, 불투명도를 쌓고 `Pop`이 되돌린다.
-fn draw_items(canvas: &Canvas, faces: &Faces, images: &mut Images, items: &[Item]) {
+fn draw_items(canvas: &Canvas, faces: &Faces, images: &Mutex<&mut Images>, items: &[Item]) {
     let mut open: Vec<usize> = Vec::new();
     for item in items {
         match item {
@@ -492,7 +585,7 @@ fn paper(canvas: &Canvas, x: f32, y: f32, w: f32, h: f32) {
 }
 
 /// 표시 목록의 항목 하나(쪽 기준 pt 좌표계에서).
-fn draw_item(canvas: &Canvas, faces: &Faces, images: &mut Images, item: &Item) {
+fn draw_item(canvas: &Canvas, faces: &Faces, images: &Mutex<&mut Images>, item: &Item) {
     match item {
         Item::Glyphs {
             font,
@@ -538,12 +631,20 @@ fn draw_item(canvas: &Canvas, faces: &Faces, images: &mut Images, item: &Item) {
             if canvas.quick_reject(&dst) {
                 return;
             }
-            let (dev, _) = canvas.local_to_device_as_3x3().map_rect(dst);
+            // 화면 크기는 행렬의 옮김을 뺀 부분으로 구한다: 띠로 나눠 그릴 때의 띠 옮김이나 스크롤에 따라 반올림이 갈려
+            // 같은 그림을 다른 크기로 다시 맞추지 않게.
+            let mut m = canvas.local_to_device_as_3x3();
+            m.set_translate_x(0.0).set_translate_y(0.0);
+            let (dev, _) = m.map_rect(sk_rect(0.0, 0.0, dst.width(), dst.height()));
             let (w, h) = (dev.width().round() as i32, dev.height().round() as i32);
             if w <= 0 || h <= 0 {
                 return;
             }
-            match images.sized(asset, w, h) {
+            let img = images
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .sized(asset, w, h);
+            match img {
                 Some(img) => {
                     // 화면 화소 크기로 미리 맞춘 그림은 옮겨 그린다(보간하지 않는다). 맞추지 않은 원본은 늘려 그린다
                     // (Skia가 보이는 부분만 그린다).

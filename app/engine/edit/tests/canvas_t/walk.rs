@@ -15,7 +15,7 @@
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::Document;
-use kari_edit::{End, Phase};
+use kari_edit::{follow_groups, watch_groups, End, Phase};
 use kari_layout::{apply, inv, Layouter};
 
 use super::{canvas, steps, CanvasT};
@@ -47,6 +47,11 @@ pub struct Tally {
     pub snaps: usize,
     /// 맞춰 끌기 걸음 가운데 실제로 붙어 포인터 자리와 달라진 것.
     pub snapped: usize,
+    pub groups: usize,
+    pub ungroups: usize,
+    pub toggles: usize,
+    pub orders: usize,
+    pub places: usize,
 }
 
 /// 되돌리기 쌓기의 모형: 커밋마다의 해시 내력과 지금 자리.
@@ -167,7 +172,20 @@ fn random_doc(r: &mut Rng) -> Document {
         ));
         refs.push(("q1", "rect", "p2", props(r, "rect")));
     }
-    canvas(&refs)
+    fit_groups(canvas(&refs))
+}
+
+/// 그룹의 상자를 자식의 경계에 맞춘 문서(앱에서 만든 그룹은 늘 맞춰져 있다). 빈 그룹은 그대로 둔다.
+pub fn fit_groups(mut d: Document) -> Document {
+    let touch: Vec<Value> = d
+        .nodes()
+        .filter(|n| n.kind == "group")
+        .filter_map(|g| d.children(Some(&g.id)).first().map(|k| k.id.clone()))
+        .map(|k| json!({"op": "set", "id": k, "props": {}}))
+        .collect();
+    let watch = watch_groups(&d, &touch);
+    follow_groups(&mut d, &mut fresh(), &watch, true).unwrap();
+    d
 }
 
 /// 판 위의 점 하나(노드 안, 손잡이, 이름표, 빈 곳 가운데에서).
@@ -355,6 +373,8 @@ pub fn run(seed: u64) -> Tally {
             h.sync(&t, &tag);
             let _ = before_commits;
             assert!(t.back.check().is_empty(), "{tag}: {:?}", t.back.check());
+            // 자식이 있는 그룹의 상자는 늘 자식의 경계다(커밋마다 따라 맞춘다).
+            super::layers::groups_fit(&mut t, &tag);
             if !t.dirty {
                 assert_eq!(t.front.hash(), t.back.hash(), "{tag}: 두 사본의 해시");
             }
@@ -426,14 +446,16 @@ fn drag(r: &mut Rng, t: &mut CanvasT, p0: (f64, f64), tally: &mut Tally, tag: &s
             tally.moves += 1;
             for (g, id) in geos.iter().zip(&sel) {
                 let after = t.lay.node_geo(&t.back, id).unwrap();
+                // 잠근 것(레이어 패널에서 함께 골랐어도)은 판에서 끌어도 그대로다.
+                let d = if super::steps::locked_up(t, id) {
+                    (0.0, 0.0)
+                } else {
+                    delta
+                };
                 for (a, b) in g.quad().iter().zip(after.quad()) {
                     assert!(
-                        near(
-                            [a[0] + delta.0, a[1] + delta.1],
-                            b,
-                            5e-3 * t.px.max(1.0) + 3e-3
-                        ),
-                        "{tag}: {id} 옮기기 {a:?} + {delta:?} != {b:?}"
+                        near([a[0] + d.0, a[1] + d.1], b, 5e-3 * t.px.max(1.0) + 3e-3),
+                        "{tag}: {id} 옮기기 {a:?} + {d:?} != {b:?}"
                     );
                 }
             }
@@ -481,7 +503,11 @@ fn drag(r: &mut Rng, t: &mut CanvasT, p0: (f64, f64), tally: &mut Tally, tag: &s
                 );
                 return;
             }
-            if g.kind == "text" || g.kind == "page" {
+            // 그룹은 자식이 따라 늘어난 뒤 자식의 경계로 맞춰진다: 자식이 모두 축에 나란한 고정 크기일 때만 요청한 상자다.
+            if g.kind == "text"
+                || g.kind == "page"
+                || (g.kind == "group" && !super::steps::plain_group(t, &g.id))
+            {
                 return;
             }
             // 새 상자 = 시작 지역 좌표계에서 (기준점, 포인터)로 이루어진 상자(안 움직이는 축은 그대로)

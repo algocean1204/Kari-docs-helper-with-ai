@@ -334,8 +334,9 @@ class _DocScreenState extends State<DocScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: NoticeText(message, failed: failed || noPath),
-          // 다시 시도 단추가 있어도 다른 결과처럼 잠깐 보이고 사라진다(메뉴에서 다시 누를 수 있다).
+          // 다시 시도 단추가 있어도 다른 결과처럼 사라진다(메뉴에서 다시 누를 수 있다).
           persist: false,
+          duration: failed ? actionNoticeDuration : const Duration(seconds: 4),
           action: failed
               ? SnackBarAction(
                   label: '다시 시도',
@@ -483,6 +484,7 @@ class _DocScreenState extends State<DocScreen> {
               onDocx: _exporting ? null : () => _exportAs(doc, 'docx'),
               onTxt: _exporting ? null : () => _exportAs(doc, 'txt'),
               moreKey: _more,
+              onNameDone: _focusPaper,
               outlineOpen: outline,
               onOutline: _toggleOutline,
               onInterview: widget.onInterview,
@@ -599,6 +601,7 @@ class _TopBar extends StatelessWidget {
     this.onDocx,
     this.onTxt,
     this.moreKey,
+    this.onNameDone,
     this.outlineOpen = false,
     this.onOutline,
     this.onInterview,
@@ -615,6 +618,9 @@ class _TopBar extends StatelessWidget {
   final EditSession? session;
   final bool versionsOpen;
   final VoidCallback? onVersions;
+
+  /// 이름을 Enter나 Esc로 마쳤을 때 초점을 돌려줄 곳(본문).
+  final VoidCallback? onNameDone;
   final bool exporting;
   final VoidCallback? onExport;
   final VoidCallback? onPage;
@@ -644,7 +650,11 @@ class _TopBar extends StatelessWidget {
             child: Row(
               children: [
                 Flexible(
-                  child: NameField(doc: doc, library: library),
+                  child: NameField(
+                    doc: doc,
+                    library: library,
+                    onDone: onNameDone,
+                  ),
                 ),
                 const SizedBox(width: Space.x3),
                 Text(

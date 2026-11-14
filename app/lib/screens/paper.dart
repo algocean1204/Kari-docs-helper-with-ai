@@ -12,6 +12,7 @@ import '../editing/session.dart';
 import '../editing/surface.dart';
 import '../engine/engine.dart';
 import '../engine/native.dart';
+import 'image_handles.dart';
 import 'table_props.dart' show edgeCommand, edgeGuide;
 
 /// 커서가 보이게 스크롤할 때 위아래로 남기는 여유.
@@ -130,6 +131,24 @@ class _PaperViewState extends State<PaperView>
   double? _dragPos;
   double _grab = 0;
 
+  /// 그림 손잡이를 끄는 중: 그 손잡이, 누른 자리(보이는 영역 기준), 지금 크기(pt). 놓으면 `setImage` 하나가 나간다.
+  ImageHandle? _handle;
+  Offset _handleFrom = Offset.zero;
+  ({double w, double h})? _sizing;
+  ({double w, double h})? _startSize;
+
+  /// 고른 그림 안을 눌렀다(끌면 옮긴다). 끌기가 시작됐으면 [_moving], 놓일 글 자리는 [_drop](내용 기준).
+  /// 놓으면 `moveImage` 하나가 나간다(⌥를 누르고 놓으면 복사).
+  bool _imageDown = false;
+  bool _moving = false;
+  Offset? _moveAt;
+  ({double x, double y, double h})? _drop;
+  bool _dropAsking = false;
+
+  /// 마우스 아래의 그림 손잡이와, 손잡이가 아닌 그림 위인지(커서 모양).
+  ImageHandle? _hoverHandle;
+  bool _overImage = false;
+
   DateTime _downAt = DateTime(0);
   Offset _downPos = Offset.zero;
   int _clicks = 0;
@@ -185,6 +204,8 @@ class _PaperViewState extends State<PaperView>
       _state = st;
       _refreshMarks();
       _restartBlink();
+      // 그림이 더는 선택이 아니면(되돌리기 등) 끌던 것을 그만둔다.
+      if (st?.image == null) _cancelImage();
     }
     // 명령이 끝났으면 커서가 움직이지 않았어도 커서가 보이게 한다. 스크롤·창 크기·찾기·배율 같은 보기 갱신은
     // 커서로 끌고 가지 않는다(다른 곳을 보는 중에 화면이 튀지 않게).
@@ -401,9 +422,13 @@ class _PaperViewState extends State<PaperView>
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
     if (e is KeyUpEvent) return KeyEventResult.ignored;
-    // 표 경계를 끄는 중에 Esc를 누르면 그만둔다(문서는 그대로).
-    if (_dragPos != null && e.logicalKey == LogicalKeyboardKey.escape) {
-      setState(() => _dragPos = null);
+    // 표 경계나 그림을 끄는 중에 Esc를 누르면 그만둔다(문서는 그대로).
+    final dragging = _dragPos != null || _handle != null || _imageDown;
+    if (dragging && e.logicalKey == LogicalKeyboardKey.escape) {
+      setState(() {
+        _dragPos = null;
+        _cancelImage();
+      });
       return KeyEventResult.handled;
     }
     final k = HardwareKeyboard.instance;
@@ -477,6 +502,15 @@ class _PaperViewState extends State<PaperView>
   /// 마우스가 움직이면 그 자리의 표 경계를 묻는다. 한 번에 하나만 묻고, 그동안 움직였으면 끝난 뒤 다시 묻는다.
   void _hover(Offset at) {
     _hoverAt = at;
+    final box = _imageBox;
+    final handle = box == null ? null : handleAt(box, at);
+    final over = box != null && handle == null && boxContains(box, at);
+    if (handle != _hoverHandle || over != _overImage) {
+      setState(() {
+        _hoverHandle = handle;
+        _overImage = over;
+      });
+    }
     if (_asking || _dragPos != null) return;
     _asking = true;
     _s.tableEdge(at.dx + _hOffset, at.dy, _offset).then((e) {
@@ -498,6 +532,37 @@ class _PaperViewState extends State<PaperView>
   /// 표 경계를 놓으면 열 폭이나 행 높이를 바꾸는 명령 하나(되돌리기 한 단위)를 보낸다.
   void _up(PointerUpEvent e) {
     _pressed = false;
+    if (_handle != null) {
+      final size = _sizing;
+      final start = _startSize;
+      _cancelImage();
+      // 누르고 놓기만 했거나 처음 크기로 돌아왔으면 보내지 않는다(줄 폭에 맞춰 줄여 놓은 그림의 저장된 크기를 건드리지 않는다).
+      final moved =
+          size != null &&
+          start != null &&
+          ((size.w - start.w).abs() > 0.005 ||
+              (size.h - start.h).abs() > 0.005);
+      if (moved) {
+        double pt(double v) => (v * 100).round() / 100;
+        _s.cmd({'k': 'setImage', 'w': pt(size.w), 'h': pt(size.h)});
+      }
+      setState(() {});
+      return;
+    }
+    if (_imageDown) {
+      final moved = _moving;
+      _cancelImage();
+      if (moved) {
+        _s.cmd({
+          'k': 'moveImage',
+          'x': e.localPosition.dx + _hOffset,
+          'y': e.localPosition.dy,
+          if (HardwareKeyboard.instance.isAltPressed) 'copy': true,
+        }, scrollY: _offset);
+      }
+      setState(() {});
+      return;
+    }
     final at = _dragPos;
     final edge = _edge;
     if (at == null || edge == null) return;
@@ -526,6 +591,24 @@ class _PaperViewState extends State<PaperView>
       _openLink(e.localPosition);
       return;
     }
+    // 고른 그림: 손잡이를 누르면 크기를 바꾸고, 그림 안을 누르면 끌어 옮길 수 있다(글을 고르지 않는다).
+    final box = _pinch == 1 ? _imageBox : null;
+    final img = _s.state?.image;
+    if (box != null && img != null) {
+      final handle = handleAt(box, e.localPosition);
+      if (handle != null) {
+        _handle = handle;
+        _handleFrom = e.localPosition;
+        _startSize = _sizing = (w: box.w / img.k, h: box.h / img.k);
+        setState(() {});
+        return;
+      }
+      if (boxContains(box, e.localPosition)) {
+        _imageDown = true;
+        _downPos = e.localPosition;
+        return;
+      }
+    }
     final now = DateTime.now();
     final near = (e.localPosition - _downPos).distance < 4;
     _clicks = now.difference(_downAt) < kDoubleTapTimeout && near
@@ -550,22 +633,96 @@ class _PaperViewState extends State<PaperView>
       setState(() => _dragPos = _edgePos(e.localPosition));
       return;
     }
+    if (_handle != null) {
+      _resize(e.localPosition);
+      return;
+    }
+    if (_imageDown) {
+      // 4px 안의 흔들림은 누른 것으로 본다.
+      if (!_moving && (e.localPosition - _downPos).distance < 4) return;
+      _moving = true;
+      _moveAt = e.localPosition;
+      _scrollToward(e.localPosition);
+      _askDrop(e.localPosition);
+      setState(() {});
+      return;
+    }
     if (!_pressed) return;
-    final y = e.localPosition.dy;
+    _scrollToward(e.localPosition);
+    _s.cmd({
+      'k': 'drag',
+      'x': e.localPosition.dx + _hOffset,
+      'y': e.localPosition.dy,
+    }, scrollY: _offset);
+  }
+
+  /// 끌다가 영역 밖으로 나가면 그만큼 스크롤한다.
+  void _scrollToward(Offset p) {
+    final y = p.dy;
     if (_scroll.hasClients && (y < 0 || y > _size.height)) {
       final over = y < 0 ? y : y - _size.height;
       _scroll.jumpTo(
         (_offset + over).clamp(0, _scroll.position.maxScrollExtent),
       );
     }
-    final x = e.localPosition.dx;
+    final x = p.dx;
     if (_hscroll.hasClients && (x < 0 || x > _size.width)) {
       final over = x < 0 ? x : x - _size.width;
       _hscroll.jumpTo(
         (_hOffset + over).clamp(0, _hscroll.position.maxScrollExtent),
       );
     }
-    _s.cmd({'k': 'drag', 'x': x + _hOffset, 'y': y}, scrollY: _offset);
+  }
+
+  /// 고른 그림의 상자(보이는 영역 기준). 고른 그림이 없거나 화면에 놓이지 않았으면 null.
+  Rect4? get _imageBox {
+    final r = _s.state?.image?.rect;
+    if (r == null) return null;
+    return (x: r.x - _hOffset, y: r.y - _offset, w: r.w, h: r.h);
+  }
+
+  /// 손잡이를 끄는 동안의 크기(pt). 문서는 그대로다.
+  void _resize(Offset p) {
+    final img = _s.state?.image;
+    final handle = _handle;
+    final start = _startSize;
+    if (img == null || handle == null || start == null) return;
+    setState(
+      () => _sizing = resizeImage(
+        handle,
+        start.w,
+        start.h,
+        (p - _handleFrom) / img.k,
+        free: HardwareKeyboard.instance.isShiftPressed,
+        min: img.min,
+        maxW: img.bodyW,
+        maxH: img.bodyH,
+      ),
+    );
+  }
+
+  /// 그림을 끄는 동안 놓일 글 자리를 한 번에 하나씩 묻는다. 그동안 더 움직였으면 끝난 뒤 다시 묻는다.
+  void _askDrop(Offset p) {
+    if (_dropAsking) return;
+    _dropAsking = true;
+    _s.dropAt(p.dx + _hOffset, p.dy, _offset).then((c) {
+      _dropAsking = false;
+      if (!mounted || !_moving) return;
+      setState(() => _drop = c);
+      final at = _moveAt;
+      if (at != null && at != p) _askDrop(at);
+    });
+  }
+
+  /// 그림을 끌던 것(손잡이, 옮기기)을 그만둔다. 문서는 그대로다.
+  void _cancelImage() {
+    _handle = null;
+    _sizing = null;
+    _startSize = null;
+    _imageDown = false;
+    _moving = false;
+    _moveAt = null;
+    _drop = null;
   }
 
   @override
@@ -607,10 +764,7 @@ class _PaperViewState extends State<PaperView>
                   scale: _pinch,
                   child: surface == null
                       ? null
-                      : Texture(
-                          textureId: surface.textureId,
-                          filterQuality: FilterQuality.none,
-                        ),
+                      : Surface.view(surface.textureId),
                 ),
                 // 모든 일치는 옅게(지금 일치는 엔진이 선택 색으로 그린다).
                 for (final r in pinching ? const <Rect4>[] : _marks)
@@ -639,7 +793,10 @@ class _PaperViewState extends State<PaperView>
                   onPointerDown: _down,
                   onPointerMove: _move,
                   onPointerUp: _up,
-                  onPointerCancel: (_) => _pressed = false,
+                  onPointerCancel: (_) => setState(() {
+                    _pressed = false;
+                    _cancelImage();
+                  }),
                   onPointerPanZoomStart: _pinchStart,
                   onPointerPanZoomUpdate: _pinchMove,
                   onPointerPanZoomEnd: _pinchEnd,
@@ -674,20 +831,24 @@ class _PaperViewState extends State<PaperView>
                 Positioned.fill(
                   child: MouseRegion(
                     opaque: false,
-                    cursor: _edge == null
-                        ? MouseCursor.defer
-                        : _edge!.col
-                        ? SystemMouseCursors.resizeColumn
-                        : SystemMouseCursors.resizeRow,
+                    cursor: _cursor(),
                     onHover: (e) => _hover(e.localPosition),
                     onExit: (_) {
                       _hoverAt = null;
                       if (_edge != null && _dragPos == null) {
                         setState(() => _edge = null);
                       }
+                      if (_hoverHandle != null || _overImage) {
+                        setState(() {
+                          _hoverHandle = null;
+                          _overImage = false;
+                        });
+                      }
                     },
                   ),
                 ),
+                // 고른 그림: 테두리와 손잡이 여덟 개, 끄는 동안의 미리 보기(문서는 그대로).
+                if (!pinching && _imageBox != null) ..._imageChrome(c),
                 // 끄는 동안의 안내선(놓을 때까지 문서는 그대로).
                 if (_dragPos != null && _edge != null)
                   _guide(
@@ -700,6 +861,121 @@ class _PaperViewState extends State<PaperView>
         ),
       ),
     );
+  }
+
+  /// 마우스 커서: 그림을 끄는 중이면 그 모양, 손잡이나 그림 위, 표 경계 위, 아니면 바탕의 것.
+  MouseCursor _cursor() {
+    if (_moving) {
+      return HardwareKeyboard.instance.isAltPressed
+          ? SystemMouseCursors.copy
+          : SystemMouseCursors.grabbing;
+    }
+    final handle = _handle ?? _hoverHandle;
+    if (handle != null) return handle.cursor;
+    if (_overImage) return SystemMouseCursors.grab;
+    if (_edge == null) return MouseCursor.defer;
+    return _edge!.col
+        ? SystemMouseCursors.resizeColumn
+        : SystemMouseCursors.resizeRow;
+  }
+
+  /// 고른 그림의 테두리와 손잡이, 끄는 동안의 미리 보기. 마우스를 막지 않는다.
+  List<Widget> _imageChrome(AppColors c) {
+    final box = _imageBox!;
+    final img = _s.state!.image!;
+    Widget at(Key key, Rect4 r, Widget child) => Positioned(
+      key: key,
+      left: r.x,
+      top: r.y,
+      width: r.w,
+      height: r.h,
+      child: IgnorePointer(child: child),
+    );
+    final sizing = _sizing;
+    final handle = _handle;
+    final move = _moving && _moveAt != null ? _moveAt! - _downPos : null;
+    final drop = _drop;
+    return [
+      at(
+        const Key('image-box'),
+        box,
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: c.accent, width: 1.5),
+          ),
+        ),
+      ),
+      for (final h in ImageHandle.values)
+        at(
+          Key('image-handle-${h.name}'),
+          (
+            x: box.x + box.w * h.fx - handleSize / 2,
+            y: box.y + box.h * h.fy - handleSize / 2,
+            w: handleSize,
+            h: handleSize,
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: c.accent, width: 1.5),
+            ),
+          ),
+        ),
+      // 손잡이를 끄는 동안: 새 크기의 상자와 크기 글.
+      if (sizing != null && handle != null) ...[
+        at(
+          const Key('image-ghost'),
+          ghostBox(box, handle, sizing.w * img.k, sizing.h * img.k),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: c.accent.withValues(alpha: 0.12),
+              border: Border.all(color: c.accent),
+            ),
+          ),
+        ),
+        Positioned(
+          key: const Key('image-size'),
+          left: ghostBox(box, handle, sizing.w * img.k, sizing.h * img.k).x,
+          top: ghostBox(box, handle, sizing.w * img.k, sizing.h * img.k).y - 22,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: c.accent,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                child: Text(
+                  sizeLabel(sizing.w, sizing.h),
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+      // 옮기는 동안: 그림 크기의 상자가 따라오고, 놓일 글 자리에 커서 막대.
+      if (move != null)
+        at(
+          const Key('image-ghost'),
+          (x: box.x + move.dx, y: box.y + move.dy, w: box.w, h: box.h),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: c.accent.withValues(alpha: 0.12),
+              border: Border.all(color: c.accent),
+            ),
+          ),
+        ),
+      if (move != null && drop != null)
+        Positioned(
+          key: const Key('image-drop'),
+          left: drop.x - _hOffset - 1,
+          top: drop.y - _offset,
+          width: 2,
+          height: drop.h,
+          child: IgnorePointer(child: ColoredBox(color: c.accent)),
+        ),
+    ];
   }
 
   /// 끄는 동안의 안내선. 열이면 세로, 행이면 가로로 보이는 영역을 가로지른다.

@@ -8,6 +8,7 @@ use kari_layout::Layouter;
 
 use super::arrange::{self, Align};
 use super::clip::CanvasClip;
+use super::layers::{self, Order};
 use super::make::{self, Tool, DUP_OFFSET};
 use super::props;
 use super::text::TextCmd;
@@ -91,6 +92,27 @@ pub enum CanvasCmd {
     EditText,
     /// 글 상자 편집을 끝낸다. 글이 비었으면 그 상자를 지운다.
     EndText,
+    /// 같은 부모의 고른 것을 그룹 하나로 묶는다(⌘G).
+    Group,
+    /// 고른 그룹을 푼다(⇧⌘G).
+    Ungroup,
+    /// 쌓임 순서를 바꾼다(⌘], ⌘[, ⌥⌘], ⌥⌘[).
+    Order(Order),
+    /// 레이어 패널에서 끌어 놓기: `ids`를 `parent` 아래, 형제 `behind` 바로 앞(없으면 맨 뒤)에 놓는다.
+    Place {
+        ids: Vec<String>,
+        parent: Option<String>,
+        behind: Option<String>,
+    },
+    /// 숨기기(`visible`)나 잠그기(`locked`)를 켜고 끈다. `ids`가 없으면 고른 것.
+    Toggle {
+        key: String,
+        ids: Option<Vec<String>>,
+    },
+    /// 새 대지를 가장 오른쪽 대지 옆에 놓고 고른다. `preset`이 없으면 고른 대지나 마지막 대지의 크기.
+    AddBoard { preset: Option<String> },
+    /// 노드 하나의 이름을 바꾼다(레이어 패널). 고른 것은 그대로다: 이름 칸이 초점을 잃는 사이에 다른 줄을 골랐을 수 있다.
+    Rename { id: String, name: String },
 }
 
 impl CanvasEditor {
@@ -114,6 +136,12 @@ impl CanvasEditor {
                     | CanvasCmd::Align(_)
                     | CanvasCmd::Distribute { .. }
                     | CanvasCmd::Paste { .. }
+                    | CanvasCmd::Group
+                    | CanvasCmd::Ungroup
+                    | CanvasCmd::Order(_)
+                    | CanvasCmd::Place { .. }
+                    | CanvasCmd::Toggle { .. }
+                    | CanvasCmd::AddBoard { .. }
             );
         if busy {
             return CPlan::refuse("글 상자를 편집하는 중에는 쓸 수 없습니다.");
@@ -165,10 +193,14 @@ impl CanvasEditor {
             CanvasCmd::Nudge { dx, dy } => {
                 let roots = make::roots(doc, &self.sel);
                 let mut starts: Vec<_> = self
-                    .starts(doc, lay)
+                    .movable(doc, lay)
                     .into_iter()
                     .filter(|s| roots.contains(&s.geo.id))
                     .collect();
+                // 고른 것이 모두 잠겼으면 아무 일도 없이 지나가지 않게 알린다.
+                if starts.is_empty() && !roots.is_empty() {
+                    return CPlan::refuse("잠근 것은 판에서 옮길 수 없습니다.");
+                }
                 CPlan::ops(move_ops(&mut starts, (*dx, *dy), false), "옮기기")
             }
             CanvasCmd::SelectAll => {
@@ -256,6 +288,72 @@ impl CanvasEditor {
                 _ => CPlan::refuse("글 상자 하나를 골라야 합니다."),
             },
             CanvasCmd::EndText => CPlan::ops(self.end_text(doc), "빈 글 상자 지우기"),
+            CanvasCmd::Group => match layers::group(doc, lay, &self.sel) {
+                Ok((ops, id)) => {
+                    self.sel = vec![id];
+                    CPlan::ops(ops, "묶기")
+                }
+                Err(e) => CPlan::refuse(e),
+            },
+            CanvasCmd::Ungroup => match layers::ungroup(doc, lay, &self.sel) {
+                Ok((ops, kids)) => {
+                    self.sel = kids;
+                    CPlan::ops(ops, "묶음 풀기")
+                }
+                Err(e) => CPlan::refuse(e),
+            },
+            CanvasCmd::Order(to) => match layers::order(doc, &self.sel, *to) {
+                Ok(ops) => CPlan::ops(
+                    ops,
+                    match to {
+                        Order::Forward => "앞으로 가져오기",
+                        Order::Backward => "뒤로 보내기",
+                        Order::Front => "맨 앞으로 가져오기",
+                        Order::Back => "맨 뒤로 보내기",
+                    },
+                ),
+                Err(e) => CPlan::refuse(e),
+            },
+            CanvasCmd::Place {
+                ids,
+                parent,
+                behind,
+            } => match layers::place(doc, lay, ids, parent.as_deref(), behind.as_deref()) {
+                Ok((ops, moved)) => {
+                    self.sel = moved;
+                    CPlan::ops(ops, "레이어 옮기기")
+                }
+                Err(e) => CPlan::refuse(e),
+            },
+            CanvasCmd::Toggle { key, ids } => {
+                let ids = ids.as_deref().unwrap_or(&self.sel);
+                match layers::toggle(doc, ids, key) {
+                    Ok((ops, label)) => CPlan::ops(ops, label),
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
+            CanvasCmd::Rename { id, name } => {
+                let mut req = Map::new();
+                req.insert("name".into(), Value::String(name.clone()));
+                match props::set_ops(doc, lay, std::slice::from_ref(id), &req) {
+                    Ok(ops) => CPlan::ops(ops, "이름 바꾸기"),
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
+            CanvasCmd::AddBoard { preset } => {
+                let like = self
+                    .sel
+                    .iter()
+                    .find(|i| doc.node(i).is_some_and(|n| n.kind == "page"))
+                    .map(String::as_str);
+                match layers::add_board(doc, preset.as_deref(), like) {
+                    Ok((ops, id)) => {
+                        self.sel = vec![id];
+                        CPlan::ops(ops, "대지 더하기")
+                    }
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
         }
     }
 

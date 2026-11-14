@@ -433,6 +433,9 @@ class _ShellState extends State<Shell> {
   /// 리포트 탭에서 처음 보여 줄 세션(면접 탭의 "리포트 보기").
   String? _reportId;
 
+  /// 지금 그리는 화면(`_route`, `_doc`). 바뀌면 이전 화면의 알림 띠를 걷는다.
+  (AppRoute, int?)? _shown;
+
   /// 면접 준비에서 골라 둘 문서와 공고(홈의 "면접 연습 시작"). [_ivAgain]은 리포트의 "이 주제로 다시 연습"이
   /// 넘긴 그 연습의 기록이다(공고, 연차, 시간, 압박을 그대로 골라 둔다).
   int? _ivDoc;
@@ -603,6 +606,18 @@ class _ShellState extends State<Shell> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final collapsed = MediaQuery.sizeOf(context).width < Breakpoints.wideNav;
+    final now = (_route, _doc);
+    if (_shown != now) {
+      final first = _shown == null;
+      _shown = now;
+      // 사용자가 눌러야 하는 업데이트 띠는 남긴다.
+      if (!first && updates.held == null) {
+        final messenger = ScaffoldMessenger.of(context);
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => messenger.hideCurrentSnackBar(),
+        );
+      }
+    }
     final page = Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,

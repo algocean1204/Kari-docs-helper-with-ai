@@ -93,6 +93,10 @@ extension _FakeEdit on FakeEngine {
         final x = (a['x'] as num).toDouble();
         final y = (a['y'] as num).toDouble() + ((a['scrollY'] as num?) ?? 0);
         return {'edge': tableEdgeAt?.call(x, y)};
+      case 'edit.dropAt':
+        final x = (a['x'] as num).toDouble();
+        final y = (a['y'] as num).toDouble() + ((a['scrollY'] as num?) ?? 0);
+        return {'caret': dropAtCaret?.call(x, y)};
       case 'edit.guides':
         guides[id] = a['on'] as bool;
         return _state(d, s);
@@ -392,12 +396,27 @@ extension _FakeEdit on FakeEngine {
         return change(() {
           final img = s.image!;
           final w = (cmd['w'] as num?)?.toDouble();
-          if (w != null) {
+          final h = (cmd['h'] as num?)?.toDouble();
+          if (w != null && h != null) {
+            img['w'] = w;
+            img['h'] = h;
+          } else if (w != null) {
             img['h'] = (img['h'] as double) * w / (img['w'] as double);
             img['w'] = w;
           }
           if (cmd['alt'] != null) img['alt'] = cmd['alt'];
         });
+      case 'moveImage':
+        // 흉내: 옮기면 글은 그대로, 복사면 그림이 하나 는다.
+        if (s.image == null) {
+          return _state(d, s, refused: '편집할 자리를 찾지 못했습니다.');
+        }
+        return change(() {
+          if (cmd['copy'] == true) s.text += '\u{FFFC}';
+        });
+      case 'pasteHtml':
+        // 흉내: 서식은 읽지 않고 평문(`text`)을 붙인 것으로 본다.
+        return change(() => s.text += (cmd['text'] as String?) ?? '');
       case 'insertTable':
         return change(
           () => s.table = {
@@ -637,8 +656,21 @@ extension _FakeEdit on FakeEngine {
       'header': s.header,
       'footer': s.footer,
       'hfSkipFirst': s.skipFirst,
+      // 흉내: 그림 상자는 (200, 300)에서 시작하고 크기는 pt의 4/3배다.
       'image': s.selection && s.image != null
-          ? {...s.image!, 'bodyW': 481.89, 'bodyH': 728.51}
+          ? {
+              ...s.image!,
+              'bodyW': 481.89,
+              'bodyH': 728.51,
+              'min': 12.0,
+              'rect': {
+                'x': 200.0,
+                'y': 300.0,
+                'w': (s.image!['w'] as double) * 4 / 3,
+                'h': (s.image!['h'] as double) * 4 / 3,
+                'k': 4 / 3,
+              },
+            }
           : null,
       // 흉내: 한자(통합 한자)와 이모지만 글꼴에 없다고 본다.
       'missing': s.text.runes

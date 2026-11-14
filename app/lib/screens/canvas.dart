@@ -8,6 +8,7 @@ import '../editing/canvas_session.dart';
 import '../engine/engine.dart';
 import '../library.dart';
 import 'app_menu.dart';
+import 'canvas_layers.dart';
 import 'canvas_props.dart';
 import 'canvas_surface.dart';
 import 'doc.dart' show salvageAction, savedWhen;
@@ -43,6 +44,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
   final _focus = FocusNode(debugLabel: '캔버스 판');
   late CanvasSession _session;
   bool _versions = false;
+  bool _layers = true;
   bool _exporting = false;
   int _noticed = 0;
 
@@ -85,6 +87,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
     s.addListener(_onSession);
     widget.library.editing = s;
     s.open();
+    s.showLayers(_layers);
   }
 
   /// 화면을 떠나면 문서를 닫는다. 엔진이 "문서를 닫을 때" 버전을 남긴다.
@@ -123,7 +126,14 @@ class _CanvasScreenState extends State<CanvasScreen> {
       versions: () => setState(() => _versions = !_versions),
       versionsOpen: _versions,
       openImage: widget.library.openPath,
+      layersOpen: _layers,
+      toggleLayers: _toggleLayers,
     );
+  }
+
+  void _toggleLayers() {
+    setState(() => _layers = !_layers);
+    _session.showLayers(_layers);
   }
 
   /// 저장 위치를 고르고 PDF로 내보낸다(모든 대지, 대지마다 쪽 하나). 취소하면 아무 일도 없다.
@@ -199,16 +209,21 @@ class _CanvasScreenState extends State<CanvasScreen> {
               versionsOpen: _versions,
               onExport: () => _export(doc),
               onVersions: () => setState(() => _versions = !_versions),
+              onNameDone: _focus.requestFocus,
             ),
             _ToolBar(
               session: s,
               onImage: _pickImage,
               onDone: _focus.requestFocus,
+              layersOpen: _layers,
+              onLayers: _toggleLayers,
             ),
             Expanded(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (_layers)
+                    CanvasLayers(session: s, onDone: _focus.requestFocus),
                   Expanded(
                     child: Stack(
                       children: [
@@ -244,7 +259,9 @@ class _CanvasScreenState extends State<CanvasScreen> {
                       ],
                     ),
                   ),
-                  CanvasProps(session: s, onDone: _focus.requestFocus),
+                  // 버전 기록을 여는 동안은 속성 패널을 접는다(좁은 창에서 판이 너무 좁아지지 않게).
+                  if (!_versions)
+                    CanvasProps(session: s, onDone: _focus.requestFocus),
                   if (_versions) ...[
                     VerticalDivider(width: 1, color: c.divider),
                     SizedBox(
@@ -276,6 +293,7 @@ class _TopBar extends StatelessWidget {
     required this.versionsOpen,
     required this.onExport,
     required this.onVersions,
+    required this.onNameDone,
   });
 
   final DocInfo doc;
@@ -285,6 +303,9 @@ class _TopBar extends StatelessWidget {
   final bool versionsOpen;
   final VoidCallback onExport;
   final VoidCallback onVersions;
+
+  /// 이름을 Enter나 Esc로 마쳤을 때 초점을 돌려줄 곳(판).
+  final VoidCallback onNameDone;
 
   @override
   Widget build(BuildContext context) {
@@ -303,7 +324,11 @@ class _TopBar extends StatelessWidget {
             child: Row(
               children: [
                 Flexible(
-                  child: NameField(doc: doc, library: library),
+                  child: NameField(
+                    doc: doc,
+                    library: library,
+                    onDone: onNameDone,
+                  ),
                 ),
                 const SizedBox(width: Space.x3),
                 Text(
@@ -346,9 +371,16 @@ class _TopBar extends StatelessWidget {
             onPressed: st == null ? null : onExport,
           ),
           const SizedBox(width: Space.x2),
-          MoreMenu(
-            tooltip: '문서 메뉴',
-            items: [(versionsOpen ? '버전 기록 닫기' : '버전 기록', onVersions)],
+          // 문서 메뉴의 항목이 하나뿐이라 그 항목을 단추로 둔다.
+          Tooltip(
+            message: versionsOpen ? '버전 기록 닫기' : '버전 기록',
+            child: AppButton(
+              '',
+              icon: Icons.history,
+              semanticLabel: versionsOpen ? '버전 기록 닫기' : '버전 기록',
+              kind: ButtonKind.quiet,
+              onPressed: onVersions,
+            ),
           ),
         ],
       ),
@@ -419,10 +451,14 @@ class _ToolBar extends StatelessWidget {
     required this.session,
     required this.onImage,
     required this.onDone,
+    required this.layersOpen,
+    required this.onLayers,
   });
 
   final CanvasSession session;
   final VoidCallback onImage;
+  final bool layersOpen;
+  final VoidCallback onLayers;
 
   /// 단추를 누른 뒤 판으로 초점을 돌린다(단축키가 이어서 먹게).
   final VoidCallback onDone;
@@ -433,6 +469,12 @@ class _ToolBar extends StatelessWidget {
     final st = session.state;
     final tool = st?.tool ?? 'select';
     final zoom = st == null ? 100 : (st.zoom * 100).round();
+    VoidCallback? view(void Function() f) => st == null
+        ? null
+        : () {
+            f();
+            onDone();
+          };
     return Container(
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: Space.x4),
@@ -442,6 +484,17 @@ class _ToolBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          _ToolButton(
+            label: '레이어 패널',
+            keyLabel: null,
+            icon: Icons.layers_outlined,
+            selected: layersOpen,
+            onPressed: onLayers,
+          ),
+          SizedBox(
+            height: 20,
+            child: VerticalDivider(width: Space.x3, color: c.divider),
+          ),
           for (final (name, label, key) in canvasTools)
             _ToolButton(
               label: label,
@@ -463,44 +516,32 @@ class _ToolBar extends StatelessWidget {
             onPressed: st == null ? null : onImage,
           ),
           const Spacer(),
-          Tooltip(
-            message: '모두 보기 ⇧1',
-            child: AppButton(
-              '모두 보기',
-              kind: ButtonKind.quiet,
-              onPressed: st == null
-                  ? null
-                  : () {
-                      session.viewOp('fitAll');
-                      onDone();
-                    },
-            ),
-          ),
-          const SizedBox(width: Space.x1),
-          Tooltip(
-            message: '100% ⌘0',
-            child: AppButton(
-              '100%',
-              kind: ButtonKind.quiet,
-              onPressed: st == null
-                  ? null
-                  : () {
-                      session.viewOp('actual');
-                      onDone();
-                    },
-            ),
-          ),
-          const SizedBox(width: Space.x3),
-          Semantics(
-            label: '보기 배율',
-            child: Text(
-              '$zoom%',
-              key: const Key('canvas-zoom'),
-              style: AppText.body.copyWith(
-                color: c.textMuted,
-                fontFeatures: AppText.tabular,
+          // 보기 배율: 지금 배율을 보이는 단추 하나에 확대·축소·맞추기를 모은다(문서 편집기의 배율 단추와 같은 모양).
+          MoreMenu(
+            key: const Key('canvas-zoom'),
+            label: '$zoom%',
+            tooltip: '보기 배율',
+            icon: Icons.unfold_more,
+            shortcuts: const {
+              '확대': '⌘+',
+              '축소': '⌘−',
+              '실제 크기': '⌘0',
+              '모두 보기': '⇧1',
+              '고른 것에 맞추기': '⇧2',
+            },
+            items: [
+              ('확대', view(() => session.zoomAt(by: zoomFactor))),
+              ('축소', view(() => session.zoomAt(by: 1 / zoomFactor))),
+              ('실제 크기', view(() => session.viewOp('actual'))),
+              MoreMenu.divider,
+              ('모두 보기', view(() => session.viewOp('fitAll'))),
+              (
+                '고른 것에 맞추기',
+                st?.selection.isNotEmpty == true
+                    ? view(() => session.viewOp('fitSelection'))
+                    : null,
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -544,12 +585,13 @@ class _ToolButton extends StatelessWidget {
             label: label,
             child: ExcludeSemantics(
               child: Material(
-                color: selected ? c.accentSoft : Colors.transparent,
+                // 쉬는 단추도 옅은 바탕을 둔다(문서 편집기의 아이콘 단추와 같다).
+                color: selected ? c.accentSoft : c.text.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(Radii.control),
                 child: InkWell(
                   onTap: onPressed,
                   borderRadius: BorderRadius.circular(Radii.control),
-                  hoverColor: c.text.withValues(alpha: 0.06),
+                  hoverColor: c.text.withValues(alpha: 0.12),
                   focusColor: Colors.transparent,
                   child: SizedBox(
                     width: 36,

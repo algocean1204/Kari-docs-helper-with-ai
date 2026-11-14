@@ -7,9 +7,9 @@ library;
 
 import 'dart:convert';
 
-import 'canvas_state.dart' show CanvasState;
+import 'canvas_state.dart' show CanvasLayer, CanvasState;
 
-export 'canvas_state.dart' show CanvasSel, CanvasState, CanvasText;
+export 'canvas_state.dart' show CanvasLayer, CanvasSel, CanvasState, CanvasText;
 
 typedef Json = Map<String, Object?>;
 
@@ -194,15 +194,7 @@ class EditState {
       header: _cells(j['header']),
       footer: _cells(j['footer']),
       hfSkipFirst: j['hfSkipFirst'] == true,
-      image: j['image'] is Json
-          ? (
-              w: n((j['image'] as Json)['w']),
-              h: n((j['image'] as Json)['h']),
-              alt: ((j['image'] as Json)['alt'] as String?) ?? '',
-              bodyW: n((j['image'] as Json)['bodyW']),
-              bodyH: n((j['image'] as Json)['bodyH']),
-            )
-          : null,
+      image: j['image'] is Json ? _image(j['image'] as Json) : null,
       missing: (j['missing'] as int?) ?? 0,
       overflow: (j['overflow'] as int?) ?? 0,
       table: j['table'] is Json
@@ -223,6 +215,23 @@ class EditState {
           StyleInfo.fromJson(x as Json),
       ],
       styleDirty: j['styleDirty'] == true,
+    );
+  }
+
+  static ImageState _image(Json i) {
+    double n(Object? v) => (v as num).toDouble();
+    final r = i['rect'];
+    return (
+      w: n(i['w']),
+      h: n(i['h']),
+      alt: (i['alt'] as String?) ?? '',
+      bodyW: n(i['bodyW']),
+      bodyH: n(i['bodyH']),
+      min: i['min'] == null ? 12 : n(i['min']),
+      rect: r is Json
+          ? (x: n(r['x']), y: n(r['y']), w: n(r['w']), h: n(r['h']))
+          : null,
+      k: r is Json && r['k'] != null ? n(r['k']) : 4 / 3,
     );
   }
 
@@ -296,8 +305,9 @@ class EditState {
   final List<String> footer;
   final bool hfSkipFirst;
 
-  /// 선택이 그림 하나일 때 그 크기(pt)와 대체 글, 넘지 못하는 본문 상자(pt).
-  final ({double w, double h, String alt, double bodyW, double bodyH})? image;
+  /// 선택이 그림 하나일 때 그 크기(pt)와 대체 글, 넘지 못하는 본문 상자(pt), 줄일 수 있는 가장 작은 한 변(pt).
+  /// [rect]는 화면에 놓인 상자(내용 기준 논리 화소, 줄 폭에 맞춰 줄여 놓았으면 줄인 크기)이고 [k]는 pt당 논리 화소다.
+  final ImageState? image;
 
   /// 커서가 표 안이면 그 표와 커서 셀. 표 밖이면 null.
   final TableState? table;
@@ -718,6 +728,10 @@ typedef OutlineItem = ({
 /// 엔진. 함수 이름과 인자는 엔진의 메서드와 1:1이다(`docs.list` → [docsList]).
 /// 아직 화면이 쓰지 않는 호출은 엔진의 JSON을 그대로 돌려준다. 쓰게 될 때 모양을 정한다.
 abstract class EngineApi {
+  /// 붙여넣기 판의 서식 있는 글(HTML)을 운영체제 채널로 읽는 앱인지. 앱(진짜 엔진)만 참이다. 채널이 없는 곳(위젯 시험)은
+  /// 채널을 부르면 답이 오지 않으므로 묻지 않는다.
+  bool get readsRichBoard => false;
+
   /// 요청 JSON 한 개를 보내고 응답 JSON을 받는다.
   Future<String> send(String request);
 
@@ -1057,6 +1071,30 @@ abstract class EngineApi {
     return e is Json ? TableEdge.fromJson(e) : null;
   }
 
+  /// 그림을 끄는 동안 놓일 글 자리: 보이는 영역 기준 한 점([scrollY]를 엔진이 더한다)에서 가장 가까운 커서 자리
+  /// (내용 기준 논리 화소). 없으면 null.
+  Future<({double x, double y, double h})?> editDropAt(
+    int id,
+    double x,
+    double y, {
+    double? scrollY,
+  }) async {
+    final c =
+        (await call('edit.dropAt', {
+              'id': id,
+              'x': x,
+              'y': y,
+              'scrollY': ?scrollY,
+            })
+            as Json)['caret'];
+    if (c is! Json) return null;
+    return (
+      x: (c['x'] as num).toDouble(),
+      y: (c['y'] as num).toDouble(),
+      h: (c['h'] as num).toDouble(),
+    );
+  }
+
   /// 표에서 선이 없는 변을 화면에 옅은 점선으로 보일지(눈금선 보기). PDF와 인쇄에는 나가지 않는다.
   Future<EditState> editGuides(int id, bool on) =>
       _edit('edit.guides', {'id': id, 'on': on});
@@ -1113,8 +1151,19 @@ abstract class EngineApi {
     if (ctrl) 'ctrl': true,
   });
 
+  /// 레이어 패널의 줄들과 그것을 읽은 문서의 `seq`(저장된 문서).
+  Future<({int seq, List<CanvasLayer> rows})> canvasLayers(int id) async {
+    final j = await call('canvas.layers', {'id': id}) as Json;
+    return (
+      seq: (j['seq'] as num).toInt(),
+      rows: [
+        for (final r in j['rows'] as List) CanvasLayer.fromJson(r as Json),
+      ],
+    );
+  }
+
   /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, flip, align,
-  /// distribute, paste, editText, endText, cancel.
+  /// distribute, paste, editText, endText, cancel, group, ungroup, order, place, toggle, addBoard.
   Future<CanvasState> canvasCmd(
     int id,
     String name, {
@@ -1223,6 +1272,18 @@ abstract class EngineApi {
 
 /// 사각형(논리 화소).
 typedef Rect4 = ({double x, double y, double w, double h});
+
+/// 선택된 그림 하나의 상태(엔진의 `image`).
+typedef ImageState = ({
+  double w,
+  double h,
+  String alt,
+  double bodyW,
+  double bodyH,
+  double min,
+  Rect4? rect,
+  double k,
+});
 
 /// 자료 폴더. `KARI_HOME`이 있으면 그 값, 없으면 운영체제의 앱 자료 자리.
 String libraryDir(Map<String, String> env, String os) {

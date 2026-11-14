@@ -92,6 +92,15 @@ KARI_TEST_BACKGROUND=1 flutter test integration_test/app_test.dart -d macos   # 
 KARI_TEST_BACKGROUND=1 flutter test integration_test/canvas_test.dart -d macos   # 캔버스 문서: 사각형·글 상자(한글)·옮기기·크기·되돌리기·돌리기·맞춤·복사와 붙여넣기·PDF
 ```
 
+## 시연 그림 다시 만들기
+
+README의 대표 그림과 기능 표의 움직이는 그림(`Docs/assets/readme/`)은 `app/scripts/demo.sh`로 다시 만든다. 화면이나 기능이 바뀌면 다시 돌려 그림을 맞춘다. 창을 띄우지 않는다: 위젯 시험 `app/test/demo/demo_test.dart`가 문서와 캔버스는 진짜 엔진으로, 면접과 리포트는 흉내 엔진으로 앱을 그리고, 1/30초씩 시계를 보내며 프레임을 PNG로 남긴다. 마우스 커서와 누름 표시, 단축키 표시는 시험이 그 위에 그리고, 누르기와 글자 입력(한글은 자모 조합 과정까지)은 같은 자리에 진짜 이벤트로 보낸다. 스크립트는 프레임을 `ffmpeg`와 `img2webp`(`brew install ffmpeg webp`)로 기능마다의 `webp`와 멈춘 그림(`poster.jpg`, 클립에서 고른 한 장면)으로 묶고, 처음부터 끝까지 이은 영상을 `.cache/demo/kari-demo.mp4`(저장소 밖)에 쓴다. 보통의 `flutter test`에서는 이 시험이 건너뛰어진다(`KARI_DEMO_DIR`이 있을 때만 돈다). `--encode`를 주면 찍어 둔 프레임을 다시 묶기만 한다. 화면의 사람, 회사, 공고, 면접 질문과 리포트는 견본 자료다.
+
+```bash
+app/scripts/demo.sh            # 찍고 묶는다
+app/scripts/demo.sh --encode   # 묶기만 다시
+```
+
 ## 실제 서버 시험
 
 실제 Anthropic, OpenAI 서버를 부르는 시험이다. 키가 있을 때만 돌고 API 요금이 든다. CI에서는 돌지 않는다.
@@ -129,16 +138,26 @@ python3 app/scripts/third_party.py --check  # 최신인지 본다(다르면 종�
 
 ## CI
 
-`.github/workflows/ci.yml`이 `main`으로의 푸시와 모든 PR에서 돈다. `macos` 밖의 작업은 Ubuntu에서 돈다. 비밀값을 쓰지 않고 권한은 읽기뿐이다.
+`.github/workflows/ci.yml`이 `main`·`develop`으로의 푸시와 PR에서 돈다(PR의 제목·본문만 고친 것으로는 돌지 않는다). `macos` 밖의 작업은 Ubuntu에서 돈다. 비밀값을 쓰지 않고 권한은 읽기뿐이다. 같은 가지에 새 실행이 생기면 앞 실행은 취소한다. Cargo와 Flutter의 내려받은 것과 엔진의 빌드 산출물은 캐시해 다시 쓴다.
 
 | 작업 | 하는 일 |
 |---|---|
 | `repo` | 저장소에 두면 안 되는 것이 없는지(`python3 app/scripts/public_check.py`: 최상위에 `README.md`, `LICENSE`, `.gitignore`, `.github`, `app`, `Docs` 밖의 것, `.env`와 키 파일, 글 안의 비밀 모양, 기기 경로), 공개 글의 상대 링크가 맞는지(`python3 app/scripts/check_links.py`) |
+| `changes` | PR에서 대상 가지와 견줘 무거운 작업을 돌릴지 정한다. `engine`은 `app/engine/`나 지식 팩 문서가, `app`은 `app/`이, `macos`는 `app/`이나 제3자 고지가 바뀔 때 돈다. 워크플로가 바뀌거나 푸시일 때는 모두 돈다 |
 | `engine` | `app/engine`에서 `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`. 지식 팩 검사와 [architecture/knowledge-pack.md](../architecture/knowledge-pack.md)의 개념 표 대조 |
 | `app` | `flutter analyze`, `flutter test`(빌드 훅이 엔진을 빌드한다) |
-| `pr` | PR에서만 돈다. PR 제목이 `type(scope): 설명` 꼴인지, 가지 이름이 `<type>/<주제>` 꼴인지, 외부 기여자의 PR 본문에 `Fixes #번호` 같은 연결 이슈가 있는지([규칙](../../.github/CONTRIBUTING.md#커밋과-pr-제목)) |
 | `macos` | macOS 러너에서 `flutter build macos --debug`(Swift, 권한 파일, 빌드 훅). 공개 저장소에서만 돈다 |
-| `ci-passed` | 위 작업이 모두 성공했는지(건너뛴 `macos`는 통과로 보고, `pr`은 `main`으로의 푸시에서만 건너뛰어도 통과로 본다). `main` 보호 규칙의 필수 검사는 이것 하나다 |
+| `ci-passed` | 위 작업이 모두 성공했는지. 바뀐 경로에 닿지 않아 건너뛴 무거운 작업만 통과로 본다 |
+
+`.github/workflows/pr-meta.yml`은 PR에서만, 제목·본문을 고칠 때도 돈다.
+
+| 작업 | 하는 일 |
+|---|---|
+| `pr` | PR 제목이 `type(scope): 설명` 꼴인지, 가지 이름이 `<type>/<주제>` 꼴인지, `main`으로 가는 PR이 `develop`에서 오는지, 외부 기여자의 PR 본문에 `Fixes #번호` 같은 연결 이슈가 있는지([규칙](../../.github/CONTRIBUTING.md#커밋과-pr-제목)) |
+| `version` | `main`으로 가는 PR의 판이 [판 번호 규칙](../../.github/CONTRIBUTING.md#판-번호)에 맞는지, `develop`으로 가는 PR이 판을 바꾸면 릴리스 PR인지 |
+| `pr-meta` | 위 둘이 성공했는지 |
+
+`develop`과 `main` 보호 규칙의 필수 검사는 `ci-passed`와 `pr-meta` 둘이다.
 
 ## 문제 해결
 

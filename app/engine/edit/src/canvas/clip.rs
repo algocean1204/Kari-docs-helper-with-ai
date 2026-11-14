@@ -103,11 +103,13 @@ impl CanvasClip {
     }
 }
 
-/// 판의 점이 든 보이는 대지(겹치면 위의 것), 없으면 가장 가까운 대지.
+/// 판의 점이 든 보이는 대지(겹치면 위의 것), 없으면 가장 가까운 대지. 잠근 대지는 건너뛴다(만들기와 같다: 붙인 것을
+/// 판에서 다룰 수 없다).
 fn nearest_board(doc: &Document, p: (f64, f64)) -> Option<String> {
     let dist = |lo: f64, hi: f64, v: f64| (lo - v).max(v - hi).max(0.0);
     boards(doc)
         .into_iter()
+        .filter(|b| doc.prop(&b.id, "locked").and_then(Value::as_bool) != Some(true))
         .rev()
         .map(|b| {
             let d = dist(b.x, b.x + b.w, p.0).hypot(dist(b.y, b.y + b.h, p.1));
