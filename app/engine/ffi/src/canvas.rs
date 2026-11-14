@@ -27,6 +27,7 @@ use crate::library::{on, Engine};
 use crate::session::{self, next_gen};
 
 mod edit;
+pub(crate) use edit::{clip_assets, orphan_clip};
 
 static SESSIONS: Mutex<Option<HashMap<DocId, Arc<CSession>>>> = Mutex::new(None);
 
@@ -170,8 +171,10 @@ pub(crate) fn remove(id: DocId) {
     with_sessions(|m| m.remove(&id));
 }
 
+/// 라이브러리를 닫거나 새로 열 때: 세션과, 그 라이브러리의 문서에서 복사해 둔 노드 조각을 버린다.
 pub(crate) fn clear() {
     with_sessions(|m| m.clear());
+    edit::forget_clip();
 }
 
 /// 세션을 새로 연다(있던 것은 바꾼다). 글꼴이 없으면 `None`.
@@ -446,6 +449,7 @@ fn pointer(a: &Args, view: &CanvasView) -> Result<Pointer, Fail> {
             "double" => Phase::Double,
             "hover" => Phase::Hover,
             "cancel" => Phase::Cancel,
+            "context" => Phase::Context,
             _ => return None,
         })
     })?;

@@ -1,14 +1,17 @@
-//! 캔버스 명령: 이름과 인자로 부르는 편집(만들기, 지우기, 복제, 방향키 옮기기, 고르기, 속성 바꾸기, 글 상자 편집 시작과 끝).
+//! 캔버스 명령: 이름과 인자로 부르는 편집(만들기, 지우기, 복제, 방향키 옮기기, 고르기, 속성 바꾸기, 뒤집기, 정렬과 분배,
+//! 붙여넣기, 글 상자 편집 시작과 끝).
 //! 결과는 op 묶음(`CPlan`)이라 저장, 되돌리기, 버전, 충돌 규칙을 그대로 탄다.
 
 use kari_doc::serde_json::{Map, Value};
 use kari_doc::Document;
 use kari_layout::Layouter;
 
+use super::arrange::{self, Align};
+use super::clip::CanvasClip;
 use super::make::{self, Tool, DUP_OFFSET};
 use super::props;
 use super::text::TextCmd;
-use super::{boards, move_ops, CanvasEditor};
+use super::{apply, boards, move_ops, CanvasEditor};
 
 /// 명령 하나의 결과. `ops`가 있으면 부르는 쪽이 앞 사본에 적용하고 뒤 사본에 커밋한다.
 #[derive(Clone, Debug, Default)]
@@ -71,6 +74,19 @@ pub enum CanvasCmd {
         props: Map<String, Value>,
         preview: bool,
     },
+    /// 고른 것을 뒤집는다(가로: 왼쪽과 오른쪽이 바뀐다). 여럿이면 묶음의 가운데가 기준이다.
+    Flip { vertical: bool },
+    /// 고른 것을 맞춘다. 하나면 부모에, 여럿이면 고른 것들의 경계에.
+    Align(Align),
+    /// 고른 것(셋 이상) 사이의 간격을 같게 한다.
+    Distribute { vertical: bool },
+    /// 복사해 둔 조각을 붙인다. `same_doc`은 조각이 이 문서에서 온 것인지, `center`는 보이는 영역의 가운데(판 좌표)다.
+    Paste {
+        clip: CanvasClip,
+        same_doc: bool,
+        in_place: bool,
+        center: (f64, f64),
+    },
     /// 고른 글 상자 하나의 편집을 시작한다(글 전체를 고른다).
     EditText,
     /// 글 상자 편집을 끝낸다. 글이 비었으면 그 상자를 지운다.
@@ -94,6 +110,10 @@ impl CanvasEditor {
                     | CanvasCmd::Duplicate { .. }
                     | CanvasCmd::Nudge { .. }
                     | CanvasCmd::Create { .. }
+                    | CanvasCmd::Flip { .. }
+                    | CanvasCmd::Align(_)
+                    | CanvasCmd::Distribute { .. }
+                    | CanvasCmd::Paste { .. }
             );
         if busy {
             return CPlan::refuse("글 상자를 편집하는 중에는 쓸 수 없습니다.");
@@ -184,6 +204,41 @@ impl CanvasEditor {
                     p.preview = *preview;
                     p
                 }
+                Err(e) => CPlan::refuse(e),
+            },
+            CanvasCmd::Flip { vertical } => {
+                let Some(f) = self.frame(doc, lay) else {
+                    return CPlan::refuse("고른 것이 없습니다.");
+                };
+                let r = f.rect;
+                let pivot = apply(&f.world, (r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0);
+                let mut starts = self.starts(doc, lay);
+                match arrange::flip_ops(&mut starts, pivot, *vertical) {
+                    Ok(ops) => CPlan::ops(ops, "뒤집기"),
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
+            CanvasCmd::Align(to) => {
+                let mut starts = self.starts(doc, lay);
+                match arrange::align_ops(doc, lay, &mut starts, *to) {
+                    Ok(ops) => CPlan::ops(ops, "정렬"),
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
+            CanvasCmd::Distribute { vertical } => {
+                let mut starts = self.starts(doc, lay);
+                match arrange::distribute_ops(&mut starts, *vertical) {
+                    Ok(ops) => CPlan::ops(ops, "간격 고르게"),
+                    Err(e) => CPlan::refuse(e),
+                }
+            }
+            CanvasCmd::Paste {
+                clip,
+                same_doc,
+                in_place,
+                center,
+            } => match self.paste(doc, lay, clip, *same_doc, *in_place, *center) {
+                Ok(ops) => CPlan::ops(ops, "붙여넣기"),
                 Err(e) => CPlan::refuse(e),
             },
             CanvasCmd::EditText => match self.sel.as_slice() {

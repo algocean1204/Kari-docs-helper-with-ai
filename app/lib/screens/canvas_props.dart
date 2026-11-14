@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../design/components.dart';
 import '../design/tokens.dart';
+import '../editing/canvas_keys.dart';
 import '../editing/canvas_session.dart';
 import '../engine/engine.dart';
 
@@ -44,12 +45,25 @@ String numText(double v) {
   return r == r.roundToDouble() ? '${r.round()}' : '$r';
 }
 
-/// 오른쪽 속성 패널. 고른 것의 위치·크기, 칠, 선, 모서리, 불투명도, 이름, 글 모양을 보이고 바꾼다.
+const _alignIcons = {
+  'left': Icons.align_horizontal_left,
+  'centerH': Icons.align_horizontal_center,
+  'right': Icons.align_horizontal_right,
+  'top': Icons.align_vertical_top,
+  'centerV': Icons.align_vertical_center,
+  'bottom': Icons.align_vertical_bottom,
+};
+
+/// 오른쪽 속성 패널. 맨 위에 맞춤과 간격 단추, 그 아래 고른 것의 위치·크기·각도, 칠, 선, 모서리, 불투명도, 이름,
+/// 글 모양을 보이고 바꾼다.
 /// 값은 엔진 상태가 정한다(앱이 따로 기억하지 않는다). 여러 개를 골랐으면 같은 값만 보이고 다르면 "혼합"이다.
 class CanvasProps extends StatelessWidget {
-  const CanvasProps({super.key, required this.session});
+  const CanvasProps({super.key, required this.session, this.onDone});
 
   final CanvasSession session;
+
+  /// 맞춤·간격·뒤집기 단추를 누른 뒤 판으로 초점을 돌린다(단축키가 이어서 먹게).
+  final VoidCallback? onDone;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +89,7 @@ class CanvasProps extends StatelessWidget {
           }
           return SingleChildScrollView(
             padding: const EdgeInsets.all(Space.x4),
-            child: _Fields(session: session, sel: sel),
+            child: _Fields(session: session, sel: sel, onDone: onDone),
           );
         },
       ),
@@ -84,9 +98,17 @@ class CanvasProps extends StatelessWidget {
 }
 
 class _Fields extends StatelessWidget {
-  const _Fields({required this.session, required this.sel});
+  const _Fields({required this.session, required this.sel, this.onDone});
 
   final CanvasSession session;
+  final VoidCallback? onDone;
+
+  /// 단추가 내는 명령 하나. 누른 뒤 판으로 초점을 돌린다.
+  void _cmd(String name, Json args) {
+    session.cmd(name, args);
+    onDone?.call();
+  }
+
   final List<CanvasSel> sel;
 
   bool _any(Set<String> types) => sel.any((n) => types.contains(n.type));
@@ -136,9 +158,47 @@ class _Fields extends StatelessWidget {
         ],
       ],
     );
+    // 하나만 골랐으면 부모에 맞춘다. 대지 하나는 맞출 곳이 없다.
+    final canAlign = sel.length > 1 || sel.first.type != 'page';
+    Widget action(String label, IconData icon, VoidCallback? onPressed) =>
+        Tooltip(
+          message: label,
+          child: AppButton(
+            '',
+            icon: icon,
+            semanticLabel: label,
+            kind: ButtonKind.quiet,
+            onPressed: onPressed,
+          ),
+        );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _Section('맞춤과 간격', [
+          Wrap(
+            spacing: Space.x1,
+            runSpacing: Space.x1,
+            children: [
+              for (final (to, label, key) in canvasAligns)
+                action(
+                  '$label ⌥$key',
+                  _alignIcons[to]!,
+                  canAlign ? () => _cmd('align', {'to': to}) : null,
+                ),
+              // 간격 고르게는 셋 이상을 골랐을 때만.
+              for (final (axis, label) in canvasDistributes)
+                action(
+                  label,
+                  axis == 'h'
+                      ? Icons.horizontal_distribute
+                      : Icons.vertical_distribute,
+                  sel.length >= 3
+                      ? () => _cmd('distribute', {'axis': axis})
+                      : null,
+                ),
+            ],
+          ),
+        ]),
         _Section('이름', [
           _StrField(
             label: '이름',
@@ -157,6 +217,30 @@ class _Fields extends StatelessWidget {
             _field('W', sel.map((n) => n.w), (v) => {'w': v}, min: 0),
             _field('H', sel.map((n) => n.h), (v) => {'h': v}, min: 0),
           ]),
+          // 대지는 돌리거나 뒤집지 않는다.
+          if (!sel.every((n) => n.type == 'page')) ...[
+            gap(),
+            row([
+              _field(
+                '각도',
+                sel.map((n) => n.rotation),
+                (v) => {'rotation': v},
+                semantic: '각도(도)',
+              ),
+              Row(
+                children: [
+                  for (final (axis, label, key) in canvasFlips) ...[
+                    action(
+                      '$label ⇧$key',
+                      axis == 'h' ? Icons.swap_horiz : Icons.swap_vert,
+                      () => _cmd('flip', {'axis': axis}),
+                    ),
+                    const SizedBox(width: Space.x1),
+                  ],
+                ],
+              ),
+            ]),
+          ],
         ]),
         _Section('모양', [
           row([

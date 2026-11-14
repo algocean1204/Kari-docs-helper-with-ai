@@ -1,7 +1,8 @@
 /// 캔버스 화면의 키 표(macOS). 위젯을 모르는 순수 함수라 단위 시험이 된다.
 ///
 /// 결과는 화면이 할 일이다(`k`): `tool`(`tool`), `cmd`(`canvas.cmd`의 `name`과 인자), `view`(`canvas.view`의 인자),
-/// `undo`, `redo`, `esc`, `copy`, `cut`, `paste`, `text`(`canvas.text`의 `cmd`). 이 표에 없는 키는 null이다.
+/// `undo`, `redo`, `esc`, `copy`, `cut`, `paste`(글 상자 안의 글), `copyNodes`, `cutNodes`, `pasteNodes`(고른 노드,
+/// `inPlace`면 제자리), `text`(`canvas.text`의 `cmd`). 이 표에 없는 키는 null이다.
 /// 글 상자를 편집하는 중에는 글 키만 받는다(도구 키가 입력기로 가게 한다).
 library;
 
@@ -27,6 +28,31 @@ final _toolKeys = {
   LogicalKeyboardKey.keyO: 'ellipse',
   LogicalKeyboardKey.keyL: 'line',
   LogicalKeyboardKey.keyT: 'text',
+};
+
+/// 정렬: (`canvas.cmd align`의 `to`, 화면 이름, ⌥와 함께 누르는 키).
+const canvasAligns = [
+  ('left', '왼쪽 맞춤', 'A'),
+  ('centerH', '가로 가운데 맞춤', 'H'),
+  ('right', '오른쪽 맞춤', 'D'),
+  ('top', '위 맞춤', 'W'),
+  ('centerV', '세로 가운데 맞춤', 'V'),
+  ('bottom', '아래 맞춤', 'S'),
+];
+
+/// 간격 고르게: (`canvas.cmd distribute`의 `axis`, 화면 이름).
+const canvasDistributes = [('h', '가로 간격 고르게'), ('v', '세로 간격 고르게')];
+
+/// 뒤집기: (`canvas.cmd flip`의 `axis`, 화면 이름, ⇧와 함께 누르는 키).
+const canvasFlips = [('h', '가로로 뒤집기', 'H'), ('v', '세로로 뒤집기', 'V')];
+
+final _alignKeys = {
+  LogicalKeyboardKey.keyA: 'left',
+  LogicalKeyboardKey.keyH: 'centerH',
+  LogicalKeyboardKey.keyD: 'right',
+  LogicalKeyboardKey.keyW: 'top',
+  LogicalKeyboardKey.keyV: 'centerV',
+  LogicalKeyboardKey.keyS: 'bottom',
 };
 
 /// 글 상자 안에서 엔진이 받는 `canvas.text`의 명령 이름.
@@ -72,9 +98,18 @@ Json? canvasKey(
 }) {
   if (control) return null;
   if (editing) return _editingKey(key, shift, alt, meta);
-  if (alt) return null;
+  if (alt) {
+    final to = meta || shift ? null : _alignKeys[key];
+    return to == null ? null : _cmd('align', {'to': to});
+  }
   if (meta) {
     return switch (key) {
+      LogicalKeyboardKey.keyC when !shift => {'k': 'copyNodes'},
+      LogicalKeyboardKey.keyX when !shift => {'k': 'cutNodes'},
+      LogicalKeyboardKey.keyV => {
+        'k': 'pasteNodes',
+        if (shift) 'inPlace': true,
+      },
       LogicalKeyboardKey.keyA when !shift => _cmd('selectAll'),
       LogicalKeyboardKey.keyD when !shift => _cmd('duplicate'),
       LogicalKeyboardKey.keyZ => {'k': shift ? 'redo' : 'undo'},
@@ -97,6 +132,8 @@ Json? canvasKey(
       LogicalKeyboardKey.exclamation => _view('fitAll'),
       LogicalKeyboardKey.digit2 ||
       LogicalKeyboardKey.at => _view('fitSelection'),
+      LogicalKeyboardKey.keyH => _cmd('flip', {'axis': 'h'}),
+      LogicalKeyboardKey.keyV => _cmd('flip', {'axis': 'v'}),
       LogicalKeyboardKey.arrowLeft => _cmd('nudge', {
         'dir': 'left',
         'shift': true,

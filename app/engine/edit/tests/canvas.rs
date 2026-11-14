@@ -257,8 +257,14 @@ fn 손잡이를_눌러만_보면_커밋이_없고_멀면_손잡이가_아니다(
             .handle,
         Some("se")
     );
+    // 손잡이 바로 바깥은 돌리기 자리이고, 더 멀면 아무것도 아니다
     assert_eq!(
         t.pointer(Phase::Hover, 150.0 + 7.0, 110.0, false, false)
+            .handle,
+        Some("rotate")
+    );
+    assert_eq!(
+        t.pointer(Phase::Hover, 150.0 + 19.0, 110.0, false, false)
             .handle,
         None
     );
@@ -271,6 +277,11 @@ fn 손잡이를_눌러만_보면_커밋이_없고_멀면_손잡이가_아니다(
     );
     assert_eq!(
         t.pointer(Phase::Hover, 150.0 + 0.7, 110.0, false, false)
+            .handle,
+        Some("rotate")
+    );
+    assert_eq!(
+        t.pointer(Phase::Hover, 150.0 + 1.9, 110.0, false, false)
             .handle,
         None
     );

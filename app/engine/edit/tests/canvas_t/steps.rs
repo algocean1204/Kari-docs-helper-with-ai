@@ -1,12 +1,13 @@
-//! 캔버스 무작위 걷기의 편집 걸음: 만들기, 지우기, 복제, 속성 바꾸기, 글 상자 편집. 걸음마다 결과를 모형과 견준다.
+//! 캔버스 무작위 걷기의 편집 걸음: 만들기, 지우기, 복제, 속성 바꾸기, 글 상자 편집, 뒤집기, 정렬과 분배,
+//! 복사와 붙여넣기, 수정 키를 누른 끌기. 걸음마다 결과를 모형과 견준다.
 
 use std::collections::HashSet;
 
 use kari_doc::serde_json::{json, Map, Value};
-use kari_edit::{CanvasCmd, Motion, Phase, TextCmd, Tool};
+use kari_edit::{CanvasAlign, CanvasCmd, End, Motion, Phase, TextCmd, Tool};
 use kari_layout::{apply, inv};
 
-use super::walk::{near, target, Hist, Tally};
+use super::walk::{frame_center, near, target, turn, Hist, Tally};
 use super::CanvasT;
 use crate::common::Rng;
 
@@ -38,12 +39,17 @@ pub fn edit_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         t.cmd(CanvasCmd::Tool(None));
         h.sync(t, tag);
     }
-    match r.below(100) {
+    match r.below(192) {
         0..=29 => create_step(r, t, h, tally, tag),
         30..=44 => delete_step(r, t, h, tally, tag),
         45..=59 => duplicate_step(r, t, h, tally, tag),
         60..=79 => set_step(r, t, h, tally, tag),
-        _ => text_step(r, t, h, tally, tag),
+        80..=99 => text_step(r, t, h, tally, tag),
+        100..=109 => flip_step(r, t, h, tally, tag),
+        110..=127 => align_step(r, t, h, tally, tag),
+        128..=147 => clip_step(r, t, h, tally, tag),
+        148..=169 => mods_step(r, t, h, tally, tag),
+        _ => rotate_step(r, t, h, tally, tag),
     }
     if t.ed.editing().is_some() || t.ed.tool().is_some() {
         t.cmd(CanvasCmd::Tool(None));
@@ -547,5 +553,556 @@ fn text_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag:
         assert!(t.back.node(&id).is_none(), "{tag}: 빈 글 상자는 지워진다");
     } else {
         assert_eq!(t.back.text(&id).unwrap(), m.text, "{tag}: 끝낸 글");
+    }
+}
+
+type Quad = [[f64; 2]; 4];
+
+/// 축에 나란한 경계 `[x0, y0, x1, y1]`.
+fn bbox<'a>(qs: impl IntoIterator<Item = &'a Quad>) -> [f64; 4] {
+    qs.into_iter()
+        .flatten()
+        .fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |r, p| {
+            [
+                r[0].min(p[0]),
+                r[1].min(p[1]),
+                r[2].max(p[0]),
+                r[3].max(p[1]),
+            ]
+        })
+}
+
+fn kind_of(t: &CanvasT, id: &str) -> String {
+    t.back.node(id).unwrap().kind.clone()
+}
+
+fn parent_quads(t: &mut CanvasT, ids: &[String]) -> Vec<Quad> {
+    ids.iter()
+        .map(|i| t.lay.node_geo(&t.back, i).unwrap().parent_quad())
+        .collect()
+}
+
+/// 뒤집기: 대지가 아닌 노드마다 부모 좌표의 네 모서리가 기준 축(묶음의 가운데를 지남)의 거울 자리로 간다.
+fn flip_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    tally.flips += 1;
+    let sel = select_siblings(r, t);
+    let vertical = r.chance(50);
+    let axis = usize::from(vertical);
+    let before = parent_quads(t, &sel);
+    let pages = kind_of(t, &sel[0]) == "page";
+    let hash = t.back.hash();
+    let c0 = t.commits;
+    let plan = t.cmd(CanvasCmd::Flip { vertical });
+    h.sync(t, tag);
+    if pages {
+        assert!(plan.refused.is_some(), "{tag}: 대지는 뒤집지 않는다");
+        assert_eq!(t.back.hash(), hash, "{tag}");
+        return;
+    }
+    assert!(plan.refused.is_none(), "{tag}: {:?}", plan.refused);
+    assert_eq!(t.commits, c0 + 1, "{tag}: 뒤집기는 묶음 하나");
+    let r0 = bbox(&before);
+    let o = (r0[axis] + r0[axis + 2]) / 2.0;
+    let after = parent_quads(t, &sel);
+    for ((id, a), b) in sel.iter().zip(&before).zip(&after) {
+        for (p, q) in a.iter().zip(b) {
+            let mut want = *p;
+            want[axis] = 2.0 * o - want[axis];
+            assert!(
+                near(want, *q, 5e-3),
+                "{tag}: {id} 뒤집기 {a:?} → {b:?} (축 {o})"
+            );
+        }
+    }
+}
+
+/// 정렬과 분배: 경계가 맞고 다른 축과 크기는 그대로다.
+fn align_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    tally.aligns += 1;
+    let sel = select_siblings(r, t);
+    let before = parent_quads(t, &sel);
+    let boxes: Vec<[f64; 4]> = before.iter().map(|q| bbox([q])).collect();
+    let (hash, c0) = (t.back.hash(), t.commits);
+    let bounds_after = |t: &mut CanvasT| -> Vec<[f64; 4]> {
+        parent_quads(t, &sel).iter().map(|q| bbox([q])).collect()
+    };
+    let same_rest = |a: &[f64; 4], b: &[f64; 4], axis: usize| {
+        let o = 1 - axis;
+        (a[o] - b[o]).abs() < 2e-3
+            && (a[2] - a[0] - (b[2] - b[0])).abs() < 2e-3
+            && (a[3] - a[1] - (b[3] - b[1])).abs() < 2e-3
+    };
+    if r.chance(35) {
+        let vertical = r.chance(50);
+        let axis = usize::from(vertical);
+        let plan = t.cmd(CanvasCmd::Distribute { vertical });
+        h.sync(t, tag);
+        if sel.len() < 3 {
+            assert!(plan.refused.is_some(), "{tag}: 셋 이상");
+            assert_eq!(t.back.hash(), hash, "{tag}");
+            return;
+        }
+        assert!(plan.refused.is_none(), "{tag}");
+        assert!(t.commits <= c0 + 1, "{tag}");
+        let after = bounds_after(t);
+        let mut order: Vec<usize> = (0..sel.len()).collect();
+        order.sort_by(|a, b| {
+            (boxes[*a][axis] + boxes[*a][axis + 2])
+                .total_cmp(&(boxes[*b][axis] + boxes[*b][axis + 2]))
+        });
+        let (first, last) = (order[0], order[order.len() - 1]);
+        assert!(
+            (after[first][axis] - boxes[first][axis]).abs() < 2e-3
+                && (after[last][axis + 2] - boxes[last][axis + 2]).abs() < 2e-3,
+            "{tag}: 처음과 끝은 그대로"
+        );
+        let gaps: Vec<f64> = order
+            .windows(2)
+            .map(|w| after[w[1]][axis] - after[w[0]][axis + 2])
+            .collect();
+        for g in &gaps {
+            assert!((g - gaps[0]).abs() < 4e-3, "{tag}: 간격 {gaps:?}");
+        }
+        for (a, b) in after.iter().zip(&boxes) {
+            assert!(same_rest(a, b, axis), "{tag}: 다른 축과 크기 {a:?} {b:?}");
+        }
+        return;
+    }
+    let (to, axis, at) = *r.pick(&[
+        (CanvasAlign::Left, 0, 0.0),
+        (CanvasAlign::CenterH, 0, 0.5),
+        (CanvasAlign::Right, 0, 1.0),
+        (CanvasAlign::Top, 1, 0.0),
+        (CanvasAlign::CenterV, 1, 0.5),
+        (CanvasAlign::Bottom, 1, 1.0),
+    ]);
+    // 맞출 곳: 하나면 부모의 상자, 여럿이면 고른 것들의 경계.
+    let target = match sel.as_slice() {
+        [one] => t
+            .back
+            .node(one)
+            .unwrap()
+            .parent
+            .clone()
+            .map(|p| t.lay.node_geo(&t.back, &p).unwrap())
+            .map(|g| [0.0, 0.0, g.w, g.h]),
+        _ => Some(bbox(&before)),
+    };
+    let plan = t.cmd(CanvasCmd::Align(to));
+    h.sync(t, tag);
+    let Some(target) = target else {
+        assert!(plan.refused.is_some(), "{tag}: 대지 하나");
+        assert_eq!(t.back.hash(), hash, "{tag}");
+        return;
+    };
+    assert!(plan.refused.is_none(), "{tag}");
+    assert!(t.commits <= c0 + 1, "{tag}: 정렬은 묶음 하나");
+    let side = |b: &[f64; 4]| b[axis] + (b[axis + 2] - b[axis]) * at;
+    for ((id, a), b) in sel.iter().zip(bounds_after(t)).zip(&boxes) {
+        assert!(
+            (side(&a) - side(&target)).abs() < 2e-3,
+            "{tag}: {id} 정렬 {a:?} / {target:?}"
+        );
+        assert!(same_rest(&a, b, axis), "{tag}: {id} 다른 축과 크기");
+    }
+}
+
+/// 복사(가끔 잘라내기)한 뒤 고른 상태를 바꿔 붙인다.
+fn clip_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    tally.pastes += 1;
+    let picked = select_siblings(r, t);
+    // 뿌리를 쌓임 순서로(조각이 그 순서로 담는다).
+    let from = t.back.node(&picked[0]).unwrap().parent.clone();
+    let roots: Vec<String> = t
+        .back
+        .children(from.as_deref())
+        .iter()
+        .filter(|n| picked.contains(&n.id))
+        .map(|n| n.id.clone())
+        .collect();
+    let hash = t.back.hash();
+    let clip = t.ed.copy(&t.front, &mut t.lay).expect("고른 것이 있다");
+    assert_eq!(t.back.hash(), hash, "{tag}: 복사는 문서를 안 바꾼다");
+    // 원본의 모습(잘라내면 사라지므로 미리 담아 둔다).
+    let srcs: Vec<_> = roots
+        .iter()
+        .map(|i| {
+            let n = t.back.node(i).unwrap().clone();
+            let texts: Vec<String> = t
+                .back
+                .subtree(i)
+                .iter()
+                .filter_map(|n| t.back.text(&n.id))
+                .collect();
+            (n, t.back.subtree(i).len(), texts)
+        })
+        .collect();
+    let total: usize = srcs.iter().map(|s| s.1).sum();
+    assert_eq!(clip.len(), total, "{tag}: 조각의 노드 수");
+    let pages = srcs[0].0.kind == "page";
+    if r.chance(25) {
+        t.cmd(CanvasCmd::Delete);
+        h.sync(t, tag);
+    }
+    match r.below(3) {
+        0 => {}
+        1 => {
+            select_siblings(r, t);
+        }
+        _ => {
+            t.cmd(CanvasCmd::Select(Vec::new()));
+        }
+    }
+    let at_paste: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    let in_place = r.chance(30);
+    let center = (r.below(900) as f64 - 100.0, r.below(500) as f64 - 100.0);
+    let (n0, c0, before) = (t.back.len(), t.commits, ids_of(t));
+    let plan = t.cmd(CanvasCmd::Paste {
+        clip,
+        same_doc: true,
+        in_place,
+        center,
+    });
+    h.sync(t, tag);
+    assert!(plan.refused.is_none(), "{tag}: {:?}", plan.refused);
+    assert_eq!(t.commits, c0 + 1, "{tag}: 붙여넣기는 묶음 하나");
+    assert_eq!(t.back.len(), n0 + total, "{tag}: 붙인 개수");
+    assert_eq!(
+        ids_of(t).difference(&before).count(),
+        total,
+        "{tag}: 모두 새 id"
+    );
+    let made: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    assert_eq!(made.len(), srcs.len(), "{tag}: 붙인 뿌리가 골라진다");
+    // 부모 규칙.
+    let kind = |i: &str| t.back.node(i).map(|n| n.kind.clone());
+    let by_sel = match at_paste.as_slice() {
+        _ if pages => None,
+        [one]
+            if matches!(kind(one).as_deref(), Some("frame" | "page")) && !(roots.contains(one)) =>
+        {
+            Some(one.clone())
+        }
+        [one, ..] => t.back.node(one).unwrap().parent.clone(),
+        [] => None,
+    };
+    let mut shift: Option<(f64, f64)> = None;
+    for ((src, size, texts), id) in srcs.iter().zip(&made) {
+        let n = t.back.node(id).unwrap();
+        assert_eq!(n.kind, src.kind, "{tag}");
+        assert_eq!(t.back.subtree(id).len(), *size, "{tag}: 자손까지");
+        let got: Vec<String> = t
+            .back
+            .subtree(id)
+            .iter()
+            .filter_map(|n| t.back.text(&n.id))
+            .collect();
+        assert_eq!(&got, texts, "{tag}: 글");
+        match (&by_sel, pages) {
+            (_, true) => assert_eq!(n.parent, None, "{tag}: 대지는 맨 위"),
+            (Some(p), _) => assert_eq!(n.parent.as_ref(), Some(p), "{tag}: 고른 것이 정한 부모"),
+            (None, _) => {
+                let p = n.parent.as_deref().and_then(|p| t.back.node(p));
+                assert!(p.is_some_and(|p| p.kind == "page"), "{tag}: 대지 안");
+            }
+        }
+        let (kx, ky) = if pages { ("cx", "cy") } else { ("x", "y") };
+        let (mut a, mut b) = (n.props.clone(), src.props.clone());
+        let num = |m: &Map<String, Value>, k: &str| m.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        let d = (num(&a, kx) - num(&b, kx), num(&a, ky) - num(&b, ky));
+        for k in [kx, ky] {
+            a.remove(k);
+            b.remove(k);
+        }
+        assert_eq!(a, b, "{tag}: 자리 말고는 그대로");
+        // 뿌리들은 함께 옮겨진다.
+        let first = *shift.get_or_insert(d);
+        assert!(
+            (d.0 - first.0).abs() < 2e-3 && (d.1 - first.1).abs() < 2e-3,
+            "{tag}: 뿌리마다 옮긴 거리 {d:?} {first:?}"
+        );
+    }
+    let d = shift.unwrap();
+    let home = !pages && by_sel.is_some() && by_sel == from;
+    if home {
+        // 같은 부모: 제자리면 그대로, 아니면 (10, 10) 비켜서.
+        let want = if in_place { 0.0 } else { 10.0 };
+        assert!(
+            (d.0 - want).abs() < 2e-3 && (d.1 - want).abs() < 2e-3,
+            "{tag}: 같은 부모 {d:?}"
+        );
+    }
+    if pages && in_place {
+        assert_eq!(d, (0.0, 0.0), "{tag}: 대지 제자리");
+    }
+}
+
+/// 수정 키(⇧, ⌥)를 누른 끌기: 옮기기(⇧ 한 축), ⌥ 복제, 크기(⇧ 비율, ⌥ 가운데).
+fn mods_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    tally.mods += 1;
+    select_siblings(r, t);
+    let (shift, alt) = (r.chance(60), r.chance(60));
+    // 누를 자리: 손잡이(크기)나 고른 것의 가운데(옮기기, ⌥ 복제).
+    let handles = t.ed.chrome(&t.front, &mut t.lay).handles;
+    let p0 = if !handles.is_empty() && r.chance(50) {
+        let p = r.pick(&handles).1;
+        (p[0], p[1])
+    } else {
+        let id = t.sel()[0].to_string();
+        let g = t.lay.node_geo(&t.front, &id).unwrap();
+        let c = apply(&g.world(), g.w / 2.0, g.h / 2.0);
+        (c[0], c[1])
+    };
+    let far = |r: &mut Rng| {
+        let d = (r.below(70) + 10) as f64;
+        if r.chance(50) {
+            d
+        } else {
+            -d
+        }
+    };
+    let p1 = (p0.0 + far(r), p0.1 + far(r));
+    let (hash0, c0, n0) = (t.back.hash(), t.commits, t.back.len());
+    t.alt = alt;
+    let down = t.pointer(Phase::Down, p0.0, p0.1, shift, false);
+    // 눌렀을 때의 선택과 기하.
+    let sel: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    let geos: Vec<_> = sel
+        .iter()
+        .filter_map(|i| t.lay.node_geo(&t.back, i))
+        .collect();
+    let props: Vec<_> = sel
+        .iter()
+        .map(|i| t.back.node(i).unwrap().props.clone())
+        .collect();
+    let copied: usize = sel.iter().map(|i| t.back.subtree(i).len()).sum();
+    t.pointer(
+        Phase::Move,
+        (p0.0 + p1.0) / 2.0,
+        (p0.1 + p1.1) / 2.0,
+        shift,
+        false,
+    );
+    assert_eq!(t.commits, c0, "{tag}: 끌기 중 커밋 0번");
+    t.pointer(Phase::Move, p1.0, p1.1, shift, false);
+    assert_eq!(t.back.hash(), hash0, "{tag}: 끌기 중 뒤 사본");
+    let out = t.pointer(Phase::Up, p1.0, p1.1, shift, false);
+    t.alt = false;
+    h.sync(t, tag);
+    assert!(t.commits <= c0 + 1, "{tag}: 뗄 때 최대 한 묶음");
+    if t.commits == c0 {
+        assert_eq!(t.back.hash(), hash0, "{tag}");
+        return;
+    }
+    let (mut dx, mut dy) = (p1.0 - p0.0, p1.1 - p0.1);
+    if shift {
+        if dx.abs() >= dy.abs() {
+            dy = 0.0;
+        } else {
+            dx = 0.0;
+        }
+    }
+    let tol = 5e-3 * t.px.max(1.0) + 3e-3;
+    let moved = |a: &Quad, b: &Quad| {
+        a.iter()
+            .zip(b)
+            .all(|(p, q)| near([p[0] + dx, p[1] + dy], *q, tol))
+    };
+    match out.end {
+        End::Commit("옮기기") => {
+            assert!(!alt, "{tag}: ⌥면 사본을 끈다");
+            for (g, id) in geos.iter().zip(&sel) {
+                let after = t.lay.node_geo(&t.back, id).unwrap();
+                assert!(moved(&g.quad(), &after.quad()), "{tag}: {id} ⇧ 옮기기");
+            }
+        }
+        End::Commit("복제") => {
+            tally.alt_dups += 1;
+            assert!(alt, "{tag}");
+            assert_eq!(t.back.len(), n0 + copied, "{tag}: 사본의 수");
+            for (id, p) in sel.iter().zip(&props) {
+                assert_eq!(&t.back.node(id).unwrap().props, p, "{tag}: 원본은 그대로");
+            }
+            let copies: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+            assert_eq!(copies.len(), sel.len(), "{tag}: 사본이 골라진다");
+            for (g, c) in geos.iter().zip(&copies) {
+                assert!(!sel.contains(c), "{tag}");
+                let after = t.lay.node_geo(&t.back, c).unwrap();
+                assert!(moved(&g.quad(), &after.quad()), "{tag}: {c} 사본의 자리");
+            }
+        }
+        End::Commit("크기 바꾸기") => {
+            let name = down.handle.expect("손잡이를 눌렀다");
+            let [g] = geos.as_slice() else { return };
+            if matches!(g.kind.as_str(), "line" | "text" | "page") {
+                return;
+            }
+            let after = t.lay.node_geo(&t.back, &g.id).unwrap();
+            let (ix, iy) = match name {
+                "nw" => (0, 0),
+                "n" => (1, 0),
+                "ne" => (2, 0),
+                "e" => (2, 1),
+                "se" => (2, 2),
+                "s" => (1, 2),
+                "sw" => (0, 2),
+                _ => (0, 1),
+            };
+            let w0 = g.world();
+            // 기준점(맞은편 손잡이, ⌥면 가운데)의 판 위 자리는 새 상자에서도 같은 종류의 점이다.
+            let at = |q: &Quad, i: usize, j: usize| {
+                let lerp = |a: [f64; 2], b: [f64; 2], k: usize| {
+                    [
+                        a[0] + (b[0] - a[0]) * k as f64 / 2.0,
+                        a[1] + (b[1] - a[1]) * k as f64 / 2.0,
+                    ]
+                };
+                lerp(lerp(q[0], q[1], i), lerp(q[3], q[2], i), j)
+            };
+            let anchor = if alt {
+                at(&g.quad(), 1, 1)
+            } else {
+                at(&g.quad(), 2 - ix, 2 - iy)
+            };
+            let spots: Vec<[f64; 2]> = (0..3)
+                .flat_map(|i| (0..3).map(move |j| (i, j)))
+                .map(|(i, j)| at(&after.quad(), i, j))
+                .collect();
+            let fixed = if alt {
+                near(at(&after.quad(), 1, 1), anchor, 0.03)
+            } else {
+                spots.iter().any(|s| near(*s, anchor, 0.03))
+            };
+            assert!(
+                fixed,
+                "{tag}: {} 기준점 {anchor:?}이 움직였다 ⇧{shift} ⌥{alt} {name}",
+                g.id
+            );
+            if shift && g.w >= 1.0 && g.h >= 1.0 {
+                // 비율 유지: w1 / h1 = w0 / h0 (저장 값의 반올림만큼 어긋날 수 있다)
+                let slack = 2e-3 * (g.w + g.h) + 1e-6;
+                assert!(
+                    (after.w * g.h - after.h * g.w).abs() <= slack,
+                    "{tag}: {} 비율 {}×{} → {}×{}",
+                    g.id,
+                    g.w,
+                    g.h,
+                    after.w,
+                    after.h
+                );
+            } else if !shift {
+                // 새 상자 = 시작 지역 좌표계에서 기준점과 포인터로 이루어진 상자(⌥면 가운데 양쪽으로)
+                let q = apply(&inv(&w0).unwrap(), p1.0, p1.1);
+                let axis = |i: usize, size: f64, m: f64| -> (f64, f64) {
+                    let c = size / 2.0;
+                    match (i, alt) {
+                        (1, _) => (0.0, size),
+                        (_, true) => (c - (m - c).abs(), c + (m - c).abs()),
+                        (0, _) => (size.min(m), size.max(m)),
+                        _ => (0.0f64.min(m), 0.0f64.max(m)),
+                    }
+                };
+                let (x0, x1) = axis(ix, g.w, q[0]);
+                let (y0, y1) = axis(iy, g.h, q[1]);
+                let want = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|p| apply(&w0, p[0], p[1]));
+                for a in after.quad() {
+                    assert!(
+                        want.iter().any(|b| near(a, *b, 0.03)),
+                        "{tag}: {} ⌥ 크기 {:?} / {want:?}",
+                        g.id,
+                        after.quad()
+                    );
+                }
+            }
+        }
+        End::Commit("돌리기") => {}
+        other => panic!("{tag}: 커밋 이름이 이상하다: {other:?}"),
+    }
+}
+
+/// 돌리기 자리(모서리 손잡이의 바깥)를 눌러 호를 그리며 끈다. ⇧면 15도씩.
+fn rotate_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    select_siblings(r, t);
+    let handles = t.ed.chrome(&t.front, &mut t.lay).handles;
+    // 선(끝점 둘)은 돌리기 자리가 없다.
+    if handles.len() < 8 {
+        return;
+    }
+    let n = handles.len() as f64;
+    let mid = handles
+        .iter()
+        .fold([0.0, 0.0], |m, h| [m[0] + h.1[0] / n, m[1] + h.1[1] / n]);
+    let corner = *r.pick(&["nw", "ne", "se", "sw"]);
+    let at = handles.iter().find(|h| h.0 == corner).unwrap().1;
+    let (dx, dy) = (at[0] - mid[0], at[1] - mid[1]);
+    let len = dx.hypot(dy);
+    if len < 1e-6 {
+        return;
+    }
+    let p0 = [
+        at[0] + dx / len * 10.0 * t.px,
+        at[1] + dy / len * 10.0 * t.px,
+    ];
+    let shift = r.chance(40);
+    let deg = (r.below(300) + 25) as f64 * if r.chance(50) { 1.0 } else { -1.0 };
+    let (hash0, c0) = (t.back.hash(), t.commits);
+    let down = t.pointer(Phase::Down, p0[0], p0[1], false, false);
+    if down.handle != Some("rotate") {
+        // 대지를 골랐거나 다른 것이 눌렸다: 끌지 않고 뗀다.
+        t.pointer(Phase::Up, p0[0], p0[1], false, false);
+        h.sync(t, tag);
+        assert_eq!(t.back.hash(), hash0, "{tag}");
+        return;
+    }
+    tally.rotates += 1;
+    let sel: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    let geos: Vec<_> = sel
+        .iter()
+        .filter_map(|i| t.lay.node_geo(&t.back, i))
+        .collect();
+    let o = frame_center(&geos);
+    for part in [0.5, 1.0] {
+        let p = turn(p0, o, (deg * part).to_radians());
+        t.pointer(Phase::Move, p[0], p[1], shift, false);
+        assert_eq!(t.commits, c0, "{tag}: 끌기 중 커밋 0번");
+        assert_eq!(t.back.hash(), hash0, "{tag}: 끌기 중 뒤 사본");
+    }
+    let p = turn(p0, o, deg.to_radians());
+    let out = t.pointer(Phase::Up, p[0], p[1], shift, false);
+    h.sync(t, tag);
+    if t.commits == c0 {
+        assert_eq!(t.back.hash(), hash0, "{tag}");
+        return;
+    }
+    assert_eq!(out.end, End::Commit("돌리기"), "{tag}");
+    assert_eq!(t.commits, c0 + 1, "{tag}: 뗄 때 한 묶음");
+    if shift && geos.len() == 1 {
+        // 하나: 결과 각이 15의 배수이고 가운데는 그대로다.
+        let after = t.lay.node_geo(&t.back, &sel[0]).unwrap();
+        let rot = after.rotation / 15.0;
+        assert!(
+            (rot - rot.round()).abs() < 1e-6,
+            "{tag}: 각 {}",
+            after.rotation
+        );
+        let c = apply(&after.world(), after.w / 2.0, after.h / 2.0);
+        assert!(near(c, o, 0.01), "{tag}: 가운데 {c:?} {o:?}");
+        return;
+    }
+    // 여럿에 ⇧면 돌린 각이 15의 배수다.
+    let rad = if shift {
+        ((deg / 15.0).round() * 15.0).to_radians()
+    } else {
+        deg.to_radians()
+    };
+    for (g, id) in geos.iter().zip(&sel) {
+        let after = t.lay.node_geo(&t.back, id).unwrap();
+        for (a, b) in g.quad().iter().zip(after.quad()) {
+            let want = turn(*a, o, rad);
+            assert!(
+                near(want, b, 0.02),
+                "{tag}: {id} 돌리기 {a:?} → {want:?} != {b:?}"
+            );
+        }
     }
 }

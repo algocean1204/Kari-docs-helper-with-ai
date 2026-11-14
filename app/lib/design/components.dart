@@ -353,6 +353,42 @@ class MoreMenu extends StatelessWidget {
   }
 }
 
+/// 화면의 [at](창 기준 좌표)에 메뉴를 띄우고 고른 항목의 값을 준다. 값이 null인 항목은 꺼져 있다.
+/// 밖을 누르거나 Esc로 닫으면 null이다.
+Future<String?> showContextMenu(
+  BuildContext context,
+  Offset at,
+  List<(String, String?)> items,
+) {
+  final c = AppColors.of(context);
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  return showMenu<String>(
+    context: context,
+    position: RelativeRect.fromRect(at & Size.zero, Offset.zero & overlay.size),
+    color: dark ? c.surface2 : c.surface,
+    surfaceTintColor: Colors.transparent,
+    elevation: dark ? 0 : 6,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radii.control + 2),
+    ),
+    items: [
+      for (final (label, value) in items)
+        PopupMenuItem<String>(
+          value: value,
+          enabled: value != null,
+          height: 32,
+          child: Text(
+            label,
+            style: AppText.body.copyWith(
+              color: value == null ? c.textMuted : c.text,
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
 /// 오류 띠. 위험 색 글과 아이콘으로 알리고, 다시 시도할 수 있게 한다.
 /// 글은 두 줄까지 보이고, 더 길면 올려 두었을 때 전체가 보인다.
 class ErrorLine extends StatelessWidget {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
+import '../design/components.dart';
 import '../design/tokens.dart';
 import '../editing/canvas_keys.dart';
 import '../editing/canvas_session.dart';
@@ -18,6 +19,8 @@ import 'paper.dart' show hexColor;
 ///
 /// 흐름 문서의 종이(`PaperView`)와 같은 텍스처 다리를 쓴다. 선택 상자, 손잡이, 글 상자의 커서와 선택은 엔진이 같은
 /// 화소 버퍼에 그리므로 이 위젯은 아무것도 덧그리지 않는다. 포인터는 `canvas.pointer`, 스크롤·핀치는 `canvas.view`로 보낸다.
+/// 끌기 계산은 그 입력의 수정 키(⇧, ⌥)를 쓰므로, 끄는 동안 수정 키만 바뀌어도 마지막 자리로 `move`를 다시 보낸다.
+/// 오른쪽 누름은 누른 것을 고르게 한 뒤 메뉴(복사, 붙여넣기, 복제, 지우기)를 띄운다.
 class CanvasSurface extends StatefulWidget {
   const CanvasSurface({
     super.key,
@@ -40,6 +43,14 @@ class CanvasSurface extends StatefulWidget {
   State<CanvasSurface> createState() => _CanvasSurfaceState();
 }
 
+/// 끌기 계산을 바꾸는 수정 키(⇧, ⌥).
+final _modifiers = {
+  LogicalKeyboardKey.shiftLeft,
+  LogicalKeyboardKey.shiftRight,
+  LogicalKeyboardKey.altLeft,
+  LogicalKeyboardKey.altRight,
+};
+
 class _CanvasSurfaceState extends State<CanvasSurface>
     with SingleTickerProviderStateMixin {
   Ticker? _ticker;
@@ -54,6 +65,9 @@ class _CanvasSurfaceState extends State<CanvasSurface>
   Offset _downPos = Offset.zero;
   int _clicks = 0;
   bool _pressed = false;
+
+  /// 끄는 동안의 마지막 포인터 자리. 수정 키만 바뀌었을 때 이 자리로 다시 보낸다.
+  Offset _lastPos = Offset.zero;
 
   /// 핀치를 시작할 때의 배율과 지금까지 보낸 비율.
   double _pinchBase = 1;
@@ -152,6 +166,11 @@ class _CanvasSurfaceState extends State<CanvasSurface>
   bool get _editing => _s.state?.text != null;
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
+    // 끄는 동안 수정 키를 누르거나 떼면 같은 자리의 끌기를 새 수정 키로 다시 계산하게 한다.
+    if (_pressed && _modifiers.contains(e.logicalKey) && e is! KeyRepeatEvent) {
+      _sendPointer('move', _lastPos);
+      return KeyEventResult.ignored;
+    }
     if (e is KeyUpEvent) return KeyEventResult.ignored;
     final k = HardwareKeyboard.instance;
     // 조합 중에는 지우기, 방향키, Enter를 입력기에 맡긴다. 입력기가 조합을 끝내고 넘기면 선택자로 온다.
@@ -199,6 +218,12 @@ class _CanvasSurfaceState extends State<CanvasSurface>
         _s.copyOut().then((_) => _s.text({'k': 'cut'}));
       case 'paste':
         _s.pasteIn();
+      case 'copyNodes':
+        _s.copyNodes();
+      case 'cutNodes':
+        _s.cutNodes();
+      case 'pasteNodes':
+        _s.pasteNodes(inPlace: a['inPlace'] == true);
       case 'text':
         _s.text(a['cmd'] as Json);
       case 'esc':
@@ -221,10 +246,50 @@ class _CanvasSurfaceState extends State<CanvasSurface>
     }
   }
 
+  /// 포인터 하나를 지금 눌린 수정 키와 함께 보낸다.
+  Future<void> _sendPointer(String phase, Offset at) {
+    final k = HardwareKeyboard.instance;
+    return _s.pointer(
+      phase,
+      at.dx,
+      at.dy,
+      shift: k.isShiftPressed,
+      meta: k.isMetaPressed,
+      alt: k.isAltPressed,
+    );
+  }
+
+  /// 오른쪽 누름: 누른 것을 고르게 하고(이미 고른 것 안이면 그대로) 메뉴를 띄운다. 글 상자를 편집하는 중에는 띄우지 않는다.
+  Future<void> _context(PointerDownEvent e) async {
+    widget.focusNode.requestFocus();
+    if (_editing || _pressed) return;
+    await _sendPointer('context', e.localPosition);
+    if (!mounted) return;
+    final has = _s.state?.selection.isNotEmpty == true;
+    final pick = await showContextMenu(context, e.position, [
+      ('복사', has ? 'copy' : null),
+      ('붙여넣기', 'paste'),
+      ('복제', has ? 'duplicate' : null),
+      ('지우기', has ? 'delete' : null),
+    ]);
+    switch (pick) {
+      case 'copy':
+        _s.copyNodes();
+      case 'paste':
+        _s.pasteNodes();
+      case 'duplicate' || 'delete':
+        _s.cmd(pick!);
+    }
+    widget.focusNode.requestFocus();
+  }
+
   void _down(PointerDownEvent e) {
+    if (e.buttons == kSecondaryButton) {
+      _context(e);
+      return;
+    }
     if (e.buttons != kPrimaryButton) return;
     widget.focusNode.requestFocus();
-    final k = HardwareKeyboard.instance;
     final now = DateTime.now();
     final near = (e.localPosition - _downPos).distance < 4;
     _clicks = now.difference(_downAt) < kDoubleTapTimeout && near
@@ -232,6 +297,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
         : 1;
     _downAt = now;
     _downPos = e.localPosition;
+    _lastPos = e.localPosition;
     final (x, y) = (e.localPosition.dx, e.localPosition.dy);
     // 글 상자를 편집하는 중의 세 번 누름은 줄 고르기다. 엔진에 누름을 보내지 않았으니 이어지는 끌기와 뗌도 보내지 않는다.
     if (_clicks == 3 && _editing) {
@@ -240,41 +306,19 @@ class _CanvasSurfaceState extends State<CanvasSurface>
       return;
     }
     _pressed = true;
-    _s.pointer(
-      _clicks == 2 ? 'double' : 'down',
-      x,
-      y,
-      shift: k.isShiftPressed,
-      meta: k.isMetaPressed,
-      alt: k.isAltPressed,
-    );
+    _sendPointer(_clicks == 2 ? 'double' : 'down', e.localPosition);
   }
 
   void _move(PointerMoveEvent e) {
     if (!_pressed) return;
-    final k = HardwareKeyboard.instance;
-    _s.pointer(
-      'move',
-      e.localPosition.dx,
-      e.localPosition.dy,
-      shift: k.isShiftPressed,
-      meta: k.isMetaPressed,
-      alt: k.isAltPressed,
-    );
+    _lastPos = e.localPosition;
+    _sendPointer('move', e.localPosition);
   }
 
   void _up(PointerUpEvent e) {
     if (!_pressed) return;
     _pressed = false;
-    final k = HardwareKeyboard.instance;
-    _s.pointer(
-      'up',
-      e.localPosition.dx,
-      e.localPosition.dy,
-      shift: k.isShiftPressed,
-      meta: k.isMetaPressed,
-      alt: k.isAltPressed,
-    );
+    _sendPointer('up', e.localPosition);
   }
 
   void _cancel(PointerCancelEvent e) {

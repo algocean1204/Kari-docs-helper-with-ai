@@ -15,6 +15,7 @@ class CanvasSel {
     required this.w,
     required this.h,
     required this.props,
+    this.rotation = 0,
   });
 
   factory CanvasSel.fromJson(Json j) => CanvasSel(
@@ -24,6 +25,7 @@ class CanvasSel {
     y: _n(j['y'] ?? 0),
     w: _n(j['w'] ?? 0),
     h: _n(j['h'] ?? 0),
+    rotation: _n(j['rotation'] ?? 0),
     props: (j['props'] as Json?) ?? const {},
   );
 
@@ -34,6 +36,9 @@ class CanvasSel {
 
   /// 부모 좌표의 위치(대지는 가운데). 크기는 장면이 푼 값이다.
   final double x, y, w, h;
+
+  /// 제 가운데 둘레로 돈 각(도, 화면에서 시계 방향이 양수).
+  final double rotation;
   final Json props;
 
   Json? _obj(String k) => props[k] as Json?;

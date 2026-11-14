@@ -2,7 +2,8 @@
 //
 //   cd app && KARI_TEST_BACKGROUND=1 flutter test integration_test/canvas_test.dart -d macos
 //
-// 만들기 → 사각형과 글 상자(한글) → 옮기기와 크기 → 되돌리기 → PDF → 홈으로 나가면 "문서를 닫을 때" 버전이 남는다.
+// 만들기 → 사각형과 글 상자(한글) → 옮기기와 크기 → 되돌리기 → 돌리기 → 맞춤 → 복사와 붙여넣기 → ⌥ 끌어 복제 →
+// PDF → 홈으로 나가면 "문서를 닫을 때" 버전이 남는다. 시스템 클립보드와 붙여넣기 판은 가로챈다(쓰지도 읽지도 않는다).
 // 사각형은 판을 끌어 만들고, 글은 입력 채널 경로로 넣는다(TextInput.updateEditingValue: 입력기가 앱에 값을 줄 때와
 // 같은 호출이고, 판에 입력 채널이 붙어 있어야 닿는다). 자료 폴더는 새 임시 폴더이고 끝나면 지운다.
 import 'dart:io';
@@ -73,6 +74,24 @@ void main() {
   SystemChannels.lifecycle.setMessageHandler((_) async => null);
 
   testWidgets('캔버스 문서: 만들기, 사각형과 글 상자(한글), 옮기기와 크기, 되돌리기, PDF', (tester) async {
+    // 시스템 클립보드 대신 쓴 글을 기억했다가 돌려준다. 붙여넣기 판의 그림은 없다고 답한다.
+    String? clip;
+    final messenger = tester.binding.defaultBinaryMessenger;
+    const files = MethodChannel('kari/files');
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (c) async {
+      if (c.method == 'Clipboard.setData') {
+        clip = (c.arguments as Map)['text'] as String?;
+      }
+      if (c.method == 'Clipboard.getData' && clip != null) {
+        return {'text': clip};
+      }
+      return null;
+    });
+    messenger.setMockMethodCallHandler(files, (c) async => null);
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      messenger.setMockMethodCallHandler(files, null);
+    });
     final tmp = Directory.systemTemp.createTempSync('kari-canvas-app-');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final pdf = '${tmp.path}/캔버스.pdf';
@@ -194,12 +213,66 @@ void main() {
     await shortcut(tester, LogicalKeyboardKey.keyZ);
     await until(tester, () async => (await rect())['x'] == x0, '옮기기 되돌리기');
 
-    // 7. 모든 대지 PDF 한 번.
+    // 7. 돌리기: 사각형(200, 200)~(360, 300)의 오른쪽 아래 모서리 바깥을 눌러 가운데 (280, 250) 둘레로 90도 끈다.
+    Future<List<Json>> rects() async => [
+      for (final n in await nodes())
+        if (n['type'] == 'rect') n['props'] as Json,
+    ];
+    await drag(
+      tester,
+      onSurface(tester, 368, 308),
+      onSurface(tester, 222, 338),
+    );
+    await settle(tester);
+    r = await rect();
+    expect(r['rotation'], closeTo(90, 0.01));
+    expect([r['x'], r['y'], r['w'], r['h']], [x0, y0, 160, 100]);
+    expect(s.state!.selection.single.rotation, closeTo(90, 0.01));
+
+    // 8. 맞춤: 속성 패널 맨 위의 단추. 하나만 골랐으니 대지의 왼쪽에 맞는다(돌아간 상자의 너비는 100).
+    await tester.tap(find.byTooltip('왼쪽 맞춤 ⌥A'));
+    await settle(tester);
+    r = await rect();
+    expect(r['x'], closeTo(-30, 0.01));
+    await until(
+      tester,
+      () async => FocusManager.instance.primaryFocus?.debugLabel == '캔버스 판',
+      '단추를 누른 뒤 판의 초점',
+    );
+
+    // 9. 복사(⌘C)와 붙여넣기(⌘V): 같은 대지에 비켜서 하나 더. 되돌리기 한 번에 사라진다.
+    await shortcut(tester, LogicalKeyboardKey.keyC);
+    await until(tester, () async => clip == '', '글 상자가 없는 노드는 빈 글을 쓴다');
+    await shortcut(tester, LogicalKeyboardKey.keyV);
+    await until(tester, () async => (await rects()).length == 2, '붙인 사각형');
+    expect(s.state!.selection.single.type, 'rect');
+    expect(
+      (await rects()).map((p) => p['x']),
+      containsAll([closeTo(-30, 0.01), closeTo(-20, 0.01)]),
+    );
+    await shortcut(tester, LogicalKeyboardKey.keyZ);
+    await until(tester, () async => (await rects()).length == 1, '붙여넣기 되돌리기');
+
+    // 10. ⌥ 끌어 복제: 원본은 그대로이고 사본이 생긴다. 되돌리기 한 번에 사라진다.
+    // 돌아가 왼쪽에 맞춘 사각형은 화면의 (0, 170)~(100, 330)에 있다. 그 안을 눌러 아래로 170 끈다.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await drag(tester, onSurface(tester, 50, 250), onSurface(tester, 50, 420));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await until(tester, () async => (await rects()).length == 2, '끌어 만든 사본');
+    final ys = [for (final p in await rects()) (p['y'] as num).toDouble()]
+      ..sort();
+    expect(ys.first, closeTo(y0.toDouble(), 0.01), reason: '원본은 제자리');
+    expect(ys.last - ys.first, closeTo(170, 0.01), reason: '사본은 끈 만큼 아래');
+    expect(s.state!.selection.single.type, 'rect');
+    await shortcut(tester, LogicalKeyboardKey.keyZ);
+    await until(tester, () async => (await rects()).length == 1, '복제 되돌리기');
+
+    // 11. 모든 대지 PDF 한 번.
     await tester.tap(find.text('PDF로 내보내기'));
     await until(tester, () async => File(pdf).existsSync(), 'PDF 파일');
     expect(File(pdf).readAsBytesSync().take(5), '%PDF-'.codeUnits);
 
-    // 8. 홈으로 나가면 문서를 닫아 "문서를 닫을 때" 버전이 남고, 저장된 문서가 맞다.
+    // 12. 홈으로 나가면 문서를 닫아 "문서를 닫을 때" 버전이 남고, 저장된 문서가 맞다.
     await tester.tap(find.byIcon(Icons.home_outlined));
     await until(
       tester,

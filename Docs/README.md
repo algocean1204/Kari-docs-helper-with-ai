@@ -4,7 +4,7 @@
 |---|---|---|
 | 쓰는 사람 | [guide/install.md](guide/install.md) | 설치, 처음 여는 법, AI 키와 비용, 자료의 위치와 지우는 법 |
 | | [guide/writing.md](guide/writing.md) | 문서 쓰기: 화면과 메뉴, 기능, 단축키 |
-| | [guide/canvas.md](guide/canvas.md) | 캔버스 문서: 만들기, 도구와 단축키, 속성 패널, 글 상자 고치기, 보기, PDF |
+| | [guide/canvas.md](guide/canvas.md) | 캔버스 문서: 만들기, 도구와 단축키, 끌어서 고치기(옮기기·크기·돌리기), 맞춤과 뒤집기, 복사와 붙여넣기, 속성 패널, 글 상자 고치기, 보기, PDF |
 | | [guide/interview.md](guide/interview.md) | 면접 연습: 홈, 준비, 진행, 시선 기록, 리포트, 일마다의 모델과 비용 |
 | | [guide/privacy.md](guide/privacy.md) | 무엇이 기기 밖으로 나가는가, 카메라, 권한 |
 | 구조를 알려는 사람 | [architecture/overview.md](architecture/overview.md) | 앱, 엔진 크레이트, 경계, 스레드, 플랫폼 채널, 권한 |

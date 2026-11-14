@@ -66,7 +66,7 @@
 | 보기 배율 | `app/engine/render/src/geo.rs`, `edit.zoom`은 `app/engine/ffi/src/edit.rs`, 벌리기·가로 스크롤·커서 따라가기는 `app/lib/screens/paper.dart`, 상태 줄의 배율 단추는 `find_bar.dart` |
 | 인쇄, 공유 | `app/lib/screens/print_share.dart`, `app/macos/Runner/Printing.swift`, 채널은 `MainFlutterWindow.swift` |
 | 한글 입력 | `app/lib/editing/ime.dart`, `app/lib/editing/session.dart`(캔버스는 `canvas_session.dart`), `app/engine/edit/src/utf16.rs` |
-| 캔버스 화면 | 화면과 도구 줄은 `app/lib/screens/canvas.dart`, 판(포인터·스크롤·키)은 `canvas_surface.dart`, 속성 패널은 `canvas_props.dart`, 세션은 `app/lib/editing/canvas_session.dart`, 키 표는 `app/lib/editing/canvas_keys.dart`, 상태 모양은 `app/lib/engine/canvas_state.dart`. 쓰는 법은 [guide/canvas.md](../guide/canvas.md) |
+| 캔버스 화면 | 화면과 도구 줄은 `app/lib/screens/canvas.dart`, 판(포인터·스크롤·키)은 `canvas_surface.dart`, 속성 패널은 `canvas_props.dart`, 세션은 `app/lib/editing/canvas_session.dart`, 키 표는 `app/lib/editing/canvas_keys.dart`, 상태 모양은 `app/lib/engine/canvas_state.dart`. 엔진의 고르기와 끌기(옮기기, 크기, 돌리기)는 `app/engine/edit/src/canvas.rs`, 명령은 `app/engine/edit/src/canvas/`(`make.rs` 만들기·지우기·복제, `props.rs` 속성, `arrange.rs` 뒤집기·맞춤·간격, `clip.rs` 노드 복사와 붙여넣기, `text.rs` 글 상자), 경계는 `app/engine/ffi/src/canvas.rs`와 `canvas/edit.rs`. 쓰는 법은 [guide/canvas.md](../guide/canvas.md) |
 | 화면 그리기 | `app/engine/render/src/lib.rs`, 텍스처는 `app/lib/editing/surface.dart`, `app/macos/Runner/MainFlutterWindow.swift` |
 | 그림 넣기와 정리 | `app/engine/render/src/image.rs`, `app/engine/edit/src/image.rs`, `app/engine/store/src/assets.rs` |
 | PDF | `app/engine/pdf/src/lib.rs`, 호출은 `app/engine/ffi/src/pdf.rs` |

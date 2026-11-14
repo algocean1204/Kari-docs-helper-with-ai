@@ -601,7 +601,7 @@ impl CanvasEditor {
                 self.text(doc, lay, &TextCmd::Drag { x: p.x, y: p.y }, 0);
             }
             Phase::Up | Phase::Cancel => self.text_drag = false,
-            Phase::Move | Phase::Hover => {}
+            Phase::Move | Phase::Hover | Phase::Context => {}
         }
         true
     }

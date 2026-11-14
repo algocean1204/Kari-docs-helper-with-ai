@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,10 @@ import 'ime.dart';
 import 'keys.dart' show selectorCommand;
 import 'session.dart' show blockedMessage, idleAfter;
 import 'version_host.dart';
+
+/// 파일과 붙여넣기 판을 운영체제에 묻는 채널. `pasteImage`는 붙여넣기 판의 그림을 `{path, temp}`로 준다(그림이 없으면
+/// null): 판에 든 그림(PNG, JPEG, TIFF)은 앱이 쓴 임시 파일이고(temp), Finder에서 복사한 그림 파일은 그 파일 자신이다.
+const _files = MethodChannel('kari/files');
 
 /// 아직 나가지 않은 호출 하나. 줄 맨 끝에 있고 시작하지 않았으면 같은 종류의 다음 호출이 값만 바꾼다.
 class _Slot {
@@ -50,6 +55,9 @@ class CanvasSession extends ChangeNotifier
   /// 안내 한 줄(엔진이 거절한 사유, 되돌리기가 막힌 이유). 같은 글이 다시 와도 [noticeRev]가 오른다.
   String? notice;
   int noticeRev = 0;
+
+  /// 붙여넣기가 도는 동안 이미 알린 까닭. 엔진의 거절이 이것을 덮지 않는다.
+  String? _keepNotice;
 
   /// 문서를 바꾼 호출이 마지막으로 돌아온 때. 엔진은 커밋할 때 이미 저장한다.
   DateTime? savedAt;
@@ -182,7 +190,7 @@ class CanvasSession extends ChangeNotifier
 
   void _apply(CanvasState s, {bool fromIme = false}) {
     state = s;
-    if (s.refused != null) {
+    if (s.refused != null && _keepNotice == null) {
       notice = s.refused;
       noticeRev++;
     }
@@ -309,24 +317,88 @@ class CanvasSession extends ChangeNotifier
     return _run((_) => engine.canvasText(id, c, now: _ms()));
   }
 
-  /// 편집 중인 글 상자의 고른 글을 클립보드에 넣는다.
-  Future<void> copyOut() async {
-    final done = Completer<String>();
+  /// 엔진의 `canvas.copy`를 줄에 세워 부르고 클립보드에 쓸 글을 받는다. 실패하면 null.
+  Future<String?> _copy() {
+    final done = Completer<String?>();
     _then(() async {
       try {
         done.complete(await engine.canvasCopy(id));
       } on EngineError {
-        done.complete('');
+        done.complete(null);
       }
     });
-    final t = await done.future;
-    if (t.isNotEmpty) await Clipboard.setData(ClipboardData(text: t));
+    return done.future;
+  }
+
+  /// 편집 중인 글 상자의 고른 글을 클립보드에 넣는다.
+  Future<void> copyOut() async {
+    final t = await _copy();
+    if (t != null && t.isNotEmpty) {
+      await Clipboard.setData(ClipboardData(text: t));
+    }
   }
 
   /// 클립보드의 글을 글 상자에 붙인다.
   Future<void> pasteIn() async {
     final t = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
     if (t != null) await text({'k': 'paste', 'text': t});
+  }
+
+  /// 고른 노드를 복사한다. 노드는 엔진이 기억하고, 시스템 클립보드에는 그 안의 글 상자들의 글을 둔다(다른 앱에 붙일 수
+  /// 있게). 글이 없어도 빈 글을 쓴다: 클립보드에 앞서 있던 다른 앱의 그림이 다음 붙여넣기에서 대신 붙지 않게 한다.
+  /// 복사했으면 참, 고른 것이 없거나 엔진이 실패했으면 거짓.
+  Future<bool> copyNodes() async {
+    if (state?.selection.isEmpty ?? true) return false;
+    final t = await _copy();
+    if (t == null) return false;
+    await Clipboard.setData(ClipboardData(text: t));
+    return true;
+  }
+
+  /// 고른 노드를 잘라낸다(복사한 뒤 지운다). 복사하지 못했으면 지우지 않는다.
+  Future<void> cutNodes() async {
+    if (await copyNodes()) await cmd('delete');
+  }
+
+  /// 붙여넣기. 클립보드의 글과 그림을 엔진에 넘기면 엔진이 고른다: 글이 복사해 둔 노드의 글과 같으면 그 노드를,
+  /// 우리 조각이 아닌 글이 있으면 거절하고(그림이 함께 있어도), 글이 비었고 그림이 있으면 그림 노드를 붙인다.
+  /// [inPlace]면 판 위의 원래 자리에 붙인다.
+  Future<void> pasteNodes({bool inPlace = false}) async {
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    String? image;
+    var temp = false;
+    try {
+      final got = await _files.invokeMethod<Map<Object?, Object?>>(
+        'pasteImage',
+      );
+      image = got?['path'] as String?;
+      temp = got?['temp'] == true;
+    } on PlatformException catch (e) {
+      // 그림이 있지만 받지 못했다(너무 큰 그림, 바꿀 수 없는 TIFF 등). 알리고 글만으로 이어 간다. 엔진이 붙일 것이
+      // 없다며 거절해도 그 알림이 이 까닭을 덮지 않게 한다.
+      _keepNotice = notice = e.message ?? '클립보드의 그림을 받지 못했습니다.';
+      noticeRev++;
+      notifyListeners();
+    } on MissingPluginException {
+      // 붙여넣기 판을 읽는 채널이 없는 곳에서는 그림 없이 붙인다.
+    }
+    try {
+      await cmd('paste', {
+        'text': text,
+        if (inPlace) 'inPlace': true,
+        'image': ?image,
+      });
+    } finally {
+      _keepNotice = null;
+      // 그림은 엔진이 에셋으로 옮겨 담았다. 앱이 쓴 임시 파일만 지운다.
+      if (image != null && temp) {
+        try {
+          File(image).deleteSync();
+        } on FileSystemException {
+          // 이미 없다.
+        }
+      }
+    }
   }
 
   /// 문서의 되돌리기·다시 하기. 엔진이 앞 사본을 따라가게 하고 선택은 남은 노드만 유지한다.

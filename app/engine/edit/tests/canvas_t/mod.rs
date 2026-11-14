@@ -33,6 +33,10 @@ pub struct CanvasT {
     pub last: Option<CPlan>,
     /// 화면 논리 화소 하나의 판 단위 길이.
     pub px: f64,
+    /// 포인터 입력에 실을 ⌥.
+    pub alt: bool,
+    /// 누름이 글 상자 편집을 끝내며 먼저 낸 묶음(빈 글 상자 지우기)의 수. 그 입력 자신의 묶음과 따로 센다.
+    pub pres: usize,
     fresh: fn() -> Layouter,
 }
 
@@ -82,6 +86,8 @@ impl CanvasT {
             now: 0,
             last: None,
             px: 1.0,
+            alt: false,
+            pres: 0,
             fresh,
         }
     }
@@ -187,7 +193,7 @@ impl CanvasT {
             y,
             shift,
             meta,
-            alt: false,
+            alt: self.alt,
             px: self.px,
         };
         // 엔진 경계와 같다: 끊긴 끌기의 미리 보기는 새 끌기를 만들기 전에 버린다.
@@ -207,7 +213,9 @@ impl CanvasT {
             self.reset();
         }
         if !out.pre.is_empty() {
+            let before = self.commits;
             self.commit(&out.pre, None);
+            self.pres += self.commits - before;
         }
         match out.end {
             End::Commit(_) => self.commit(&out.ops, None),
