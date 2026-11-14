@@ -139,4 +139,10 @@ jobs:
           cd "$RUNNER_TEMP"
           files=(Kari-macos-arm64.dmg Kari-macos-arm64.dmg.sha256)
           [ -f appcast.xml ] && files+=(Kari-macos-arm64.zip Kari-macos-arm64.zip.sha256 appcast.xml)
-          gh release create "$GITHUB_REF_NAME" --draft --notes-file notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"
+          # 릴리스 글 머리에 처음 여는 법을 붙인다(appcast의 바뀐 점에는 넣지 않는다: 이미 열어 쓰는 사람에게 가는 글이다).
+          {
+            echo "> **처음 열 때.** Apple 공증을 받지 않은 앱이라 처음 열면 macOS가 막습니다. 경고 창에서 **완료**를 누른 뒤 시스템 설정 → **개인정보 보호 및 보안** → **그래도 열기**를 누릅니다. 자세한 방법은 [설치 안내](https://github.com/$GITHUB_REPOSITORY/blob/main/Docs/guide/install.md)에 있습니다."
+            echo
+            cat notes.md
+          } > release-notes.md
+          gh release create "$GITHUB_REF_NAME" --draft --notes-file release-notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"
