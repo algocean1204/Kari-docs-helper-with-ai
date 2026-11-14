@@ -44,7 +44,7 @@ flowchart LR
 1. `app/pubspec.yaml`의 `version`을 바꾼다.
 2. 의존성이 바뀌었으면 `python3 app/scripts/third_party.py`로 고지를 다시 만든다.
 3. 커밋하고 `main`에 병합한 뒤 태그 `v<판>`을 민다.
-4. `.github/workflows/release.yml`이 macOS 러너에서 `app/scripts/package_dmg.sh`로 dmg를 만들어 초안 릴리스에 `Kari-macos-arm64.dmg`와 `Kari-macos-arm64.dmg.sha256`을 올린다. 릴리스 글은 GitHub가 병합된 PR로 만든 목록에서 시작한다.
+4. `.github/workflows/release.yml`이 macOS 러너에서 `app/scripts/package_dmg.sh`로 dmg를 만들어 초안 릴리스에 `Kari-macos-arm64.dmg`와 `Kari-macos-arm64.dmg.sha256`을 올린다. 릴리스 글은 지난 `v*` 태그 이후 `main` 커밋 제목을 type으로 묶어(기능, 고침, 성능, 문서, 그 밖. `!`가 붙은 제목은 맨 위 '호환이 깨지는 변경'에도) `app/scripts/release_notes.sh`가 만든 목록에서 시작한다.
 5. 맨 위에 이번 판의 요약과 처음 여는 법의 링크를 쓰고 게시한다. 바뀐 것의 기록은 릴리스 글이다.
 
 태그를 밀기 전에 빌드와 dmg까지만 해 보려면 Actions의 `Release`를 손으로 돌린다(Run workflow). 릴리스는 만들지 않고 dmg와 sha256을 그 실행의 산출물로 남긴다.

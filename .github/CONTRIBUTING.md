@@ -27,18 +27,51 @@ Kari는 유지 관리자 한 사람이 검토하고 병합합니다. 모든 이�
 
 - 오래 두는 가지는 `main` 하나입니다. `main`은 언제나 빌드되고 시험을 통과하는 상태입니다.
 - 작업은 `main`에서 딴 짧은 가지에서 합니다. 이슈 하나에 가지 하나, PR 하나입니다. 병합되면 가지는 자동으로 지워집니다.
-- 이름은 뜻이 드러나게 종류를 앞에 붙입니다.
-
-| 앞머리 | 쓰는 때 | 예 |
-|---|---|---|
-| `feat/` | 새 기능 | `feat/table-sort` |
-| `fix/` | 버그 수정 | `fix/table-header-repeat` |
-| `docs/` | 문서만 | `docs/install-guide` |
-| `test/` | 시험만 | `test/docx-export` |
-| `chore/` | 빌드, CI, 의존성, 정리 | `chore/ci-cache` |
-
+- 이름은 `<type>/<짧은-주제>`입니다. type은 아래 [커밋과 PR 제목](#커밋과-pr-제목)의 type과 같고, 주제는 소문자, 숫자, 하이픈(`.`, `_`도 됨)으로 쓰며 첫 글자는 소문자나 숫자입니다. 예: `fix/table-header-repeat`, `feat/table-sort`, `docs/install-guide`, `test/docx-export`, `chore/ci-cache`. 규칙은 `^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)/[a-z0-9][a-z0-9._-]*$`이고 CI가 봅니다(의존성 도구의 `dependabot/` 가지는 그대로 통과합니다).
 - `main`에는 PR로만 들어갑니다. 유지 관리자도 같은 순서(이슈 → 가지 → PR)로 일합니다.
 - 릴리스 태그(`v*`)는 유지 관리자만 만듭니다. 릴리스용 가지는 두지 않습니다.
+
+## 커밋과 PR 제목
+
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/ko/v1.0.0/)을 따릅니다. 병합은 스쿼시라 PR 제목이 곧 `main`의 커밋 제목이므로, 검사는 PR 제목에 합니다. 가지 안의 커밋 제목은 자유롭지만 같은 꼴로 쓰면 좋습니다([로컬 검사](#로컬에서-커밋-제목-검사하기)).
+
+```
+type(scope): 설명
+```
+
+| type | 쓰는 때 | 릴리스 글의 묶음 |
+|---|---|---|
+| `feat` | 사용자가 보는 새 기능 | 기능 |
+| `fix` | 버그 수정 | 고침 |
+| `perf` | 동작은 같고 빨라짐 | 성능 |
+| `docs` | 문서만 | 문서 |
+| `test` | 시험만 | 그 밖 |
+| `refactor` | 동작이 같은 구조 정리 | 그 밖 |
+| `build` | 빌드, 의존성, 패키징 | 그 밖 |
+| `ci` | CI와 저장소 자동화 | 그 밖 |
+| `chore` | 위에 들지 않는 정리 | 그 밖 |
+| `revert` | 앞의 변경을 되돌림 | 그 밖 |
+
+- **scope**는 선택입니다. 소문자, 숫자, 하이픈으로 씁니다. 어디를 고쳤는지 짧게 알리는 이름이면 됩니다. 예: `engine`(`app/engine` 전반), `layout`, `pdf`, `docx`, `render`, `store`, `ffi`, `ai`, `interview`, `app`(앱 화면), `canvas`, `editor`, `update`, `design`, `docs`, `ci`, `release`, `deps`.
+- **설명**은 한국어로, 이 저장소의 지금 꼴대로 씁니다. 명령조가 아니라 일을 마친 꼴(`…을 맞춤`, `…을 더함`, `…를 고침`)이고, 마침표를 찍지 않으며, 1자 이상 72자 이하입니다(글자 수로 셉니다).
+- **호환이 깨지는 변경**(저장된 문서를 못 읽게 되는 것, 설정이나 명령의 이름이 바뀌는 것)은 콜론 앞에 `!`를 붙입니다. 릴리스 글의 '호환이 깨지는 변경' 묶음에는 `!`가 붙은 제목이 오르므로 `!`를 꼭 붙이고, PR 본문에 `BREAKING CHANGE: 무엇이 어떻게 달라졌는지`를 한 줄 더합니다.
+- 예:
+  - `feat(canvas): 안내선과 같은 간격 맞춤을 더함`
+  - `fix(layout): 머리 행이 다음 쪽에서 빠지는 문제를 고침`
+  - `docs: 설치 안내에 처음 여는 법을 더함`
+  - `refactor(store)!: 저장 꼴을 바꿈`
+
+PR 제목, 가지 이름, 연결 이슈는 PR마다 CI의 `pr` 검사가 봅니다. 실패하면 무엇이 틀렸는지 알려 주고, 제목은 PR 화면에서 고치면 검사가 다시 돕니다.
+
+### 로컬에서 커밋 제목 검사하기
+
+강제는 아닙니다. 켜면 `git commit`이 제목을 같은 규칙으로 보고, 틀리면 거절합니다. `Merge`, `Revert "`, `fixup!`, `squash!`로 시작하는 제목은 통과합니다.
+
+```bash
+git config core.hooksPath app/scripts/hooks      # 켜기
+git config --unset core.hooksPath                # 끄기
+git commit --no-verify                           # 한 번만 건너뛰기
+```
 
 ## 코드 지침
 
@@ -73,8 +106,8 @@ python3 app/scripts/public_check.py
 ## PR의 검토와 병합
 
 - PR 양식을 모두 채웁니다. 화면이 바뀌면 전후 그림을 붙입니다.
-- `main`에는 PR로만 들어갑니다. CI의 집계 검사(`ci-passed`)가 통과해야 병합할 수 있습니다.
-- 병합은 스쿼시 병합 하나입니다. PR 하나가 커밋 하나가 되고, PR 제목이 커밋 제목이 됩니다. 제목은 `type(scope): 설명` 모양으로 씁니다. 예: `fix(layout): 머리 행이 다음 쪽에서 빠지는 문제`.
+- `main`에는 PR로만 들어갑니다. CI의 집계 검사(`ci-passed`)가 통과해야 병합할 수 있습니다. 집계에는 PR 제목, 가지 이름, 연결 이슈 검사(`pr`)도 들어 있습니다.
+- 병합은 스쿼시 병합 하나입니다. PR 하나가 커밋 하나가 되고, PR 제목이 커밋 제목이 됩니다. 제목은 [위의 규칙](#커밋과-pr-제목)을 따릅니다.
 - 유지 관리자가 PR 가지에 커밋을 얹어 마무리하거나, 같은 내용을 새 PR로 다시 만들어 병합할 수 있습니다. 다시 만들 때는 원 작성자를 `Co-authored-by`로 남깁니다.
 - 받지 않는 PR은 까닭을 적고 닫습니다.
 - CLA나 DCO 서명은 요구하지 않습니다.

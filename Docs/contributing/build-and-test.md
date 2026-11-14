@@ -136,8 +136,9 @@ python3 app/scripts/third_party.py --check  # 최신인지 본다(다르면 종�
 | `repo` | 저장소에 두면 안 되는 것이 없는지(`python3 app/scripts/public_check.py`: 최상위에 `README.md`, `LICENSE`, `.gitignore`, `.github`, `app`, `Docs` 밖의 것, `.env`와 키 파일, 글 안의 비밀 모양, 기기 경로), 공개 글의 상대 링크가 맞는지(`python3 app/scripts/check_links.py`) |
 | `engine` | `app/engine`에서 `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace`. 지식 팩 검사와 [architecture/knowledge-pack.md](../architecture/knowledge-pack.md)의 개념 표 대조 |
 | `app` | `flutter analyze`, `flutter test`(빌드 훅이 엔진을 빌드한다) |
+| `pr` | PR에서만 돈다. PR 제목이 `type(scope): 설명` 꼴인지, 가지 이름이 `<type>/<주제>` 꼴인지, 외부 기여자의 PR 본문에 `Fixes #번호` 같은 연결 이슈가 있는지([규칙](../../.github/CONTRIBUTING.md#커밋과-pr-제목)) |
 | `macos` | macOS 러너에서 `flutter build macos --debug`(Swift, 권한 파일, 빌드 훅). 공개 저장소에서만 돈다 |
-| `ci-passed` | 위 작업이 모두 성공했는지(건너뛴 `macos`는 통과로 본다). `main` 보호 규칙의 필수 검사는 이것 하나다 |
+| `ci-passed` | 위 작업이 모두 성공했는지(건너뛴 `macos`는 통과로 보고, `pr`은 `main`으로의 푸시에서만 건너뛰어도 통과로 본다). `main` 보호 규칙의 필수 검사는 이것 하나다 |
 
 ## 문제 해결
 
