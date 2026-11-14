@@ -3,8 +3,8 @@
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{Document, Guard, Kind};
-use kari_layout::{Fonts, Layouter, Scene};
-use kari_render::{draw_canvas, Faces, Frame, Images, IMAGE_BUDGET};
+use kari_layout::{Board, Cap, Fonts, Item, Join, Layouter, Scene, Seg, Stroke};
+use kari_render::{draw_canvas, draw_canvas_bands, Faces, Frame, Images, IMAGE_BUDGET};
 use skia_safe::{surfaces, Color, EncodedImageFormat};
 
 const BG: [u8; 4] = [0xF5, 0xF5, 0xF5, 0xFF];
@@ -23,6 +23,27 @@ fn magenta() -> Vec<u8> {
         .unwrap()
         .as_bytes()
         .to_vec()
+}
+
+/// 16×16 PNG. 2화소마다 색이 바뀌는 가로 줄무늬라 고른 텍셀이 한 칸 달라지면 드러난다.
+fn stripes() -> Vec<u8> {
+    let mut s = surfaces::raster_n32_premul((16, 16)).unwrap();
+    let c = s.canvas();
+    c.clear(Color::from_argb(255, 30, 120, 200));
+    let mut p = skia_safe::Paint::default();
+    p.set_color(Color::from_argb(255, 250, 200, 40));
+    for y in (0..16).step_by(4) {
+        c.draw_rect(skia_safe::Rect::from_xywh(0.0, y as f32, 16.0, 2.0), &p);
+    }
+    s.image_snapshot()
+        .encode(None, EncodedImageFormat::PNG, None)
+        .unwrap()
+        .as_bytes()
+        .to_vec()
+}
+
+fn stripes_asset() -> String {
+    "d".repeat(64)
 }
 
 fn solid(c: &str) -> Value {
@@ -142,30 +163,43 @@ impl Shot {
 }
 
 fn paint(scene: &Scene, scale: f32, scroll: (f32, f32), size: (i32, i32)) -> Shot {
+    paint_bands(scene, scale, scroll, size, None)
+}
+
+/// `bands`가 있으면 띠 수를 정해 그린다(없으면 `draw_canvas`가 정한다).
+fn paint_bands(
+    scene: &Scene,
+    scale: f32,
+    scroll: (f32, f32),
+    size: (i32, i32),
+    bands: Option<usize>,
+) -> Shot {
     let files = [font("Pretendard-Regular.ttf"), font("Pretendard-Bold.ttf")];
     let faces = Faces::new(files.iter().map(Vec::as_slice));
-    let png = magenta();
-    let a = asset();
+    let (png, lines) = (magenta(), stripes());
+    let (a, b) = (asset(), stripes_asset());
     let mut images = Images::new(
-        Box::new(move |h| (h == a).then(|| png.clone())),
+        Box::new(move |h| {
+            (h == a)
+                .then(|| png.clone())
+                .or_else(|| (h == b).then(|| lines.clone()))
+        }),
         IMAGE_BUDGET,
     );
     let mut px = vec![0u8; (size.0 * size.1 * 4) as usize];
-    draw_canvas(
-        Frame {
-            pixels: &mut px,
-            width: size.0,
-            height: size.1,
-            stride: (size.0 * 4) as usize,
-            scale,
-            scroll_x: scroll.0,
-            scroll_y: scroll.1,
-        },
-        &faces,
-        scene,
-        BG,
-        &mut images,
-    )
+    let frame = Frame {
+        pixels: &mut px,
+        width: size.0,
+        height: size.1,
+        stride: (size.0 * 4) as usize,
+        scale,
+        scroll_x: scroll.0,
+        scroll_y: scroll.1,
+    };
+    match bands {
+        None => draw_canvas(frame, &faces, scene, BG, &mut images),
+        Some(n) => draw_canvas_bands(frame, &faces, scene, BG, &mut images, n),
+    }
     .unwrap();
     Shot { px, w: size.0 }
 }
@@ -269,4 +303,184 @@ fn 짝이_없는_push가_남아도_그림면을_망가뜨리지_않는다() {
     });
     let s = paint(&sc, 1.0, (0.0, 0.0), (200, 150));
     s.near(50, 40, [255, 0, 0], 0);
+}
+
+/// 한 장으로 그린 `one`과 띠로 나눠 그린 `s`를 견준다. 다른 화소는 모두 `one`에서 가장자리(이웃 3×3에 다른 색이 있음)여야
+/// 한다. (다른 화소 수, 가장 큰 채널 차)를 돌려준다.
+fn band_diff(one: &Shot, s: &Shot, (w, h): (i32, i32), what: &str) -> (i32, i32) {
+    let edge = |x: i32, y: i32| {
+        let c = one.at(x, y);
+        (-1..=1).any(|dy| {
+            (-1..=1).any(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                (0..w).contains(&nx) && (0..h).contains(&ny) && one.at(nx, ny) != c
+            })
+        })
+    };
+    let (mut changed, mut most) = (0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            let (a, b) = (one.at(x, y), s.at(x, y));
+            if a == b {
+                continue;
+            }
+            changed += 1;
+            let d = a
+                .iter()
+                .zip(b)
+                .map(|(p, q)| (i32::from(*p) - i32::from(q)).abs())
+                .max()
+                .unwrap();
+            most = most.max(d);
+            assert!(edge(x, y), "{what}: ({x}, {y}) {a:?} != {b:?}");
+        }
+    }
+    (changed, most)
+}
+
+/// 큰 화면은 가로 띠로 나눠 여러 스레드에서 그린다. 띠마다 자리를 옮겨 그리므로 한 장으로 그린 것과 같은 그림이어야 한다.
+/// Skia가 띠 경계를 지나는 도형(곡선, 비스듬한 선, 글자)을 경계에서 잘라 칠하므로 그 가장자리 화소는 조금 다를 수 있다.
+/// 칠 안쪽과 바탕은 같아야 한다.
+#[test]
+fn 띠로_나눠_그려도_한_장으로_그린_것과_경계를_지나는_가장자리만_조금_다르다() {
+    let sc = scene(&sample());
+    // 배율 6: 대지 200×150이 1200×900. 스크롤로 둘째 대지까지 들어오게 조금 민다
+    let size = (1500, 900);
+    let one = paint_bands(&sc, 6.0, (60.0, 0.0), size, Some(1));
+    for bands in [2, 3, 5, 7] {
+        let s = paint_bands(&sc, 6.0, (60.0, 0.0), size, Some(bands));
+        let (changed, most) = band_diff(&one, &s, size, &format!("띠 {bands}"));
+        assert!(most <= 80, "띠 {bands}: 가장 큰 차 {most}");
+        assert!(
+            changed * 200 < size.0 * size.1,
+            "띠 {bands}: 다른 화소 {changed}개"
+        );
+    }
+    // 띠로 나눈 그림도 정해 둔 점이 맞다(띠 경계 450줄 = 판 y 75 둘레의 잘라낸 프레임 안쪽 초록과 둘째 대지)
+    let s = paint_bands(&sc, 6.0, (60.0, 0.0), size, Some(2));
+    s.near((130 - 60) * 6, 449, [0, 255, 0], 0);
+    s.near((130 - 60) * 6, 450, [0, 255, 0], 0);
+    s.near((305 - 60) * 6, 20 * 6, [0x11, 0x22, 0x33], 0);
+}
+
+/// 띠 경계를 지나는 곧은 사선과 돌린 그림. 사선은 경계에서 잘라 칠해 가장자리 반투명 값이 조금 다를 수 있다.
+/// 돌린 그림은 화면 크기로 맞춘 뒤 가까운 텍셀을 옮겨 그리므로, 텍셀 경계에 걸린 화소는 띠마다 이웃 텍셀을 고를 수 있다.
+/// 어느 쪽이든 다른 화소는 가장자리에만 있고 수가 적다.
+#[test]
+fn 띠로_나눠_그려도_사선과_돌린_그림은_가장자리만_조금_다르다() {
+    let size = (800, 1024);
+    let board = |items: Vec<Item>| Scene {
+        boards: vec![Board {
+            id: "b".into(),
+            x: 0.0,
+            y: 0.0,
+            w: 800.0,
+            h: 1024.0,
+            items,
+        }],
+    };
+    let line = board(vec![Item::Path {
+        path: vec![Seg::Move([10.0, 10.0]), Seg::Line([790.0, 1010.0])],
+        fill: None,
+        stroke: Some(Stroke {
+            width: 30.0,
+            color: [20, 90, 20, 255],
+            cap: Cap::Butt,
+            join: Join::Miter,
+            miter: 4.0,
+        }),
+    }]);
+    // 15° 돌린 그림 400×900
+    let (c, s) = (15f32.to_radians().cos(), 15f32.to_radians().sin());
+    let image = board(vec![
+        Item::Push {
+            transform: [c, s, -s, c, 300.0, 50.0],
+            clip: None,
+            opacity: 1.0,
+            bounds: None,
+        },
+        Item::Image {
+            rect: [0.0, 0.0, 400.0, 900.0],
+            asset: stripes_asset(),
+        },
+        Item::Pop,
+    ]);
+    for (what, sc, most_max) in [("사선", &line, 40), ("돌린 그림", &image, 255)] {
+        let one = paint_bands(sc, 1.0, (0.0, 0.0), size, Some(1));
+        for bands in [3, 4] {
+            let b = paint_bands(sc, 1.0, (0.0, 0.0), size, Some(bands));
+            let (changed, most) = band_diff(&one, &b, size, &format!("{what} 띠 {bands}"));
+            println!("{what} 띠 {bands}: 다른 화소 {changed}, 가장 큰 차 {most}");
+            assert!(
+                most <= most_max && changed * 200 < size.0 * size.1,
+                "{what} 띠 {bands}: 다른 화소 {changed}, 가장 큰 차 {most}"
+            );
+        }
+    }
+}
+
+/// 그림을 맞출 화면 크기는 띠 옮김에 따라 달라지지 않는다(띠마다 다른 크기로 다시 맞추지 않게). 화면 높이가 x.5 둘레라
+/// 반올림이 갈리기 쉬운 자리들에서 한 장과 띠 4로 그려 맞춘 화소 수가 같은지 본다.
+#[test]
+fn 띠로_나눠도_그림을_맞추는_화면_크기는_한_장과_같다() {
+    let fitted = |rect: [f32; 4], scale: f32, scroll_y: f32, bands: usize| {
+        let (w, h) = (400, 2160);
+        let png = magenta();
+        let mut images = Images::new(Box::new(move |_| Some(png.clone())), IMAGE_BUDGET);
+        let sc = Scene {
+            boards: vec![Board {
+                id: "b".into(),
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+                items: vec![Item::Image {
+                    rect,
+                    asset: asset(),
+                }],
+            }],
+        };
+        let mut px = vec![0u8; (w * h * 4) as usize];
+        let frame = Frame {
+            pixels: &mut px,
+            width: w,
+            height: h,
+            stride: (w * 4) as usize,
+            scale,
+            scroll_x: 0.0,
+            scroll_y,
+        };
+        let faces = Faces::new(std::iter::empty());
+        draw_canvas_bands(frame, &faces, &sc, BG, &mut images, bands).unwrap();
+        images.fitted()
+    };
+    // 띠 옮김을 행렬에 넣은 채 크기를 구하면 갈리던 자리들 (배율, 스크롤, y, 높이)
+    let mut cases = vec![
+        (2.1361377, 118.55066, 606.0226, 213.70345),
+        (1.840082, 420.9578, 965.79395, 270.91183),
+        (2.5881824, 166.06747, 470.58487, 169.81029),
+        (1.6441303, 125.44394, 409.73297, 102.485794),
+    ];
+    let mut seed = 11u64;
+    let mut r = move || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 40) as f32 / (1u64 << 24) as f32
+    };
+    for _ in 0..200 {
+        let scale = 1.0 + r() * 2.0;
+        let sy = r() * 50000.0;
+        let y = sy + 300.0 / scale + r() * 900.0 / scale;
+        let h = (100.0 + (r() * 400.0).floor() + 0.5) / scale;
+        cases.push((scale, sy, y, h));
+    }
+    for (scale, sy, y, h) in cases {
+        let rect = [10.0, y, 50.0, h];
+        assert_eq!(
+            fitted(rect, scale, sy, 1),
+            fitted(rect, scale, sy, 4),
+            "배율 {scale}, 스크롤 {sy}, y {y}, 높이 {h}"
+        );
+    }
 }
