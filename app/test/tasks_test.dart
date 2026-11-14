@@ -24,13 +24,10 @@ void main() {
       expect(find.text(name), findsOneWidget);
     }
     expect(
-      find.text('Haiku · 추론 강도 보통 · 지금 정해진 판 Claude Haiku 5.5'),
+      find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
       findsNWidgets(3),
     );
-    expect(
-      find.text('Haiku · 추론 강도 높음 · 지금 정해진 판 Claude Haiku 5.5'),
-      findsOneWidget,
-    );
+    expect(find.text('Haiku · 추론 강도 높음 · 지금 Claude Haiku 5.5'), findsOneWidget);
 
     // 채점을 Opus 계열, 최대로: 그 계열의 가장 새 판이 정해진다.
     expect(find.text('바꾸기'), findsNWidgets(4));
@@ -40,14 +37,11 @@ void main() {
     await tap(tester, inDialog(find.text('Opus')));
     await tap(tester, inDialog(find.text('최대')));
     expect(
-      inDialog(find.text('Opus · 추론 강도 최대 · 지금 정해진 판 Claude Opus 5.5')),
+      inDialog(find.text('Opus · 추론 강도 최대 · 지금 Claude Opus 5.5')),
       findsOneWidget,
     );
     await tap(tester, inDialog(find.text('닫기')));
-    expect(
-      find.text('Opus · 추론 강도 최대 · 지금 정해진 판 Claude Opus 5.5'),
-      findsOneWidget,
-    );
+    expect(find.text('Opus · 추론 강도 최대 · 지금 Claude Opus 5.5'), findsOneWidget);
     expect(rig.fake.settings['ai.task.grade'], {
       'provider': 'anthropic',
       'family': 'opus',
@@ -57,7 +51,7 @@ void main() {
 
     // 키가 없는 제공사도 고를 수 있고, 줄에 키 없음이 붙는다.
     await tap(tester, change(2));
-    await tap(tester, inDialog(find.text('OpenAI')));
+    await tap(tester, inDialog(find.text('OpenAI · 키 없음')));
     expect(inDialog(find.text('Luna')), findsOneWidget);
     expect(inDialog(find.text('Haiku')), findsNothing);
     expect(
@@ -66,10 +60,7 @@ void main() {
     );
     await tap(tester, inDialog(find.text('Terra')));
     await tap(tester, inDialog(find.text('닫기')));
-    expect(
-      find.text('Terra · 추론 강도 보통 · 지금 정해진 판 gpt-6.1-terra'),
-      findsOneWidget,
-    );
+    expect(find.text('Terra · 추론 강도 보통 · 지금 gpt-6.1-terra'), findsOneWidget);
     expect(
       find.text('키 없음'),
       findsNWidgets(2),
@@ -82,7 +73,7 @@ void main() {
     expect(find.text('기본값 사용 중'), findsOneWidget);
     expect(rig.fake.settings.containsKey('ai.task.grade'), isFalse);
     expect(
-      find.text('Haiku · 추론 강도 보통 · 지금 정해진 판 Claude Haiku 5.5'),
+      find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
       findsNWidgets(3),
     );
   });
@@ -97,7 +88,7 @@ void main() {
         await pumpAi(tester, connected: true, size: size, mode: mode);
         await openModels(tester);
         await tap(tester, change(3));
-        await tap(tester, inDialog(find.text('OpenAI')));
+        await tap(tester, inDialog(find.text('OpenAI · 키 없음')));
         expect(tester.takeException(), isNull, reason: tag);
         await saveShot(tester, 'tasks-dialog-$tag');
         final seen = await tabCycle(tester);
@@ -119,7 +110,7 @@ void main() {
     expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     await openModels(tester);
     expect(find.text('답변 채점'), findsOneWidget);
-    expect(find.textContaining('지금 정해진 판 claude-haiku-5-5'), findsNWidgets(4));
+    expect(find.textContaining('지금 claude-haiku-5-5'), findsNWidgets(4));
     expect(tester.takeException(), isNull);
   });
 }

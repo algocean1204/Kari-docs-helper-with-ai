@@ -5,6 +5,7 @@ import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../library.dart';
 import 'dialogs.dart';
+import 'interview.dart' show discardInterview;
 
 /// 문서를 연다. [reveal]을 주면 연 뒤에 그 글을 골라 그 자리로 간다(주장의 "이력서에서 보기").
 typedef OpenDoc = void Function(DocInfo doc, {String? reveal});
@@ -12,7 +13,7 @@ typedef OpenDoc = void Function(DocInfo doc, {String? reveal});
 /// 면접 준비 화면으로 간다. 그 문서와 공고를 골라 둔다.
 typedef StartInterview = void Function({int? doc, String? posting});
 
-/// 홈(대시보드). 위에서 아래로: 주인공 카드 하나 → 준비 줄(끝나면 사라짐) → 문서 → 공고.
+/// 홈(대시보드). 위에서 아래로: 주인공 카드 하나 → 준비 줄(첫 연습을 마치면 사라짐) → 문서 → 채용공고.
 /// 주인공 카드는 상태에 따라 하나이고, 화면의 채운 단추는 그 카드의 것 하나뿐이다.
 class LibraryHome extends StatelessWidget {
   const LibraryHome({
@@ -52,14 +53,82 @@ class LibraryHome extends StatelessWidget {
     if (name != null && name != d.name) await library.rename(d, name);
   }
 
+  /// 복제한 뒤 바로 이름을 묻는다(어느 공고에 낼 사본인지 적게). 취소하면 "<이름> 사본"으로 남는다.
+  Future<void> _duplicate(BuildContext context, DocInfo d) async {
+    final copy = await library.duplicate(d);
+    if (copy != null && context.mounted) await _rename(context, copy);
+  }
+
+  /// 휴지통으로 옮기고, 바로 되돌릴 수 있게 아래에 알린다.
+  Future<void> _trash(BuildContext context, DocInfo d) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await library.trash(d);
+    if (library.error != null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            '"${d.name}" 문서를 휴지통으로 옮겼습니다',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          action: SnackBarAction(
+            label: '되돌리기',
+            onPressed: () => library.untrash(d),
+          ),
+        ),
+      );
+  }
+
   /// 더 보기 메뉴. 휴지통으로 옮기기는 되살릴 수 있으므로 묻지 않는다.
   Widget _more(BuildContext context, DocInfo d) => MoreMenu(
     items: [
       ('이름 바꾸기', () => _rename(context, d)),
-      ('복제', () => library.duplicate(d)),
-      ('휴지통으로 옮기기', () => library.trash(d)),
+      ('복제', () => _duplicate(context, d)),
+      ('휴지통으로 옮기기', () => _trash(context, d)),
     ],
   );
+
+  Future<void> _showPosting(BuildContext context, Json p) => showDialog<void>(
+    context: context,
+    builder: (_) => PostingDialog(library: library, posting: p),
+  );
+
+  /// 채용공고 지우기는 되돌릴 수 없어 한 번 묻는다.
+  Future<void> _removePosting(BuildContext context, Json p) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: '채용공고를 지울까요?',
+        message: '"${p['title']}" 공고를 지웁니다. 이 공고로 한 연습의 기록은 남습니다. 되돌릴 수 없습니다.',
+        confirm: '지우기',
+        danger: true,
+      ),
+    );
+    if (ok == true) await library.removePosting(p['id'] as String);
+  }
+
+  /// 하던 면접을 지금 끝내고 리포트로 간다. 끝내지 못하면 면접 화면에서 까닭을 보인다.
+  Future<void> _end(BuildContext context, String id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => const ConfirmDialog(
+        title: '연습을 끝낼까요?',
+        message: '지금까지의 답으로 리포트를 만듭니다.',
+        confirm: '끝내기',
+      ),
+    );
+    if (ok != true) return;
+    final run = library.interview;
+    if (run.id != id) await run.open(id);
+    if (run.id == id) await run.end();
+    if (run.id == id && run.done) {
+      onShowReport(id);
+    } else {
+      onResume(id);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -87,12 +156,16 @@ class LibraryHome extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           AppButton(
-            '캔버스 문서 만들기',
+            '새 캔버스',
             icon: Icons.dashboard_outlined,
             onPressed: onCreateCanvas,
           ),
           const SizedBox(width: Space.x2),
-          AppButton('새 문서', icon: Icons.note_add_outlined, onPressed: onCreate),
+          AppButton(
+            '새 글 문서',
+            icon: Icons.note_add_outlined,
+            onPressed: onCreate,
+          ),
         ],
       ),
       child: Column(
@@ -128,7 +201,7 @@ class LibraryHome extends StatelessWidget {
       ),
     );
     final postingList = _Section(
-      title: '공고',
+      title: '채용공고',
       action: AppButton('공고 추가', icon: Icons.add, onPressed: onAddPosting),
       child: library.postings.isEmpty
           ? Padding(
@@ -137,7 +210,7 @@ class LibraryHome extends StatelessWidget {
                 vertical: Space.x2,
               ),
               child: Text(
-                keepAll('지원할 공고를 붙여넣으면 질문의 깊이를 맞춥니다.'),
+                keepAll('지원할 채용공고를 붙여넣으면 질문의 깊이를 맞춥니다.'),
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
             )
@@ -149,6 +222,14 @@ class LibraryHome extends StatelessWidget {
                     icon: Icons.work_outline,
                     title: p['title'] as String,
                     subtitle: '${formatWhen(p['added'] as int, now)}에 추가',
+                    onTap: () => _showPosting(context, p),
+                    action: MoreMenu(
+                      tooltip: '채용공고 메뉴',
+                      items: [
+                        ('내용 보기', () => _showPosting(context, p)),
+                        ('지우기', () => _removePosting(context, p)),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -169,7 +250,8 @@ class LibraryHome extends StatelessWidget {
                 const SizedBox(height: Space.x4),
               ],
               _hero(context),
-              if (steps.any((s) => !s.$2)) ...[
+              // 채용공고는 없어도 연습할 수 있다. 첫 연습을 마쳤으면 남은 단계가 있어도 줄을 거둔다.
+              if (!finished && steps.any((s) => !s.$2)) ...[
                 const SizedBox(height: Space.x3),
                 _ReadyLine(steps: steps),
               ],
@@ -210,6 +292,21 @@ class LibraryHome extends StatelessWidget {
           if (turn > 0) '질문 $turn',
           '남은 시간 ${clock(unfinished['remainingMs'] as int)}',
         ].join(' · '),
+        // 이어 하지 않을 연습은 여기서 끝내거나 버린다. 남겨 두면 이 카드가 새 연습을 가린다.
+        extra: MoreMenu(
+          tooltip: '하던 면접 메뉴',
+          items: [
+            ('끝내고 리포트 보기', () => _end(context, unfinished['id'] as String)),
+            (
+              '연습 버리기',
+              () => discardInterview(
+                context,
+                library,
+                unfinished['id'] as String,
+              ),
+            ),
+          ],
+        ),
         action: AppButton(
           '이어서 하기',
           kind: ButtonKind.primary,
@@ -244,7 +341,7 @@ class LibraryHome extends StatelessWidget {
         action: AppButton(
           '면접 연습 시작',
           kind: ButtonKind.primary,
-          icon: Icons.mic_none,
+          icon: Icons.forum_outlined,
           onPressed: () => onStartInterview(doc: recent.id),
         ),
       );
@@ -265,15 +362,15 @@ class LibraryHome extends StatelessWidget {
     return _Hero(
       title: '이력서부터 씁니다',
       about: '이력서에 쓴 문장이 면접 질문의 출발점이 됩니다.',
-      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스 문서도 여기서 만든다.
+      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스도 여기서 만든다.
       extra: AppButton(
-        '캔버스 문서 만들기',
+        '새 캔버스',
         kind: ButtonKind.quiet,
         icon: Icons.dashboard_outlined,
         onPressed: onCreateCanvas,
       ),
       action: AppButton(
-        '새 문서',
+        '새 글 문서',
         kind: ButtonKind.primary,
         icon: Icons.note_add_outlined,
         onPressed: onCreate,
@@ -405,7 +502,7 @@ class _Progress extends StatelessWidget {
               AppButton(
                 '면접 연습 시작',
                 kind: ButtonKind.primary,
-                icon: Icons.mic_none,
+                icon: Icons.forum_outlined,
                 onPressed: onStart,
               ),
             ],
@@ -423,7 +520,7 @@ class _Progress extends StatelessWidget {
                 title: '지난 면접',
                 subtitle: [
                   for (final t in (last['topics'] as List).cast<Json>())
-                    '${t['name']} ${t['reach']}/${t['target']}단',
+                    '${t['name']} 깊이 ${t['reach']}/${t['target']}단계',
                 ].join(' · '),
                 onTap: () => onShowReport(last['session'] as String),
               ),
@@ -565,6 +662,18 @@ class _FocusRow extends StatelessWidget {
                       failed ? '방어 못 함' : '일부 방어',
                       tone: failed ? Tone.danger : Tone.warning,
                     ),
+                    // 쉬는 상태에서도 줄을 누를 수 있다는 것이 보이게 한다. 상태 표시의 가운데 높이에 맞춘다.
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: Space.x1,
+                        top: Space.x1,
+                      ),
+                      child: Icon(
+                        Icons.chevron_right,
+                        size: 16,
+                        color: c.textMuted,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -576,7 +685,9 @@ class _FocusRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: row),
+        Expanded(
+          child: Tooltip(message: '리포트 보기', child: row),
+        ),
         const SizedBox(width: Space.x2),
         Padding(
           padding: const EdgeInsets.only(top: Space.x1),
@@ -592,6 +703,7 @@ class _FocusRow extends StatelessWidget {
 }
 
 /// 준비 줄: "준비 2/4 · 이력서 ✓ · AI 연결 · 채용공고 · 첫 연습". 끝나지 않은 단계는 글 단추다.
+/// 끝에 면접이 다루는 직무를 적는다(키를 넣기 전에 알 수 있게).
 class _ReadyLine extends StatelessWidget {
   const _ReadyLine({required this.steps});
 
@@ -638,6 +750,11 @@ class _ReadyLine extends StatelessWidget {
             else
               AppButton(name, kind: ButtonKind.quiet, onPressed: onTap),
           ],
+          dot,
+          Text(
+            '면접 연습은 백엔드 개발 직무용입니다',
+            style: AppText.caption.copyWith(color: c.textMuted),
+          ),
         ],
       ),
     );
@@ -679,6 +796,74 @@ class _Section extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: Space.x3),
           child: child,
+        ),
+      ],
+    );
+  }
+}
+
+/// 채용공고에 붙여넣은 글을 읽기 전용으로 보인다.
+class PostingDialog extends StatefulWidget {
+  const PostingDialog({
+    super.key,
+    required this.library,
+    required this.posting,
+  });
+
+  final Library library;
+
+  /// 공고 목록의 한 줄(`id`, `title`, `chars`).
+  final Json posting;
+
+  @override
+  State<PostingDialog> createState() => _PostingDialogState();
+}
+
+class _PostingDialogState extends State<PostingDialog> {
+  late final Future<String> _text = widget.library.engine.ivPostingText(
+    widget.posting['id'] as String,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Sheet(
+      title: widget.posting['title'] as String,
+      subtitle: '붙여넣은 채용공고 · ${widget.posting['chars']}자',
+      actions: [AppButton('닫기', onPressed: () => Navigator.of(context).pop())],
+      children: [
+        FutureBuilder<String>(
+          future: _text,
+          builder: (context, snap) {
+            final e = snap.error;
+            if (e != null) {
+              return ErrorLine(
+                e is EngineError ? describe(e) : '$e',
+                onRetry: null,
+              );
+            }
+            final text = snap.data;
+            if (text == null) {
+              return Text(
+                '불러오는 중입니다',
+                style: AppText.body.copyWith(color: c.textMuted),
+              );
+            }
+            return Container(
+              constraints: const BoxConstraints(maxHeight: 320),
+              padding: const EdgeInsets.all(Space.x3),
+              decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(Radii.control),
+              ),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  text,
+                  style: AppText.body.copyWith(color: c.text),
+                ),
+              ),
+            );
+          },
         ),
       ],
     );

@@ -21,6 +21,10 @@ import 'library_test.dart' show Rig, button, dir;
 
 const small = Size(1024, 640);
 
+/// 힌트 단추의 글: 남은 횟수가 있을 때와 없을 때.
+const hintLeft = '힌트 보기 · 1번 남음';
+const noHint = '힌트 없음';
+
 /// 흉내 엔진(키 있음, 문서 있음)으로 앱을 띄운다.
 Future<Rig> pumpIv(
   WidgetTester tester, {
@@ -92,12 +96,12 @@ void main() {
       expect(find.text('키 넣기'), findsNWidgets(2)); // Claude, OpenAI
     });
 
-    testWidgets('흐름 문서가 없으면 시작할 수 없고 새 문서를 만들 수 있다', (tester) async {
+    testWidgets('글 문서가 없으면 시작할 수 없고 새 글 문서를 만들 수 있다', (tester) async {
       await pumpIv(tester, docs: false);
-      expect(find.text('흐름 문서가 없습니다.'), findsOneWidget);
+      expect(find.text('이력서로 쓸 글 문서가 없습니다.'), findsOneWidget);
       expect(button(tester, '시작').onPressed, isNull);
       expect(button(tester, '보내는 내용 보기').onPressed, isNull);
-      await tap(tester, find.text('새 문서'));
+      await tap(tester, find.text('새 글 문서'));
       expect(find.text('제목 없는 문서'), findsOneWidget);
     });
 
@@ -106,13 +110,16 @@ void main() {
         tester,
         setup: (r) async => r.fake.iv.addPosting('예시페이 백엔드 엔지니어\n필수: MySQL'),
       );
-      // 흐름 문서만 고를 수 있고 처음에는 가장 최근 것이다. 공고는 "없음"에서 시작한다.
+      // 글 문서만 고를 수 있고 처음에는 가장 최근 것이다. 공고는 가장 최근에 더한 것이 골라져 있고 "없음"으로 바꿀 수 있다.
       expect(find.widgetWithText(TextButton, '이력서'), findsOneWidget);
-      expect(find.widgetWithText(TextButton, '없음'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '예시페이 백엔드 엔지니어'), findsOneWidget);
       await tap(tester, find.byTooltip('이력서 고르기'));
-      expect(find.text('포트폴리오'), findsNothing, reason: '캔버스 문서는 이력서가 아니다');
+      expect(find.text('포트폴리오'), findsNothing, reason: '캔버스는 이력서가 아니다');
       await tap(tester, find.text('경력기술서').last);
       expect(find.widgetWithText(TextButton, '경력기술서'), findsOneWidget);
+      await tap(tester, find.byTooltip('채용공고 고르기'));
+      await tap(tester, find.text('없음').last);
+      expect(find.widgetWithText(TextButton, '없음'), findsOneWidget);
       await tap(tester, find.byTooltip('채용공고 고르기'));
       await tap(tester, find.text('예시페이 백엔드 엔지니어').last);
       await tap(tester, find.text('4년 이상'));
@@ -216,7 +223,7 @@ void main() {
       ('no_key', '설정 열기'),
       ('secret', '설정 열기'),
     ]) {
-      testWidgets('오류 $code: 답은 남고 "$action"를 보인다', (tester) async {
+      testWidgets('오류 $code: 낸 답이 보이고 "$action"로 이어 간다', (tester) async {
         final rig = await pumpIv(tester);
         await startFirst(tester);
         rig.fake.iv.failNext = EngineError(code, '요청 한도를 넘었다');
@@ -234,21 +241,31 @@ void main() {
           findsOneWidget,
         );
         expect(find.widgetWithText(TextButton, action), findsOneWidget);
-        // 실패한 동안에도 다루던 질문이 보이고, 답 칸은 숨는다(답은 이미 적혀 있다).
+        // 키 문제여도 다시 시도가 함께 있다(설정에서 키를 고친 뒤 이어 간다).
+        expect(find.widgetWithText(TextButton, '다시 시도'), findsOneWidget);
+        // 실패한 동안에도 다루던 질문과 낸 답이 보이고, 답 칸은 숨는다(답은 이미 적혀 있다).
         expect(find.textContaining(keepAll('복합 인덱스는')), findsOneWidget);
         expect(find.byType(TextField), findsNothing);
+        expect(find.text('낸 답'), findsOneWidget);
+        expect(find.text(keepAll('실패할 답')), findsOneWidget);
+        expect(find.textContaining(keepAll('낸 답은 남아 있습니다.')), findsOneWidget);
         expect(
           (rig.fake.iv.sessions.values.single['turns'] as List)[0]['answer'],
           '실패할 답',
         );
-        if (action == '다시 시도') {
-          await tap(tester, find.widgetWithText(TextButton, '다시 시도'));
-          expect(find.text('질문 2'), findsOneWidget);
-          expect(find.textContaining(keepAll('네트워크를 확인한')), findsNothing);
-        } else {
+        if (action == '설정 열기') {
+          // 설정에 다녀와도 같은 질문에서 이어진다.
           await tap(tester, find.widgetWithText(TextButton, '설정 열기'));
-          expect(find.text('일마다의 모델'), findsOneWidget);
+          expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+          await tap(tester, find.text('면접'));
+          expect(find.textContaining(keepAll('복합 인덱스는')), findsOneWidget);
+          expect(find.text(keepAll('실패할 답')), findsOneWidget);
         }
+        await tap(tester, find.widgetWithText(TextButton, '다시 시도'));
+        expect(find.text('질문 2'), findsOneWidget);
+        expect(find.text('낸 답'), findsNothing);
+        expect(find.byType(TextField), findsOneWidget);
+        expect(find.textContaining(keepAll('낸 답은 남아')), findsNothing);
       });
     }
 
@@ -257,31 +274,41 @@ void main() {
       ('standard', '표준', 1),
       ('real', '실전', 0),
     ]) {
-      testWidgets('힌트 횟수: $label은 $hints번', (tester) async {
+      testWidgets('힌트 횟수: $label은 $hints번, 단추가 남은 횟수를 말한다', (tester) async {
         await pumpIv(tester);
         await openOptions(tester);
         await tap(tester, find.text(label));
         await startFirst(tester);
-        expect(find.widgetWithText(TextButton, '힌트 $hints'), findsOneWidget);
+        // 압박마다의 규칙은 단추의 도구 설명에 있다.
+        expect(
+          find.byTooltip(switch (pressure) {
+            'coaching' => '코칭은 질문마다 힌트를 한 번 씁니다.',
+            'standard' => '표준은 주제마다 힌트를 한 번 씁니다.',
+            _ => '실전에는 힌트가 없습니다.',
+          }),
+          findsOneWidget,
+        );
         if (hints == 0) {
-          expect(button(tester, '힌트 0').onPressed, isNull);
+          expect(button(tester, noHint).onPressed, isNull);
           return;
         }
-        await tap(tester, find.widgetWithText(TextButton, '힌트 1'));
+        await tap(tester, find.widgetWithText(TextButton, hintLeft));
         expect(find.textContaining(keepAll('힌트 ·')), findsOneWidget);
-        expect(button(tester, '힌트 0').onPressed, isNull);
+        expect(button(tester, noHint).onPressed, isNull);
         expect(find.text('질문 1'), findsOneWidget, reason: '힌트는 질문 수에 들지 않는다');
         await answer(tester, '답');
         // 코칭은 질문마다 한 번, 표준은 주제마다 한 번.
         expect(
           find.widgetWithText(
             TextButton,
-            pressure == 'coaching' ? '힌트 1' : '힌트 0',
+            pressure == 'coaching' ? hintLeft : noHint,
           ),
           findsOneWidget,
         );
         if (pressure == 'coaching') {
-          expect(find.textContaining('핵심 2개 중'), findsOneWidget);
+          // 코칭의 신호는 본문 크기의 글이다.
+          final feedback = tester.widget<Text>(find.textContaining('핵심 2개 중'));
+          expect(feedback.style!.fontSize, AppText.body.fontSize);
         }
       });
     }
@@ -396,7 +423,12 @@ void main() {
       await tap(tester, rest);
       expect(find.text('다음에 말할 것'), findsNWidgets(2));
       expect(find.text('결과'), findsNWidgets(2));
-      expect(find.text(keepAll('반례 확인에서 바로잡지 못했습니다.')), findsOneWidget);
+      // 엔진의 문구에 든 내부 낱말은 지원자의 말로 바꿔 보인다.
+      expect(find.textContaining('반례 확인'), findsNothing);
+      expect(
+        find.text(keepAll('답에 틀린 내용이 있어 다시 물었는데 바로잡지 못했습니다.')),
+        findsOneWidget,
+      );
       expect(find.text(keepAll('꼬리질문까지 가지 못했습니다.')), findsOneWidget);
       expect(find.text(keepAll('수치나 구체적인 사례를 댄다')), findsOneWidget);
       expect(find.text(keepAll('한계나 조건, 다시 한다면 바꿀 점을 말한다')), findsOneWidget);
@@ -411,23 +443,31 @@ void main() {
       expect(find.text(keepAll('수치나 구체적인 사례를 댄다 — “1번 답”')), findsOneWidget);
       expect(find.text('빠짐'), findsNWidgets(2));
       expect(find.text('주제별 깊이'), findsOneWidget);
-      expect(find.text('도달 3 / 목표 3'), findsNothing);
+      expect(find.text('깊이 3단계 / 목표 3단계'), findsNothing);
       await tap(tester, find.text('주제별 깊이'));
-      expect(find.text('도달 3 / 목표 3'), findsOneWidget);
+      expect(find.text('깊이 3단계 / 목표 3단계'), findsOneWidget);
+      expect(find.text('단계가 높을수록 깊이 물었습니다.'), findsOneWidget);
+      for (final legend in ['설명함', '설명하지 못함', '묻지 않음']) {
+        expect(find.text(legend), findsOneWidget, reason: legend);
+      }
+      expect(find.textContaining('첫 통과'), findsNothing);
       expect(find.text('다음에 다시 낼 주제'), findsOneWidget);
       // 연습 기록은 제목 아래의 고르기: 마친 것 둘과 끝나지 않은 것 하나.
       await tap(tester, find.byTooltip('연습 기록'));
       expect(find.textContaining('끝나지 않음'), findsOneWidget);
-      expect(find.textContaining('도달 3 / 목표 9'), findsNWidgets(2));
+      expect(find.textContaining('깊이 3단계 / 목표 9단계'), findsNWidgets(2));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       // 출처는 골라 복사할 수 있다. 빠진 내용의 이름은 "다음에 말할 것"이다.
       expect(find.byType(SelectionArea), findsOneWidget);
       expect(find.text('다음에 말할 것'), findsWidgets);
       expect(find.text('빠진 내용'), findsNothing);
-      // 이번 연습: 토큰(캐시에서 읽은 입력 포함)과 추정 비용.
-      expect(find.textContaining('토큰 13500개'), findsOneWidget);
+      // 이번 연습: 걸린 시간과 추정 비용이 보이고, 토큰(캐시에서 읽은 입력 포함)과 인용 확인은 접힌 `자세히` 안에 있다.
       expect(find.textContaining('추정 비용 약 0.0027달러'), findsOneWidget);
+      expect(find.textContaining('토큰'), findsNothing);
+      expect(find.textContaining('인용 확인 실패'), findsNothing);
+      await tap(tester, find.text('자세히'));
+      expect(find.text('인용 확인 실패 0건 · 토큰 13500개'), findsOneWidget);
       expect(find.text('쓴 모델 claude-haiku-5-5'), findsOneWidget);
       // 채운 단추는 "이 주제로 다시 연습" 하나이고, 면접 준비로 가며 그 문서를 골라 둔다.
       await tap(tester, find.widgetWithText(TextButton, '이 주제로 다시 연습'));
@@ -511,7 +551,7 @@ void main() {
       expect(find.text('준비 2/4'), findsOneWidget);
       expect(find.bySemanticsLabel('채용공고 끝남'), findsOneWidget);
       // 이력서를 만든 뒤 홈의 주인공 카드에서 면접 탭으로 간다.
-      await tap(tester, find.widgetWithText(TextButton, '새 문서'));
+      await tap(tester, find.widgetWithText(TextButton, '새 글 문서'));
       await tap(tester, find.text('홈'));
       expect(find.text('이 이력서로 면접을 연습할 수 있습니다'), findsOneWidget);
       await tap(tester, find.widgetWithText(TextButton, '면접 연습 시작'));
@@ -525,7 +565,7 @@ void main() {
       // 네 단계가 모두 끝나 준비 줄을 거둔다. 주장이 없는 이력서라 큰 수 대신 지난 면접의 주제가 한 줄 보인다.
       expect(find.textContaining('준비 '), findsNothing);
       expect(find.text('이력서에서 연결된 주제를 찾지 못했습니다'), findsOneWidget);
-      expect(find.textContaining('B-트리 인덱스 0/3단'), findsOneWidget);
+      expect(find.textContaining('B-트리 인덱스 깊이 0/3단계'), findsOneWidget);
       expect(rig.fake.iv.sessions.values.single['status'], 'done');
     });
   });
@@ -543,7 +583,7 @@ void main() {
               await tap(t, find.text('코칭'));
               await startFirst(t);
               await answer(t, '복합 인덱스의 앞 열로 사용자를 좁히고 날짜 순서대로 읽습니다.');
-              await tap(t, find.widgetWithText(TextButton, '힌트 1'));
+              await tap(t, find.widgetWithText(TextButton, hintLeft));
               await tap(t, find.text('앞선 문답 1개 보기'));
             },
           ),

@@ -104,8 +104,12 @@ Future<(Library, int)> newDoc(
     if (made) Directory(dir).deleteSync(recursive: true);
   });
   await unstuck(tester.pumpWidget(App(library: library)));
-  await until(tester, () async => find.text('새 문서').evaluate().isNotEmpty, '홈');
-  await tester.tap(find.text('새 문서').first);
+  await until(
+    tester,
+    () async => find.text('새 글 문서').evaluate().isNotEmpty,
+    '홈',
+  );
+  await tester.tap(find.text('새 글 문서').first);
   await until(
     tester,
     () async =>
@@ -218,10 +222,10 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('새 문서').evaluate().isNotEmpty,
+      () async => find.text('새 글 문서').evaluate().isNotEmpty,
       '홈',
     );
-    await tester.tap(find.text('새 문서').first);
+    await tester.tap(find.text('새 글 문서').first);
     PaperView paper() => tester.widget<PaperView>(find.byType(PaperView));
     await until(
       tester,

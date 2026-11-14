@@ -30,6 +30,19 @@ fn default_build_needs_a_key_and_knows_the_names() {
     assert_eq!(err("iv.session", json!({"id": "x"}))["code"], "not_found");
 }
 
+/// 공고의 글은 붙여넣은 그대로 다시 읽고, 지우면 목록과 글이 함께 사라진다.
+#[test]
+fn posting_text_reads_back_and_goes_with_remove() {
+    let _case = Case::new("iv-posting-text");
+    let text = "예시페이 백엔드 엔지니어\n문의: jobs@example.com";
+    let id = ok("iv.posting.add", json!({"text": format!("  {text}\n")}))["id"].clone();
+    assert_eq!(ok("iv.posting", json!({"id": id}))["text"], text);
+    assert_eq!(ok("iv.postings", json!({})).as_array().unwrap().len(), 1);
+    ok("iv.posting.remove", json!({"id": id}));
+    assert_eq!(err("iv.posting", json!({"id": id}))["code"], "not_found");
+    assert_eq!(ok("iv.postings", json!({})), json!([]));
+}
+
 #[cfg(feature = "test-hooks")]
 mod hooked {
     use std::io::{BufRead, BufReader, Read, Write};

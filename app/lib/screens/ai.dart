@@ -17,6 +17,12 @@ const providerNames = {
   'openai': ('OpenAI', 'OpenAI', 'sk-로 시작하는 API 키를 붙여넣으세요', 'GPT'),
 };
 
+/// 키를 만드는 곳. 키 넣기 창이 글로 알린다.
+const keyConsoles = {
+  'anthropic': 'Anthropic 콘솔(console.anthropic.com)',
+  'openai': 'OpenAI 플랫폼(platform.openai.com)',
+};
+
 /// 키 확인이 실패한 까닭을 한 줄로. [vendor]는 연결하려던 회사.
 String keyError(EngineError e, String vendor) => switch (e.code) {
   'unauthorized' => '키가 올바르지 않습니다. 다시 확인해 주세요.',
@@ -52,6 +58,9 @@ class _KeyDialogState extends State<KeyDialog> {
   final _text = TextEditingController();
   bool _checking = false;
   String? _error;
+
+  /// 붙여넣은 키를 보이게 한다. 기본은 가리고, 창을 닫으면 다시 가린다.
+  bool _show = false;
 
   @override
   void initState() {
@@ -111,12 +120,36 @@ class _KeyDialogState extends State<KeyDialog> {
             controller: _text,
             autofocus: true,
             readOnly: _checking,
-            obscureText: true,
+            obscureText: !_show,
             autocorrect: false,
             enableSuggestions: false,
             style: AppText.body.copyWith(color: c.text),
-            decoration: InputDecoration(hintText: hint),
+            decoration: InputDecoration(
+              hintText: hint,
+              // 칸의 높이를 늘리지 않게 단추의 자리를 단추 크기로 둔다.
+              suffixIconConstraints: const BoxConstraints(),
+              suffixIcon: Padding(
+                padding: const EdgeInsets.only(right: Space.x1),
+                child: Tooltip(
+                  message: _show ? '키 가리기' : '키 보기',
+                  child: AppButton(
+                    '',
+                    icon: _show ? Icons.visibility_off : Icons.visibility,
+                    semanticLabel: _show ? '키 가리기' : '키 보기',
+                    kind: ButtonKind.quiet,
+                    onPressed: () => setState(() => _show = !_show),
+                  ),
+                ),
+              ),
+            ),
             onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: Space.x2),
+          Text(
+            keepAll(
+              '키는 ${keyConsoles[widget.provider]}에서 가입하고 결제 수단을 등록한 뒤 만듭니다. 비용은 쓴 만큼 제공사($vendor)가 청구합니다.',
+            ),
+            style: AppText.caption.copyWith(color: c.textMuted),
           ),
           if (_error != null) ...[
             const SizedBox(height: Space.x3),

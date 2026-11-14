@@ -87,12 +87,12 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('캔버스 문서 만들기').evaluate().isNotEmpty,
+      () async => find.text('새 캔버스').evaluate().isNotEmpty,
       '홈',
     );
 
     // 1. 캔버스 문서 만들기: 판이 그려지고 판에 초점이 간다.
-    await tester.tap(find.text('캔버스 문서 만들기'));
+    await tester.tap(find.text('새 캔버스'));
     await until(
       tester,
       () async =>

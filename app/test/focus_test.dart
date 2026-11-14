@@ -99,8 +99,8 @@ final List<HomeState> homeStates = [
     '보내는 내용 보기',
   ),
   ('ready', true, true, null, '이 이력서로 면접을 연습할 수 있습니다', '면접 연습 시작', '보내는 내용 보기'),
-  ('recent', false, true, null, '최근에 고친 문서', '이어서 쓰기', '흐름 문서'),
-  ('empty', false, false, null, '이력서부터 씁니다', '새 문서', '제목 없는 문서'),
+  ('recent', false, true, null, '최근에 고친 문서', '이어서 쓰기', '글 문서'),
+  ('empty', false, false, null, '이력서부터 씁니다', '새 글 문서', '제목 없는 문서'),
 ];
 
 Future<Rig> pumpHome(
@@ -162,7 +162,7 @@ void main() {
       await tap(tester, find.text('홈'));
       final before = rig.fake.sent.where((m) => m == 'edit.cmd').length;
       await tap(tester, find.widgetWithText(TextButton, '이력서에서 보기').first);
-      expect(find.text('흐름 문서'), findsOneWidget);
+      expect(find.text('글 문서'), findsOneWidget);
       expect(rig.fake.sent.where((m) => m == 'edit.cmd').length, before + 1);
     });
 
@@ -182,7 +182,7 @@ void main() {
         },
       );
       expect(find.text('이력서에서 연결된 주제를 찾지 못했습니다'), findsOneWidget);
-      expect(find.textContaining('캐시 전략 3/3단'), findsOneWidget);
+      expect(find.textContaining('캐시 전략 깊이 3/3단계'), findsOneWidget);
       expect(filledLabels(tester), ['면접 연습 시작']);
     });
   });
@@ -241,7 +241,7 @@ void main() {
       await pumpIv(tester, route: AppRoute.settings, connected: false);
       expect(filledLabels(tester), ['키 넣기']);
       await pumpIv(tester, route: AppRoute.settings);
-      await tap(tester, find.text('일마다의 모델'));
+      await tap(tester, find.text('면접에 쓰는 모델'));
       expect(filledLabels(tester), isEmpty);
     });
 
@@ -384,7 +384,7 @@ void main() {
               'settings-${connected ? 'key' : 'nokey'}-$tag',
             );
           }
-          await tap(tester, find.text('일마다의 모델'));
+          await tap(tester, find.text('면접에 쓰는 모델'));
           expect(tester.takeException(), isNull, reason: '$tag 모델 펼침');
           await saveShot(tester, 'settings-models-$tag');
         }

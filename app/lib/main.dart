@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'design/components.dart';
 import 'design/theme.dart';
@@ -20,6 +21,7 @@ import 'screens/editor.dart';
 import 'screens/home.dart';
 import 'screens/interview.dart';
 import 'screens/dialogs.dart';
+import 'screens/paper.dart' show filesChannel;
 import 'screens/report.dart';
 import 'screens/settings.dart';
 
@@ -27,7 +29,7 @@ import 'screens/settings.dart';
 enum AppRoute {
   home('홈', Icons.home_outlined),
   editor('문서', Icons.description_outlined),
-  interview('면접', Icons.mic_none),
+  interview('면접', Icons.forum_outlined),
   report('리포트', Icons.checklist),
   settings('설정', Icons.settings_outlined);
 
@@ -208,7 +210,32 @@ class _LoadingState extends State<_Loading> {
   }
 }
 
-/// 라이브러리를 열지 못했을 때. 무엇이 안 됐는지, 오류 코드, 자료 폴더를 보여 준다.
+/// 자료 폴더를 열지 못했을 때 사람이 다음에 할 일.
+String openAdvice(String code) => switch (code) {
+  'too_new' => '이 자료는 더 새 판의 Kari가 만들었습니다. Kari를 새 판으로 바꾼 뒤 다시 열어 주세요.',
+  'corrupt' ||
+  'integrity' => '자료 폴더를 다른 곳에 복사해 두세요. 그 안의 backups 폴더에 지난 사본이 있을 수 있습니다.',
+  _ => '다시 시도해도 같으면 자료 폴더를 다른 곳에 복사해 두세요. 그 안의 backups 폴더에 지난 사본이 있을 수 있습니다.',
+};
+
+/// 자료 폴더를 Finder로 연다(`kari/files` 채널의 `openFolder`). 열었으면 true.
+Future<bool> openFolder(String path) async {
+  try {
+    return await filesChannel.invokeMethod<bool>('openFolder', {
+          'path': path,
+        }) ==
+        true;
+  } on PlatformException catch (e) {
+    FlutterError.reportError(
+      FlutterErrorDetails(exception: e, library: 'kari 시작'),
+    );
+  } on MissingPluginException {
+    // 채널이 없는 곳(채널을 끼우지 않은 위젯 시험)에서는 열지 않는다.
+  }
+  return false;
+}
+
+/// 라이브러리를 열지 못했을 때. 무엇이 안 됐는지, 오류 코드, 자료 폴더, 다음에 할 일을 보여 준다.
 class _OpenFailed extends StatelessWidget {
   const _OpenFailed({
     required this.error,
@@ -223,6 +250,8 @@ class _OpenFailed extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    // 폴더 열기가 실패했는가. 아래 StatefulBuilder만 다시 그리므로 이 값이 남는다.
+    var folderFailed = false;
     Widget row(String name, String value) => Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -267,8 +296,43 @@ class _OpenFailed extends StatelessWidget {
               row('오류 코드', error.code),
               const SizedBox(height: Space.x2),
               row('자료 폴더', dir),
+              const SizedBox(height: Space.x2),
+              row('할 일', openAdvice(error.code)),
               const SizedBox(height: Space.x6),
-              AppButton('다시 시도', kind: ButtonKind.primary, onPressed: onRetry),
+              StatefulBuilder(
+                builder: (context, setState) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: Space.x2,
+                      runSpacing: Space.x2,
+                      children: [
+                        AppButton(
+                          '다시 시도',
+                          kind: ButtonKind.primary,
+                          onPressed: onRetry,
+                        ),
+                        AppButton(
+                          '자료 폴더 열기',
+                          onPressed: () async {
+                            final ok = await openFolder(dir);
+                            if (context.mounted) {
+                              setState(() => folderFailed = !ok);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    if (folderFailed) ...[
+                      const SizedBox(height: Space.x2),
+                      Text(
+                        '폴더를 열지 못했습니다. 위의 경로를 Finder의 "폴더로 이동"(⇧⌘G)에 붙여 넣어 여세요.',
+                        style: AppText.caption.copyWith(color: c.danger),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -309,9 +373,11 @@ class _ShellState extends State<Shell> {
   /// 리포트 탭에서 처음 보여 줄 세션(면접 탭의 "리포트 보기").
   String? _reportId;
 
-  /// 면접 준비에서 골라 둘 문서와 공고(홈의 "면접 연습 시작", 리포트의 "이 주제로 다시 연습").
+  /// 면접 준비에서 골라 둘 문서와 공고(홈의 "면접 연습 시작"). [_ivAgain]은 리포트의 "이 주제로 다시 연습"이
+  /// 넘긴 그 연습의 기록이다(공고, 연차, 시간, 압박을 그대로 골라 둔다).
   int? _ivDoc;
   String? _ivPosting;
+  Json? _ivAgain;
 
   /// 문서를 연 뒤 골라 보여 줄 글(홈의 "이력서에서 보기").
   String? _reveal;
@@ -360,11 +426,16 @@ class _ShellState extends State<Shell> {
     if (id != null && mounted) _open(id);
   }
 
-  void _startInterview({int? doc, String? posting}) => setState(() {
-    _ivDoc = doc;
-    _ivPosting = posting;
-    _route = AppRoute.interview;
-  });
+  void _startInterview({int? doc, String? posting, Json? again}) {
+    // 마친 연습이 열려 있으면 닫는다. 닫지 않으면 준비 화면 대신 "연습을 마쳤습니다" 카드가 다시 보인다.
+    if (_lib.interview.done) _lib.interview.close();
+    setState(() {
+      _ivDoc = doc;
+      _ivPosting = posting;
+      _ivAgain = again;
+      _route = AppRoute.interview;
+    });
+  }
 
   /// 끝나지 않은 면접을 연다. 이미 연 면접이면 그대로 간다.
   void _resume(String id) {
@@ -379,10 +450,11 @@ class _ShellState extends State<Shell> {
   });
 
   Widget _interview(Library lib) => InterviewTab(
-    key: ValueKey((_ivDoc, _ivPosting)),
+    key: ValueKey((_ivDoc, _ivPosting, _ivAgain?['id'])),
     library: lib,
     doc: _ivDoc,
     posting: _ivPosting,
+    again: _ivAgain,
     onOpenSettings: () => _go(AppRoute.settings),
     onCreateDoc: _create,
     onAddPosting: _addPosting,
@@ -393,7 +465,8 @@ class _ShellState extends State<Shell> {
     key: ValueKey(_reportId),
     library: lib,
     initial: _reportId,
-    onPractice: (doc, posting) => _startInterview(doc: doc, posting: posting),
+    onPractice: (s) => _startInterview(doc: s['doc'] as int, again: s),
+    onStart: _startInterview,
   );
 
   Widget _home(Library lib) => LibraryHome(
@@ -427,10 +500,15 @@ class _ShellState extends State<Shell> {
               reveal: _reveal,
               onCreate: _create,
               menu: _menu,
+              onInterview: () => _startInterview(doc: _doc),
             ),
     AppRoute.interview => _interview(lib),
     AppRoute.report => _report(lib),
-    AppRoute.settings => SettingsScreen(library: lib),
+    AppRoute.settings => SettingsScreen(
+      library: lib,
+      onInterview: _startInterview,
+      onAddPosting: _addPosting,
+    ),
   };
 
   Future<void> _addPosting() => showDialog<bool>(

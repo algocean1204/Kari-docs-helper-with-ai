@@ -74,6 +74,7 @@ const fontAssets = [
 const _quickIv = {
   'iv.cancel',
   'iv.pack',
+  'iv.posting',
   'iv.postings',
   'iv.session',
   'iv.sessions',
