@@ -9,10 +9,18 @@ import '../library.dart';
 /// 문서 이름. 누르면 그 자리에서 고친다. Enter로 저장하고 Esc로 취소한다.
 /// 다른 곳을 눌러 초점이 빠져도 저장한다. 쓴 글을 말없이 버리지 않기 위해서다.
 class NameField extends StatefulWidget {
-  const NameField({super.key, required this.doc, required this.library});
+  const NameField({
+    super.key,
+    required this.doc,
+    required this.library,
+    this.onDone,
+  });
 
   final DocInfo doc;
   final Library library;
+
+  /// Enter나 Esc로 마쳤을 때 초점을 돌려줄 자리(본문). 다른 곳을 눌러 마친 때는 그곳이 초점을 갖는다.
+  final VoidCallback? onDone;
 
   @override
   State<NameField> createState() => _NameFieldState();
@@ -45,6 +53,8 @@ class _NameFieldState extends State<NameField> {
       extentOffset: _text.text.length,
     );
     setState(() => _editing = true);
+    // autofocus는 이미 초점이 있는 범위(본문이 있는 화면)에서는 듣지 않으므로 직접 요청한다.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 
   /// 빈 이름이나 200자를 넘는 이름은 저장하지 않고 원래 이름으로 돌아간다.
@@ -56,7 +66,10 @@ class _NameFieldState extends State<NameField> {
     }
   }
 
-  void _cancel() => setState(() => _editing = false);
+  void _cancel() {
+    setState(() => _editing = false);
+    widget.onDone?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +82,6 @@ class _NameFieldState extends State<NameField> {
           child: TextField(
             controller: _text,
             focusNode: _focus,
-            autofocus: true,
             style: AppText.label.copyWith(color: c.text),
             decoration: const InputDecoration(
               contentPadding: EdgeInsets.symmetric(
@@ -77,7 +89,10 @@ class _NameFieldState extends State<NameField> {
                 vertical: 6,
               ),
             ),
-            onSubmitted: (_) => _save(),
+            onSubmitted: (_) {
+              _save();
+              widget.onDone?.call();
+            },
           ),
         ),
       );
