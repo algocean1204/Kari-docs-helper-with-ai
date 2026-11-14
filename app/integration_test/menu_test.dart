@@ -210,10 +210,10 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('새 문서').evaluate().isNotEmpty,
+      () async => find.text('새 글 문서').evaluate().isNotEmpty,
       '홈',
     );
-    await tester.tap(find.text('새 문서').first);
+    await tester.tap(find.text('새 글 문서').first);
     await until(
       tester,
       () async =>

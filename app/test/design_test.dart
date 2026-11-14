@@ -561,7 +561,7 @@ void main() {
       }
       await tester.tap(find.text('AI 연결'));
       await tester.pumpAndSettle();
-      expect(find.text('일마다의 모델'), findsOneWidget);
+      expect(find.text('면접에 쓰는 모델'), findsOneWidget);
     });
 
     testWidgets('공고 추가: 붙여넣으면 추가할 수 있고, 추가하면 닫힌다', (tester) async {

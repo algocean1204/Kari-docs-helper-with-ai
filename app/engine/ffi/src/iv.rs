@@ -534,6 +534,11 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
             list.sort_by_key(|v| std::cmp::Reverse(v["added"].as_u64()));
             Ok(Value::from(list))
         }),
+        // 붙여넣은 글 그대로(가리지 않는다). 기기 밖으로 나가지 않고 화면이 다시 보여 주는 데만 쓴다.
+        "iv.posting" => with_lib(|lib| {
+            let id = a.str("id")?;
+            Ok(json!({"id": id, "text": posting_of(lib, id)?.0}))
+        }),
         "iv.posting.add" => {
             let text = a.str("text")?.trim();
             if text.is_empty() {

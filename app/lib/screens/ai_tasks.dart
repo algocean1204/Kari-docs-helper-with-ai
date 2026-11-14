@@ -4,6 +4,7 @@ import '../design/components.dart';
 import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../library.dart';
+import 'ai.dart' show KeyDialog;
 import 'dialogs.dart';
 
 /// 제공사마다 고를 수 있는 계열(엔진과 같은 차례)과 화면 이름.
@@ -21,12 +22,12 @@ const familyNames = {
   'sol': 'Sol',
 };
 
-/// 일 한 줄의 요약: "Haiku · 추론 강도 보통 · 지금 정해진 판 Claude Haiku 5.5".
+/// 일 한 줄의 요약: "Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5".
 String taskSummary(Json t) =>
     '${familyNames[t['family']] ?? t['family']} · 추론 강도 ${efforts[t['sent']] ?? '없음'} · '
-    '지금 정해진 판 ${t['modelName'] ?? t['model']}';
+    '지금 ${t['modelName'] ?? t['model']}';
 
-/// 접힌 묶음 "일마다의 모델"의 한 줄 요약.
+/// 접힌 묶음 "면접에 쓰는 모델"의 한 줄 요약.
 String tasksSummary(List<Json> tasks, {required bool anyKey}) {
   if (!anyKey) return '키를 넣으면 고를 수 있습니다';
   final n = tasks.where((t) => t['custom'] == true).length;
@@ -56,8 +57,8 @@ final List<Json> sampleTasks = [
     },
 ];
 
-/// 일마다 쓰는 모델: 일마다 한 줄에 계열, 실제로 보낼 추론 강도, 지금 정해진 판을 보이고, `바꾸기`로 제공사·계열·강도를
-/// 고른다. 판은 고르지 않는다(그 계열의 가장 새 판을 엔진이 정한다). 키가 없는 제공사를 고른 줄에는 `키 없음`이 붙는다.
+/// 일마다 쓰는 모델: 일마다 한 줄에 모델(계열), 실제로 보낼 추론 강도, 지금 쓰는 버전을 보이고, `바꾸기`로 제공사·모델·강도를
+/// 고른다. 버전은 고르지 않는다(그 모델의 가장 새 버전을 엔진이 정한다). 키가 없는 제공사를 고른 줄에는 `키 없음`이 붙는다.
 /// 맨 아래 `기본값으로 되돌리기`. [library]가 없으면 견본(기본값)으로 그린다.
 class TaskModels extends StatelessWidget {
   const TaskModels({super.key, this.library});
@@ -109,6 +110,7 @@ class TaskModels extends StatelessWidget {
                 AppButton(
                   '바꾸기',
                   semanticLabel: '${t['name']} 모델 바꾸기',
+                  kind: ButtonKind.quiet,
                   onPressed: () => _edit(context, t),
                 ),
               ],
@@ -182,9 +184,19 @@ class _TaskDialogState extends State<TaskDialog> {
     }
   }
 
+  /// 고른 제공사의 키를 이 자리에서 넣는다. 저장되면 이 일의 줄을 다시 읽는다.
+  Future<void> _putKey(Library lib, String provider) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => KeyDialog(library: lib, provider: provider),
+    );
+    if (mounted) setState(() => _t = _fresh(lib));
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final lib = widget.library;
     Widget label(String t) => Padding(
       padding: const EdgeInsets.only(bottom: Space.x2),
       child: Text(t, style: AppText.label.copyWith(color: c.text)),
@@ -192,19 +204,25 @@ class _TaskDialogState extends State<TaskDialog> {
     final provider = _t['provider'] as String;
     return Sheet(
       title: '${_t['name']}의 모델',
-      subtitle: '계열의 가장 새 판을 씁니다. 진행 중인 연습은 시작할 때 정해진 판을 끝까지 씁니다.',
+      subtitle: '모델마다 가장 새 버전을 씁니다. 하던 연습은 시작할 때의 버전으로 끝까지 갑니다.',
       actions: [AppButton('닫기', onPressed: () => Navigator.of(context).pop())],
       children: [
         label('제공사'),
         Segmented<String>(
           options: [
-            for (final p in providerFamilies.keys) (p, providerLabels[p]!),
+            for (final p in providerFamilies.keys)
+              (
+                p,
+                lib == null || lib.hasKey(p)
+                    ? providerLabels[p]!
+                    : '${providerLabels[p]} · 키 없음',
+              ),
           ],
           value: provider,
           onChanged: (p) => _set(provider: p),
         ),
         const SizedBox(height: Space.x4),
-        label('계열'),
+        label('모델'),
         Segmented<String>(
           options: [
             for (final f in providerFamilies[provider]!)
@@ -225,13 +243,36 @@ class _TaskDialogState extends State<TaskDialog> {
           taskSummary(_t),
           style: AppText.caption.copyWith(color: c.textMuted),
         ),
+        // 키가 없는 제공사를 고르면 면접을 시작할 수 없다. 지나치지 않게 띠로 알리고 이 자리에서 키를 넣게 한다.
         if (_t['hasKey'] == false) ...[
-          const SizedBox(height: Space.x1),
-          Text(
-            keepAll(
-              '${providerLabels[provider]} 키가 없습니다. 설정의 AI 연결에서 키를 넣어야 이 일로 면접을 시작할 수 있습니다.',
+          const SizedBox(height: Space.x2),
+          Semantics(
+            liveRegion: true,
+            child: Container(
+              padding: const EdgeInsets.all(Space.x3),
+              decoration: BoxDecoration(
+                color: c.warningSoft,
+                borderRadius: BorderRadius.circular(Radii.control),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error, size: 16, color: c.warning),
+                  const SizedBox(width: Space.x2),
+                  Expanded(
+                    child: Text(
+                      keepAll(
+                        '${providerLabels[provider]} 키가 없습니다. 키를 넣어야 이 일로 면접을 시작할 수 있습니다.',
+                      ),
+                      style: AppText.body.copyWith(color: c.warning),
+                    ),
+                  ),
+                  if (lib != null) ...[
+                    const SizedBox(width: Space.x2),
+                    AppButton('키 넣기', onPressed: () => _putKey(lib, provider)),
+                  ],
+                ],
+              ),
             ),
-            style: AppText.caption.copyWith(color: c.textMuted),
           ),
         ],
         if (_error case final e?) ...[

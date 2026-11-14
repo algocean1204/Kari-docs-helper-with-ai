@@ -39,7 +39,11 @@ class DocScreen extends StatefulWidget {
     required this.onCreate,
     this.reveal,
     this.menu,
+    this.onInterview,
   });
+
+  /// 이 문서를 골라 둔 면접 준비로 간다(`⋯` 메뉴의 `이 문서로 면접 연습`). 없으면 항목이 없다.
+  final VoidCallback? onInterview;
 
   /// 메뉴 막대에 문서 명령을 내는 자리. 없으면 메뉴 막대가 없다(시험).
   final MenuHost? menu;
@@ -461,6 +465,7 @@ class _DocScreenState extends State<DocScreen> {
               moreKey: _more,
               outlineOpen: outline,
               onOutline: _toggleOutline,
+              onInterview: widget.onInterview,
             ),
             EditToolbar(
               session: s,
@@ -576,7 +581,10 @@ class _TopBar extends StatelessWidget {
     this.moreKey,
     this.outlineOpen = false,
     this.onOutline,
+    this.onInterview,
   });
+
+  final VoidCallback? onInterview;
 
   /// 개요 패널이 열려 있는지와 켜고 끄기(⋯ 메뉴의 `개요`).
   final bool outlineOpen;
@@ -659,6 +667,7 @@ class _TopBar extends StatelessWidget {
                   '표 눈금선 보기',
                   st == null ? null : () => toggleGuides(s, library),
                 ),
+                if (onInterview != null) ('이 문서로 면접 연습', onInterview),
               ],
             ),
           ],

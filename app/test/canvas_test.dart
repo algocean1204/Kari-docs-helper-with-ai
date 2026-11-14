@@ -258,12 +258,12 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
       // 목록에서 종류가 구분된다.
-      expect(find.text('캔버스 문서 · 11월 8일'), findsOneWidget);
-      expect(find.text('흐름 문서 · 오늘 14:20'), findsWidgets);
+      expect(find.text('캔버스 · 11월 8일'), findsOneWidget);
+      expect(find.text('글 문서 · 오늘 14:20'), findsWidgets);
       expect(find.byIcon(Icons.dashboard_outlined), findsWidgets);
 
       final before = rig.fake.docs.length;
-      await tester.tap(find.text('캔버스 문서 만들기'));
+      await tester.tap(find.text('새 캔버스'));
       await tester.pumpAndSettle();
       expect(rig.fake.docs.length, before + 1);
       final made = rig.fake.docs.values.last;
@@ -271,7 +271,7 @@ void main() {
       expect(made['name'], '제목 없는 캔버스');
       expect(rig.fake.sent, containsAllInOrder(['doc.open', 'canvas.open']));
       expect(find.byType(CanvasSurface), findsOneWidget);
-      expect(find.text('캔버스 문서'), findsOneWidget);
+      expect(find.text('캔버스'), findsOneWidget);
       // 문서 이름과 도구 줄이 보인다.
       expect(find.text('제목 없는 캔버스'), findsWidgets);
       for (final t in ['고르기', '프레임', '사각형', '타원', '선', '글', '그림']) {
@@ -284,8 +284,8 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
       expect(rig.fake.docs, isEmpty);
-      expect(find.text('캔버스 문서 만들기'), findsOneWidget);
-      await tester.tap(find.text('캔버스 문서 만들기'));
+      expect(find.text('새 캔버스'), findsOneWidget);
+      await tester.tap(find.text('새 캔버스'));
       await tester.pumpAndSettle();
       expect(rig.fake.docs.values.single['kind'], 'canvas');
       expect(find.byType(CanvasSurface), findsOneWidget);
@@ -302,7 +302,7 @@ void main() {
       expect(view.last['height'], box.height);
       // 흐름 문서 화면의 것은 나오지 않는다.
       expect(find.text('PDF로 내보내기'), findsOneWidget);
-      expect(find.text('캔버스 문서'), findsOneWidget);
+      expect(find.text('캔버스'), findsOneWidget);
       expect(o.fake.sent.where((m) => m.startsWith('edit.')), isEmpty);
     });
 

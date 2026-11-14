@@ -293,11 +293,11 @@ void main() {
       await pumpReal(tester, seed: false);
       expect(find.text('이력서부터 씁니다'), findsOneWidget);
       expect(find.text('준비 0/4'), findsOneWidget);
-      // 채운 단추는 새 문서 하나, 그 옆에 조용한 캔버스 문서 만들기. 준비 줄의 넷과 공고 추가.
+      // 채운 단추는 새 글 문서 하나, 그 옆에 조용한 새 캔버스. 준비 줄의 넷과 공고 추가.
       // 문서가 없으면 문서 구역을 두지 않는다.
       expect(find.byType(TextButton), findsNWidgets(7));
-      expect(button(tester, '새 문서').onPressed, isNotNull);
-      expect(button(tester, '캔버스 문서 만들기').onPressed, isNotNull);
+      expect(button(tester, '새 글 문서').onPressed, isNotNull);
+      expect(button(tester, '새 캔버스').onPressed, isNotNull);
       for (final step in ['이력서', 'AI 연결', '채용공고', '첫 연습']) {
         expect(button(tester, step).onPressed, isNotNull, reason: step);
       }
@@ -313,25 +313,25 @@ void main() {
       expect(find.text('최근에 고친 문서'), findsOneWidget);
       // 주인공 카드와 목록, 준비 줄(이력서 ✓)
       expect(find.text('이력서'), findsNWidgets(3));
-      expect(find.text('흐름 문서 · 오늘 14:20'), findsNWidgets(2));
+      expect(find.text('글 문서 · 오늘 14:20'), findsNWidgets(2));
       expect(find.text('이어서 쓰기'), findsOneWidget);
-      expect(find.text('흐름 문서 · 어제'), findsOneWidget);
-      expect(find.text('캔버스 문서 · 11월 8일'), findsOneWidget);
+      expect(find.text('글 문서 · 어제'), findsOneWidget);
+      expect(find.text('캔버스 · 11월 8일'), findsOneWidget);
       // 휴지통의 문서는 목록에 없다.
       expect(find.text('옛 자기소개서'), findsNothing);
       expect(find.text('휴지통 1개'), findsOneWidget);
       // 준비가 다 끝나지 않았으면 준비 줄이 남는다. 끝난 단계는 단추가 아니다.
       expect(find.text('준비 1/4'), findsOneWidget);
       expect(find.widgetWithText(TextButton, '이력서'), findsNothing);
-      expect(find.text('공고'), findsOneWidget);
+      expect(find.text('채용공고'), findsWidgets);
     });
 
     testWidgets('새 문서를 누르면 "제목 없는 문서"를 만들고 문서 화면으로 간다', (tester) async {
       final rig = await pumpReal(tester, seed: false);
-      await tester.tap(find.text('새 문서'));
+      await tester.tap(find.text('새 글 문서'));
       await tester.pumpAndSettle();
       expect(find.text('제목 없는 문서'), findsOneWidget);
-      expect(find.text('흐름 문서'), findsOneWidget);
+      expect(find.text('글 문서'), findsOneWidget);
       expect(rig.fake.docs.values.single['name'], '제목 없는 문서');
       // 홈으로 돌아가면 이끄는 카드와 목록에 있다.
       await tester.tap(find.text('홈'));
@@ -368,7 +368,11 @@ void main() {
       await openMore(tester, '포트폴리오');
       await tester.tap(find.text('복제'));
       await tester.pumpAndSettle();
-      // 가장 최근에 고친 문서가 되어 목록의 맨 위에 놓인다(캔버스 문서라 주인공 카드는 이력서 그대로다).
+      // 복제 뒤에 이름을 묻는다. 취소하면 "<이름> 사본"으로 남는다.
+      expect(find.text('이름 바꾸기'), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      // 가장 최근에 고친 문서가 되어 목록의 맨 위에 놓인다(캔버스라 주인공 카드는 이력서 그대로다).
       expect(
         tester.getTopLeft(find.text('포트폴리오 사본')).dy,
         lessThan(tester.getTopLeft(find.text('경력기술서')).dy),
@@ -568,7 +572,7 @@ void main() {
       final rig = await pumpReal(tester);
       await tester.tap(find.text('이어서 쓰기'));
       await tester.pumpAndSettle();
-      expect(find.text('흐름 문서'), findsOneWidget);
+      expect(find.text('글 문서'), findsOneWidget);
       // 문단은 엔진이 텍스처에 그린다. 흉내 엔진에서는 편집 세션이 그 문서의 첫 문단을 입력기에 내준 것으로 본다.
       final cv = rig.fake.docs.values.firstWhere((d) => d['name'] == '이력서');
       final state = await rig.fake.editState(cv['id'] as int);
@@ -643,7 +647,7 @@ void main() {
           find.byWidgetPredicate((w) => isTitle(w) && (w as Text).data == '문서'),
         )
         .dy;
-    expect(top('일마다의 모델'), lessThan(docs));
+    expect(top('면접에 쓰는 모델'), lessThan(docs));
     expect(docs, lessThan(top('입력하면서 자동 서식')));
     expect(top('입력하면서 자동 서식'), lessThan(top('새 문서의 스타일')));
     expect(top('새 문서의 스타일'), lessThan(top('개인정보')));
@@ -659,7 +663,7 @@ void main() {
     // 일마다의 모델은 접힌 묶음이고 접혀 있으면 한 줄 요약만 보인다.
     expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     expect(find.text('답변 채점'), findsNothing);
-    await tester.tap(find.text('일마다의 모델'));
+    await tester.tap(find.text('면접에 쓰는 모델'));
     await tester.pumpAndSettle();
     expect(find.text('답변 채점'), findsOneWidget);
     await tester.ensureVisible(find.byType(Switch).last);

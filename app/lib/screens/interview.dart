@@ -23,6 +23,31 @@ const _pressureNotes = {
   'real': '짧고 건조하게 묻고 반박을 먼저 합니다. 힌트가 없습니다.',
 };
 
+/// 압박마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
+const _hintRules = {
+  'coaching': '코칭은 질문마다 힌트를 한 번 씁니다.',
+  'standard': '표준은 주제마다 힌트를 한 번 씁니다.',
+  'real': '실전에는 힌트가 없습니다.',
+};
+
+/// 끝나지 않은 연습을 버릴지 한 번 묻고 지운다.
+Future<void> discardInterview(
+  BuildContext context,
+  Library library,
+  String id,
+) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => const ConfirmDialog(
+      title: '이 연습을 버릴까요?',
+      message: '지금까지의 질문과 답을 지웁니다. 리포트는 만들지 않습니다. 되돌릴 수 없습니다.',
+      confirm: '연습 버리기',
+      danger: true,
+    ),
+  );
+  if (ok == true) await library.interview.discard(id);
+}
+
 /// 오류 코드마다 사람이 할 일. (설명, 설정을 열어야 하는가)
 (String, bool) ivProblem(EngineError e) => switch (e.code) {
   // 엔진의 문구가 어느 제공사의 키가 필요한지 알린다.
@@ -49,16 +74,23 @@ class InterviewTab extends StatefulWidget {
     required this.onShowReport,
     this.doc,
     this.posting,
+    this.again,
   });
 
   final Library library;
   final VoidCallback onOpenSettings;
   final VoidCallback onCreateDoc;
-  final VoidCallback onAddPosting;
 
-  /// 처음에 골라 둘 이력서와 공고(홈의 "면접 연습 시작", 리포트의 "이 주제로 다시 연습").
+  /// 공고 추가 창을 띄우고 닫히면 끝난다.
+  final Future<void> Function() onAddPosting;
+
+  /// 처음에 골라 둘 이력서와 공고(홈의 "면접 연습 시작"). 넘겨받은 공고가 없으면 가장 최근에 더한 공고다.
   final int? doc;
   final String? posting;
+
+  /// 리포트의 "이 주제로 다시 연습"이 넘긴 그 연습의 기록(세션 목록의 한 줄). 있으면 그 연습의 공고, 연차,
+  /// 시간, 압박으로 시작한다.
+  final Json? again;
 
   /// 마친 세션의 리포트로 간다.
   final ValueChanged<String> onShowReport;
@@ -69,13 +101,41 @@ class InterviewTab extends StatefulWidget {
 
 class _InterviewTabState extends State<InterviewTab> {
   late int? _doc = widget.doc;
-  late String? _posting = widget.posting;
-  String _years = 'junior';
-  int _minutes = 10;
-  String _pressure = 'standard';
+  late String? _posting = widget.again != null
+      ? widget.again!['posting'] as String?
+      : _lib.postings.any((p) => p['id'] == widget.posting)
+      ? widget.posting
+      : _lib.postings.firstOrNull?['id'] as String?;
+  late String _years = _last(_yearOptions, 'years', Setting.ivYears);
+  late int _minutes = _last(_minuteOptions, 'minutes', Setting.ivMinutes);
+  late String _pressure = _last(
+    _pressureOptions,
+    'pressure',
+    Setting.ivPressure,
+  );
 
   Library get _lib => widget.library;
   InterviewRun get _run => _lib.interview;
+
+  /// 다시 연습이면 그 연습의 값, 아니면 지난번에 고른 값. 고를 수 없는 값이면 기본값.
+  T _last<T>(List<(T, String)> options, String key, Setting s) {
+    for (final v in [widget.again?[key], _lib.settings[s.key]]) {
+      if (options.any((o) => o.$1 == v)) return v as T;
+    }
+    return s.fallback as T;
+  }
+
+  /// 공고를 더하면 그 공고를 골라 둔다.
+  Future<void> _addPosting() async {
+    final before = {for (final p in _lib.postings) p['id']};
+    await widget.onAddPosting();
+    final added = _lib.postings
+        .where((p) => !before.contains(p['id']))
+        .firstOrNull;
+    if (added != null && mounted) {
+      setState(() => _posting = added['id'] as String);
+    }
+  }
 
   List<DocInfo> get _flowDocs =>
       _lib.docs.where((d) => d.kind == 'flow').toList();
@@ -99,6 +159,10 @@ class _InterviewTabState extends State<InterviewTab> {
       if (ok != true) return;
       await _lib.set(Setting.previewSeen, true);
     }
+    // 다음 연습이 같은 값으로 시작하게 남긴다.
+    _lib.keep(Setting.ivYears, _years);
+    _lib.keep(Setting.ivMinutes, _minutes);
+    _lib.keep(Setting.ivPressure, _pressure);
     await _run.start(
       doc: doc,
       posting: _posting,
@@ -123,7 +187,8 @@ class _InterviewTabState extends State<InterviewTab> {
         if (!_lib.connected) {
           return _Notice(
             title: 'AI 연결이 필요합니다',
-            text: '면접 질문과 채점에 AI를 씁니다. 설정에서 API 키를 넣으면 시작할 수 있습니다.',
+            text:
+                '백엔드 개발 직무의 기술 면접을 글로 연습합니다. 질문과 채점에 AI를 쓰므로 설정에서 API 키를 넣으면 시작할 수 있습니다.',
             action: AppButton(
               '설정 열기',
               kind: ButtonKind.primary,
@@ -191,7 +256,7 @@ class _InterviewTabState extends State<InterviewTab> {
               Text('면접 연습', style: AppText.display.copyWith(color: c.text)),
               const SizedBox(height: Space.x1),
               Text(
-                keepAll('이력서와 채용공고로 글로 답하는 기술 면접을 연습합니다.'),
+                keepAll('이력서와 채용공고로 백엔드 개발 직무의 기술 면접을 글로 연습합니다.'),
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
               const SizedBox(height: Space.x6),
@@ -227,6 +292,18 @@ class _InterviewTabState extends State<InterviewTab> {
                       ),
                       const SizedBox(width: Space.x3),
                       AppButton(
+                        '연습 버리기',
+                        kind: ButtonKind.quiet,
+                        onPressed: busy
+                            ? null
+                            : () => discardInterview(
+                                context,
+                                _lib,
+                                unfinished['id'] as String,
+                              ),
+                      ),
+                      const SizedBox(width: Space.x2),
+                      AppButton(
                         '이어서 하기',
                         onPressed: busy
                             ? null
@@ -250,14 +327,14 @@ class _InterviewTabState extends State<InterviewTab> {
                               children: [
                                 Expanded(
                                   child: Text(
-                                    '흐름 문서가 없습니다.',
+                                    '이력서로 쓸 글 문서가 없습니다.',
                                     style: AppText.body.copyWith(
                                       color: c.textMuted,
                                     ),
                                   ),
                                 ),
                                 AppButton(
-                                  '새 문서',
+                                  '새 글 문서',
                                   onPressed: widget.onCreateDoc,
                                 ),
                               ],
@@ -302,7 +379,7 @@ class _InterviewTabState extends State<InterviewTab> {
                           AppButton(
                             '공고 추가',
                             icon: Icons.add,
-                            onPressed: widget.onAddPosting,
+                            onPressed: _addPosting,
                           ),
                         ],
                       ),
@@ -313,7 +390,10 @@ class _InterviewTabState extends State<InterviewTab> {
                       Segmented<String>(
                         options: _yearOptions,
                         value: _years,
-                        onChanged: (v) => setState(() => _years = v),
+                        onChanged: (v) {
+                          setState(() => _years = v);
+                          _lib.keep(Setting.ivYears, v);
+                        },
                       ),
                     ),
                     // 시간, 압박, 시선 기록은 기본값이 보이는 접힌 묶음이다.
@@ -336,7 +416,10 @@ class _InterviewTabState extends State<InterviewTab> {
                             Segmented<int>(
                               options: _minuteOptions,
                               value: _minutes,
-                              onChanged: (v) => setState(() => _minutes = v),
+                              onChanged: (v) {
+                                setState(() => _minutes = v);
+                                _lib.keep(Setting.ivMinutes, v);
+                              },
                             ),
                           ),
                           row(
@@ -344,7 +427,10 @@ class _InterviewTabState extends State<InterviewTab> {
                             Segmented<String>(
                               options: _pressureOptions,
                               value: _pressure,
-                              onChanged: (v) => setState(() => _pressure = v),
+                              onChanged: (v) {
+                                setState(() => _pressure = v);
+                                _lib.keep(Setting.ivPressure, v);
+                              },
                             ),
                             note: _pressureNotes[_pressure],
                           ),
@@ -423,17 +509,22 @@ class _Notice extends StatelessWidget {
   }
 }
 
-/// 오류와 사람이 할 일: 키 없음과 인증 실패는 설정 열기, 그 밖은 다시 시도.
+/// 오류와 사람이 할 일: 키 없음과 인증 실패는 설정 열기와 다시 시도(설정에서 키를 고친 뒤 같은 자리에서 이어 간다),
+/// 그 밖은 다시 시도.
 class _Problem extends StatelessWidget {
   const _Problem({
     required this.error,
     required this.onOpenSettings,
     required this.onRetry,
+    this.note,
   });
 
   final EngineError error;
   final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
+
+  /// 설명 뒤에 붙이는 한마디(낸 답이 남아 있다는 것).
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -453,15 +544,18 @@ class _Problem extends StatelessWidget {
             const SizedBox(width: Space.x2),
             Expanded(
               child: Text(
-                keepAll(text),
+                keepAll(note == null ? text : '$text $note'),
                 style: AppText.body.copyWith(color: c.danger),
               ),
             ),
-            const SizedBox(width: Space.x2),
-            if (settings)
-              AppButton('설정 열기', onPressed: onOpenSettings)
-            else if (onRetry != null)
+            if (settings) ...[
+              const SizedBox(width: Space.x2),
+              AppButton('설정 열기', onPressed: onOpenSettings),
+            ],
+            if (onRetry != null) ...[
+              const SizedBox(width: Space.x2),
               AppButton('다시 시도', onPressed: onRetry),
+            ],
           ],
         ),
       ),
@@ -486,7 +580,8 @@ class _Session extends StatefulWidget {
 }
 
 class _SessionState extends State<_Session> {
-  final _answer = TextEditingController();
+  // 쓰던 답은 화면을 옮겨도 남게 진행 상태([InterviewRun.draft])에 둔다.
+  late final _answer = TextEditingController(text: widget.run.draft);
   bool _history = false;
 
   InterviewRun get _run => widget.run;
@@ -498,7 +593,10 @@ class _SessionState extends State<_Session> {
   @override
   void initState() {
     super.initState();
-    _answer.addListener(() => setState(() {}));
+    _answer.addListener(() {
+      _run.draft = _answer.text;
+      setState(() {});
+    });
     _life = AppLifecycleListener(
       onStateChange: (s) => _gaze.front(s == AppLifecycleState.resumed),
     );
@@ -518,13 +616,13 @@ class _SessionState extends State<_Session> {
     if (text.isEmpty || !_run.waiting) return;
     await _run.answer(text);
     // 엔진은 모델을 부르기 전에 답을 적어 둔다. 실패해도 답은 그쪽에 남으므로(다시 시도가 그 답으로 이어 간다)
-    // 칸을 비운다. 답 자체를 거절했을 때(bad_request)만 남긴다.
-    if (_run.error?.code != 'bad_request') _answer.clear();
+    // 칸을 비운다. 답 자체를 거절했을 때(bad_request)만 남긴다. 기다리는 동안 화면을 떠났으면 진행 상태가 이미 비웠다.
+    if (mounted && _run.error?.code != 'bad_request') _answer.clear();
   }
 
   Future<void> _skip() async {
     await _run.skip();
-    _answer.clear();
+    if (mounted) _answer.clear();
   }
 
   Future<void> _end() async {
@@ -570,8 +668,32 @@ class _SessionState extends State<_Session> {
                 apiError['message'] as String? ?? '',
               ));
     final canAnswer = _run.waiting;
-    // 실패한 세션은 답이 이미 엔진에 적혀 있다. 다시 시도할 때까지 답 칸을 보이지 않는다.
+    // 실패한 세션은 답이 이미 엔진에 적혀 있다. 다시 시도할 때까지 답 칸 대신 낸 답을 보인다.
     final answering = v['status'] == 'waiting';
+    final sent = answering || done
+        ? null
+        : history.where((h) => h['question'] == v['question']).lastOrNull;
+    // 위 줄의 맥락: 어느 이력서로, 어느 압박으로 하는 연습인지.
+    final lib = _run.library;
+    final info = lib.sessions.where((s) => s['id'] == v['id']).firstOrNull;
+    final pressure = info?['pressure'];
+    final about = [
+      ?lib.docs.where((d) => d.id == info?['doc']).firstOrNull?.name,
+      for (final o in _pressureOptions)
+        if (o.$1 == pressure) '압박 ${o.$2}',
+    ].join(' · ');
+    // 시간은 1분 아래에서 경고, 다 되면 위험으로 알린다(색과 아이콘을 함께).
+    final timeColor = left <= 0
+        ? c.danger
+        : left < 60000
+        ? c.warning
+        : c.text;
+    final hintButton = AppButton(
+      hints > 0 ? '힌트 보기 · $hints번 남음' : '힌트 없음',
+      icon: Icons.lightbulb_outline,
+      kind: ButtonKind.quiet,
+      onPressed: canAnswer && hints > 0 ? _run.hint : null,
+    );
     return Column(
       children: [
         Container(
@@ -590,18 +712,35 @@ class _SessionState extends State<_Session> {
                   fontFeatures: AppText.tabular,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: Space.x3),
+              Expanded(
+                child: Text(
+                  about,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption.copyWith(color: c.textMuted),
+                ),
+              ),
               if (!done) ...[
                 if (_gaze.recording) GazeBadge(onOff: _gaze.turnOff),
                 Semantics(
                   label: '남은 시간 ${left ~/ 60000}분 ${(left % 60000) ~/ 1000}초',
                   child: ExcludeSemantics(
-                    child: Text(
-                      '남은 시간 ${_clock(left)}',
-                      style: AppText.label.copyWith(
-                        color: c.text,
-                        fontFeatures: AppText.tabular,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (left < 60000) ...[
+                          Icon(Icons.schedule, size: 14, color: timeColor),
+                          const SizedBox(width: Space.x1),
+                        ],
+                        Text(
+                          '남은 시간 ${_clock(left)}',
+                          style: AppText.label.copyWith(
+                            color: timeColor,
+                            fontFeatures: AppText.tabular,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -655,6 +794,7 @@ class _SessionState extends State<_Session> {
                         onRetry: done || error.code == 'bad_request'
                             ? null
                             : _run.retry,
+                        note: sent == null ? null : '낸 답은 남아 있습니다.',
                       ),
                       const SizedBox(height: Space.x4),
                     ],
@@ -691,7 +831,30 @@ class _SessionState extends State<_Session> {
                         const SizedBox(height: Space.x3),
                         Text(
                           v['feedback'] as String,
+                          style: AppText.body.copyWith(color: c.text),
+                        ),
+                      ],
+                      if (sent != null) ...[
+                        const SizedBox(height: Space.x6),
+                        Text(
+                          '낸 답',
                           style: AppText.caption.copyWith(color: c.textMuted),
+                        ),
+                        const SizedBox(height: Space.x1),
+                        Container(
+                          padding: const EdgeInsets.all(Space.x3),
+                          decoration: BoxDecoration(
+                            color: c.surface2,
+                            borderRadius: BorderRadius.circular(Radii.control),
+                          ),
+                          child: Text(
+                            keepAll(
+                              sent['skipped'] == true
+                                  ? '모르겠습니다'
+                                  : sent['answer'] as String? ?? '',
+                            ),
+                            style: AppText.reading.copyWith(color: c.text),
+                          ),
                         ),
                       ],
                       if (answering) ...[
@@ -749,16 +912,13 @@ class _SessionState extends State<_Session> {
                             ),
                             AppButton(
                               '모르겠습니다',
+                              kind: ButtonKind.quiet,
                               onPressed: canAnswer ? _skip : null,
                             ),
-                            AppButton(
-                              '힌트 $hints',
-                              icon: Icons.lightbulb_outline,
-                              kind: ButtonKind.quiet,
-                              onPressed: canAnswer && hints > 0
-                                  ? _run.hint
-                                  : null,
-                            ),
+                            if (_hintRules[pressure] case final rule?)
+                              Tooltip(message: rule, child: hintButton)
+                            else
+                              hintButton,
                           ],
                         ),
                       ],

@@ -156,8 +156,14 @@ class Library extends ChangeNotifier {
   Future<void> rename(DocInfo d, String name) =>
       _run(() => engine.docsRename(d.id, name.trim()));
 
-  Future<void> duplicate(DocInfo d) =>
-      _run(() => engine.docsDuplicate(d.id, copyName(d.name)));
+  /// 복제본을 만들고 돌려준다. 실패하면 null.
+  Future<DocInfo?> duplicate(DocInfo d) async {
+    int? id;
+    await _run(
+      () async => id = await engine.docsDuplicate(d.id, copyName(d.name)),
+    );
+    return docs.where((x) => x.id == id).firstOrNull;
+  }
 
   Future<void> trash(DocInfo d) => _run(() => engine.docsTrash(d.id));
   Future<void> untrash(DocInfo d) => _run(() => engine.docsUntrash(d.id));
@@ -238,6 +244,18 @@ class Library extends ChangeNotifier {
     await _run(_loadIv);
   }
 
+  /// 공고를 지운다. 그 공고로 한 연습의 기록은 남는다.
+  Future<void> removePosting(String id) => _run(() async {
+    await engine.ivPostingRemove(id);
+    await _loadIv();
+  });
+
+  /// 세션을 지운다(끝나지 않은 연습을 버릴 때).
+  Future<void> removeSession(String id) => _run(() async {
+    await engine.ivSessionRemove(id);
+    await _loadIv();
+  });
+
   Future<void> _loadAi() async {
     providers = await engine.aiProviders();
     tasks = await engine.aiTasks();
@@ -317,6 +335,11 @@ enum Setting {
   /// 처음 면접을 시작할 때 "보내는 내용 보기"를 보고 시작했는지.
   previewSeen('interview.previewSeen', false),
 
+  /// 면접 준비에서 마지막으로 고른 연차(`new`, `junior`, `senior`), 시간(분), 압박(`coaching`, `standard`, `real`).
+  ivYears('interview.years', 'junior'),
+  ivMinutes('interview.minutes', 10),
+  ivPressure('interview.pressure', 'standard'),
+
   /// 편집 화면에서 표의 선 없는 변을 옅은 점선으로 보일지. 문서마다 따로 두지 않는다.
   tableGuides('view.tableGuides', true),
 
@@ -372,7 +395,7 @@ String copyName(String name) =>
 String describe(EngineError e) =>
     '${e.message.isEmpty ? '요청을 처리하지 못했습니다' : e.message} (${e.code})';
 
-String kindLabel(String kind) => kind == 'canvas' ? '캔버스 문서' : '흐름 문서';
+String kindLabel(String kind) => kind == 'canvas' ? '캔버스' : '글 문서';
 
 /// 목록의 시각 표기. 오늘이면 "오늘 14:20", 어제면 "어제", 올해면 "11월 8일", 그 밖에는 "2025년 11월 8일".
 String formatWhen(int ms, DateTime now) {

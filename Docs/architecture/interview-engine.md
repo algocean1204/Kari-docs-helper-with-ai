@@ -321,7 +321,7 @@ stateDiagram-v2
 | `iv.cancel` | 진행 중인 모델 호출을 끊는다(스트림을 받는 도중에도) |
 | `iv.preview` | 보낼 이력서와 공고(가린 글), 가린 연락처 수, 일마다의 제공사·판·실제로 보낼 추론 강도, 쓰는 제공사마다 확인된 키가 있는지(`ready`)를 돌려준다 |
 | `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery` | 세션 보기, 목록, 리포트, 숙련도 추정 |
-| `iv.posting.add`, `iv.postings`, `iv.posting.remove` | 공고 기록 |
+| `iv.posting.add`, `iv.postings`, `iv.posting`, `iv.posting.remove` | 공고 기록(더하기, 목록, 붙여넣은 글 읽기, 지우기) |
 | `iv.pack` | 팩의 영역과 개념 목록 |
 | `iv.gaze` | 시선 기록의 구간을 더한다 |
 | `iv.dashboard` | 홈 대시보드 |

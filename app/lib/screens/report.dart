@@ -15,6 +15,7 @@ class ReportTab extends StatefulWidget {
     required this.library,
     this.initial,
     this.onPractice,
+    this.onStart,
   });
 
   final Library library;
@@ -22,8 +23,11 @@ class ReportTab extends StatefulWidget {
   /// 처음 보여 줄 세션(면접 탭의 "리포트 보기"). 없으면 가장 최근에 마친 것.
   final String? initial;
 
-  /// "이 주제로 다시 연습": 면접 준비로 가며 그 연습의 문서와 공고를 골라 둔다.
-  final void Function(int doc, String? posting)? onPractice;
+  /// "이 주제로 다시 연습": 면접 준비로 가며 그 연습(세션 목록의 한 줄)의 문서, 공고, 연차, 시간, 압박을 골라 둔다.
+  final void Function(Json session)? onPractice;
+
+  /// 마친 연습이 없을 때의 "면접 연습 시작": 면접 준비로 간다.
+  final VoidCallback? onStart;
 
   @override
   State<ReportTab> createState() => _ReportTabState();
@@ -66,6 +70,15 @@ class _ReportTabState extends State<ReportTab> {
                   '면접 연습을 한 번 마치면 여기에 결과가 나옵니다.',
                   style: AppText.body.copyWith(color: c.textMuted),
                 ),
+                if (widget.onStart != null) ...[
+                  const SizedBox(height: Space.x4),
+                  AppButton(
+                    '면접 연습 시작',
+                    kind: ButtonKind.primary,
+                    icon: Icons.forum_outlined,
+                    onPressed: widget.onStart,
+                  ),
+                ],
               ],
             ),
           );
@@ -84,6 +97,13 @@ class _ReportTabState extends State<ReportTab> {
         final doc = chosen?['doc'];
         final canPractice =
             practice != null && lib.docs.any((d) => d.id == doc);
+        // 다시 연습할 수 없는 까닭: 이력서가 휴지통에 있거나(되살릴 수 있다) 완전히 지워졌다.
+        final trashed = lib.trashed.where((d) => d.id == doc).firstOrNull;
+        final blocked = practice == null || canPractice
+            ? null
+            : trashed != null
+            ? '이력서가 휴지통에 있습니다.'
+            : '이력서를 지워 다시 연습할 수 없습니다.';
         return SingleChildScrollView(
           padding: const EdgeInsets.all(Space.x8),
           child: Center(
@@ -103,7 +123,7 @@ class _ReportTabState extends State<ReportTab> {
                       items: [
                         for (final s in sessions)
                           (
-                            '${_about(lib, s)} · ${s['status'] == 'done' ? '도달 ${s['reach'] ?? 0} / 목표 ${s['target']}' : '끝나지 않음'}',
+                            '${_about(lib, s)} · ${s['status'] == 'done' ? '깊이 ${s['reach'] ?? 0}단계 / 목표 ${s['target']}단계' : '끝나지 않음'}',
                             s['status'] == 'done'
                                 ? () => setState(
                                     () => _selected = s['id'] as String,
@@ -137,11 +157,12 @@ class _ReportTabState extends State<ReportTab> {
                           child: _Report(
                             report: r,
                             onPractice: canPractice
-                                ? () => practice(
-                                    doc as int,
-                                    chosen['posting'] as String?,
-                                  )
+                                ? () => practice(chosen)
                                 : null,
+                            blocked: blocked,
+                            onRestore: trashed == null
+                                ? null
+                                : () => lib.untrash(trashed),
                           ),
                         );
                       },
@@ -171,12 +192,33 @@ class _ReportTabState extends State<ReportTab> {
 /// 바로잡을 것·잘한 점·주장 방어·주제별 깊이·화면 밖 구간은 제목과 개수만 보이는 접힌 묶음이다.
 /// 묶음 안의 내용은 그대로다. 그 아래 다음에 다시 낼 주제, 이번 연습.
 class _Report extends StatelessWidget {
-  const _Report({required this.report, this.onPractice});
+  const _Report({
+    required this.report,
+    this.onPractice,
+    this.blocked,
+    this.onRestore,
+  });
 
   final Json report;
 
   /// 이 화면의 채운 단추 "이 주제로 다시 연습". 문서가 지워졌으면 없다(꺼진 단추).
   final VoidCallback? onPractice;
+
+  /// 단추가 꺼진 까닭. 단추 옆에 적는다.
+  final String? blocked;
+
+  /// 휴지통의 이력서를 되살린다(까닭 옆의 `되살리기`).
+  final VoidCallback? onRestore;
+
+  /// 엔진이 적은 결과 문구를 지원자의 말로 바꾼다. 여기에 없는 문구는 그대로 보인다.
+  static const notes = {
+    '반례 확인에서 바로잡지 못했습니다.': '답에 틀린 내용이 있어 다시 물었는데 바로잡지 못했습니다.',
+    '꼬리질문 답에서 틀린 내용이 잡혔는데 반례 확인을 마치지 못해 첫 통과까지만 인정됐습니다.':
+        '꼬리질문의 답에 틀린 내용이 있었는데 그것을 다시 묻기 전에 끝나, 첫 질문을 통과한 데까지만 인정했습니다.',
+    '힌트를 써서 첫 통과까지만 인정됐습니다.': '꼬리질문에서 힌트를 써서, 첫 질문을 통과한 데까지만 인정했습니다.',
+    '꼬리질문 뒤 반례 확인에서 고쳤지만 첫 통과까지만 인정됐습니다.':
+        '꼬리질문 뒤에 틀린 내용을 다시 물었을 때 바로잡았지만, 첫 질문을 통과한 데까지만 인정했습니다.',
+  };
 
   List<Json> _list(String k) => (report[k] as List? ?? const []).cast<Json>();
 
@@ -201,11 +243,22 @@ class _Report extends StatelessWidget {
       'tokensOut',
       'tokensCached',
     ].fold(0, (sum, k) => sum + (s[k] as int? ?? 0));
-    final practice = AppButton(
-      '이 주제로 다시 연습',
-      kind: ButtonKind.primary,
-      icon: Icons.mic_none,
-      onPressed: onPractice,
+    final practice = Wrap(
+      spacing: Space.x3,
+      runSpacing: Space.x2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        AppButton(
+          '이 주제로 다시 연습',
+          kind: ButtonKind.primary,
+          icon: Icons.forum_outlined,
+          onPressed: onPractice,
+        ),
+        if (blocked != null)
+          Text(blocked!, style: AppText.caption.copyWith(color: c.textMuted)),
+        if (blocked != null && onRestore != null)
+          AppButton('되살리기', kind: ButtonKind.quiet, onPressed: onRestore),
+      ],
     );
     // 접힌 묶음. 내용이 없으면 보이지 않는다.
     Widget fold(String title, int count, List<Widget> children) => Padding(
@@ -260,9 +313,9 @@ class _Report extends StatelessWidget {
         for (final f in fixes.skip(1))
           Padding(
             padding: const EdgeInsets.only(top: Space.x2),
+            // 접힌 묶음의 제목보다 작지 않게 같은 글자 역할을 쓴다(고칠 것이 묶음보다 먼저다).
             child: Fold(
               title: keepAll('${f['name']} · ${f['faceName']}'),
-              style: AppText.label,
               child: _Fix(fix: f),
             ),
           ),
@@ -353,15 +406,22 @@ class _Report extends StatelessWidget {
           ]),
         if (table.isNotEmpty)
           fold('주제별 깊이', table.length, [
+            Padding(
+              padding: const EdgeInsets.only(bottom: Space.x2),
+              child: Text(
+                '단계가 높을수록 깊이 물었습니다.',
+                style: AppText.caption.copyWith(color: c.textMuted),
+              ),
+            ),
             for (final row in table) _DepthRow(row: row),
             const SizedBox(height: Space.x2),
             Wrap(
               spacing: Space.x3,
               runSpacing: Space.x1,
               children: [
-                _legend(context, Icons.check, c.success, '확인됨'),
-                _legend(context, Icons.close, c.danger, '첫 통과에 그침 또는 실패'),
-                _legend(context, Icons.remove, c.textMuted, '안 물음'),
+                _legend(context, Icons.check, c.success, '설명함'),
+                _legend(context, Icons.close, c.danger, '설명하지 못함'),
+                _legend(context, Icons.remove, c.textMuted, '묻지 않음'),
               ],
             ),
           ]),
@@ -390,8 +450,6 @@ class _Report extends StatelessWidget {
           [
             '걸린 시간 ${minutes(s['elapsedMs'])}',
             '질문 ${s['questions'] ?? 0}개',
-            '인용 확인 실패 ${s['quoteFailures'] ?? 0}건',
-            '토큰 ${tokens(s)}개',
             // 가격표에 없는 판을 쓴 호출이 있으면 비용을 지어내지 않는다.
             if (s['cost'] case final num cost)
               '추정 비용 약 ${cost < 0.01 ? cost.toStringAsFixed(4) : cost.toStringAsFixed(2)}달러'
@@ -412,6 +470,18 @@ class _Report extends StatelessWidget {
             '쓴 모델 ${models.join(', ')}',
             style: AppText.caption.copyWith(color: c.textMuted),
           ),
+        // 다음 할 일을 알려 주지 않는 수치는 접어 둔다.
+        Fold(
+          title: '자세히',
+          style: AppText.label,
+          child: Text(
+            '인용 확인 실패 ${s['quoteFailures'] ?? 0}건 · 토큰 ${tokens(s)}개',
+            style: AppText.body.copyWith(
+              color: c.textMuted,
+              fontFeatures: AppText.tabular,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -499,24 +569,23 @@ class _SourceLine extends StatelessWidget {
     final url = source['url'] as String? ?? '';
     return Padding(
       padding: const EdgeInsets.only(left: _label, top: Space.x1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 여는 단추는 주소 바로 뒤에 붙인다. 줄이 차면 다음 줄로 내려간다.
+      child: Wrap(
+        spacing: Space.x2,
+        runSpacing: Space.x1,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Expanded(
-            child: Text(
-              '출처: ${source['title']}${where == null || where.isEmpty ? '' : ' · $where'}\n$url',
-              style: AppText.caption.copyWith(color: c.textMuted),
-            ),
+          Text(
+            '출처: ${source['title']}${where == null || where.isEmpty ? '' : ' · $where'}\n$url',
+            style: AppText.caption.copyWith(color: c.textMuted),
           ),
-          if (openableUrl(url)) ...[
-            const SizedBox(width: Space.x2),
+          if (openableUrl(url))
             AppButton(
               '주소 열기',
               icon: Icons.open_in_new,
               kind: ButtonKind.quiet,
               onPressed: () => openSource(url),
             ),
-          ],
         ],
       ),
     );
@@ -540,7 +609,8 @@ class _Fix extends StatelessWidget {
       children: [
         _Part(name: '질문', text: fix['question'] as String? ?? ''),
         _Part(name: '내 답', text: fix['quote'] as String? ?? ''),
-        if (note.isNotEmpty) _Part(name: '결과', text: note),
+        if (note.isNotEmpty)
+          _Part(name: '결과', text: _Report.notes[note] ?? note),
         for (final (i, m) in missing.indexed) ...[
           _Part(name: i == 0 ? '다음에 말할 것' : '', text: m['text'] as String),
           _SourceLine(source: m['source'] as Json),
@@ -599,7 +669,7 @@ class _DepthRow extends StatelessWidget {
             ),
           const SizedBox(width: Space.x3),
           Text(
-            '도달 ${row['reach']} / 목표 ${row['target']}',
+            '깊이 ${row['reach']}단계 / 목표 ${row['target']}단계',
             style: AppText.caption.copyWith(
               color: c.textMuted,
               fontFeatures: AppText.tabular,

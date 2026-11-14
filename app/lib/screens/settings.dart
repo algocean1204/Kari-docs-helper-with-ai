@@ -14,14 +14,23 @@ const maskNote =
     '돌아온 결과에서 되돌립니다. 이름, 학교, 회사 이름, 주소, 웹 주소 같은 다른 내용은 그대로 갑니다. '
     '대표번호(15xx), 외국 번호, 괄호로 쓴 지역번호도 가리지 않습니다.';
 
-/// 설정. 맨 위에 AI 연결(제공사마다 키), 그 아래 접힌 묶음 "일마다의 모델", 개인정보(가리기 안내, 시선 기록),
+/// 설정. 맨 위에 AI 연결(제공사마다 키), 그 아래 접힌 묶음 "면접에 쓰는 모델", 개인정보(가리기 안내, 시선 기록),
 /// 문서(입력하면서 자동 서식).
 /// [library]가 있으면 키와 모델은 엔진의 `ai.*`로, 스위치는 설정으로 저장한다.
 /// [library]가 없으면 견본 상태(Claude 연결됨)로 그린다.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.library});
+  const SettingsScreen({
+    super.key,
+    this.library,
+    this.onInterview,
+    this.onAddPosting,
+  });
 
   final Library? library;
+
+  /// 키를 저장한 뒤의 다음 걸음: 면접 준비로 가기, 채용공고 추가 창 띄우기.
+  final VoidCallback? onInterview;
+  final VoidCallback? onAddPosting;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -31,14 +40,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _gaze = true;
   bool _autoFormat = true;
 
-  Future<void> _putKey(Library lib, String provider) => showDialog<bool>(
-    context: context,
-    builder: (_) => KeyDialog(
-      library: lib,
-      provider: provider,
-      replace: lib.hasKey(provider),
-    ),
-  );
+  /// 이 화면에서 방금 키를 저장했는지. 다음 걸음을 알려 준다.
+  bool _saved = false;
+
+  Future<void> _putKey(Library lib, String provider) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => KeyDialog(
+        library: lib,
+        provider: provider,
+        replace: lib.hasKey(provider),
+      ),
+    );
+    if (ok == true && mounted) setState(() => _saved = true);
+  }
 
   Future<void> _deleteKey(Library lib, String provider) async {
     final name = providerNames[provider]!.$1;
@@ -80,7 +95,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
               _Section(
                 title: 'AI 연결',
-                caption: '넣은 API 키로 AI 제공사를 직접 부릅니다. 키는 이 기기의 보안 저장소에만 둡니다.',
+                caption:
+                    '면접 연습은 넣은 API 키로 AI 제공사를 직접 부릅니다. 키는 이 기기의 보안 저장소에만 둡니다.\n'
+                    'API 키는 제공사의 개발자 콘솔(Anthropic은 console.anthropic.com, OpenAI는 platform.openai.com)에서 '
+                    '가입하고 결제 수단을 등록한 뒤 만듭니다. 둘 중 하나만 있어도 됩니다.\n'
+                    '비용은 쓴 만큼 제공사가 청구합니다. 연습마다의 추정 비용은 리포트의 "이번 연습"에 보입니다.',
                 children: [
                   for (final p in providerNames.keys)
                     _Provider(
@@ -116,13 +135,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                       ],
                     ),
+                  // 방금 키를 저장했고 면접을 시작할 수 있으면 다음 걸음을 알린다. 채운 단추는 두지 않는다.
+                  if (_saved && lib != null && lib.connected)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            keepAll(
+                              lib.postings.isEmpty
+                                  ? '키를 저장했습니다. 이제 채용공고를 붙여넣거나 면접 연습을 시작할 수 있습니다.'
+                                  : '키를 저장했습니다. 이제 면접 연습을 시작할 수 있습니다.',
+                            ),
+                            style: AppText.body.copyWith(color: c.text),
+                          ),
+                        ),
+                        if (lib.postings.isEmpty &&
+                            widget.onAddPosting != null) ...[
+                          const SizedBox(width: Space.x2),
+                          AppButton(
+                            '공고 추가',
+                            kind: ButtonKind.quiet,
+                            onPressed: widget.onAddPosting,
+                          ),
+                        ],
+                        if (widget.onInterview != null) ...[
+                          const SizedBox(width: Space.x2),
+                          AppButton(
+                            '면접 연습으로',
+                            kind: ButtonKind.quiet,
+                            onPressed: widget.onInterview,
+                          ),
+                        ],
+                      ],
+                    ),
                 ],
               ),
-              // 일마다의 모델은 접힌 묶음이다. 접혀 있을 때 한 줄 요약.
+              // 면접에 쓰는 모델은 접힌 묶음이다. 접혀 있을 때 한 줄 요약.
               Padding(
                 padding: const EdgeInsets.only(bottom: Space.x6),
                 child: Fold(
-                  title: '일마다의 모델',
+                  title: '면접에 쓰는 모델',
                   summary: tasksSummary(
                     lib?.tasks ?? sampleTasks,
                     anyKey: anyKey,
@@ -130,7 +182,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   indent: 0,
                   child: _Section(
                     caption:
-                        '면접의 일마다 제공사, 모델 계열, 추론 강도를 고릅니다. 계열의 가장 새 판을 쓰고, 연습 하나는 시작할 때 정해진 판을 끝까지 씁니다.',
+                        '면접의 일마다 제공사, 모델, 추론 강도를 고릅니다. 모델마다 가장 새 버전을 씁니다. 하던 연습은 시작할 때의 버전으로 끝까지 갑니다.',
                     children: [TaskModels(library: lib)],
                   ),
                 ),
@@ -215,14 +267,20 @@ class _NewStyles extends StatelessWidget {
                 style: AppText.label.copyWith(color: c.text),
               ),
             ),
-            // 저장한 값이 없으면 고를 것이 없어 앱 기본값만 보인다.
-            Segmented<String>(
-              options: [('app', '앱 기본값'), if (saved) ('saved', '저장한 값')],
-              value: use,
-              onChanged: (v) {
-                if (lib != null && v != use) lib.set(Setting.newStyles, v);
-              },
-            ),
+            // 저장한 값이 없으면 고를 것이 없다. 눌러도 아무 일이 없는 고르기 대신 글로 알린다.
+            if (saved)
+              Segmented<String>(
+                options: const [('app', '앱 기본값'), ('saved', '저장한 값')],
+                value: use,
+                onChanged: (v) {
+                  if (v != use) lib!.set(Setting.newStyles, v);
+                },
+              )
+            else
+              Text(
+                '앱 기본값을 씁니다',
+                style: AppText.body.copyWith(color: c.textMuted),
+              ),
           ],
         ),
         const SizedBox(height: Space.x2),

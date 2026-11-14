@@ -107,7 +107,7 @@ void main() {
         }
 
         // 면접: 시작 → 보내는 내용 → 시작 → 질문 1.
-        await press(tester, nav(Icons.mic_none));
+        await press(tester, nav(Icons.forum_outlined));
         await waitFor(tester, button('시작'), '면접 준비');
         await press(tester, button('시작'));
         await waitFor(tester, find.text('보내는 내용'), '보내는 내용 보기');

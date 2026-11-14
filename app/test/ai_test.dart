@@ -69,9 +69,9 @@ Future<void> tap(WidgetTester tester, Finder f) async {
   await tester.pumpAndSettle();
 }
 
-/// 설정의 접힌 묶음 "일마다의 모델"을 펼친다.
+/// 설정의 접힌 묶음 "면접에 쓰는 모델"을 펼친다.
 Future<void> openModels(WidgetTester tester) =>
-    tap(tester, find.text('일마다의 모델'));
+    tap(tester, find.text('면접에 쓰는 모델'));
 
 /// 설정의 제공사 줄에 있는 단추. [label]은 "Claude 키 넣기" 꼴(제공사 이름과 단추 글).
 Finder providerButton(String label) {
@@ -149,10 +149,7 @@ void main() {
       expect(find.text('연결됨'), findsOneWidget);
       expectKeyOnlyInSecrets(rig, {'openai': openaiKey});
       await openModels(tester);
-      expect(
-        find.text('Luna · 추론 강도 낮음 · 지금 정해진 판 GPT-6 Luna'),
-        findsNWidgets(3),
-      );
+      expect(find.text('Luna · 추론 강도 낮음 · 지금 GPT-6 Luna'), findsNWidgets(3));
       expect(find.text('키 없음'), findsOneWidget, reason: 'Claude 줄만');
 
       // Claude 키를 더하면 기본은 Claude로 돌아간다.
@@ -161,7 +158,7 @@ void main() {
       await tap(tester, find.text('확인하고 저장'));
       expect(find.text('연결됨'), findsNWidgets(2));
       expect(
-        find.text('Haiku · 추론 강도 보통 · 지금 정해진 판 Claude Haiku 5.5'),
+        find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
         findsNWidgets(3),
       );
 
@@ -232,7 +229,7 @@ void main() {
       await typeKey(tester);
       final seen = await tabCycle(tester);
       expect(seen.length, focusableCount(tester, within: find.byType(Dialog)));
-      expect(seen.length, 3); // 입력 칸, 취소, 확인하고 저장
+      expect(seen.length, 4); // 입력 칸, 키 보기, 취소, 확인하고 저장
     });
 
     testWidgets('키 지우기는 한 번 더 묻고, 지우면 키와 모델 목록이 사라진다', (tester) async {
@@ -325,7 +322,7 @@ void main() {
         expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
         // 이력서가 아직 없어 면접은 시작할 수 없다.
         expect(find.text('면접 연습 시작'), findsNothing);
-        expect(button(tester, '새 문서').onPressed, isNotNull);
+        expect(button(tester, '새 글 문서').onPressed, isNotNull);
       });
     }
   });

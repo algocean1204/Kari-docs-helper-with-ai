@@ -1109,6 +1109,10 @@ abstract class EngineApi {
   /// [{id, title, chars, added, parsed, backend, years}]
   Future<List<Json>> ivPostings() => _list('iv.postings');
 
+  /// 공고에 붙여넣은 글 그대로.
+  Future<String> ivPostingText(String id) async =>
+      (await call('iv.posting', {'id': id}) as Json)['text'] as String;
+
   /// 새 공고의 id. 글은 1~20,000자.
   Future<String> ivPostingAdd(String text) async =>
       (await call('iv.posting.add', {'text': text}) as Json)['id'] as String;

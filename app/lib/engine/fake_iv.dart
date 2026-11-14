@@ -543,6 +543,8 @@ class FakeIv {
               'years': null,
             },
         ];
+      case 'iv.posting':
+        return {'id': a['id'], 'text': _posting(a['id'])['text']};
       case 'iv.posting.add':
         final text = (a['text'] as String? ?? '').trim();
         if (text.isEmpty || text.runes.length > 20000) {

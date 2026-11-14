@@ -401,7 +401,7 @@ class MainFlutterWindow: NSWindow {
     }
 
     // 주소와 파일을 운영체제에 넘기는 채널. `openUrl`은 링크를 기본 브라우저로 연다.
-    // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `savePath`는 저장 대화 상자로
+    // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `openFolder`는 폴더를 Finder로 연다. `savePath`는 저장 대화 상자로
     // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을 고른다.
     // `print`와 `share`는 앱이 만든 PDF를 인쇄 창과 공유 창에 넘기고(Printing.swift), 창이 닫히거나 공유가 끝나면 답한다.
     let files = FlutterMethodChannel(
@@ -420,6 +420,19 @@ class MainFlutterWindow: NSWindow {
           return
         }
         result(NSWorkspace.shared.open(url))
+      case "openFolder":
+        // 자료 폴더를 Finder로 연다(자료를 열지 못했을 때 사본을 떠 둘 수 있게).
+        // 있는 폴더의 절대 경로만 받고, 꾸러미 폴더(.app 같은)를 실행하지 않도록 Finder 창으로만 보인다.
+        var isDir: ObjCBool = false
+        guard let path = (call.arguments as? [String: Any])?["path"] as? String,
+          path.hasPrefix("/"),
+          FileManager.default.fileExists(atPath: path, isDirectory: &isDir),
+          isDir.boolValue
+        else {
+          result(false)
+          return
+        }
+        result(NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path))
       case "savePath":
         guard let self else {
           result(nil)
