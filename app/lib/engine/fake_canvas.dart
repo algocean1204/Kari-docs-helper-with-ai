@@ -92,6 +92,9 @@ extension FakeCanvas on FakeEngine {
         break;
       case 'canvas.close':
         return null;
+      // 레이어 줄은 시험이 `layers`에 넣어 둔 JSON 그대로다.
+      case 'canvas.layers':
+        return {'seq': d['seq'], 'rows': s['layers'] ?? <Object?>[]};
       case 'canvas.copy':
         if (canvasCopyFails) throw const EngineError('internal', '복사하지 못했습니다');
         // 글 상자를 편집하는 중이 아니면 고른 노드를 기억한다(엔진처럼 그 글로 다음 붙여넣기가 조각을 알아본다).
@@ -163,7 +166,14 @@ extension FakeCanvas on FakeEngine {
               'create' ||
               'flip' ||
               'align' ||
-              'distribute':
+              'distribute' ||
+              'group' ||
+              'ungroup' ||
+              'order' ||
+              'place' ||
+              'toggle' ||
+              'addBoard' ||
+              'rename':
             changed = true;
             s['canUndo'] = true;
           case 'select':

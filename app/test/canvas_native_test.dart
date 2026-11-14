@@ -399,6 +399,132 @@ void main() {
     expect(paragraphs(await engine.docNodes(s.id)), contains('가나다'));
   });
 
+  test('묶기 → 풀기 → 순서 → 숨기기·잠그기 → 프레임 안으로 → 대지 더하기 → PDF → 되돌리기로 처음', () async {
+    final s = await open();
+    // 레이어 패널이 열려 있으면 문서가 바뀌고 잠시 멈춘 뒤 줄을 다시 읽는다(입력의 줄과 따로). 그것까지 기다린다.
+    s.showLayers(true);
+    Future<void> idle() async {
+      await s.settled;
+      await Future<void>.delayed(CanvasSession.layersQuiet * 3);
+      await s.settled;
+    }
+
+    await idle();
+    final board = s.layers.single;
+    expect(board.type, 'page');
+    expect(board.kids, 0);
+    Future<String> rect(double x, double y) async {
+      await s.cmd('create', {
+        'tool': 'rect',
+        'x': x,
+        'y': y,
+        'x2': x + 100,
+        'y2': y + 100,
+      });
+      await idle();
+      return s.state!.selection.single.id;
+    }
+
+    final a = await rect(100, 100);
+    final b = await rect(300, 100);
+    CanvasLayer row(String id) => s.layers.firstWhere((r) => r.id == id);
+    // 앞에 놓인 것(나중에 만든 b)이 위다.
+    expect([for (final r in s.layers) r.id], [board.id, b, a]);
+
+    // 묶기: 그룹 하나 아래 둘. 상자는 둘의 경계다.
+    await s.cmd('select', {
+      'ids': [a, b],
+    });
+    await s.cmd('group');
+    await idle();
+    final g = s.state!.selection.single;
+    expect(g.type, 'group');
+    expect((g.x, g.y, g.w, g.h), (100.0, 100.0, 300.0, 100.0));
+    expect(row(g.id).kids, 2);
+    expect(row(a).parent, g.id);
+    expect(row(a).depth, 2);
+
+    // 풀기: 다시 대지 아래, 같은 차례.
+    await s.cmd('ungroup');
+    await idle();
+    expect(s.state!.selection, hasLength(2));
+    expect([for (final r in s.layers) r.id], [board.id, b, a]);
+
+    // 순서: a를 맨 앞으로, 다시 한 칸 뒤로.
+    await s.cmd('select', {
+      'ids': [a],
+    });
+    await s.cmd('order', {'to': 'front'});
+    await idle();
+    expect([for (final r in s.layers) r.id], [board.id, a, b]);
+    await s.cmd('order', {'to': 'backward'});
+    await idle();
+    expect([for (final r in s.layers) r.id], [board.id, b, a]);
+
+    // 숨기기·잠그기(그 줄 하나).
+    await s.cmd('toggle', {
+      'key': 'visible',
+      'ids': [b],
+    });
+    await s.cmd('toggle', {
+      'key': 'locked',
+      'ids': [a],
+    });
+    await idle();
+    expect(row(b).visible, isFalse);
+    expect(row(a).locked, isTrue);
+
+    // 프레임 안으로: 판에서 본 자리는 그대로, 프레임 기준의 자리가 된다.
+    await s.cmd('create', {
+      'tool': 'frame',
+      'x': 250,
+      'y': 50,
+      'x2': 700,
+      'y2': 400,
+    });
+    await idle();
+    final f = s.state!.selection.single.id;
+    await s.cmd('place', {
+      'ids': [b],
+      'parent': f,
+      'behind': null,
+    });
+    await idle();
+    expect(row(b).parent, f);
+    final nodes = await engine.docNodes(s.id);
+    expect(props(nodes, b)!['x'], 50);
+    expect(props(nodes, b)!['y'], 50);
+
+    // 대지 더하기: A4, 둘째 쪽.
+    await s.cmd('addBoard', {'preset': 'A4'});
+    await idle();
+    final p2 = s.state!.selection.single;
+    expect((p2.type, p2.w, p2.h), ('page', 595.0, 842.0));
+    expect(
+      [for (final r in s.layers.where((r) => r.depth == 0)) r.id],
+      [board.id, p2.id],
+    );
+    expect(s.layers.last.preset, 'A4');
+    // 가로로 돌리면 가로세로가 바뀐다.
+    await s.set({'orientation': 'landscape'});
+    await idle();
+    expect(
+      (s.state!.selection.single.w, s.state!.selection.single.h),
+      (842.0, 595.0),
+    );
+    // 숨긴 b는 PDF에서 빠지고, 쪽은 대지마다 하나.
+    final out = '${tmp.path}/레이어.pdf';
+    final r = await engine.docExportPdf(s.id, out);
+    expect(r['pages'], 2);
+
+    // 되돌리기를 끝까지 하면 처음(빈 대지 하나)이다.
+    while (s.state!.canUndo) {
+      await s.undo();
+      await idle();
+    }
+    expect(s.layers.map((r) => (r.id, r.kids)), [(board.id, 0)]);
+  });
+
   test('확대·이동·모두 보기는 보기 상태만 바꾼다', () async {
     final s = await open();
     final seq = s.state!.seq;

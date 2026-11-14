@@ -150,3 +150,62 @@ class CanvasState {
   /// 엔진이 거절한 이유 한 문장.
   final String? refused;
 }
+
+/// 레이어 패널의 줄 하나(`canvas.layers`의 `rows`). 대지는 문서 차례(PDF의 쪽 차례), 그 아래는 앞에 놓인 것이 먼저다.
+class CanvasLayer {
+  const CanvasLayer({
+    required this.id,
+    required this.type,
+    required this.depth,
+    required this.label,
+    this.parent,
+    this.name = '',
+    this.visible = true,
+    this.locked = false,
+    this.hiddenUp = false,
+    this.lockedUp = false,
+    this.kids = 0,
+    this.w,
+    this.h,
+    this.preset,
+  });
+
+  factory CanvasLayer.fromJson(Json j) => CanvasLayer(
+    id: j['id'] as String,
+    type: j['type'] as String,
+    parent: j['parent'] as String?,
+    depth: (j['depth'] as num).toInt(),
+    name: j['name'] as String? ?? '',
+    label: j['label'] as String,
+    visible: j['visible'] != false,
+    locked: j['locked'] == true,
+    hiddenUp: j['hiddenUp'] == true,
+    lockedUp: j['lockedUp'] == true,
+    kids: (j['kids'] as num?)?.toInt() ?? 0,
+    w: (j['w'] as num?)?.toDouble(),
+    h: (j['h'] as num?)?.toDouble(),
+    preset: j['preset'] as String?,
+  );
+
+  final String id;
+  final String type;
+  final String? parent;
+  final int depth;
+
+  /// 저장된 이름(없으면 빈 글)과 보일 이름(이름이 없으면 글 상자의 글이나 종류 이름).
+  final String name, label;
+
+  /// 제 값과, 조상이 숨기거나 잠갔는지.
+  final bool visible, locked, hiddenUp, lockedUp;
+
+  /// 자식 수.
+  final int kids;
+
+  /// 대지의 크기와 크기 이름.
+  final double? w, h;
+  final String? preset;
+
+  /// 다른 레이어를 안에 넣을 수 있는 종류.
+  bool get container =>
+      const {'page', 'frame', 'group', 'section'}.contains(type);
+}

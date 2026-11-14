@@ -7,9 +7,9 @@ library;
 
 import 'dart:convert';
 
-import 'canvas_state.dart' show CanvasState;
+import 'canvas_state.dart' show CanvasLayer, CanvasState;
 
-export 'canvas_state.dart' show CanvasSel, CanvasState, CanvasText;
+export 'canvas_state.dart' show CanvasLayer, CanvasSel, CanvasState, CanvasText;
 
 typedef Json = Map<String, Object?>;
 
@@ -1151,8 +1151,19 @@ abstract class EngineApi {
     if (ctrl) 'ctrl': true,
   });
 
+  /// 레이어 패널의 줄들과 그것을 읽은 문서의 `seq`(저장된 문서).
+  Future<({int seq, List<CanvasLayer> rows})> canvasLayers(int id) async {
+    final j = await call('canvas.layers', {'id': id}) as Json;
+    return (
+      seq: (j['seq'] as num).toInt(),
+      rows: [
+        for (final r in j['rows'] as List) CanvasLayer.fromJson(r as Json),
+      ],
+    );
+  }
+
   /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, flip, align,
-  /// distribute, paste, editText, endText, cancel.
+  /// distribute, paste, editText, endText, cancel, group, ungroup, order, place, toggle, addBoard.
   Future<CanvasState> canvasCmd(
     int id,
     String name, {

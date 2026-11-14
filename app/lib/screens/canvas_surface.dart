@@ -224,7 +224,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
       case 'view':
         a['op'] == 'zoom'
             ? _s.zoomAt(by: a['by'] as double)
-            : _s.viewOp(a['op'] as String);
+            : _s.viewOp(a['op'] as String, rest);
       case 'undo':
         _s.undo();
       case 'redo':

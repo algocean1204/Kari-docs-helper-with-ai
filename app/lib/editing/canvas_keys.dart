@@ -46,6 +46,14 @@ const canvasDistributes = [('h', '가로 간격 고르게'), ('v', '세로 간�
 /// 뒤집기: (`canvas.cmd flip`의 `axis`, 화면 이름, ⇧와 함께 누르는 키).
 const canvasFlips = [('h', '가로로 뒤집기', 'H'), ('v', '세로로 뒤집기', 'V')];
 
+/// 쌓임 순서: (`canvas.cmd order`의 `to`, 화면 이름, ⌘와 함께 누르는 키, ⌥도 누르는가).
+const canvasOrders = [
+  ('forward', '앞으로 가져오기', LogicalKeyboardKey.bracketRight, false),
+  ('backward', '뒤로 보내기', LogicalKeyboardKey.bracketLeft, false),
+  ('front', '맨 앞으로 가져오기', LogicalKeyboardKey.bracketRight, true),
+  ('back', '맨 뒤로 보내기', LogicalKeyboardKey.bracketLeft, true),
+];
+
 final _alignKeys = {
   LogicalKeyboardKey.keyA: 'left',
   LogicalKeyboardKey.keyH: 'centerH',
@@ -98,6 +106,12 @@ Json? canvasKey(
 }) {
   if (control) return null;
   if (editing) return _editingKey(key, shift, alt, meta);
+  // 쌓임 순서: ⌘] ⌘[ 한 칸, ⌥⌘] ⌥⌘[ 맨 앞·맨 뒤.
+  if (meta && !shift) {
+    for (final (to, _, k, a) in canvasOrders) {
+      if (k == key && a == alt) return _cmd('order', {'to': to});
+    }
+  }
   if (alt) {
     final to = meta || shift ? null : _alignKeys[key];
     return to == null ? null : _cmd('align', {'to': to});
@@ -112,6 +126,9 @@ Json? canvasKey(
       },
       LogicalKeyboardKey.keyA when !shift => _cmd('selectAll'),
       LogicalKeyboardKey.keyD when !shift => _cmd('duplicate'),
+      LogicalKeyboardKey.keyG => _cmd(shift ? 'ungroup' : 'group'),
+      LogicalKeyboardKey.keyH when shift => _cmd('toggle', {'key': 'visible'}),
+      LogicalKeyboardKey.keyL when shift => _cmd('toggle', {'key': 'locked'}),
       LogicalKeyboardKey.keyZ => {'k': shift ? 'redo' : 'undo'},
       LogicalKeyboardKey.digit0 ||
       LogicalKeyboardKey.numpad0 when !shift => _view('actual'),
@@ -134,6 +151,7 @@ Json? canvasKey(
       LogicalKeyboardKey.at => _view('fitSelection'),
       LogicalKeyboardKey.keyH => _cmd('flip', {'axis': 'h'}),
       LogicalKeyboardKey.keyV => _cmd('flip', {'axis': 'v'}),
+      LogicalKeyboardKey.keyN => _view('board', {'to': 'prev'}),
       LogicalKeyboardKey.arrowLeft => _cmd('nudge', {
         'dir': 'left',
         'shift': true,
@@ -154,6 +172,8 @@ Json? canvasKey(
   if (tool != null) return {'k': 'tool', 'tool': tool};
   return switch (key) {
     LogicalKeyboardKey.escape => {'k': 'esc'},
+    // 대지 사이 이동(Figma의 N, ⇧N).
+    LogicalKeyboardKey.keyN => _view('board', {'to': 'next'}),
     LogicalKeyboardKey.backspace || LogicalKeyboardKey.delete => _cmd('delete'),
     LogicalKeyboardKey.arrowLeft => _cmd('nudge', {'dir': 'left'}),
     LogicalKeyboardKey.arrowRight => _cmd('nudge', {'dir': 'right'}),

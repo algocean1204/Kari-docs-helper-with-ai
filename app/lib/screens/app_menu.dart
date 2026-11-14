@@ -128,9 +128,15 @@ class CanvasMenu {
     required this.versions,
     required this.versionsOpen,
     required this.openImage,
+    this.layersOpen = false,
+    this.toggleLayers,
   });
 
   final CanvasSession session;
+
+  /// 레이어 패널이 열려 있는지와 여닫기.
+  final bool layersOpen;
+  final VoidCallback? toggleLayers;
   final VoidCallback focusCanvas;
 
   /// 하는 중(PDF를 만드는 중)이면 null.
@@ -623,10 +629,51 @@ List<MenuEntry> canvasMenus({
         run: on(() => s.viewOp('fitSelection'), when: has),
       ),
       MenuEntry.divider,
+      // 대지 사이 이동의 N, ⇧N은 한 글자 키라 메뉴에 걸지 않는다(판이 받는다).
+      MenuEntry('다음 대지', run: on(() => s.viewOp('board', {'to': 'next'}))),
+      MenuEntry('앞 대지', run: on(() => s.viewOp('board', {'to': 'prev'}))),
+      MenuEntry(
+        '레이어 패널',
+        run: canvas.toggleLayers == null ? null : on(canvas.toggleLayers!),
+        checked: canvas.layersOpen,
+      ),
+      MenuEntry.divider,
       const MenuEntry.provided(PlatformProvidedMenuItemType.toggleFullScreen),
     ]),
     // 한 글자 키와 ⌥ 키는 메뉴에 걸지 않는다(판이 받는다). ⌥와 글자는 macOS에서 특수 문자를 친다.
     MenuEntry.sub('개체', [
+      MenuEntry(
+        '묶기',
+        keys: _meta(LogicalKeyboardKey.keyG),
+        run: cmd('group', when: has && !editing),
+      ),
+      MenuEntry(
+        '묶음 풀기',
+        keys: _meta(LogicalKeyboardKey.keyG, shift: true),
+        run: cmd(
+          'ungroup',
+          when: !editing && st?.selection.any((n) => n.type == 'group') == true,
+        ),
+      ),
+      MenuEntry.divider,
+      for (final (to, label, key, alt) in canvasOrders)
+        MenuEntry(
+          label,
+          keys: _meta(key, alt: alt),
+          run: cmd('order', when: has && !editing, a: {'to': to}),
+        ),
+      MenuEntry.divider,
+      MenuEntry(
+        '숨기기·보이기',
+        keys: _meta(LogicalKeyboardKey.keyH, shift: true),
+        run: cmd('toggle', when: has && !editing, a: {'key': 'visible'}),
+      ),
+      MenuEntry(
+        '잠그기·잠금 풀기',
+        keys: _meta(LogicalKeyboardKey.keyL, shift: true),
+        run: cmd('toggle', when: has && !editing, a: {'key': 'locked'}),
+      ),
+      MenuEntry.divider,
       for (final (axis, label, _) in canvasFlips)
         MenuEntry(
           label,
@@ -803,7 +850,8 @@ class _AppMenuBarState extends State<AppMenuBar> {
         modal,
         c.session,
         (cs?.canUndo, cs?.canRedo, cs?.selection.isNotEmpty, cs?.tool),
-        (cs?.text != null, cs == null, c.versionsOpen),
+        (cs?.text != null, cs == null, c.versionsOpen, c.layersOpen),
+        cs?.selection.any((n) => n.type == 'group'),
         (c.exportPdf == null, c.openImage == null),
       );
     }

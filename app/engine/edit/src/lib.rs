@@ -26,8 +26,9 @@ mod text;
 mod utf16;
 
 pub use canvas::{
-    boards, label_rect, BoardRect, CPlan, CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, Chrome,
-    End, Handle, Marks, Measure, Out, Phase, Pointer, TextChrome, TextCmd, Tool, DRAG_PX,
+    boards, follow_groups, group_offset, label_rect, layer_rows, watch_groups, BoardRect, CPlan,
+    CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, CanvasOrder, Chrome, End, GroupWatch, Handle,
+    Marks, Measure, Out, Phase, Pointer, TextChrome, TextCmd, Tool, BOARD_SIZES, DRAG_PX,
     HANDLE_HIT_PX, LABEL_GAP, LABEL_H, LABEL_MIN_W, ROTATE_PX, SLOP_PX, SNAP_PX,
 };
 pub use clip::{FragCell, FragPara, FragRow, FragTable, Fragment, MAX_FRAGMENT};

@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 
 use kari_doc::serde_json::{json, Map, Value};
-use kari_edit::{CanvasAlign, CanvasCmd, End, Motion, Phase, TextCmd, Tool};
+use kari_edit::{group_offset, CanvasAlign, CanvasCmd, End, Motion, Phase, TextCmd, Tool};
 use kari_layout::{apply, inv};
 
 use super::walk::{frame_center, near, target, turn, Hist, Tally};
@@ -15,8 +15,39 @@ fn ids_of(t: &CanvasT) -> HashSet<String> {
     t.back.nodes().map(|n| n.id.clone()).collect()
 }
 
+/// 그룹의 자손이 모두 축에 나란하고(90도 곱절로 돌거나 돌지 않음) 글 상자가 아니며 크기가 있는가. 그러면 그룹의 크기를
+/// 바꿨을 때 자식이 정확히 그 상자를 채운다. 그룹은 1보다 커야 한다(1에서 멈추므로 1이면 요청보다 클 수 있다).
+pub fn plain_group(t: &CanvasT, id: &str) -> bool {
+    let d = &t.back;
+    d.subtree(id).iter().skip(1).all(|n| {
+        let rot = d
+            .prop(&n.id, "rotation")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let size = |k: &str| d.prop(&n.id, k).and_then(Value::as_f64).unwrap_or(0.0);
+        (rot / 90.0).fract().abs() < 1e-9
+            && n.kind != "text"
+            && (n.kind == "group" || (size("w") > 0.0 && (n.kind == "line" || size("h") > 0.0)))
+    }) && !d.children(Some(id)).is_empty()
+        && ["w", "h"]
+            .iter()
+            .all(|k| d.prop(id, k).and_then(Value::as_f64).unwrap_or(0.0) > 1.0)
+}
+
+/// 노드나 조상이 잠겼는가.
+pub fn locked_up(t: &CanvasT, id: &str) -> bool {
+    let mut cur = Some(id.to_string());
+    while let Some(c) = cur {
+        if t.back.prop(&c, "locked").and_then(Value::as_bool) == Some(true) {
+            return true;
+        }
+        cur = t.back.node(&c).and_then(|n| n.parent.clone());
+    }
+    false
+}
+
 /// 한 부모의 형제 몇 개를 고른다.
-fn select_siblings(r: &mut Rng, t: &mut CanvasT) -> Vec<String> {
+pub fn select_siblings(r: &mut Rng, t: &mut CanvasT) -> Vec<String> {
     let ids: Vec<String> = t.back.nodes().map(|n| n.id.clone()).collect();
     let id = r.pick(&ids).clone();
     let parent = t.back.node(&id).unwrap().parent.clone();
@@ -39,7 +70,8 @@ pub fn edit_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         t.cmd(CanvasCmd::Tool(None));
         h.sync(t, tag);
     }
-    match r.below(214) {
+    match r.below(254) {
+        214.. => super::layers::layer_step(r, t, h, tally, tag),
         0..=29 => create_step(r, t, h, tally, tag),
         30..=44 => delete_step(r, t, h, tally, tag),
         45..=59 => duplicate_step(r, t, h, tally, tag),
@@ -50,7 +82,7 @@ pub fn edit_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         128..=147 => clip_step(r, t, h, tally, tag),
         148..=169 => mods_step(r, t, h, tally, tag),
         170..=191 => rotate_step(r, t, h, tally, tag),
-        _ => snap_step(r, t, h, tally, tag),
+        192..=213 => snap_step(r, t, h, tally, tag),
     }
     if t.ed.editing().is_some() || t.ed.tool().is_some() {
         t.cmd(CanvasCmd::Tool(None));
@@ -85,9 +117,10 @@ fn create_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, ta
     });
     let shift = r.chance(20);
     let (hash0, c0, before) = (t.back.hash(), t.commits, ids_of(t));
-    let inside = kari_edit::boards(&t.back)
-        .iter()
-        .any(|b| p0.0 >= b.x && p0.0 <= b.x + b.w && p0.1 >= b.y && p0.1 <= b.y + b.h);
+    // 잠근 대지 안에는 놓지 않는다(판의 빈 곳과 같다).
+    let inside = kari_edit::boards(&t.back).iter().any(|b| {
+        !locked_up(t, &b.id) && p0.0 >= b.x && p0.0 <= b.x + b.w && p0.1 >= b.y && p0.1 <= b.y + b.h
+    });
     let refused = if r.chance(40) {
         t.cmd(CanvasCmd::Tool(Some(tool.clone())));
         let down = t.pointer(Phase::Down, p0.0, p0.1, shift, false);
@@ -222,6 +255,7 @@ fn delete_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, ta
         .filter(|i| t.back.node(i).unwrap().kind == "page")
         .count();
     let all_pages = picked > 0 && picked >= pages;
+    let prev = t.back.clone();
     let hash = t.back.hash();
     let plan = t.cmd(CanvasCmd::Delete);
     h.sync(t, tag);
@@ -230,7 +264,27 @@ fn delete_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, ta
         assert_eq!(t.back.hash(), hash);
         return;
     }
-    let want: HashSet<String> = before.difference(&gone).cloned().collect();
+    let mut want: HashSet<String> = before.difference(&gone).cloned().collect();
+    // 자식이 모두 없어진 그룹은 함께 지워진다(Figma와 같다). 그 위의 그룹도 그렇게 비면 지워진다.
+    loop {
+        let empty: Vec<String> = want
+            .iter()
+            .filter(|i| {
+                let n = prev.node(i).unwrap();
+                let had = !prev.children(Some(i)).is_empty();
+                n.kind == "group"
+                    && had
+                    && prev.children(Some(i)).iter().all(|k| !want.contains(&k.id))
+            })
+            .cloned()
+            .collect();
+        if empty.is_empty() {
+            break;
+        }
+        for e in empty {
+            want.remove(&e);
+        }
+    }
     assert_eq!(ids_of(t), want, "{tag}: 남은 노드");
     assert!(t.sel().is_empty(), "{tag}");
 }
@@ -342,15 +396,33 @@ fn set_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: 
         for (k, v) in &req {
             let want = f(v);
             match k.as_str() {
+                // 그룹 안의 노드는 가장 가까운 프레임·대지 기준이다. 사이의 그룹이 돌거나 뒤집혔으면 그룹 좌표이고,
+                // 그 그룹은 커밋 때 자식의 경계로 다시 맞춰져 자식의 자리가 옮겨질 수 있어 보지 않는다.
                 "x" | "y" => {
                     let key = match (kind.as_str(), k.as_str()) {
                         ("page", "x") => "cx",
                         ("page", _) => "cy",
                         _ => k.as_str(),
                     };
-                    assert!((f(&p(key)) - want).abs() < 1e-6, "{tag}: {id} {k}");
+                    let Some(off) = group_offset(&t.back, id) else {
+                        continue;
+                    };
+                    // 크기도 바꾼 그룹은 자식의 경계로 다시 맞춰지며(가운데를 지킨다) 자리가 옮겨질 수 있다.
+                    let sized = req.contains_key("w") || req.contains_key("h");
+                    if kind == "group" && sized && !plain_group(t, id) {
+                        continue;
+                    }
+                    let off = if k == "x" { off.0 } else { off.1 };
+                    assert!((f(&p(key)) + off - want).abs() < 1e-6, "{tag}: {id} {k}");
                 }
                 "h" if kind == "line" => {}
+                // 그룹의 크기는 자식이 따라 늘어난 뒤 자식의 경계로 다시 맞춰진다. 자식이 모두 축에 나란한 고정 크기면
+                // 요청한 값이다(자식마다 소수 셋으로 반올림한 만큼 다를 수 있다).
+                "w" | "h" if kind == "group" => {
+                    if plain_group(t, id) {
+                        assert!((f(&p(k)) - want).abs() < 5e-3, "{tag}: {id} {k}");
+                    }
+                }
                 "w" | "h" => assert!((f(&p(k)) - want).abs() < 1e-6, "{tag}: {id} {k}"),
                 "opacity" => assert!((f(&p("opacity")) - want).abs() < 1e-6, "{tag}"),
                 "name" => assert_eq!(&p("name"), v, "{tag}"),
@@ -621,11 +693,24 @@ fn flip_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag:
 fn align_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
     tally.aligns += 1;
     let sel = select_siblings(r, t);
-    let before = parent_quads(t, &sel);
+    // 상자는 가장 가까운 프레임·대지의 좌표로 본다: 그룹 안이면 그룹이 자식을 따라 맞춰지며 원점이 옮겨진다.
+    // 사이의 그룹이 돌거나 뒤집혔으면 축이 달라 보지 않는다.
+    let Some(off0) = group_offset(&t.back, &sel[0]) else {
+        return;
+    };
+    let shift = |q: &Quad, o: (f64, f64)| -> Quad { q.map(|p| [p[0] + o.0, p[1] + o.1]) };
+    let before: Vec<Quad> = parent_quads(t, &sel)
+        .iter()
+        .map(|q| shift(q, off0))
+        .collect();
     let boxes: Vec<[f64; 4]> = before.iter().map(|q| bbox([q])).collect();
     let (hash, c0) = (t.back.hash(), t.commits);
     let bounds_after = |t: &mut CanvasT| -> Vec<[f64; 4]> {
-        parent_quads(t, &sel).iter().map(|q| bbox([q])).collect()
+        let off = group_offset(&t.back, &sel[0]).unwrap_or((f64::NAN, f64::NAN));
+        parent_quads(t, &sel)
+            .iter()
+            .map(|q| bbox([&shift(q, off)]))
+            .collect()
     };
     let same_rest = |a: &[f64; 4], b: &[f64; 4], axis: usize| {
         let o = 1 - axis;
@@ -677,16 +762,20 @@ fn align_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag
         (CanvasAlign::CenterV, 1, 0.5),
         (CanvasAlign::Bottom, 1, 1.0),
     ]);
-    // 맞출 곳: 하나면 부모의 상자, 여럿이면 고른 것들의 경계.
+    // 맞출 곳: 하나면 부모(그룹 안이면 가장 가까운 프레임·대지)의 상자, 여럿이면 고른 것들의 경계.
     let target = match sel.as_slice() {
-        [one] => t
-            .back
-            .node(one)
-            .unwrap()
-            .parent
-            .clone()
-            .map(|p| t.lay.node_geo(&t.back, &p).unwrap())
-            .map(|g| [0.0, 0.0, g.w, g.h]),
+        [one] => {
+            let mut up = t.back.node(one).unwrap().parent.clone();
+            while let Some(g) = up
+                .clone()
+                .and_then(|u| t.back.node(&u).cloned())
+                .filter(|n| n.kind == "group")
+            {
+                up = g.parent.clone();
+            }
+            up.map(|p| t.lay.node_geo(&t.back, &p).unwrap())
+                .map(|g| [0.0, 0.0, g.w, g.h])
+        }
         _ => Some(bbox(&before)),
     };
     let plan = t.cmd(CanvasCmd::Align(to));
@@ -765,6 +854,15 @@ fn clip_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag:
         center,
     });
     h.sync(t, tag);
+    // 아무것도 안 골랐고 대지가 아닌 조각인데 보이고 잠기지 않은 대지가 없으면(모두 숨김·잠금) 붙일 곳이 없다.
+    let open = kari_edit::boards(&t.back)
+        .iter()
+        .any(|b| !locked_up(t, &b.id));
+    if at_paste.is_empty() && !pages && !open {
+        assert!(plan.refused.is_some(), "{tag}: 붙일 대지가 없다");
+        assert_eq!(t.commits, c0, "{tag}");
+        return;
+    }
     assert!(plan.refused.is_none(), "{tag}: {:?}", plan.refused);
     assert_eq!(t.commits, c0 + 1, "{tag}: 붙여넣기는 묶음 하나");
     assert_eq!(t.back.len(), n0 + total, "{tag}: 붙인 개수");
@@ -909,24 +1007,57 @@ fn mods_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag:
             .zip(b)
             .all(|(p, q)| near([p[0] + dx, p[1] + dy], *q, tol))
     };
+    // 잠근 것(조상이 잠근 것 포함)은 판에서 끌어도 옮겨지지 않고 ⌥ 사본도 생기지 않는다.
+    let free: Vec<bool> = sel.iter().map(|i| !locked_up(t, i)).collect();
+    let still = |a: &Quad, b: &Quad| a.iter().zip(b).all(|(p, q)| near(*p, *q, tol));
     match out.end {
         End::Commit("옮기기") => {
             assert!(!alt, "{tag}: ⌥면 사본을 끈다");
-            for (g, id) in geos.iter().zip(&sel) {
+            for ((g, id), f) in geos.iter().zip(&sel).zip(&free) {
                 let after = t.lay.node_geo(&t.back, id).unwrap();
-                assert!(moved(&g.quad(), &after.quad()), "{tag}: {id} ⇧ 옮기기");
+                if *f {
+                    assert!(moved(&g.quad(), &after.quad()), "{tag}: {id} ⇧ 옮기기");
+                } else {
+                    assert!(
+                        still(&g.quad(), &after.quad()),
+                        "{tag}: {id} 잠근 것은 그대로"
+                    );
+                }
             }
         }
         End::Commit("복제") => {
             tally.alt_dups += 1;
             assert!(alt, "{tag}");
+            let copied: usize = sel
+                .iter()
+                .zip(&free)
+                .filter(|(_, f)| **f)
+                .map(|(i, _)| t.back.subtree(i).len())
+                .sum::<usize>()
+                .min(copied);
             assert_eq!(t.back.len(), n0 + copied, "{tag}: 사본의 수");
-            for (id, p) in sel.iter().zip(&props) {
-                assert_eq!(&t.back.node(id).unwrap().props, p, "{tag}: 원본은 그대로");
+            // 원본은 그대로다. 그룹 안이면 사본을 따라 그룹의 원점이 옮겨져 x·y가 그만큼 바뀌므로 판의 자리로 본다.
+            for ((id, p), g) in sel.iter().zip(&props).zip(&geos) {
+                let now = &t.back.node(id).unwrap().props;
+                let rest = |m: &Map<String, Value>| {
+                    let mut m = m.clone();
+                    m.remove("x");
+                    m.remove("y");
+                    m
+                };
+                assert_eq!(rest(now), rest(p), "{tag}: 원본은 그대로");
+                let after = t.lay.node_geo(&t.back, id).unwrap();
+                let same = g
+                    .quad()
+                    .iter()
+                    .zip(after.quad())
+                    .all(|(a, b)| near(*a, b, tol));
+                assert!(same, "{tag}: {id} 원본의 자리");
             }
             let copies: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
-            assert_eq!(copies.len(), sel.len(), "{tag}: 사본이 골라진다");
-            for (g, c) in geos.iter().zip(&copies) {
+            let srcs: Vec<_> = geos.iter().zip(&free).filter(|(_, f)| **f).collect();
+            assert_eq!(copies.len(), srcs.len(), "{tag}: 사본이 골라진다");
+            for ((g, _), c) in srcs.iter().zip(&copies) {
                 assert!(!sel.contains(c), "{tag}");
                 let after = t.lay.node_geo(&t.back, c).unwrap();
                 assert!(moved(&g.quad(), &after.quad()), "{tag}: {c} 사본의 자리");
@@ -935,7 +1066,9 @@ fn mods_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag:
         End::Commit("크기 바꾸기") => {
             let name = down.handle.expect("손잡이를 눌렀다");
             let [g] = geos.as_slice() else { return };
-            if matches!(g.kind.as_str(), "line" | "text" | "page") {
+            if matches!(g.kind.as_str(), "line" | "text" | "page")
+                || (g.kind == "group" && !plain_group(t, &g.id))
+            {
                 return;
             }
             let after = t.lay.node_geo(&t.back, &g.id).unwrap();
@@ -1132,7 +1265,22 @@ pub fn snap_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
     t.snap = true;
     t.alt = alt;
     let down = t.pointer(Phase::Down, p0.0, p0.1, shift, false);
-    let sel: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    // 끌리는 것: 고른 것 가운데 잠그지 않은 것(함께 고른 잠근 것은 제자리에 남아 후보가 된다).
+    let sel: Vec<String> = t
+        .sel()
+        .iter()
+        .map(|s| s.to_string())
+        .filter(|i| !locked_up(t, i))
+        .collect();
+    if sel.is_empty() {
+        t.pointer(Phase::Move, p1.0, p1.1, shift, false);
+        t.pointer(Phase::Up, p1.0, p1.1, shift, false);
+        t.alt = false;
+        t.snap = false;
+        h.sync(t, tag);
+        assert_eq!(t.back.hash(), hash0, "{tag}: 잠근 것만 골랐으면 그대로");
+        return;
+    }
     let geos: Vec<_> = sel
         .iter()
         .filter_map(|i| t.lay.node_geo(&t.back, i))
@@ -1141,6 +1289,7 @@ pub fn snap_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         .iter()
         .map(|i| t.back.node(i).unwrap().props.clone())
         .collect();
+    let off0 = kari_edit::group_offset(&t.back, &sel[0]);
     if r.chance(60) {
         p1 = aim(r, t, &geos, p0, p1);
     }
@@ -1180,13 +1329,28 @@ pub fn snap_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         end: out.end,
         handle: down.handle,
         marks_mid: &marks_mid,
+        off0,
     };
     if check_snap(t, &ctx, tag) {
         tally.snapped += 1;
     }
     if out.end == End::Commit("복제") {
-        for (id, p) in sel.iter().zip(&props) {
-            assert_eq!(&t.back.node(id).unwrap().props, p, "{tag}: 원본은 그대로");
+        // 원본은 그대로다. 그룹 안이면 사본을 따라 그룹의 원점이 옮겨져 x·y가 그만큼 바뀌므로 판의 자리로 본다.
+        let rest = |m: &Map<String, Value>| {
+            let mut m = m.clone();
+            m.remove("x");
+            m.remove("y");
+            m
+        };
+        for ((id, p), g) in sel.iter().zip(&props).zip(&geos) {
+            assert_eq!(
+                rest(&t.back.node(id).unwrap().props),
+                rest(p),
+                "{tag}: 원본은 그대로"
+            );
+            let now = t.lay.node_geo(&t.back, id).unwrap().quad();
+            let same = g.quad().iter().zip(now).all(|(a, b)| near(*a, b, 5e-3));
+            assert!(same, "{tag}: {id} 원본의 자리");
         }
     }
     // 붙기를 켠 끌기도 되돌리기 한 번에 돌아오고 다시 하기 한 번에 간다.
@@ -1256,6 +1420,8 @@ struct SnapCase<'a> {
     end: End,
     handle: Option<&'static str>,
     marks_mid: &'a kari_edit::Marks,
+    /// 끌기 전, 끄는 것의 부모 좌표를 가장 가까운 프레임·대지 좌표로 옮기는 값(`group_offset`).
+    off0: Option<(f64, f64)>,
 }
 
 /// 한 축의 세 선.
@@ -1290,18 +1456,44 @@ fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
             if dup {
                 !copies.contains(i)
             } else {
-                !k.sel.contains(i)
+                // 함께 고른 잠근 것은 움직이지 않아 후보다.
+                !k.sel.contains(i) || locked_up(t, i)
             }
         })
         .collect();
+    // 모두 가장 가까운 프레임·대지의 좌표로 본다: 그룹 안이면 커밋 때 그룹이 자식을 따라 맞춰지며 그룹의 원점이
+    // 옮겨지므로, 옛 부모 좌표(+ off0)와 새 부모 좌표(+ off1)가 같은 자리가 되게 한다. 사이 그룹이 돌거나 뒤집혔으면
+    // 축이 달라 보지 않는다.
+    let moved_id = if dup { copies.first() } else { k.sel.first() };
+    let (Some(off0), Some(off1)) = (
+        k.off0,
+        moved_id.and_then(|i| kari_edit::group_offset(&t.back, i)),
+    ) else {
+        return false;
+    };
+    let sh = |b: [f64; 4], o: (f64, f64)| [b[0] + o.0, b[1] + o.1, b[2] + o.0, b[3] + o.1];
     let boxes: Vec<[f64; 4]> = kids
         .iter()
-        .map(|i| bbox(&[t.lay.node_geo(&t.back, i).unwrap().parent_quad()]))
+        .map(|i| {
+            sh(
+                bbox(&[t.lay.node_geo(&t.back, i).unwrap().parent_quad()]),
+                off1,
+            )
+        })
         .collect();
-    let own = parent
-        .as_deref()
-        .and_then(|p| t.lay.node_geo(&t.back, p))
-        .map(|g| [0.0, 0.0, g.w, g.h]);
+    // 부모의 상자. 그룹 안이면 가장 가까운 프레임·대지의 상자.
+    let own = parent.as_deref().and_then(|_| {
+        let mut up = parent.clone();
+        while let Some(g) = up
+            .clone()
+            .and_then(|u| t.back.node(&u).cloned())
+            .filter(|n| n.kind == "group")
+        {
+            up = g.parent.clone();
+        }
+        let f = t.lay.node_geo(&t.back, up.as_deref()?)?;
+        Some([0.0, 0.0, f.w, f.h])
+    });
     let on_line = |i: usize, v: f64| {
         boxes
             .iter()
@@ -1312,12 +1504,18 @@ fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
     match k.end {
         End::Commit("옮기기") | End::Commit("복제") => {
             let moved = if dup { copies.clone() } else { k.sel.to_vec() };
-            let b0 = bbox(&k.geos.iter().map(|g| g.parent_quad()).collect::<Vec<_>>());
+            let b0 = sh(
+                bbox(&k.geos.iter().map(|g| g.parent_quad()).collect::<Vec<_>>()),
+                off0,
+            );
             let after: Vec<_> = moved
                 .iter()
                 .map(|i| t.lay.node_geo(&t.back, i).unwrap())
                 .collect();
-            let b1 = bbox(&after.iter().map(|g| g.parent_quad()).collect::<Vec<_>>());
+            let b1 = sh(
+                bbox(&after.iter().map(|g| g.parent_quad()).collect::<Vec<_>>()),
+                off1,
+            );
             let (mut dx, mut dy) = (k.p1.0 - k.p0.0, k.p1.1 - k.p0.1);
             if k.shift {
                 if dx.abs() >= dy.abs() {
@@ -1414,10 +1612,12 @@ fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
             let name = k.handle.unwrap_or("");
             let after = t.lay.node_geo(&t.back, &g.id).unwrap();
             let p = apply(&m, k.p1.0, k.p1.1);
+            let p = [p[0] + off0.0, p[1] + off0.1];
             if g.kind == "line" {
                 let w1 = after.world();
                 let e = [apply(&w1, 0.0, 0.0), apply(&w1, after.w, 0.0)][usize::from(name == "p1")];
                 let e = apply(&m, e[0], e[1]);
+                let e = [e[0] + off0.0, e[1] + off0.1];
                 for i in 0..2 {
                     let diff = e[i] - p[i];
                     assert!(diff.abs() <= tol + 0.03, "{tag}: 선의 끝 {e:?} / {p:?}");
@@ -1439,7 +1639,8 @@ fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
             if !aligned {
                 return snapped;
             }
-            let b1 = bbox(&[after.parent_quad()]);
+            let b1 = sh(bbox(&[after.parent_quad()]), off1);
+            let b0 = sh(bbox(&[g.parent_quad()]), off0);
             let xi = usize::from(l[1].abs() >= 1e-9);
             let x_on = matches!(name, "nw" | "ne" | "e" | "se" | "sw" | "w");
             let y_on = matches!(name, "nw" | "n" | "ne" | "se" | "s" | "sw");
@@ -1447,10 +1648,14 @@ fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
                 if !on {
                     continue;
                 }
-                let e = if (b1[i] - p[i]).abs() <= (b1[i + 2] - p[i]).abs() {
-                    b1[i]
-                } else {
-                    b1[i + 2]
+                // 끈 변: 맞은편 변은 시작 자리 그대로이므로, 시작 상자의 변과 같지 않은 쪽이다. 둘 다 같으면(제자리로
+                // 붙음) 포인터에 가까운 쪽. 붙은 끈 변이 포인터보다 맞은편 변에 더 가까울 수 있어 가까운 쪽만 보면 틀린다.
+                let fixed = |v: f64| [b0[i], b0[i + 2]].iter().any(|s| (s - v).abs() < SAME);
+                let e = match (fixed(b1[i]), fixed(b1[i + 2])) {
+                    (true, false) => b1[i + 2],
+                    (false, true) => b1[i],
+                    _ if (b1[i] - p[i]).abs() <= (b1[i + 2] - p[i]).abs() => b1[i],
+                    _ => b1[i + 2],
                 };
                 let diff = e - p[i];
                 assert!(diff.abs() <= tol, "{tag}: 끈 변 {e} / 포인터 {}", p[i]);

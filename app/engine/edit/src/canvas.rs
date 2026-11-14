@@ -18,6 +18,7 @@ use kari_layout::{apply, inv, Affine, Layouter, NodeGeo};
 mod arrange;
 mod clip;
 mod cmd;
+mod layers;
 mod make;
 mod props;
 mod snap;
@@ -26,6 +27,10 @@ mod text;
 pub use arrange::Align as CanvasAlign;
 pub use clip::CanvasClip;
 pub use cmd::{CPlan, CanvasCmd};
+pub use layers::{
+    follow_groups, group_offset, layer_rows, watch_groups, GroupWatch, Order as CanvasOrder,
+    BOARD_SIZES,
+};
 pub use make::Tool;
 use make::ANGLE_STEP;
 use snap::Snap;
@@ -551,6 +556,11 @@ impl CanvasEditor {
         self.marks = Marks::default();
         self.text_drag = false;
         self.sel.retain(|i| doc.node(i).is_some());
+        // 되돌리기로 묶기·풀기·옮기기가 되돌려지면 고른 것의 부모가 갈릴 수 있다. 고른 것은 늘 한 부모의 노드다.
+        let parent = |i: &String| doc.node(i).map(|n| n.parent.clone());
+        if let Some(first) = self.sel.first().map(parent) {
+            self.sel.retain(|i| parent(i) == first);
+        }
         if let Some(t) = &mut self.text {
             if doc.node(&t.id).is_some_and(|n| n.kind == "text") {
                 t.compose = None;
@@ -559,6 +569,19 @@ impl CanvasEditor {
                 self.text = None;
             }
         }
+    }
+
+    /// 문서에서 없어진 노드를 선택에서 뺀다(커밋 뒤 그룹이 비어 지워졌을 때). 끌기와 글 상자 편집은 그대로다.
+    pub fn prune(&mut self, doc: &Document) {
+        self.sel.retain(|i| doc.node(i).is_some());
+    }
+
+    /// 고른 것 가운데 판에서 옮기거나 크기를 바꿀 수 없는 것(숨기거나 잠근 것, 그 조상이 그런 것)이 있는가.
+    /// 그때는 손잡이와 돌리기 자리가 없고 고른 상자 안을 눌러도 옮기지 않는다(속성 패널과 레이어 패널로는 바꾼다).
+    fn fixed(&self, doc: &Document) -> bool {
+        self.shown()
+            .iter()
+            .any(|i| layers::locked_in(doc, i) || layers::hidden_in(doc, i))
     }
 
     /// 표시할 선택. ⌥ 끌기로 사본을 끄는 동안에는 사본이다(선택은 뗄 때 바뀐다).
@@ -624,11 +647,17 @@ impl CanvasEditor {
             ..Chrome::default()
         };
         for id in self.shown() {
+            if layers::hidden_in(doc, id) {
+                continue;
+            }
             if let Some(g) = lay.node_geo(doc, id) {
                 c.quads.push(g.quad());
             }
         }
         c.text = self.text_chrome(doc, lay);
+        if self.fixed(doc) {
+            return c;
+        }
         if let (Some(f), true) = (self.frame(doc, lay), self.text.is_none()) {
             if self.shown().len() > 1 {
                 c.quads.push(f.quad());
@@ -648,7 +677,7 @@ impl CanvasEditor {
         lay: &mut Layouter,
         p: &Pointer,
     ) -> Option<(Handle, Frame)> {
-        if self.text.is_some() {
+        if self.text.is_some() || self.fixed(doc) {
             return None;
         }
         let f = self.frame(doc, lay)?;
@@ -676,7 +705,7 @@ impl CanvasEditor {
 
     /// 돌리기 자리: 고른 상자의 밖이고 모서리에서 `ROTATE_PX` 안. 선과 대지는 돌리지 않는다.
     fn rotate_at(&self, doc: &Document, lay: &mut Layouter, p: &Pointer) -> Option<Frame> {
-        if self.text.is_some() {
+        if self.text.is_some() || self.fixed(doc) {
             return None;
         }
         let f = self.frame(doc, lay)?;
@@ -696,9 +725,12 @@ impl CanvasEditor {
 
     /// 끌기가 문턱을 넘을 때 붙기 후보를 모은다: 고른 것의 부모 안의 형제(⌥ 사본 끌기면 원본도)와 부모의 상자.
     fn snap_for(&self, doc: &Document, lay: &mut Layouter, d: &Drag) -> Option<Snap> {
+        // 빼는 것은 움직이는 것뿐이다: 함께 고른 잠근 것은 제자리에 있어 후보다.
         let skip = match &d.kind {
             Kind::Move { dup: Some(_), .. } => Vec::new(),
-            Kind::Move { .. } | Kind::Resize { .. } => self.sel.clone(),
+            Kind::Move { .. } | Kind::Resize { .. } => {
+                d.starts.iter().map(|s| s.geo.id.clone()).collect()
+            }
             _ => return None,
         };
         let g = &d.starts.first()?.geo;
@@ -808,9 +840,17 @@ impl CanvasEditor {
             },
             down: (p.x, p.y),
             started: false,
-            starts: self.starts(doc, lay),
+            starts: self.movable(doc, lay),
             snap: None,
         });
+    }
+
+    /// 판에서 끌거나 방향키로 옮길 노드의 시작 값. 잠근 노드(조상이 잠근 것 포함)는 판에서 옮기지 않으므로 뺀다
+    /// (레이어 패널에서 골라도 그렇다. 속성 패널과 메뉴의 명령으로는 바꾼다).
+    fn movable(&self, doc: &Document, lay: &mut Layouter) -> Vec<Start> {
+        let mut s = self.starts(doc, lay);
+        s.retain(|s| !layers::locked_in(doc, &s.geo.id));
+        s
     }
 
     fn down(&mut self, doc: &Document, lay: &mut Layouter, p: &Pointer, out: &mut Out) {
@@ -864,7 +904,7 @@ impl CanvasEditor {
                 .sel
                 .iter()
                 .any(|i| doc.node(i).is_some_and(|n| n.kind == "page"));
-            if inside && !page && f.ends.is_none() {
+            if inside && !page && f.ends.is_none() && !self.fixed(doc) {
                 self.drag = Some(Drag {
                     kind: Kind::Move {
                         click: None,
@@ -915,12 +955,14 @@ impl CanvasEditor {
         if !d.started {
             // 한계: ⌥는 끌기를 시작할 때만 본다, 도중에 누르거나 떼어도 사본 끌기와 옮기기가 바뀌지 않는다
             if let (true, Kind::Move { dup, .. }) = (p.alt, &mut d.kind) {
-                *dup = make::duplicate(doc, &self.sel, (0.0, 0.0))
+                // 끄는 것(잠그지 않은 것)만 사본을 만든다.
+                let ids: Vec<String> = d.starts.iter().map(|s| s.geo.id.clone()).collect();
+                *dup = make::duplicate(doc, &ids, (0.0, 0.0))
                     .ok()
                     .filter(|(ops, _)| !ops.is_empty())
                     .map(|(ops, roots)| Dup {
                         ops,
-                        from: make::roots(doc, &self.sel),
+                        from: make::roots(doc, &ids),
                         roots,
                         added: false,
                     });

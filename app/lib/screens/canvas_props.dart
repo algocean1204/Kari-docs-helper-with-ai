@@ -6,6 +6,9 @@ import '../design/tokens.dart';
 import '../editing/canvas_keys.dart';
 import '../editing/canvas_session.dart';
 import '../engine/engine.dart';
+import '../editing/doc_colors.dart' show textSwatches;
+import 'canvas_layers.dart' show boardSizeLabel, boardSizes;
+import 'format_dialogs.dart' show Palette;
 
 /// 속성 패널의 폭.
 const canvasPanelWidth = 256.0;
@@ -242,6 +245,44 @@ class _Fields extends StatelessWidget {
             ]),
           ],
         ]),
+        if (sel.length == 1 && sel.first.type == 'page')
+          _Section('대지 크기', [
+            MoreMenu(
+              key: const Key('board-size'),
+              label: switch (boardSizes.where(
+                (s) => s.$1 == sel.first.props['preset'],
+              )) {
+                final m when m.isNotEmpty => boardSizeLabel(m.first),
+                // 목록에 없는 용지 이름(A3 등)은 그 이름과 지금 크기로 보인다.
+                _ => switch (sel.first.props['preset']) {
+                  final String p when p.isNotEmpty && p != 'CUSTOM' =>
+                    boardSizeLabel((p, p, sel.first.w, sel.first.h)),
+                  _ => '사용자 지정',
+                },
+              },
+              tooltip: '대지 크기',
+              icon: Icons.unfold_more,
+              checked: {
+                for (final s in boardSizes)
+                  if (s.$1 == sel.first.props['preset']) boardSizeLabel(s),
+              },
+              items: [
+                for (final s in boardSizes)
+                  (
+                    boardSizeLabel(s),
+                    () => _cmd('set', {
+                      'props': {'preset': s.$1},
+                    }),
+                  ),
+              ],
+            ),
+            gap(),
+            Segmented<String>(
+              options: const [('portrait', '세로'), ('landscape', '가로')],
+              value: sel.first.w >= sel.first.h ? 'landscape' : 'portrait',
+              onChanged: (v) => _set({'orientation': v}),
+            ),
+          ]),
         _Section('모양', [
           row([
             _field(
@@ -708,6 +749,7 @@ class _ColorField extends StatefulWidget {
 }
 
 class _ColorFieldState extends State<_ColorField> {
+  final _menu = MenuController();
   final _text = TextEditingController();
   final _focus = FocusNode();
 
@@ -758,20 +800,62 @@ class _ColorFieldState extends State<_ColorField> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final color = _color(widget.hex);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // 견본 네모를 누르면 문서 편집기와 같은 색 판이 펼쳐진다. 고른 색은 바로 보낸다.
+    final swatch = MenuAnchor(
+      controller: _menu,
+      alignmentOffset: const Offset(0, Space.x1),
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(dark ? c.surface2 : c.surface),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: WidgetStatePropertyAll(dark ? 0 : 6),
+      ),
+      menuChildren: [
+        Palette(
+          label: widget.label,
+          swatches: textSwatches,
+          current: widget.hex == null ? null : '#${widget.hex}',
+          onPick: (v) {
+            _menu.close();
+            final h = hexOf(v);
+            if (h != null && h != widget.hex) widget.onSet(h);
+          },
+        ),
+      ],
+      builder: (context, menu, _) => Tooltip(
+        message: '${widget.label} 고르기',
+        excludeFromSemantics: true,
+        child: FocusRing(
+          child: Semantics(
+            button: true,
+            label: '${widget.label} 고르기',
+            child: ExcludeSemantics(
+              child: InkWell(
+                key: Key('swatch-${widget.label}'),
+                onTap: () => menu.isOpen ? menu.close() : menu.open(),
+                borderRadius: BorderRadius.circular(Radii.control),
+                focusColor: Colors.transparent,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: color,
+                    border: Border.all(color: c.border),
+                    borderRadius: BorderRadius.circular(Radii.control),
+                  ),
+                  child: color == null
+                      ? Icon(Icons.block, size: 14, color: c.textMuted)
+                      : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
     return Row(
       children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            color: color,
-            border: Border.all(color: c.border),
-            borderRadius: BorderRadius.circular(Radii.control),
-          ),
-          child: color == null
-              ? Icon(Icons.block, size: 14, color: c.textMuted)
-              : null,
-        ),
+        swatch,
         const SizedBox(width: Space.x2),
         Expanded(
           child: Semantics(

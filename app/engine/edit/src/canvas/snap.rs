@@ -11,6 +11,7 @@ use kari_doc::serde_json::Value;
 use kari_doc::Document;
 use kari_layout::{apply, inv, Affine, Layouter};
 
+use super::layers::frame_box;
 use super::union_rect;
 
 /// 붙는 거리(화면 논리 화소). 배율과 상관없이 화면에서 같은 거리다.
@@ -116,6 +117,7 @@ fn visible(doc: &Document, id: &str) -> bool {
 
 impl Snap {
     /// `parent`의 자식 가운데 `skip`이 아니고 보이는 것과 `parent`의 상자를 후보로 모은다. 부모가 없으면(대지끼리) 보이는 대지들.
+    /// 숨긴 것은 보이지 않아 빼고(Figma와 같다), 잠근 것은 보이는 것이라 맞출 까닭이 있어 둔다(골라 두었어도 움직이지 않으므로).
     pub(super) fn new(
         doc: &Document,
         lay: &mut Layouter,
@@ -131,9 +133,8 @@ impl Snap {
             .filter_map(|n| lay.node_geo(doc, &n.id))
             .map(|g| union_rect(g.parent_quad()))
             .collect();
-        let own = parent
-            .and_then(|p| lay.node_geo(doc, p))
-            .map(|g| [0.0, 0.0, g.w, g.h]);
+        // 부모의 상자. 그룹 안이면 가장 가까운 프레임·대지의 상자다(그룹은 자식을 따라가는 상자라 맞출 곳이 아니다).
+        let own = parent.and_then(|_| frame_box(doc, lay, parent));
         let mut lines = [Vec::new(), Vec::new()];
         for b in boxes.iter().chain(&own) {
             for (i, axis) in lines.iter_mut().enumerate() {

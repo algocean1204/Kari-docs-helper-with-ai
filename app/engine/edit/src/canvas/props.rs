@@ -7,11 +7,14 @@ use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::Document;
 use kari_layout::Layouter;
 
+use super::layers::{board_size, group_offset, MIN_GROUP};
 use super::{norm_deg, pos_keys, r3};
 
 /// 받는 속성 이름.
-const KEYS: [&str; 14] = [
+const KEYS: [&str; 16] = [
     "name",
+    "preset",
+    "orientation",
     "rotation",
     "opacity",
     "x",
@@ -160,9 +163,45 @@ pub(crate) fn set_ops(
                     }
                     ch.insert("opacity".into(), json!(r3(o)));
                 }
+                // 그룹 안 노드의 X·Y는 가장 가까운 프레임·대지 기준이다(화면이 보이는 값과 같다).
                 "x" | "y" => {
                     let (kx, ky) = pos_keys(kind);
-                    ch.insert((if k == "x" { kx } else { ky }).into(), json!(r3(num()?)));
+                    let off = group_offset(doc, id).unwrap_or((0.0, 0.0));
+                    let off = if k == "x" { off.0 } else { off.1 };
+                    ch.insert(
+                        (if k == "x" { kx } else { ky }).into(),
+                        json!(r3(num()? - off)),
+                    );
+                }
+                // 대지 크기 고르기: 이름의 크기로 바꾸고 그 방향을 적는다.
+                "preset" if kind == "page" => {
+                    let name = v.as_str().ok_or("대지 크기 이름이 아닙니다.")?;
+                    let (w, h) = board_size(doc, name).ok_or("모르는 대지 크기입니다.")?;
+                    ch.insert("preset".into(), json!(name));
+                    ch.insert("w".into(), json!(r3(w)));
+                    ch.insert("h".into(), json!(r3(h)));
+                    let o = if w >= h { "landscape" } else { "portrait" };
+                    ch.insert("orientation".into(), json!(o));
+                }
+                // 대지 방향: 그 방향이 아니면 가로와 세로를 맞바꾼다.
+                "orientation" if kind == "page" => {
+                    let o = v
+                        .as_str()
+                        .filter(|o| matches!(*o, "portrait" | "landscape"))
+                        .ok_or("방향은 portrait나 landscape입니다.")?;
+                    let w = ch
+                        .get("w")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(super::num(doc, id, "w"));
+                    let h = ch
+                        .get("h")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(super::num(doc, id, "h"));
+                    if (o == "landscape") != (w >= h) && w != h {
+                        ch.insert("w".into(), json!(h));
+                        ch.insert("h".into(), json!(w));
+                    }
+                    ch.insert("orientation".into(), json!(o));
                 }
                 // 노드는 제 가운데 둘레로 돈다(자리는 그대로다). 대지는 돌지 않는다.
                 "rotation" => {
@@ -178,7 +217,16 @@ pub(crate) fn set_ops(
                     if s < 0.0 {
                         return Err("크기는 0 이상입니다.");
                     }
+                    // 그룹은 자식이 따라 늘어나므로 크기가 있던 축을 0 가까이로 줄이면 자식이 무너진다.
+                    let had = super::num(doc, id, k) > 0.0;
+                    if kind == "group" && had && s < MIN_GROUP {
+                        return Err("그룹의 크기는 1 이상입니다.");
+                    }
                     ch.insert(k.clone(), json!(r3(s)));
+                    // 대지의 크기를 직접 정하면 이름 붙은 크기가 아니다.
+                    if kind == "page" && !req.contains_key("preset") {
+                        ch.insert("preset".into(), json!("CUSTOM"));
+                    }
                 }
                 "radius" => {
                     if !matches!(kind, "rect" | "frame" | "page") {

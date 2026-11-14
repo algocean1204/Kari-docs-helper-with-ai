@@ -7,14 +7,14 @@
 use std::sync::{Mutex, MutexGuard};
 
 use kari_doc::serde_json::{json, Map, Value};
-use kari_doc::Guard;
 use kari_edit::{
-    from_utf16, CPlan, CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, Motion, TextCmd, Tool,
+    from_utf16, CPlan, CanvasAlign, CanvasClip, CanvasCmd, CanvasEditor, CanvasOrder, Motion,
+    TextCmd, Tool,
 };
 use kari_render::CanvasView;
 use kari_store::{Actor, DocId, Error, Library, Meta, OpenDoc};
 
-use super::{back, integrity, state, CFront, CSession};
+use super::{apply_follow, back, integrity, state, CFront, CSession};
 use crate::fail::{bad, Args, Fail, Res};
 use crate::library::Engine;
 
@@ -63,23 +63,24 @@ fn commit(
     before: CanvasEditor,
     plan: &CPlan,
 ) -> Result<bool, Fail> {
-    let batch = Value::Array(plan.ops.clone());
-    let applied = if plan.ops.is_empty() {
-        None
-    } else {
-        match f.doc.apply_unbounded(&batch, Guard::default()) {
-            Ok(a) => Some(a),
-            Err(e) => {
-                f.ed = before;
-                f.relayout();
-                s.bump();
-                return Err(Error::Doc(e).into());
-            }
+    let mut ops = plan.ops.clone();
+    let changed = match apply_follow(&mut f, &mut ops, true) {
+        Ok(c) => c,
+        Err(e) => {
+            // 따라온 op가 실패했으면 앞 사본이 묶음의 중간일 수 있어 뒤 사본에서 새로 만든다.
+            f.rebuild(back.doc());
+            let f = &mut *f;
+            f.ed = before;
+            f.ed.after_external(&f.doc);
+            f.relayout();
+            s.bump();
+            return Err(Error::Doc(e).into());
         }
     };
+    let batch = Value::Array(ops);
     f.relayout();
     s.bump();
-    if applied.is_none_or(|a| a.ops.is_empty()) {
+    if !changed {
         return Ok(false);
     }
     drop(f);
@@ -218,6 +219,25 @@ fn paste_source(
     Ok(pic.map(|p| (CanvasClip::image(&p.asset, p.px.0, p.px.1), false)))
 }
 
+/// `ids`: id 문자열의 배열.
+fn ids(a: &Args) -> Result<Vec<String>, Fail> {
+    a.need("ids", |v| {
+        v.as_array()?
+            .iter()
+            .map(|i| i.as_str().map(str::to_string))
+            .collect()
+    })
+}
+
+/// 노드 id이거나 null(없음)인 인자.
+fn id_or_null(a: &Args, k: &str) -> Result<Option<String>, Fail> {
+    match a.get(k) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(bad(format!("{k}는 id나 null입니다."))),
+    }
+}
+
 /// `axis`: `h`(가로)나 `v`(세로). 세로면 참.
 fn vertical(a: &Args) -> Result<bool, Fail> {
     match a.str("axis")? {
@@ -272,12 +292,7 @@ fn parse(lib: &mut Library, id: DocId, center: (f64, f64), a: &Args) -> Result<P
             CanvasCmd::Nudge { dx, dy }
         }
         "selectAll" => CanvasCmd::SelectAll,
-        "select" => CanvasCmd::Select(a.need("ids", |v| {
-            v.as_array()?
-                .iter()
-                .map(|i| i.as_str().map(str::to_string))
-                .collect()
-        })?),
+        "select" => CanvasCmd::Select(ids(a)?),
         "set" => CanvasCmd::Set {
             props: a.need("props", |v| v.as_object().cloned())?,
             preview: flag(a, "preview")?,
@@ -309,6 +324,37 @@ fn parse(lib: &mut Library, id: DocId, center: (f64, f64), a: &Args) -> Result<P
                 center,
             },
             Err(why) => return Ok(Parsed::Refused(why)),
+        },
+        "group" => CanvasCmd::Group,
+        "ungroup" => CanvasCmd::Ungroup,
+        "order" => CanvasCmd::Order(match a.str("to")? {
+            "forward" => CanvasOrder::Forward,
+            "backward" => CanvasOrder::Backward,
+            "front" => CanvasOrder::Front,
+            "back" => CanvasOrder::Back,
+            _ => return Err(bad("to는 forward, backward, front, back입니다.")),
+        }),
+        "place" => CanvasCmd::Place {
+            ids: ids(a)?,
+            parent: id_or_null(a, "parent")?,
+            behind: id_or_null(a, "behind")?,
+        },
+        "toggle" => CanvasCmd::Toggle {
+            key: match a.str("key")? {
+                k @ ("visible" | "locked") => k.to_string(),
+                _ => return Err(bad("key는 visible이나 locked입니다.")),
+            },
+            ids: match a.get("ids") {
+                None => None,
+                Some(_) => Some(ids(a)?),
+            },
+        },
+        "rename" => CanvasCmd::Rename {
+            id: a.str("node")?.to_string(),
+            name: a.str("text")?.to_string(),
+        },
+        "addBoard" => CanvasCmd::AddBoard {
+            preset: a.maybe("preset", Value::as_str)?.map(str::to_string),
         },
         "editText" => CanvasCmd::EditText,
         "endText" => CanvasCmd::EndText,
@@ -503,10 +549,10 @@ pub(super) fn dispatch(e: &mut Engine, id: DocId, s: &CSession, m: &str, a: &Arg
                         f.ed = before;
                         done.refused = Some(r);
                     } else if plan.preview {
-                        f.doc
-                            .apply_trusted(&Value::Array(plan.ops))
-                            .map_err(Error::Doc)?;
+                        let mut ops = plan.ops;
+                        let res = apply_follow(&mut f, &mut ops, false);
                         f.dirty = true;
+                        res.map_err(Error::Doc)?;
                         f.relayout();
                         s.bump();
                     } else {
@@ -545,6 +591,9 @@ pub(super) fn node_info(doc: &kari_doc::Document, id: &str) -> Value {
     let mut o = Map::new();
     for k in ["name", "opacity", "radius", "visible", "locked"] {
         o.insert(k.into(), get(k));
+    }
+    if doc.node(id).is_some_and(|n| n.kind == "page") {
+        o.insert("preset".into(), get("preset"));
     }
     o.insert("fill".into(), paint("fills"));
     o.insert("stroke".into(), {
