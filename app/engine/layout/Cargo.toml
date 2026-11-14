@@ -12,4 +12,4 @@ sha2 = "0.11"
 foldhash = { version = "0.2", default-features = false }
 # 밑줄·취소선을 마지막 글리프의 잉크 끝에서 멈추려고 glyf 머리의 경계 상자를 읽는다. parley가 이미 쓰는 판이라
 # 새로 빌드되는 것은 없다(skrifa의 bounds는 윤곽 그리기 엔진까지 끌어와 엔진 라이브러리가 800KB 늘어 쓰지 않는다).
-read-fonts = { version = "0.41", default-features = false, features = ["std"] }
+read-fonts = { version = "0.47", default-features = false, features = ["std"] }
