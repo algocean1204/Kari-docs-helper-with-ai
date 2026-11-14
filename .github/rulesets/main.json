@@ -38,6 +38,9 @@
         "required_status_checks": [
           {
             "context": "ci-passed"
+          },
+          {
+            "context": "pr-meta"
           }
         ]
       }
