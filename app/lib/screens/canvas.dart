@@ -199,6 +199,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
               versionsOpen: _versions,
               onExport: () => _export(doc),
               onVersions: () => setState(() => _versions = !_versions),
+              onNameDone: _focus.requestFocus,
             ),
             _ToolBar(
               session: s,
@@ -276,6 +277,7 @@ class _TopBar extends StatelessWidget {
     required this.versionsOpen,
     required this.onExport,
     required this.onVersions,
+    required this.onNameDone,
   });
 
   final DocInfo doc;
@@ -285,6 +287,9 @@ class _TopBar extends StatelessWidget {
   final bool versionsOpen;
   final VoidCallback onExport;
   final VoidCallback onVersions;
+
+  /// 이름을 Enter나 Esc로 마쳤을 때 초점을 돌려줄 곳(판).
+  final VoidCallback onNameDone;
 
   @override
   Widget build(BuildContext context) {
@@ -303,7 +308,11 @@ class _TopBar extends StatelessWidget {
             child: Row(
               children: [
                 Flexible(
-                  child: NameField(doc: doc, library: library),
+                  child: NameField(
+                    doc: doc,
+                    library: library,
+                    onDone: onNameDone,
+                  ),
                 ),
                 const SizedBox(width: Space.x3),
                 Text(

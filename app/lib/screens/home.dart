@@ -73,6 +73,8 @@ class LibraryHome extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
+          persist: false,
+          duration: actionNoticeDuration,
           action: SnackBarAction(
             label: '되돌리기',
             onPressed: () => library.untrash(d),

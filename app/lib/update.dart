@@ -28,6 +28,9 @@ class Updates extends ChangeNotifier {
   /// 아직 보이지 않은 알림 띠의 글. [retry]면 띠에 "다시 시도"를 둔다.
   ({String text, bool failed, bool retry})? notice;
 
+  /// 사용자가 눌러야 하는 띠("다시 시도"). 떠 있는 동안 화면을 옮겨도 걷지 않는다.
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? held;
+
   /// Sparkle을 시작한다. 자동 확인이 켜져 있으면 마지막 확인에서 24시간이 지났을 때 확인한다. 두 번 불러도 한 번만 한다.
   Future<void> start() async {
     if (_started) return;
@@ -139,20 +142,23 @@ class _UpdateHostState extends State<UpdateHost> {
     final n = u.notice;
     if (n != null) {
       u.notice = null;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: NoticeText(n.text, failed: n.failed),
-            action: n.retry
-                ? SnackBarAction(label: '다시 시도', onPressed: u.retry)
-                : null,
-            // "다시 시도"는 누를 때까지 남긴다(Kari가 꺼지면 함께 사라진다).
-            duration: n.retry
-                ? const Duration(days: 1)
-                : const Duration(seconds: 4),
-          ),
-        );
+      final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+      final bar = messenger.showSnackBar(
+        SnackBar(
+          content: NoticeText(n.text, failed: n.failed),
+          action: n.retry
+              ? SnackBarAction(label: '다시 시도', onPressed: u.retry)
+              : null,
+          // "다시 시도"는 누를 때까지 남긴다(Kari가 꺼지면 함께 사라진다).
+          duration: n.retry
+              ? const Duration(days: 1)
+              : const Duration(seconds: 4),
+        ),
+      );
+      u.held = n.retry ? bar : null;
+      bar.closed.then((_) {
+        if (identical(u.held, bar)) u.held = null;
+      });
     }
     final offer = u.offer;
     if (offer == null || _showing) return;
