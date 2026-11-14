@@ -247,6 +247,53 @@ void main() {
     expect(await engine.docVerify(s.id), isEmpty);
   });
 
+  test('맞춰 끌기: 붙고, ⌃면 붙지 않고, ⌥ 올려 두기는 거리를 낸다', () async {
+    final s = await open();
+    Future<String> rect(double x0, double y0, double x1, double y1) async {
+      s.tool('rect');
+      s.pointer('down', x0, y0);
+      s.pointer('move', x1, y1);
+      s.pointer('up', x1, y1);
+      await s.settled;
+      return s.state!.selection.single.id;
+    }
+
+    final a = await rect(100, 100, 200, 200);
+    final b = await rect(400, 300, 500, 400);
+    final seq = s.state!.seq;
+    // b의 왼쪽 400 → 203: a의 오른쪽 200에 붙는다.
+    s.pointer('down', 450, 350);
+    s.pointer('move', 300, 350);
+    s.pointer('up', 253, 350);
+    await s.settled;
+    expect(s.state!.seq, seq + 1, reason: '끌기 한 번 = 커밋 한 번');
+    var b1 = props(await engine.docNodes(s.id), b)!;
+    expect((b1['x'], b1['y']), (200, 300));
+    // ⌃를 누른 채면 포인터 그대로.
+    s.pointer('down', 250, 350);
+    s.pointer('move', 254, 351, ctrl: true);
+    s.pointer('up', 254, 351, ctrl: true);
+    await s.settled;
+    b1 = props(await engine.docNodes(s.id), b)!;
+    expect((b1['x'], b1['y']), (204, 301));
+    // ⌥로 a 위에 올려 두면 b에서 a까지: 가로 4, 세로 101.
+    final st =
+        await engine.call('canvas.pointer', {
+              'id': s.id,
+              'phase': 'hover',
+              'x': 150,
+              'y': 150,
+              'alt': true,
+            })
+            as Json;
+    final labels = [
+      for (final m in ((st['marks'] as Json)['measures'] as List).cast<Json>())
+        m['label'],
+    ]..sort();
+    expect(labels, ['101', '4']);
+    expect(a, isNot(b));
+  });
+
   test('글 상자를 만들어 한글을 조합하고 끝낸 글이 문서에 남는다', () async {
     final s = await open();
     await s.cmd('create', {'tool': 'text', 'x': 100, 'y': 100});

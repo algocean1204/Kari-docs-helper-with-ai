@@ -584,7 +584,7 @@ fn 무작위_캔버스_편집() {
         t.rotates > 10 && t.mods > 20 && t.alt_dups > 5 && t.flips > 10 && t.aligns > 20,
         "{t:?}"
     );
-    assert!(t.pastes > 20, "{t:?}");
+    assert!(t.pastes > 20 && t.snaps > 20 && t.snapped > 10, "{t:?}");
 }
 
 /// 반례 찾기용: `KARI_SEEDS=N`이면 씨앗 N개를 더 돈다(병렬). 씨앗은 실패 문구의 스레드 이름에 나온다.

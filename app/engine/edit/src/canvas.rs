@@ -6,7 +6,8 @@
 //! 이름과 인자로 부르는 편집은 `cmd`(만들기, 지우기, 복제, 속성), 뒤집기와 정렬은 `arrange`, 복사한 노드를 붙이는 것은
 //! `clip`, 글 상자 안 편집은 `text`가 맡는다.
 //!
-//! 수정 키(⇧, ⌥)는 포인터 입력마다 읽는다. 끌기 도중에 키만 바뀌어도 같은 자리의 `move`를 다시 받으면 그대로 반영된다.
+//! 수정 키(⇧, ⌥, ⌃)는 포인터 입력마다 읽는다. 끌기 도중에 키만 바뀌어도 같은 자리의 `move`를 다시 받으면 그대로 반영된다.
+//! 옮기기와 크기 바꾸기는 형제와 부모에 맞춰 붙는다(`snap`). ⌃를 누르는 동안은 붙지 않는다.
 
 use std::collections::HashSet;
 
@@ -19,6 +20,7 @@ mod clip;
 mod cmd;
 mod make;
 mod props;
+mod snap;
 mod text;
 
 pub use arrange::Align as CanvasAlign;
@@ -26,6 +28,8 @@ pub use clip::CanvasClip;
 pub use cmd::{CPlan, CanvasCmd};
 pub use make::Tool;
 use make::ANGLE_STEP;
+use snap::Snap;
+pub use snap::{Marks, Measure, SNAP_PX};
 use text::TextEdit;
 pub use text::{TextChrome, TextCmd};
 
@@ -63,6 +67,8 @@ pub struct Pointer {
     pub shift: bool,
     pub meta: bool,
     pub alt: bool,
+    /// ⌃: 누르는 동안 맞춰 붙지 않는다.
+    pub ctrl: bool,
     pub px: f64,
 }
 
@@ -355,6 +361,8 @@ struct Drag {
     down: (f64, f64),
     started: bool,
     starts: Vec<Start>,
+    /// 붙기 후보(옮기기와 크기 바꾸기. 끌기가 문턱을 넘을 때 모은다).
+    snap: Option<Snap>,
 }
 
 /// 편집 표시: 고른 노드의 네 모서리, 손잡이, 영역 고르기 사각형, 글 상자 편집 표시(모두 판 좌표).
@@ -364,6 +372,8 @@ pub struct Chrome {
     pub handles: Vec<(&'static str, [f64; 2])>,
     pub marquee: Option<[f64; 4]>,
     pub text: Option<TextChrome>,
+    /// 맞춰 끌기의 안내선과 간격, ⌥ 거리 재기.
+    pub marks: Marks,
 }
 
 /// 대지 하나의 판 위 자리.
@@ -486,6 +496,8 @@ pub struct CanvasEditor {
     text_drag: bool,
     /// 마지막으로 매긴 묶기 번호.
     next_group: u64,
+    /// 지금 보이는 안내선과 거리(끄는 걸음이나 ⌥ 올려 두기가 낸 것). 다른 입력이 오면 지운다.
+    marks: Marks,
 }
 
 impl CanvasEditor {
@@ -507,6 +519,7 @@ impl CanvasEditor {
         self.sel = ids.into_iter().filter(|i| doc.node(i).is_some()).collect();
         self.drag = None;
         self.marquee = None;
+        self.marks = Marks::default();
         self.text = None;
         self.text_drag = false;
     }
@@ -522,6 +535,7 @@ impl CanvasEditor {
     pub fn cancel_drag(&mut self) {
         self.drag = None;
         self.marquee = None;
+        self.marks = Marks::default();
     }
 
     /// 영역 고르기 사각형 `[x0, y0, x1, y1]`(판 좌표). 글 상자를 끌어 만들 때는 그 상자의 자리.
@@ -534,6 +548,7 @@ impl CanvasEditor {
     pub fn after_external(&mut self, doc: &Document) {
         self.drag = None;
         self.marquee = None;
+        self.marks = Marks::default();
         self.text_drag = false;
         self.sel.retain(|i| doc.node(i).is_some());
         if let Some(t) = &mut self.text {
@@ -605,6 +620,7 @@ impl CanvasEditor {
     pub fn chrome(&self, doc: &Document, lay: &mut Layouter) -> Chrome {
         let mut c = Chrome {
             marquee: self.marquee,
+            marks: self.marks.clone(),
             ..Chrome::default()
         };
         for id in self.shown() {
@@ -678,6 +694,49 @@ impl CanvasEditor {
         near.then_some(f)
     }
 
+    /// 끌기가 문턱을 넘을 때 붙기 후보를 모은다: 고른 것의 부모 안의 형제(⌥ 사본 끌기면 원본도)와 부모의 상자.
+    fn snap_for(&self, doc: &Document, lay: &mut Layouter, d: &Drag) -> Option<Snap> {
+        let skip = match &d.kind {
+            Kind::Move { dup: Some(_), .. } => Vec::new(),
+            Kind::Move { .. } | Kind::Resize { .. } => self.sel.clone(),
+            _ => return None,
+        };
+        let g = &d.starts.first()?.geo;
+        Some(Snap::new(
+            doc,
+            lay,
+            g.parent.as_deref(),
+            g.parent_world,
+            &skip,
+        ))
+    }
+
+    /// ⌥ 거리 재기: 고른 것에서 올려 둔 노드(고른 것이거나 없으면 고른 것의 부모)까지. 판 좌표의 경계로 잰다.
+    fn measure(&self, doc: &Document, lay: &mut Layouter, p: &Pointer) -> Marks {
+        if !p.alt || self.sel.is_empty() || self.text.is_some() {
+            return Marks::default();
+        }
+        let pts: Vec<[f64; 2]> = self
+            .sel
+            .iter()
+            .filter_map(|i| lay.node_geo(doc, i))
+            .flat_map(|g| g.quad())
+            .collect();
+        if pts.is_empty() {
+            return Marks::default();
+        }
+        let s = union_rect(pts);
+        let hovered = lay
+            .pick(doc, p.x, p.y, SLOP_PX * p.px)
+            .map(|pk| choose(doc, &pk.chain, &self.sel, p.meta))
+            .filter(|id| !self.sel.contains(id));
+        let target = hovered.or_else(|| doc.node(&self.sel[0]).and_then(|n| n.parent.clone()));
+        match target.and_then(|id| lay.node_geo(doc, &id)) {
+            Some(g) => snap::distances(s, union_rect(g.quad())),
+            None => Marks::default(),
+        }
+    }
+
     fn starts(&self, doc: &Document, lay: &mut Layouter) -> Vec<Start> {
         self.sel
             .iter()
@@ -689,6 +748,8 @@ impl CanvasEditor {
     /// 포인터 하나를 처리한다.
     pub fn pointer(&mut self, doc: &Document, lay: &mut Layouter, p: Pointer) -> Out {
         let mut out = Out::new();
+        // 안내선과 거리는 그것을 낸 입력에만 보인다(끄는 걸음, ⌥ 올려 두기가 다시 낸다).
+        self.marks = Marks::default();
         // 글 상자를 편집하는 중이면 그 안의 입력은 글 위치 질의가 맡는다. 밖을 누르면 편집을 끝내고 보통 입력으로 이어 간다.
         if self.text.is_some() && self.text_pointer(doc, lay, &p, &mut out) {
             return out;
@@ -698,7 +759,8 @@ impl CanvasEditor {
                 out.handle = match self.handle_at(doc, lay, &p) {
                     Some((h, _)) => Some(h.name()),
                     None => self.rotate_at(doc, lay, &p).map(|_| "rotate"),
-                }
+                };
+                self.marks = self.measure(doc, lay, &p);
             }
             Phase::Context => self.context(doc, lay, &p, &mut out),
             Phase::Down => self.down(doc, lay, &p, &mut out),
@@ -747,6 +809,7 @@ impl CanvasEditor {
             down: (p.x, p.y),
             started: false,
             starts: self.starts(doc, lay),
+            snap: None,
         });
     }
 
@@ -765,6 +828,7 @@ impl CanvasEditor {
                 down: (p.x, p.y),
                 started: false,
                 starts: self.starts(doc, lay),
+                snap: None,
             });
             return;
         }
@@ -778,6 +842,7 @@ impl CanvasEditor {
                 down: (p.x, p.y),
                 started: false,
                 starts: self.starts(doc, lay),
+                snap: None,
             });
             return;
         }
@@ -808,6 +873,7 @@ impl CanvasEditor {
                     down: (p.x, p.y),
                     started: false,
                     starts: self.starts(doc, lay),
+                    snap: None,
                 });
                 return;
             }
@@ -826,6 +892,7 @@ impl CanvasEditor {
             down: (p.x, p.y),
             started: false,
             starts: Vec::new(),
+            snap: None,
         });
     }
 
@@ -858,18 +925,28 @@ impl CanvasEditor {
                         added: false,
                     });
             }
+            d.snap = self.snap_for(doc, lay, &d);
         }
         d.started = true;
         match d.kind.clone() {
             Kind::Move { dup, .. } => {
                 let (mut dx, mut dy) = (p.x - d.down.0, p.y - d.down.1);
                 // ⇧: 더 많이 움직인 축으로만.
+                let mut free = None;
                 if p.shift {
                     if dx.abs() >= dy.abs() {
                         dy = 0.0;
+                        free = Some((1.0, 0.0));
                     } else {
                         dx = 0.0;
+                        free = Some((0.0, 1.0));
                     }
+                }
+                if let (false, Some(sn)) = (p.ctrl, &d.snap) {
+                    let start = union_rect(d.starts.iter().flat_map(|s| s.geo.parent_quad()));
+                    let ((cx, cy), m) = sn.moving(start, (dx, dy), free, SNAP_PX * p.px);
+                    (dx, dy) = (dx + cx, dy + cy);
+                    self.marks = m;
                 }
                 match dup {
                     None => out.ops = move_ops(&mut d.starts, (dx, dy), !last),
@@ -892,7 +969,15 @@ impl CanvasEditor {
             }
             Kind::Resize { handle, frame } => {
                 let to = (p.x, p.y);
-                out.ops = resize_ops(&mut d.starts, handle, &frame, to, (p.shift, p.alt), !last);
+                let snap = d
+                    .snap
+                    .as_ref()
+                    .filter(|_| !p.ctrl)
+                    .map(|s| (s, SNAP_PX * p.px));
+                let mods = (p.shift, p.alt);
+                let (ops, marks) = resize_ops(&mut d.starts, handle, &frame, to, mods, snap, !last);
+                out.ops = ops;
+                self.marks = marks;
             }
             Kind::Create {
                 tool,
@@ -965,6 +1050,7 @@ impl CanvasEditor {
             self.moved(doc, lay, p, out, true);
             let d = self.drag.take();
             self.marquee = None;
+            self.marks = Marks::default();
             match d.map(|d| d.kind) {
                 Some(Kind::Move { dup: Some(c), .. }) => {
                     out.end = End::Commit("복제");
@@ -1098,6 +1184,7 @@ impl CanvasEditor {
                     down: (p.x, p.y),
                     started: false,
                     starts: Vec::new(),
+                    snap: None,
                 });
             }
         }
@@ -1245,6 +1332,9 @@ fn rotate_ops(
     ops
 }
 
+/// 붙기 후보와 붙는 거리(판 단위). 없으면 붙지 않는다(⌃).
+type SnapTo<'a> = Option<(&'a Snap, f64)>;
+
 /// 크기 바꾸기. `mods`는 (⇧ 비율 유지, ⌥ 가운데 기준).
 fn resize_ops(
     starts: &mut [Start],
@@ -1252,37 +1342,43 @@ fn resize_ops(
     frame: &Frame,
     p: (f64, f64),
     mods: (bool, bool),
+    stick: SnapTo,
     preview: bool,
-) -> Vec<Value> {
-    match starts {
+) -> (Vec<Value>, Marks) {
+    let (op, marks) = match starts {
         [s] if matches!(handle, Handle::P0 | Handle::P1) => {
-            resize_line(s, handle, p, mods.0, preview)
-                .into_iter()
-                .collect()
+            resize_line(s, handle, p, mods.0, stick, preview)
         }
-        [s] => resize_one(s, handle, p, mods, preview)
-            .into_iter()
-            .collect(),
-        _ => resize_many(starts, handle, frame, p, mods, preview),
-    }
+        [s] => resize_one(s, handle, p, mods, stick, preview),
+        _ => return resize_many(starts, handle, frame, p, mods, stick, preview),
+    };
+    (op.into_iter().collect(), marks)
 }
 
 /// 선: 움직인 끝이 포인터로 가고 다른 끝은 그대로다. 너비는 두 끝의 거리, 회전은 끝점 벡터의 각이다.
 /// ⇧면 고정 끝에서 끈 끝으로의 각을 15도로 맞춘다(길이는 그대로).
+/// 붙기는 ⇧가 없을 때 끈 끝을 형제와 부모의 선에 붙인다.
 fn resize_line(
     s: &mut Start,
     handle: Handle,
     p: (f64, f64),
     shift: bool,
+    stick: SnapTo,
     preview: bool,
-) -> Option<Value> {
+) -> (Option<Value>, Marks) {
     let g = s.geo.clone();
     let w = g.world();
     let moved = usize::from(handle == Handle::P1);
     let mut e = [apply(&w, 0.0, 0.0), apply(&w, g.w, 0.0)];
     e[moved] = [p.0, p.1];
-    let m = inv(&g.parent_world)?;
+    let Some(m) = inv(&g.parent_world) else {
+        return (None, Marks::default());
+    };
     let mut e = e.map(|q| apply(&m, q[0], q[1]));
+    let mut marks = Marks::default();
+    if let (false, Some((sn, tol))) = (shift, stick) {
+        (e[moved], marks) = sn.point(e[moved], tol);
+    }
     if shift {
         let fixed = e[1 - moved];
         let (vx, vy) = (e[moved][0] - fixed[0], e[moved][1] - fixed[1]);
@@ -1311,7 +1407,7 @@ fn resize_line(
     put.set("rotation", json!(snap(g.rotation, rot)));
     put.set("flipX", json!(false));
     put.set("flipY", json!(false));
-    put.op()
+    (put.op(), marks)
 }
 
 /// 크기 바꾸기의 한 축. 기준점은 보통 맞은편 변이고 ⌥면 가운데다.
@@ -1380,6 +1476,18 @@ impl Axis {
         }
     }
 
+    /// 움직이는 변: (자리, `reach`가 1 늘 때 그 자리가 움직이는 양). 바꾸지 않는 축은 없다.
+    fn moving(&self) -> Vec<(f64, f64)> {
+        if !self.on {
+            return Vec::new();
+        }
+        if self.both {
+            let (r, s) = (self.reach.abs(), if self.reach < 0.0 { -1.0 } else { 1.0 });
+            return vec![(self.a + r, s), (self.a - r, -s)];
+        }
+        vec![(self.a + self.dir * self.reach, self.dir)]
+    }
+
     /// 새 범위 (작은 끝, 큰 끝, 기준점을 넘겼는지).
     fn span(&self) -> (f64, f64, bool) {
         let crossed = self.reach < 0.0;
@@ -1407,21 +1515,35 @@ fn keep_ratio(x: &mut Axis, y: &mut Axis) {
 /// 한 노드의 크기 바꾸기. 노드의 시작 지역 좌표계에서 푼다: 포인터를 지역 좌표로 되돌려 기준점(맞은편 손잡이, ⌥면 가운데)을
 /// 고정하고 새 상자를 낸 뒤, 그 가운데를 시작 행렬로 부모 좌표에 옮긴다(회전·뒤집기한 노드도 기준점이 판에서 움직이지 않는다).
 /// 기준점을 넘기면 그 축의 뒤집기를 토글한다(대지는 뒤집지 않으므로 0에서 멈춘다).
+/// 붙기는 지역 축이 부모 축에 나란할 때(각이 90도의 곱절)만 한다.
 fn resize_one(
     s: &mut Start,
     handle: Handle,
     p: (f64, f64),
     (shift, alt): (bool, bool),
+    stick: SnapTo,
     preview: bool,
-) -> Option<Value> {
+) -> (Option<Value>, Marks) {
     let g = s.geo.clone();
-    let q = apply(&inv(&g.world())?, p.0, p.1);
+    let Some(w) = inv(&g.world()) else {
+        return (None, Marks::default());
+    };
+    let q = apply(&w, p.0, p.1);
     let page = g.kind == "page";
     let (ix, iy) = handle.at();
     let mut ax = Axis::new(ix, (0.0, g.w), q[0], alt, page);
     let mut ay = Axis::new(iy, (0.0, g.h), q[1], alt, page);
     if shift {
         keep_ratio(&mut ax, &mut ay);
+    }
+    let mut marks = Marks::default();
+    // 한계: 90도 곱절이 아닌 각으로 돈 노드의 크기 바꾸기는 붙지 않는다, 경계 상자의 변이 손잡이와 같이 움직이지 않아서다
+    if let (Some((sn, tol)), Some(map)) = (stick, snap::axis_map(&g.local)) {
+        sn.resize([&mut ax, &mut ay], map, shift, tol);
+        let (x0, x1, _) = ax.span();
+        let (y0, y1, _) = ay.span();
+        let b = union_rect([[x0, y0], [x1, y1]].map(|c| apply(&g.local, c[0], c[1])));
+        marks = resize_marks(sn, [&ax, &ay], map, b);
     }
     let (x0, x1, fx) = ax.span();
     let (y0, y1, fy) = ay.span();
@@ -1469,7 +1591,16 @@ fn resize_one(
             }
         }
     }
-    put.op()
+    (put.op(), marks)
+}
+
+/// 크기를 바꾼 뒤의 안내선: 축마다 움직인 변을 부모 좌표로 옮겨, 놓인 상자 `b`(부모 좌표)의 다른 축 범위와 함께 낸다.
+fn resize_marks(sn: &Snap, axes: [&Axis; 2], map: [(usize, f64, f64); 2], b: [f64; 4]) -> Marks {
+    let mut edges = [(Vec::new(), (b[1], b[3])), (Vec::new(), (b[0], b[2]))];
+    for (ax, (pi, sg, off)) in axes.into_iter().zip(map) {
+        edges[pi].0 = ax.moving().into_iter().map(|(v, _)| sg * v + off).collect();
+    }
+    sn.resize_marks(edges)
 }
 
 /// 여러 개의 크기 바꾸기: 부모 좌표의 경계를 가로세로 비율로 키운다. 노드마다 가운데를 기준점에서 비례해 옮기고
@@ -1481,10 +1612,11 @@ fn resize_many(
     frame: &Frame,
     p: (f64, f64),
     (shift, alt): (bool, bool),
+    stick: SnapTo,
     preview: bool,
-) -> Vec<Value> {
+) -> (Vec<Value>, Marks) {
     let Some(m) = inv(&frame.world) else {
-        return Vec::new();
+        return (Vec::new(), Marks::default());
     };
     let q = apply(&m, p.0, p.1);
     let r = frame.rect;
@@ -1493,6 +1625,14 @@ fn resize_many(
     let mut y = Axis::new(iy, (r[1], r[3]), q[1], alt, true);
     if shift {
         keep_ratio(&mut x, &mut y);
+    }
+    let mut marks = Marks::default();
+    if let Some((sn, tol)) = stick {
+        // 경계는 부모 좌표라 축이 그대로 부모 축이다.
+        let map = [(0, 1.0, 0.0), (1, 1.0, 0.0)];
+        sn.resize([&mut x, &mut y], map, shift, tol);
+        let ((x0, x1, _), (y0, y1, _)) = (x.span(), y.span());
+        marks = resize_marks(sn, [&x, &y], map, [x0, y0, x1, y1]);
     }
     let (sx, sy) = (x.scale(), y.scale());
     let mut ops = Vec::new();
@@ -1525,5 +1665,5 @@ fn resize_many(
         }
         ops.extend(put.op());
     }
-    ops
+    (ops, marks)
 }

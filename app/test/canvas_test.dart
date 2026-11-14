@@ -1730,6 +1730,90 @@ void main() {
       expect(o.calls('canvas.pointer'), hasLength(quiet));
     });
 
+    testWidgets('끄는 동안 ⌃를 누르면 붙기를 끄는 ctrl을 실어 move를 다시 보낸다', (tester) async {
+      final o = await openCanvas(tester);
+      final at = surfaceTopLeft(tester) + const Offset(200, 150);
+      final g = await tester.startGesture(at);
+      await tester.pump();
+      await g.moveBy(const Offset(40, 10));
+      await tester.pump();
+      expect(o.calls('canvas.pointer').last.containsKey('ctrl'), isFalse);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      expect(
+        o.calls('canvas.pointer').last,
+        allOf(
+          containsPair('phase', 'move'),
+          containsPair('x', 240.0),
+          containsPair('ctrl', true),
+        ),
+      );
+      await g.moveBy(const Offset(5, 0));
+      await tester.pump();
+      expect(o.calls('canvas.pointer').last['ctrl'], true);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      final p = o.calls('canvas.pointer').last;
+      expect(p['phase'], 'move');
+      expect(p.containsKey('ctrl'), isFalse, reason: '떼면 다시 붙는다');
+      await g.up();
+      await tester.pump();
+    });
+
+    testWidgets('⌥를 누른 채 올려 두면 hover를 보내고, 떼거나 판을 벗어나면 지우는 hover를 한 번 보낸다', (
+      tester,
+    ) async {
+      final o = await openCanvas(tester, selection: [node('n2', 'rect')]);
+      final top = surfaceTopLeft(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: top + const Offset(100, 100));
+      addTearDown(mouse.removePointer);
+      List<Json> hovers() => [
+        for (final c in o.calls('canvas.pointer'))
+          if (c['phase'] == 'hover') c,
+      ];
+      // ⌥ 없이 지나가면 보내지 않는다.
+      await mouse.moveTo(top + const Offset(120, 110));
+      await tester.pump();
+      expect(hovers(), isEmpty);
+      // ⌥만 눌러도 올려 둔 자리로 보낸다.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+      expect(
+        hovers().last,
+        allOf(
+          containsPair('x', 120.0),
+          containsPair('y', 110.0),
+          containsPair('alt', true),
+        ),
+      );
+      await mouse.moveTo(top + const Offset(300, 200));
+      await tester.pump();
+      expect(
+        hovers().last,
+        allOf(containsPair('x', 300.0), containsPair('alt', true)),
+      );
+      // ⌥를 떼면 지우는 hover 하나, 그 뒤로는 보내지 않는다.
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+      expect(hovers().last.containsKey('alt'), isFalse);
+      final n = hovers().length;
+      await mouse.moveTo(top + const Offset(310, 210));
+      await tester.pump();
+      expect(hovers(), hasLength(n));
+      // ⌥를 누른 채 판을 벗어나면 지운다.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+      expect(hovers(), hasLength(n + 1));
+      await mouse.moveTo(const Offset(1, 1));
+      await tester.pump();
+      expect(hovers(), hasLength(n + 2));
+      expect(hovers().last.containsKey('alt'), isFalse);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+      expect(hovers(), hasLength(n + 2), reason: '판 밖에서는 보내지 않는다');
+    });
+
     testWidgets('오른쪽 누름은 context를 보내고 메뉴(복사, 붙여넣기, 복제, 지우기)를 띄운다', (
       tester,
     ) async {

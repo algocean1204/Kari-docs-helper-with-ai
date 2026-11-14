@@ -39,7 +39,7 @@ pub fn edit_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         t.cmd(CanvasCmd::Tool(None));
         h.sync(t, tag);
     }
-    match r.below(192) {
+    match r.below(214) {
         0..=29 => create_step(r, t, h, tally, tag),
         30..=44 => delete_step(r, t, h, tally, tag),
         45..=59 => duplicate_step(r, t, h, tally, tag),
@@ -49,7 +49,8 @@ pub fn edit_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, 
         110..=127 => align_step(r, t, h, tally, tag),
         128..=147 => clip_step(r, t, h, tally, tag),
         148..=169 => mods_step(r, t, h, tally, tag),
-        _ => rotate_step(r, t, h, tally, tag),
+        170..=191 => rotate_step(r, t, h, tally, tag),
+        _ => snap_step(r, t, h, tally, tag),
     }
     if t.ed.editing().is_some() || t.ed.tool().is_some() {
         t.cmd(CanvasCmd::Tool(None));
@@ -1105,4 +1106,364 @@ fn rotate_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, ta
             );
         }
     }
+}
+
+/// 맞춰 붙기를 켠 끌기(옮기기, ⌥ 사본, 크기, 선의 끝). 가끔 ⇧, 가끔 마지막 걸음에 ⌃(붙기 끔).
+/// 모형은 편집기의 후보 찾기를 되풀이하지 않는다: 포인터가 간 자리에서 붙은 만큼의 보정이 화면 `SNAP_PX` 안이고,
+/// 보정이 있으면 움직인 변(작은 끝·가운데·큰 끝) 하나가 형제나 부모의 변·가운데에 놓였거나 형제 사이의 간격과 같은 간격에 놓였다.
+/// 고른 것은 한 덩어리로 움직이고, 보정이 있으면 끄는 동안 표시가 있었고, 뗀 뒤에는 없으며, 되돌리기 한 번에 돌아온다.
+pub fn snap_step(r: &mut Rng, t: &mut CanvasT, h: &mut Hist, tally: &mut Tally, tag: &str) {
+    tally.snaps += 1;
+    select_siblings(r, t);
+    let (shift, alt, off) = (r.chance(25), r.chance(15), r.chance(20));
+    let handles = t.ed.chrome(&t.front, &mut t.lay).handles;
+    let p0 = if !handles.is_empty() && r.chance(45) {
+        let p = r.pick(&handles).1;
+        (p[0], p[1])
+    } else {
+        let id = t.sel()[0].to_string();
+        let g = t.lay.node_geo(&t.front, &id).unwrap();
+        let c = apply(&g.world(), g.w / 2.0, g.h / 2.0);
+        (c[0], c[1])
+    };
+    let far = |r: &mut Rng| (r.below(1600) as f64 - 800.0) / 10.0;
+    let mut p1 = (p0.0 + far(r), p0.1 + far(r));
+    let (hash0, c0) = (t.back.hash(), t.commits);
+    t.snap = true;
+    t.alt = alt;
+    let down = t.pointer(Phase::Down, p0.0, p0.1, shift, false);
+    let sel: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    let geos: Vec<_> = sel
+        .iter()
+        .filter_map(|i| t.lay.node_geo(&t.back, i))
+        .collect();
+    let props: Vec<_> = sel
+        .iter()
+        .map(|i| t.back.node(i).unwrap().props.clone())
+        .collect();
+    if r.chance(60) {
+        p1 = aim(r, t, &geos, p0, p1);
+    }
+    t.pointer(
+        Phase::Move,
+        (p0.0 + p1.0) / 2.0,
+        (p0.1 + p1.1) / 2.0,
+        shift,
+        false,
+    );
+    t.snap = !off;
+    t.pointer(Phase::Move, p1.0, p1.1, shift, false);
+    let marks_mid = t.ed.chrome(&t.front, &mut t.lay).marks;
+    assert_eq!(t.commits, c0, "{tag}: 끌기 중 커밋 0번");
+    assert_eq!(t.back.hash(), hash0, "{tag}: 끌기 중 뒤 사본");
+    let out = t.pointer(Phase::Up, p1.0, p1.1, shift, false);
+    t.alt = false;
+    t.snap = false;
+    h.sync(t, tag);
+    assert!(
+        t.ed.chrome(&t.front, &mut t.lay).marks.is_empty(),
+        "{tag}: 뗀 뒤에는 안내선이 없다"
+    );
+    assert!(t.commits <= c0 + 1, "{tag}: 뗄 때 최대 한 묶음");
+    if t.commits == c0 || geos.is_empty() {
+        return;
+    }
+    let hash1 = t.back.hash();
+    let ctx = SnapCase {
+        sel: &sel,
+        geos: &geos,
+        p0,
+        p1,
+        shift,
+        alt,
+        off,
+        end: out.end,
+        handle: down.handle,
+        marks_mid: &marks_mid,
+    };
+    if check_snap(t, &ctx, tag) {
+        tally.snapped += 1;
+    }
+    if out.end == End::Commit("복제") {
+        for (id, p) in sel.iter().zip(&props) {
+            assert_eq!(&t.back.node(id).unwrap().props, p, "{tag}: 원본은 그대로");
+        }
+    }
+    // 붙기를 켠 끌기도 되돌리기 한 번에 돌아오고 다시 하기 한 번에 간다.
+    assert!(t.undo(), "{tag}");
+    assert_eq!(t.steps, 1, "{tag}: 되돌리기 한 단계");
+    assert_eq!(t.back.hash(), hash0, "{tag}: 되돌리기 한 번에 돌아온다");
+    assert!(t.redo(), "{tag}");
+    assert_eq!(t.back.hash(), hash1, "{tag}: 다시 하기");
+}
+
+/// 옮긴 상자의 선 하나가 형제나 부모의 선 하나 근처(붙는 거리의 1.2배 안)에 오도록 끝 자리를 고친다.
+/// 붙을 자리를 자주 지나게 해 모형의 완전성 검사가 실제로 돈다.
+fn aim(
+    r: &mut Rng,
+    t: &mut CanvasT,
+    geos: &[kari_layout::NodeGeo],
+    p0: (f64, f64),
+    p1: (f64, f64),
+) -> (f64, f64) {
+    let Some(g0) = geos.first() else { return p1 };
+    let parent = g0.parent.clone();
+    let mut boxes: Vec<[f64; 4]> = t
+        .back
+        .children(parent.as_deref())
+        .iter()
+        .filter(|n| geos.iter().all(|g| g.id != n.id))
+        .filter(|n| parent.is_some() || n.kind == "page")
+        .map(|n| n.id.clone())
+        .collect::<Vec<_>>()
+        .iter()
+        .map(|i| bbox(&[t.lay.node_geo(&t.back, i).unwrap().parent_quad()]))
+        .collect();
+    if let Some(g) = parent.as_deref().and_then(|p| t.lay.node_geo(&t.back, p)) {
+        boxes.push([0.0, 0.0, g.w, g.h]);
+    }
+    if boxes.is_empty() {
+        return p1;
+    }
+    let pw = g0.parent_world;
+    let Some(m) = inv(&pw) else { return p1 };
+    let b0 = bbox(&geos.iter().map(|g| g.parent_quad()).collect::<Vec<_>>());
+    let mut d = lin(&m, (p1.0 - p0.0, p1.1 - p0.1));
+    let i = r.below(2);
+    let target = three(r.pick(&boxes), i)[r.below(3)];
+    let pre = [b0[0] + d.0, b0[1] + d.1, b0[2] + d.0, b0[3] + d.1];
+    let line = three(&pre, i)[r.below(3)];
+    let jitter = (r.below(241) as f64 - 120.0) / 100.0 * kari_edit::SNAP_PX * t.px;
+    let fix = target + jitter - line;
+    if i == 0 {
+        d.0 += fix;
+    } else {
+        d.1 += fix;
+    }
+    let bd = lin(&pw, d);
+    (p0.0 + bd.0, p0.1 + bd.1)
+}
+
+/// 맞춰 끌기 한 번의 입력과 결과.
+struct SnapCase<'a> {
+    sel: &'a [String],
+    geos: &'a [kari_layout::NodeGeo],
+    p0: (f64, f64),
+    p1: (f64, f64),
+    shift: bool,
+    alt: bool,
+    off: bool,
+    end: End,
+    handle: Option<&'static str>,
+    marks_mid: &'a kari_edit::Marks,
+}
+
+/// 한 축의 세 선.
+fn three(b: &[f64; 4], i: usize) -> [f64; 3] {
+    [b[i], (b[i] + b[i + 2]) / 2.0, b[i + 2]]
+}
+
+fn lin(a: &[f64; 6], v: (f64, f64)) -> (f64, f64) {
+    (a[0] * v.0 + a[2] * v.1, a[1] * v.0 + a[3] * v.1)
+}
+
+/// 결과를 모형과 견준다. 붙어서 포인터 자리와 달라진 축이 있었으면 참.
+fn check_snap(t: &mut CanvasT, k: &SnapCase, tag: &str) -> bool {
+    const SAME: f64 = 2e-3;
+    let reach = kari_edit::SNAP_PX * t.px;
+    let tol = reach + SAME;
+    let g0 = &k.geos[0];
+    let pw = g0.parent_world;
+    let m = inv(&pw).unwrap();
+    // 후보: 같은 부모의 보이는 형제(사본 끌기면 원본도, 사본은 빼고)와 부모의 상자.
+    let dup = k.end == End::Commit("복제");
+    let copies: Vec<String> = t.sel().iter().map(|s| s.to_string()).collect();
+    let parent = g0.parent.clone();
+    let kids: Vec<String> = t
+        .back
+        .children(parent.as_deref())
+        .iter()
+        .filter(|n| parent.is_some() || n.kind == "page")
+        .filter(|n| t.back.prop(&n.id, "visible").and_then(Value::as_bool) != Some(false))
+        .map(|n| n.id.clone())
+        .filter(|i| {
+            if dup {
+                !copies.contains(i)
+            } else {
+                !k.sel.contains(i)
+            }
+        })
+        .collect();
+    let boxes: Vec<[f64; 4]> = kids
+        .iter()
+        .map(|i| bbox(&[t.lay.node_geo(&t.back, i).unwrap().parent_quad()]))
+        .collect();
+    let own = parent
+        .as_deref()
+        .and_then(|p| t.lay.node_geo(&t.back, p))
+        .map(|g| [0.0, 0.0, g.w, g.h]);
+    let on_line = |i: usize, v: f64| {
+        boxes
+            .iter()
+            .chain(&own)
+            .any(|b| three(b, i).iter().any(|c| (c - v).abs() < SAME))
+    };
+    let mut snapped = false;
+    match k.end {
+        End::Commit("옮기기") | End::Commit("복제") => {
+            let moved = if dup { copies.clone() } else { k.sel.to_vec() };
+            let b0 = bbox(&k.geos.iter().map(|g| g.parent_quad()).collect::<Vec<_>>());
+            let after: Vec<_> = moved
+                .iter()
+                .map(|i| t.lay.node_geo(&t.back, i).unwrap())
+                .collect();
+            let b1 = bbox(&after.iter().map(|g| g.parent_quad()).collect::<Vec<_>>());
+            let (mut dx, mut dy) = (k.p1.0 - k.p0.0, k.p1.1 - k.p0.1);
+            if k.shift {
+                if dx.abs() >= dy.abs() {
+                    dy = 0.0;
+                } else {
+                    dx = 0.0;
+                }
+            }
+            let d = lin(&m, (dx, dy));
+            let c = [b1[0] - (b0[0] + d.0), b1[1] - (b0[1] + d.1)];
+            // 포인터만큼 옮긴 자리(붙기 전).
+            let pre = [b0[0] + d.0, b0[1] + d.1, b0[2] + d.0, b0[3] + d.1];
+            // 같은 간격: 상자와 형제 하나 사이의 간격이 형제 둘 사이의 간격이나 다른 형제와의 간격과 같다.
+            let equal_gap = |b: &[f64; 4], i: usize| {
+                let gaps_of = |b: &[f64; 4]| -> Vec<f64> {
+                    boxes
+                        .iter()
+                        .flat_map(|s| [b[i] - s[i + 2], s[i] - b[i + 2]])
+                        .filter(|g| *g > SAME)
+                        .collect()
+                };
+                let mine = gaps_of(b);
+                let theirs: Vec<f64> = boxes.iter().flat_map(gaps_of).collect();
+                mine.iter().enumerate().any(|(n, g)| {
+                    theirs.iter().any(|o| (o - g).abs() < SAME)
+                        || mine[n + 1..].iter().any(|o| (o - g).abs() < SAME)
+                })
+            };
+            for i in 0..2 {
+                // 완전성(⌃·⇧·⌥ 없는 옮기기): 붙기 전 상자의 선이 후보 선과 붙는 거리 안(여유를 둔다)이면 붙는다.
+                // 가장 가까운 후보로 붙으므로 보정은 그 거리를 넘지 않는다. 이미 같은 간격 자리였으면 그대로일 수 있다.
+                if !k.off && !k.shift && !dup {
+                    let near_line = three(&pre, i)
+                        .iter()
+                        .flat_map(|v| {
+                            boxes
+                                .iter()
+                                .chain(&own)
+                                .flat_map(move |b| three(b, i).map(|c| (c - v).abs()))
+                        })
+                        .fold(f64::MAX, f64::min);
+                    if near_line >= SAME && near_line <= reach - 0.01 {
+                        assert!(
+                            c[i].abs() >= SAME || equal_gap(&pre, i),
+                            "{tag}: 축 {i}의 후보 선이 {near_line} 떨어져 있는데 붙지 않았다 {pre:?}"
+                        );
+                        assert!(
+                            c[i].abs() <= near_line + SAME,
+                            "{tag}: 가장 가까운 것보다 멀리 붙었다 {} > {near_line}",
+                            c[i].abs()
+                        );
+                    }
+                }
+                assert!(c[i].abs() <= tol, "{tag}: 붙은 보정 {c:?} > {tol}");
+                if k.off {
+                    assert!(c[i].abs() < SAME, "{tag}: ⌃면 붙지 않는다 {c:?}");
+                }
+                if c[i].abs() < SAME {
+                    continue;
+                }
+                snapped = true;
+                let edge = three(&b1, i).iter().any(|v| on_line(i, *v));
+                let gap = equal_gap(&b1, i);
+                assert!(
+                    edge || gap,
+                    "{tag}: 보정 {c:?}의 축 {i}에 붙은 곳이 없다 {b1:?}"
+                );
+                assert!(
+                    !k.marks_mid.is_empty(),
+                    "{tag}: 붙었으면 끄는 동안 표시가 있다 {c:?} {b1:?}"
+                );
+            }
+            // 한 덩어리로 움직인다.
+            let bd = lin(&pw, (d.0 + c[0], d.1 + c[1]));
+            for (g, a) in k.geos.iter().zip(&after) {
+                for (p, q) in g.quad().iter().zip(a.quad()) {
+                    assert!(
+                        near([p[0] + bd.0, p[1] + bd.1], q, 5e-3 * t.px.max(1.0) + 3e-3),
+                        "{tag}: {} 덩어리로 옮기기",
+                        a.id
+                    );
+                }
+            }
+            if k.shift {
+                // ⇧로 묶인 판의 축은 붙어도 움직이지 않는다.
+                let locked = if dx == 0.0 { bd.0 } else { bd.1 };
+                assert!(locked.abs() < 5e-3, "{tag}: ⇧ 묶음이 풀렸다 {bd:?}");
+            }
+        }
+        End::Commit("크기 바꾸기") => {
+            let ([g], false, false) = (k.geos, k.shift, k.alt) else {
+                return snapped;
+            };
+            let name = k.handle.unwrap_or("");
+            let after = t.lay.node_geo(&t.back, &g.id).unwrap();
+            let p = apply(&m, k.p1.0, k.p1.1);
+            if g.kind == "line" {
+                let w1 = after.world();
+                let e = [apply(&w1, 0.0, 0.0), apply(&w1, after.w, 0.0)][usize::from(name == "p1")];
+                let e = apply(&m, e[0], e[1]);
+                for i in 0..2 {
+                    let diff = e[i] - p[i];
+                    assert!(diff.abs() <= tol + 0.03, "{tag}: 선의 끝 {e:?} / {p:?}");
+                    if k.off {
+                        assert!(diff.abs() < 0.03, "{tag}: ⌃ 선의 끝");
+                    } else if diff.abs() > 0.03 {
+                        snapped = true;
+                        assert!(on_line(i, e[i]), "{tag}: 선의 끝이 붙은 곳 {e:?}");
+                    }
+                }
+                return snapped;
+            }
+            if !matches!(g.kind.as_str(), "rect" | "ellipse" | "frame") {
+                return snapped;
+            }
+            let l = g.local;
+            let aligned = (l[1].abs() < 1e-9 && l[2].abs() < 1e-9)
+                || (l[0].abs() < 1e-9 && l[3].abs() < 1e-9);
+            if !aligned {
+                return snapped;
+            }
+            let b1 = bbox(&[after.parent_quad()]);
+            let xi = usize::from(l[1].abs() >= 1e-9);
+            let x_on = matches!(name, "nw" | "ne" | "e" | "se" | "sw" | "w");
+            let y_on = matches!(name, "nw" | "n" | "ne" | "se" | "s" | "sw");
+            for (i, on) in [(xi, x_on), (1 - xi, y_on)] {
+                if !on {
+                    continue;
+                }
+                let e = if (b1[i] - p[i]).abs() <= (b1[i + 2] - p[i]).abs() {
+                    b1[i]
+                } else {
+                    b1[i + 2]
+                };
+                let diff = e - p[i];
+                assert!(diff.abs() <= tol, "{tag}: 끈 변 {e} / 포인터 {}", p[i]);
+                if k.off {
+                    assert!(diff.abs() < SAME, "{tag}: ⌃면 끈 변이 포인터 그대로");
+                } else if diff.abs() >= SAME {
+                    snapped = true;
+                    assert!(on_line(i, e), "{tag}: 끈 변 {e}이 붙은 곳이 없다");
+                    assert!(!k.marks_mid.is_empty(), "{tag}: 크기 안내선");
+                }
+            }
+        }
+        _ => {}
+    }
+    snapped
 }

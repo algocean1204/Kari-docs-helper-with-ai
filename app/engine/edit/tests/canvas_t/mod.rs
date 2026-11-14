@@ -35,6 +35,8 @@ pub struct CanvasT {
     pub px: f64,
     /// 포인터 입력에 실을 ⌥.
     pub alt: bool,
+    /// 맞춰 붙기를 켠다. 끄면 포인터 입력에 ⌃를 싣는다(붙기를 보지 않는 시험은 포인터가 간 자리 그대로를 본다).
+    pub snap: bool,
     /// 누름이 글 상자 편집을 끝내며 먼저 낸 묶음(빈 글 상자 지우기)의 수. 그 입력 자신의 묶음과 따로 센다.
     pub pres: usize,
     fresh: fn() -> Layouter,
@@ -87,6 +89,7 @@ impl CanvasT {
             last: None,
             px: 1.0,
             alt: false,
+            snap: false,
             pres: 0,
             fresh,
         }
@@ -194,6 +197,7 @@ impl CanvasT {
             shift,
             meta,
             alt: self.alt,
+            ctrl: !self.snap,
             px: self.px,
         };
         // 엔진 경계와 같다: 끊긴 끌기의 미리 보기는 새 끌기를 만들기 전에 버린다.

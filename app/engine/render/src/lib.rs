@@ -266,6 +266,83 @@ pub fn draw_canvas_overlay(
     Ok(())
 }
 
+/// 맞춰 끌기의 표시: 안내선, 점선, 숫자가 붙는 거리 선(같은 간격이면 `true`).
+#[derive(Default)]
+pub struct CanvasMarks {
+    pub guides: Vec<[[f32; 2]; 2]>,
+    pub dashed: Vec<[[f32; 2]; 2]>,
+    pub measures: Vec<([[f32; 2]; 2], String, bool)>,
+}
+
+/// 맞춰 끌기의 안내선과 거리를 덧그린다(`draw_canvas_overlay`와 같은 화소 버퍼, 같은 좌표계). 숫자는 선의 가운데에
+/// 둥근 바탕을 깔고 쓴다. 글꼴은 넘겨받은 첫 글꼴이다(숫자만 쓴다). 안내선은 빨강, 같은 간격은 분홍이다.
+pub fn draw_canvas_marks(
+    frame: Frame,
+    faces: &Faces,
+    marks: &CanvasMarks,
+    px: f32,
+) -> Result<(), &'static str> {
+    const RED: [u8; 4] = [0xF2, 0x48, 0x22, 0xFF];
+    const PINK: [u8; 4] = [0xE8, 0x3E, 0x8C, 0xFF];
+    let mut t = target(frame, None)?;
+    let canvas = t.surface.canvas();
+    let stroke = |c: [u8; 4], w: f32| {
+        let mut p = fill(c);
+        p.set_style(PaintStyle::Stroke).set_stroke_width(w * px);
+        p
+    };
+    let seg = |s: &[[f32; 2]; 2]| {
+        let mut pb = PathBuilder::new();
+        pb.move_to(Point::new(s[0][0], s[0][1]));
+        pb.line_to(Point::new(s[1][0], s[1][1]));
+        pb.detach()
+    };
+    for g in &marks.guides {
+        canvas.draw_path(&seg(g), &stroke(RED, 1.0));
+    }
+    let mut dash = stroke(RED, 1.0);
+    dash.set_path_effect(PathEffect::dash(&[3.0 * px, 3.0 * px], 0.0));
+    for d in &marks.dashed {
+        canvas.draw_path(&seg(d), &dash);
+    }
+    let font = faces
+        .faces
+        .iter()
+        .flatten()
+        .next()
+        .map(|tf| Font::from_typeface(tf.clone(), 11.0 * px));
+    for (s, label, gap) in &marks.measures {
+        let c = if *gap { PINK } else { RED };
+        canvas.draw_path(&seg(s), &stroke(c, 1.0));
+        // 끝의 짧은 가름 선(선과 수직, 4 화소).
+        let (dx, dy) = (s[1][0] - s[0][0], s[1][1] - s[0][1]);
+        let len = dx.hypot(dy).max(1e-6);
+        let (nx, ny) = (-dy / len * 4.0 * px, dx / len * 4.0 * px);
+        for e in s {
+            let tick = [[e[0] - nx, e[1] - ny], [e[0] + nx, e[1] + ny]];
+            canvas.draw_path(&seg(&tick), &stroke(c, 1.0));
+        }
+        let Some(font) = &font else { continue };
+        let (w, _) = font.measure_str(label, None);
+        let (mx, my) = ((s[0][0] + s[1][0]) / 2.0, (s[0][1] + s[1][1]) / 2.0);
+        let (bw, bh) = (w + 8.0 * px, 16.0 * px);
+        let pill = RRect::new_rect_xy(
+            sk_rect(mx - bw / 2.0, my - bh / 2.0, bw, bh),
+            3.0 * px,
+            3.0 * px,
+        );
+        canvas.draw_rrect(pill, &fill(c));
+        let base = my + 4.0 * px;
+        canvas.draw_str(
+            label,
+            (mx - w / 2.0, base),
+            font,
+            &fill([255, 255, 255, 255]),
+        );
+    }
+    Ok(())
+}
+
 /// 글 상자 편집 표시를 덧그린다(`draw_canvas_overlay`와 같은 화소 버퍼, 같은 좌표계). `selection`은 선택한 글의 줄마다
 /// 사각형 네 모서리, `preedit`은 조합 중인 글의 자리(밑줄), `caret`은 커서의 위·아래 끝이다.
 pub fn draw_canvas_text(
