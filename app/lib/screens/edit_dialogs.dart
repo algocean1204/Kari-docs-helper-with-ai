@@ -5,10 +5,9 @@ import '../design/tokens.dart';
 import '../editing/session.dart';
 import '../engine/engine.dart';
 import 'dialogs.dart';
-import 'format_dialogs.dart' show ptPerCm;
+import 'format_dialogs.dart' show mmOf, ptPerMm;
 
-/// 1mm의 pt.
-const ptPerMm = 2.83465;
+export 'format_dialogs.dart' show ptPerMm;
 
 /// mm 글을 0.5mm 단위로 읽는다. 읽지 못하면 null.
 double? parseMm(String s) {
@@ -352,7 +351,7 @@ String _mm(double mm) =>
 /// 쪽 번호 넣기가 바닥글 가운데 칸에 넣는 글.
 const pageNumberText = '{쪽} / {전체}';
 
-/// 쪽 설정 창: 용지, 방향, 여백(mm)과 미리 정한 값 셋, 그리고 머리글·바닥글 세 칸씩,
+/// 쪽 설정 창: 용지(사용자 지정은 두 변 mm), 방향, 여백(mm)과 미리 정한 값 셋, 그리고 머리글·바닥글 세 칸씩,
 /// `첫 쪽에는 넣지 않기`, `쪽 번호 넣기`. 적용하면 바뀐 것만 `setPage`, `setHeaderFooter`로 보낸다.
 class PageDialog extends StatefulWidget {
   const PageDialog({super.key, required this.session});
@@ -391,10 +390,9 @@ class _PageDialogState extends State<PageDialog> {
   late bool _skip = _st?.hfSkipFirst ?? false;
   String? _error;
 
-  /// 사용자 지정 용지의 [너비, 높이] cm 입력 칸.
+  /// 사용자 지정 용지의 [너비, 높이] mm 입력 칸.
   late final List<TextEditingController> _paper = [
-    for (final pt in [_page.w, _page.h])
-      TextEditingController(text: (pt / ptPerCm).toStringAsFixed(2)),
+    for (final pt in [_page.w, _page.h]) TextEditingController(text: mmOf(pt)),
   ];
   late final List<String> _paperShown = [for (final t in _paper) t.text];
 
@@ -406,8 +404,8 @@ class _PageDialogState extends State<PageDialog> {
         out.add(i == 0 ? _page.w : _page.h);
         continue;
       }
-      final cm = double.tryParse(t.text.trim().replaceAll(',', '.'));
-      final pt = cm == null || !cm.isFinite ? null : cm * ptPerCm;
+      final mm = double.tryParse(t.text.trim().replaceAll(',', '.'));
+      final pt = mm == null || !mm.isFinite ? null : mm * ptPerMm;
       if (pt == null || pt < _paperMin || pt > _paperMax) return null;
       out.add(pt);
     }
@@ -583,13 +581,14 @@ class _PageDialogState extends State<PageDialog> {
         ),
         if (_preset == 'CUSTOM') ...[
           const SizedBox(height: Space.x3),
-          _row(_paper, const ['너비', '높이'], suffix: 'cm'),
+          _row(_paper, const ['너비', '높이'], suffix: 'mm'),
           if (!paperOk)
             Padding(
               padding: const EdgeInsets.only(top: Space.x1),
               child: Text(
-                '용지 한 변은 ${(_paperMin / ptPerCm).toStringAsFixed(2)}~'
-                '${(_paperMax / ptPerCm).toStringAsFixed(2)}cm로 적습니다.',
+                // 적힌 범위의 끝 값이 그대로 받아들여지게 안쪽으로 맞춘다.
+                '용지 한 변은 ${_mm((_paperMin / ptPerMm * 10).ceil() / 10)}~'
+                '${_mm((_paperMax / ptPerMm * 10).floor() / 10)}mm로 적습니다.',
                 style: AppText.caption.copyWith(color: c.danger),
               ),
             ),

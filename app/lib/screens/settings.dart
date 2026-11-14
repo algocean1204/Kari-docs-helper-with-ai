@@ -49,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         message:
             '이 기기의 보안 저장소에서 키를 지우고 받아 둔 모델 목록도 지웁니다. 다시 쓰려면 키를 새로 넣어야 합니다.',
         confirm: '키 지우기',
+        danger: true,
       ),
     );
     if (ok == true) await lib.deleteKey(provider);

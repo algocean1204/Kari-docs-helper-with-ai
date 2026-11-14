@@ -41,6 +41,21 @@ ThemeData buildTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(Radii.control),
       ),
     ),
+    // 알림은 창 아래 가운데에 작게 뜬다. 창 너비를 다 덮지 않는다. 색은 말풍선과 같은 짝이다.
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      width: 420,
+      backgroundColor: c.text,
+      contentTextStyle: AppText.body.copyWith(color: c.surface),
+      // 띠의 바탕이 화면과 반대의 밝기라 강조 글색도 반대쪽 테마의 것을 쓴다.
+      actionTextColor:
+          (brightness == Brightness.dark ? AppColors.light : AppColors.dark)
+              .accentText,
+      elevation: brightness == Brightness.dark ? 0 : 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Radii.control),
+      ),
+    ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: c.accent,
       linearTrackColor: c.surface2,

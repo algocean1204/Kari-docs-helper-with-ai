@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/components.dart';
 import 'package:kari/engine/engine.dart';
-import 'package:kari/screens/format_dialogs.dart' show HexField, ptPerCm;
+import 'package:kari/screens/format_dialogs.dart' show HexField, mmOf, ptPerMm;
 import 'package:kari/screens/paper.dart';
 import 'package:kari/screens/table_props.dart';
 
@@ -145,39 +145,50 @@ void main() {
     await tester.pumpAndSettle();
     await tapIt(tester, find.text('표 속성…'));
     expect(find.text('표 속성'), findsOneWidget);
-    expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
+    // 값을 모아 적용하는 창: 취소와 채운 적용.
+    expect(filledLabels(tester, within: find.byType(Dialog)), ['적용']);
+    expect(inDialog('취소'), findsOneWidget);
     await saveShot(tester, 'design17-props-dialog');
     String text(String label) =>
         tester.widget<TextField>(field(label)).controller!.text;
     expect(text('고른 열의 폭'), '', reason: '열 폭이 섞였다');
-    expect(text('고른 행의 최소 높이'), (20 / ptPerCm).toStringAsFixed(2));
+    // 길이는 mm로 보인다(20pt = 7.1mm, 4pt = 1.4mm).
+    expect(text('고른 행의 최소 높이'), '7.1');
     expect(text('오른쪽'), '', reason: '오른쪽 여백이 섞였다');
-    expect(text('안쪽 여백 위'), (4 / ptPerCm).toStringAsFixed(2));
+    expect(text('위'), '1.4');
+    expect(find.text('cm'), findsNothing);
+    // 안쪽 여백은 소제목 아래에 위, 아래, 왼쪽, 오른쪽 차례로 놓인다.
+    expect(find.text('안쪽 여백'), findsOneWidget);
+    final pads = [
+      for (final l in ['위', '아래', '왼쪽', '오른쪽']) tester.getTopLeft(field(l)).dx,
+    ];
+    expect(pads, [...pads]..sort());
     expect(text('기본 선 굵기'), '0.75');
     expect(text('기본 선 색'), '1155CC');
     // 범위 밖이면 칸 아래에 알리고 적용하지 않는다.
     final before = rig.fake.cmds.length;
-    await tester.enterText(field('고른 열의 폭'), '100');
+    await tester.enterText(field('고른 열의 폭'), '1000');
     await tester.pumpAndSettle();
-    expect(find.textContaining('cm로 적습니다'), findsOneWidget);
+    expect(find.textContaining('mm로 적습니다'), findsOneWidget);
     await tapIt(tester, inDialog('적용'));
     expect(rig.fake.cmds.length, before);
     expect(find.text('범위를 벗어난 값이 있어 적용하지 않았습니다.'), findsOneWidget);
     // 열 폭 같게는 고른 열의 평균을 칸에 넣는다.
     await tapIt(tester, inDialog('열 폭 같게'));
-    expect(text('고른 열의 폭'), (110 / ptPerCm).toStringAsFixed(2));
+    expect(text('고른 열의 폭'), mmOf(110));
     await tester.enterText(field('머리 행 수'), '1');
-    await tester.enterText(field('오른쪽'), '0.3');
+    await tester.enterText(field('오른쪽'), '3');
     await tapIt(tester, inDialog('행 높이 같게'));
     await tapIt(tester, segment('아래'));
     await tapIt(tester, inDialog('적용'));
-    final w = double.parse((110 / ptPerCm).toStringAsFixed(2)) * ptPerCm;
+    final w = double.parse(mmOf(110)) * ptPerMm;
+    // 엔진에 가는 값은 pt이고, 안쪽 여백의 자리는 위, 오른쪽, 아래, 왼쪽이다.
     expect(lastCmd(rig), {
       'k': 'tableProps',
       'headerRows': 1,
       'cols': [w, w, 261.89],
       'rowsEven': true,
-      'pad': [null, 0.3 * ptPerCm, null, null],
+      'pad': [null, 3 * ptPerMm, null, null],
       'alignV': 'bottom',
     });
     expect(find.text('표 속성'), findsNothing);
@@ -389,7 +400,7 @@ void main() {
             lessThanOrEqualTo(1),
           );
           await saveShot(tester, 'design17-props-$tag');
-          await tapIt(tester, inDialog('닫기'));
+          await tapIt(tester, inDialog('취소'));
         }
       }
     });

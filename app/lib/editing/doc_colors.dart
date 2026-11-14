@@ -38,6 +38,14 @@ const highlightSwatches = [
   ('빨강', '#FFCDD2'),
 ];
 
+/// 적은 색 글을 `#RRGGBB`(대문자)로. 앞의 `#`는 있어도 되고 없어도 된다. 틀리면 null.
+String? swatchHex(String hex) {
+  final v = swatchValue(hex);
+  return v == null
+      ? null
+      : '#${(v & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+}
+
 /// `#RRGGBB` 글을 색 값(불투명)으로. 틀리면 null.
 int? swatchValue(String hex) {
   final m = RegExp(r'^#?([0-9a-fA-F]{6})$').firstMatch(hex.trim());

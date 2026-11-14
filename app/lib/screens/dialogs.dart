@@ -387,6 +387,7 @@ class ConfirmDialog extends StatelessWidget {
     required this.title,
     required this.message,
     required this.confirm,
+    this.danger = false,
   });
 
   final String title;
@@ -394,6 +395,9 @@ class ConfirmDialog extends StatelessWidget {
 
   /// 확인 단추의 글. 누르면 일어나는 일을 그대로 적는다.
   final String confirm;
+
+  /// 되돌릴 수 없는 일(완전히 지우기). 확인 단추를 위험 색으로 채운다.
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
@@ -405,7 +409,7 @@ class ConfirmDialog extends StatelessWidget {
         AppButton('취소', onPressed: () => Navigator.of(context).pop()),
         AppButton(
           confirm,
-          kind: ButtonKind.primary,
+          kind: danger ? ButtonKind.danger : ButtonKind.primary,
           onPressed: () => Navigator.of(context).pop(true),
         ),
       ],
@@ -414,7 +418,18 @@ class ConfirmDialog extends StatelessWidget {
   }
 }
 
-/// 휴지통. 문서마다 되살리거나 완전히 지운다. 완전히 지우기는 한 번 더 묻는다.
+/// 휴지통 줄의 보조 글: 버린 지 며칠인지와 며칠 뒤에 지워지는지. 날은 하루(24시간) 단위로 센다.
+String trashedWhen(int trashed, DateTime now) {
+  final ms = now.millisecondsSinceEpoch - trashed;
+  final days = ms < 0 ? 0 : ms ~/ Duration.millisecondsPerDay;
+  final left = Library.keepTrash.inDays - days;
+  return [
+    days == 0 ? '오늘 버림' : '$days일 전에 버림',
+    left > 0 ? '$left일 뒤 지워짐' : '다음에 앱을 열 때 지워짐',
+  ].join(' · ');
+}
+
+/// 휴지통. 문서마다 되살리거나 완전히 지우고, 한꺼번에 비운다. 완전히 지우는 일은 한 번 더 묻는다.
 class TrashDialog extends StatelessWidget {
   const TrashDialog({super.key, required this.library});
 
@@ -424,12 +439,34 @@ class TrashDialog extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => ConfirmDialog(
-        title: '완전히 삭제할까요?',
+        title: '완전히 지울까요?',
         message: '"${d.name}" 문서를 지웁니다. 되돌릴 수 없습니다.',
-        confirm: '완전히 삭제',
+        confirm: '완전히 지우기',
+        danger: true,
       ),
     );
     if (ok == true) await library.purge(d);
+  }
+
+  Future<void> _empty(BuildContext context) async {
+    final docs = [...library.trashed];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: '휴지통을 비울까요?',
+        message: '문서 ${docs.length}개를 완전히 지웁니다. 되돌릴 수 없습니다.',
+        confirm: '휴지통 비우기',
+        danger: true,
+      ),
+    );
+    if (ok != true) return;
+    for (final d in docs) {
+      // 비우는 사이에 되살렸거나 이미 지운 문서는 건너뛴다.
+      if (!library.trashed.any((t) => t.id == d.id)) continue;
+      await library.purge(d);
+      // 지우지 못한 문서가 있으면 멈춘다. 오류 띠가 까닭을 알리고 남은 문서는 휴지통에 그대로 있다.
+      if (library.error != null) return;
+    }
   }
 
   @override
@@ -444,6 +481,12 @@ class TrashDialog extends StatelessWidget {
           title: '휴지통',
           subtitle: '30일이 지난 문서는 앱을 열 때 완전히 지웁니다.',
           actions: [
+            AppButton(
+              '휴지통 비우기',
+              kind: ButtonKind.quiet,
+              onPressed: library.trashed.isEmpty ? null : () => _empty(context),
+            ),
+            const Spacer(),
             AppButton('닫기', onPressed: () => Navigator.of(context).pop()),
           ],
           children: [
@@ -480,7 +523,14 @@ class TrashDialog extends StatelessWidget {
                             style: AppText.label.copyWith(color: c.text),
                           ),
                           Text(
-                            '${kindLabel(d.kind)} · ${formatWhen(d.updated, now)}',
+                            [
+                              kindLabel(d.kind),
+                              d.trashed == null
+                                  ? formatWhen(d.updated, now)
+                                  : trashedWhen(d.trashed!, now),
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: AppText.caption.copyWith(
                               color: c.textMuted,
                               fontFeatures: AppText.tabular,
@@ -493,7 +543,7 @@ class TrashDialog extends StatelessWidget {
                     AppButton('되살리기', onPressed: () => library.untrash(d)),
                     const SizedBox(width: Space.x2),
                     AppButton(
-                      '완전히 삭제',
+                      '완전히 지우기',
                       kind: ButtonKind.quiet,
                       onPressed: () => _purge(context, d),
                     ),

@@ -101,7 +101,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(text)));
+        ..showSnackBar(SnackBar(content: NoticeText(text, failed: true)));
     });
   }
 
@@ -123,11 +123,13 @@ class _CanvasScreenState extends State<CanvasScreen> {
     if (_exporting) return;
     setState(() => _exporting = true);
     String? message;
+    var failed = true;
     try {
       final path = await widget.library.savePath('${doc.name}.pdf');
       if (path != null) {
         await widget.library.engine.docExportPdf(doc.id, path);
         message = 'PDF로 내보냈습니다 · ${path.split('/').last}';
+        failed = false;
       }
     } on EngineError catch (e) {
       message = 'PDF로 내보내지 못했습니다 · ${describe(e)}';
@@ -139,7 +141,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
     if (message != null && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showSnackBar(SnackBar(content: NoticeText(message, failed: failed)));
     }
   }
 
@@ -151,7 +153,12 @@ class _CanvasScreenState extends State<CanvasScreen> {
     } on PlatformException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('파일을 고르지 못했습니다 · ${e.message ?? e.code}')),
+          SnackBar(
+            content: NoticeText(
+              '파일을 고르지 못했습니다 · ${e.message ?? e.code}',
+              failed: true,
+            ),
+          ),
         );
       }
     }

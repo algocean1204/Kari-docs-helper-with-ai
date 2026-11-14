@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:kari/design/components.dart';
+import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/library.dart';
 import 'package:kari/main.dart';
@@ -124,10 +125,16 @@ int focusableCount(WidgetTester tester, {Finder? within}) {
   return taps + switches + all(EditableText).evaluate().length;
 }
 
-/// 채운 단추(강조색으로 채운 주 동작). 앱의 모든 채운 단추는 [AppButton]의 [ButtonKind.primary]다.
+/// 채운 단추(강조색으로 채운 주 동작과 위험 색으로 채운 확인). 앱의 모든 채운 단추는 [AppButton]의
+/// [ButtonKind.primary]와 [ButtonKind.danger]다.
 final Finder filled = find.byWidgetPredicate(
-  (w) => w is AppButton && w.kind == ButtonKind.primary,
+  (w) =>
+      w is AppButton &&
+      (w.kind == ButtonKind.primary || w.kind == ButtonKind.danger),
 );
+
+/// 반투명한 [fg]를 [bg] 위에 얹었을 때 보이는 색.
+Color over(Color fg, Color bg) => Color.alphaBlend(fg, bg);
 
 /// 무대 위에 보이는 채운 단추의 이름. [within]을 주면 그 안에서만 찾는다(대화 상자는 상자 안에서 센다).
 List<String> filledLabels(WidgetTester tester, {Finder? within}) => [
@@ -200,7 +207,16 @@ void main() {
           ('경고/경고 바탕', c.warning, c.warningSoft, 4.5),
           ('위험/표면', c.danger, c.surface, 4.5),
           ('위험/위험 바탕', c.danger, c.dangerSoft, 4.5),
+          ('위험 단추 글/위험 채움', c.surface, c.danger, 4.5),
           ('말풍선 글/말풍선', c.surface, c.text, 4.5),
+          // 알림 띠는 말풍선과 같은 짝이고, 띠 안의 단추 글은 반대쪽 테마의 강조 글색이다.
+          (
+            '알림 띠의 단추 글/알림 띠',
+            (identical(c, AppColors.dark) ? AppColors.light : AppColors.dark)
+                .accentText,
+            c.text,
+            4.5,
+          ),
           ('종이 글/종이', c.paperText, c.paper, 4.5),
           ('종이의 보조 글/종이', AppColors.light.textMuted, c.paper, 4.5),
           (
@@ -220,6 +236,282 @@ void main() {
             reason: '$name $label',
           );
         }
+      });
+
+      // 꺼진 단추에는 대비 기준이 없지만, 무엇을 하는 단추인지는 읽혀야 한다. 낮춘 색도 제 바탕과 3:1을 넘긴다.
+      test('$name: 꺼진 단추의 글도 읽힌다', () {
+        for (final (where, under) in [
+          ('표면', c.surface),
+          ('바탕', c.bg),
+          ('표면2', c.surface2),
+        ]) {
+          // 채운 단추: 낮춘 채움 위의 글.
+          for (final (kind, fill, fg) in [
+            ('주 동작', c.accent, c.onAccent),
+            ('위험', c.danger, c.surface),
+          ]) {
+            final off = over(
+              fill.withValues(alpha: AppButton.disabledFill),
+              under,
+            );
+            expect(
+              contrast(fg, off),
+              greaterThanOrEqualTo(3),
+              reason: '$name 꺼진 $kind 단추/$where',
+            );
+            // 켜진 것과는 채움이 달라 보인다.
+            expect(off, isNot(fill), reason: '$name $kind/$where');
+          }
+          // 조용한 단추: 옅은 바탕 위의 낮춘 글.
+          final quiet = over(c.text.withValues(alpha: 0.04), under);
+          expect(
+            contrast(
+              over(
+                c.textMuted.withValues(alpha: AppButton.disabledText),
+                quiet,
+              ),
+              quiet,
+            ),
+            greaterThanOrEqualTo(3),
+            reason: '$name 꺼진 조용한 단추/$where',
+          );
+        }
+        // 보통 단추는 꺼지면 표면2 바탕이다.
+        expect(
+          contrast(
+            over(
+              c.textMuted.withValues(alpha: AppButton.disabledText),
+              c.surface2,
+            ),
+            c.surface2,
+          ),
+          greaterThanOrEqualTo(3),
+          reason: '$name 꺼진 보통 단추',
+        );
+      });
+
+      test('$name: 고르기 줄의 고른 칸은 테두리로 갈린다', () {
+        // 고른 칸의 바탕(표면)과 줄의 바탕(표면2)은 밝기가 거의 같아 바탕만으로는 갈리지 않는다.
+        // 고른 칸에만 두르는 테두리는 그 칸의 바탕과 3:1을 넘는다.
+        expect(contrast(c.surface, c.surface2), lessThan(1.5));
+        expect(contrast(c.border, c.surface), greaterThanOrEqualTo(3));
+      });
+    }
+  });
+
+  group('부품', () {
+    Future<void> pumpIn(
+      WidgetTester tester,
+      Widget child, {
+      Brightness brightness = Brightness.light,
+      Size size = const Size(520, 360),
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const Key('shot'),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: buildTheme(brightness),
+            home: Scaffold(
+              body: Padding(padding: const EdgeInsets.all(24), child: child),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Color? fillOf(WidgetTester tester, String label, Set<WidgetState> s) =>
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, label))
+            .style!
+            .backgroundColor!
+            .resolve(s);
+    Color? inkOf(WidgetTester tester, String label, Set<WidgetState> s) =>
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, label))
+            .style!
+            .foregroundColor!
+            .resolve(s);
+
+    for (final (name, brightness, c) in [
+      ('밝게', Brightness.light, AppColors.light),
+      ('어둡게', Brightness.dark, AppColors.dark),
+    ]) {
+      testWidgets('$name 단추: 위험 단추는 위험 색 채움이고, 꺼진 채운 단추는 제 색을 낮춰 자리를 지킨다', (
+        tester,
+      ) async {
+        Widget row(String tag, VoidCallback? on) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              for (final (label, kind) in [
+                ('주 $tag', ButtonKind.primary),
+                ('위험 $tag', ButtonKind.danger),
+                ('보통 $tag', ButtonKind.secondary),
+                ('조용 $tag', ButtonKind.quiet),
+              ]) ...[
+                AppButton(label, kind: kind, onPressed: on),
+                const SizedBox(width: 8),
+              ],
+            ],
+          ),
+        );
+        await pumpIn(
+          tester,
+          Column(children: [row('켬', () {}), row('끔', null)]),
+          brightness: brightness,
+        );
+        expect(tester.takeException(), isNull);
+        await saveShot(tester, 'buttons-${brightness.name}');
+        const on = <WidgetState>{}, off = {WidgetState.disabled};
+        expect(fillOf(tester, '위험 켬', on), c.danger);
+        expect(inkOf(tester, '위험 켬', on), c.surface);
+        expect(fillOf(tester, '주 켬', on), c.accent);
+        // 꺼진 채운 단추: 회색이 아니라 낮춘 제 색, 글은 그대로.
+        expect(
+          fillOf(tester, '주 끔', off),
+          c.accent.withValues(alpha: AppButton.disabledFill),
+        );
+        expect(inkOf(tester, '주 끔', off), c.onAccent);
+        expect(
+          fillOf(tester, '위험 끔', off),
+          c.danger.withValues(alpha: AppButton.disabledFill),
+        );
+        // 꺼진 조용한 단추와 보통 단추: 보조 글보다 더 낮춘 글.
+        final low = c.textMuted.withValues(alpha: AppButton.disabledText);
+        expect(inkOf(tester, '조용 끔', off), low);
+        expect(inkOf(tester, '보통 끔', off), low);
+        expect(inkOf(tester, '조용 켬', on), c.text);
+      });
+
+      testWidgets('$name 고르기 줄: 고른 칸에만 테두리가 있다', (tester) async {
+        await pumpIn(
+          tester,
+          Align(
+            alignment: Alignment.topLeft,
+            child: Segmented<int>(
+              options: const [(1, '하나'), (2, '둘'), (3, '셋')],
+              value: 2,
+              onChanged: (_) {},
+            ),
+          ),
+          brightness: brightness,
+        );
+        await saveShot(tester, 'segmented-${brightness.name}');
+        BorderSide side(String label) =>
+            (tester
+                        .widget<Material>(
+                          find
+                              .ancestor(
+                                of: find.text(label),
+                                matching: find.byType(Material),
+                              )
+                              .first,
+                        )
+                        .shape!
+                    as RoundedRectangleBorder)
+                .side;
+        expect(side('둘').color, c.border);
+        expect(side('둘').width, 1);
+        expect(side('하나'), BorderSide.none);
+      });
+    }
+
+    testWidgets('오류 띠: 두 줄까지 보이고, 전체 글은 도구 설명에 있다', (tester) async {
+      final long = '자료 파일을 읽지 못했습니다. ' * 8;
+      await pumpIn(tester, ErrorLine(long, onRetry: () {}));
+      expect(tester.takeException(), isNull);
+      await saveShot(tester, 'error-line-two-lines');
+      final text = tester.widget<Text>(find.text(long));
+      expect(text.maxLines, 2);
+      expect(text.overflow, TextOverflow.ellipsis);
+      // 한 줄 띠(40)보다 높아져 둘째 줄이 보인다.
+      expect(tester.getSize(find.byType(ErrorLine)).height, greaterThan(40));
+      expect(find.byTooltip(long), findsOneWidget);
+      // 짧은 글은 한 줄 높이 그대로다.
+      await pumpIn(tester, const ErrorLine('짧은 글', onRetry: null));
+      expect(tester.getSize(find.byType(ErrorLine)).height, 40);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('알림 띠 ${brightness.name}: 창 아래 가운데에 작게 뜨고, 실패에는 아이콘이 붙는다', (
+        tester,
+      ) async {
+        const size = Size(1024, 640);
+        await pumpIn(
+          tester,
+          Builder(
+            builder: (context) => Column(
+              children: [
+                AppButton(
+                  '알림',
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: NoticeText('PDF로 내보냈습니다')),
+                  ),
+                ),
+                AppButton(
+                  '실패',
+                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const NoticeText(
+                        'Word 문서로 내보내지 못했습니다 · 디스크에 쓰지 못했습니다 (io)',
+                        failed: true,
+                      ),
+                      action: SnackBarAction(label: '다시 시도', onPressed: () {}),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          brightness: brightness,
+          size: size,
+        );
+        final c = brightness == Brightness.dark
+            ? AppColors.dark
+            : AppColors.light;
+        await tester.tap(find.text('알림'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final bar = find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.byType(Material),
+        );
+        final box = tester.getRect(bar.first);
+        // 창 너비를 다 덮지 않는다: 폭 420, 가운데.
+        expect(box.width, 420);
+        expect(box.center.dx, size.width / 2);
+        expect(tester.widget<Material>(bar.first).color, c.text);
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.byIcon(Icons.error),
+          ),
+          findsNothing,
+        );
+        ScaffoldMessenger.of(
+          tester.element(find.text('실패')),
+        ).removeCurrentSnackBar();
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('실패'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.byIcon(Icons.error),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.getRect(bar.first).width, 420);
+        debugDisableShadows = false;
+        await tester.pump();
+        await saveShot(tester, 'notice-failed-1024-${brightness.name}');
+        debugDisableShadows = true;
       });
     }
   });

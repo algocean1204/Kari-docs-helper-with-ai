@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
@@ -241,7 +242,9 @@ void main() {
       await tap(tester, find.text('취소'));
       expect(find.text('연결됨'), findsOneWidget);
       await tap(tester, providerButton('Claude 키 지우기'));
-      await tap(tester, inDialog(find.text('키 지우기')));
+      final confirm = inDialog(find.widgetWithText(AppButton, '키 지우기'));
+      expect(tester.widget<AppButton>(confirm).kind, ButtonKind.danger);
+      await tap(tester, confirm);
       expect(find.text('연결됨'), findsNothing);
       expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
       expect(filledLabels(tester), ['키 넣기']);

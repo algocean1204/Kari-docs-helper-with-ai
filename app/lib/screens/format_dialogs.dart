@@ -9,8 +9,11 @@ import '../engine/engine.dart';
 import 'dialogs.dart';
 import 'style_dialog.dart';
 
-/// 1cm의 pt.
-const ptPerCm = 28.3465;
+/// 1mm의 pt. 길이는 화면에서 mm로 보이고 받는다. 문서에는 pt로 남는다.
+const ptPerMm = 2.83465;
+
+/// pt를 mm 글로(소수 한 자리, 끝의 0은 뺀다). 값이 섞였으면(null) 빈칸.
+String mmOf(double? pt) => pt == null ? '' : numText(pt / ptPerMm, 1);
 
 /// 줄 간격 "1배"(한 줄)가 엔진의 글자 크기 백분율로 얼마인지. 엔진의 자동 줄 간격(글자 크기의 1.2배)과 같다.
 const singleLinePercent = 120.0;
@@ -33,6 +36,25 @@ String numText(double v, [int digits = 2]) {
 double? _read(String s) {
   final v = double.tryParse(s.trim().replaceAll(',', '.'));
   return v != null && v.isFinite ? v : null;
+}
+
+/// 적은 mm를 pt로. 범위 밖이면 null.
+/// 보이는 자리(소수 한 자리)까지 범위의 끝 값과 같으면 끝 값으로 맞춘다. 안내에 적힌 끝 값이 그대로 받아들여지게 하려는 것이다.
+double? ptInRange(double mm, double loPt, double hiPt) {
+  final pt = mm * ptPerMm;
+  if (pt >= loPt && pt <= hiPt) return pt;
+  final shown = numText(mm, 1);
+  if (shown == mmOf(loPt)) return loPt;
+  if (shown == mmOf(hiPt)) return hiPt;
+  return null;
+}
+
+/// 적은 mm가 범위 안이면 null, 아니면 알릴 글.
+String? mmError(String text, double loPt, double hiPt) {
+  final v = _read(text);
+  return v != null && ptInRange(v, loPt, hiPt) != null
+      ? null
+      : '${mmOf(loPt)}~${mmOf(hiPt)}mm로 적습니다';
 }
 
 /// 색 견본 판. 한 번의 Tab으로 들어가 방향키로 옮기고 Enter(또는 Space)로 고른다. 누르면 바로 고른다.
@@ -231,9 +253,154 @@ class _HexFieldState extends State<HexField> {
             setState(() => _bad = true);
             return;
           }
-          widget.onPick('#${v.trim().toUpperCase()}');
+          widget.onPick(swatchHex(v)!);
         },
       ),
+    );
+  }
+}
+
+/// 색 값 칸. 앞의 견본 네모가 지금 색을 보이고, 누르면 색 판이 펼쳐져 견본에서 고른다.
+/// 고른 색은 `#` 없는 여섯 자리로 칸에 적힌다. 직접 쳐도 된다.
+class ColorField extends StatefulWidget {
+  const ColorField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.onChanged,
+    this.swatches = textSwatches,
+    this.error,
+    this.helper,
+    this.hint,
+    this.clearable = false,
+    this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final String label;
+
+  /// 칸의 글이 바뀌었을 때(쳤거나 판에서 골랐을 때).
+  final VoidCallback onChanged;
+  final List<(String, String)> swatches;
+  final String? error;
+  final String? helper;
+
+  /// 칸이 비었을 때 옅게 보일 값. 견본 네모도 이 색을 보인다.
+  final String? hint;
+
+  /// 비워도 되는 칸(형광펜, 바탕색). 판에 `형광펜 없음`처럼 비우는 단추가 붙는다.
+  final bool clearable;
+  final VoidCallback? onSubmitted;
+
+  @override
+  State<ColorField> createState() => _ColorFieldState();
+}
+
+class _ColorFieldState extends State<ColorField> {
+  final _menu = MenuController();
+
+  void _pick(String hex) {
+    _menu.close();
+    widget.controller.text = hex.replaceFirst('#', '');
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final text = widget.controller.text.trim();
+    final own = swatchValue(text);
+    final shown = own ?? (text.isEmpty ? swatchValue(widget.hint ?? '') : null);
+    final name = '${widget.label} 고르기';
+    final swatch = MenuAnchor(
+      controller: _menu,
+      alignmentOffset: const Offset(0, Space.x1),
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(dark ? c.surface2 : c.surface),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: WidgetStatePropertyAll(dark ? 0 : 6),
+      ),
+      menuChildren: [
+        Palette(
+          label: widget.label,
+          swatches: widget.swatches,
+          current: own == null ? null : '#${text.replaceFirst('#', '')}',
+          onPick: _pick,
+          footer: [
+            if (widget.clearable) ...[
+              const SizedBox(height: Space.x1),
+              AppButton(
+                '${widget.label} 없음',
+                kind: ButtonKind.quiet,
+                onPressed: () => _pick(''),
+              ),
+            ],
+          ],
+        ),
+      ],
+      builder: (context, menu, _) => Tooltip(
+        message: name,
+        excludeFromSemantics: true,
+        child: FocusRing(
+          radius: 4,
+          child: Semantics(
+            button: true,
+            label: name,
+            child: ExcludeSemantics(
+              child: InkWell(
+                onTap: () => menu.isOpen ? menu.close() : menu.open(),
+                borderRadius: BorderRadius.circular(4),
+                focusColor: Colors.transparent,
+                // 색 둘레에 종이색을 두른다. 문서의 색은 종이 위에 놓이고, 어두운 화면에서도 어두운 색이 보인다.
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: shown == null ? null : c.paper,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: c.border),
+                  ),
+                  // 색이 없거나 읽지 못하는 값이면 빈 네모에 없음 표시.
+                  child: shown == null
+                      ? Icon(Icons.block, size: 14, color: c.textMuted)
+                      : DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(shown),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return TextField(
+      controller: widget.controller,
+      style: AppText.body.copyWith(
+        color: c.text,
+        fontFeatures: AppText.tabular,
+      ),
+      decoration: InputDecoration(
+        labelText: widget.label,
+        prefixIcon: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.x2),
+          child: swatch,
+        ),
+        prefixIconConstraints: const BoxConstraints(),
+        prefixText: '#',
+        helperText: widget.helper,
+        hintText: widget.hint,
+        floatingLabelBehavior: widget.hint == null
+            ? null
+            : FloatingLabelBehavior.always,
+        errorText: widget.error,
+      ),
+      onChanged: (_) => widget.onChanged(),
+      onSubmitted: (_) => widget.onSubmitted?.call(),
     );
   }
 }
@@ -314,10 +481,10 @@ class _CharDialogState extends State<CharDialog> {
       cmd['size'] = (_read(_size.t.text)! * 10).round() / 10;
     }
     if (_spacing.touched) cmd['spacing'] = _read(_spacing.t.text);
-    if (_color.touched) cmd['color'] = '#${_color.t.text.trim().toUpperCase()}';
+    if (_color.touched) cmd['color'] = swatchHex(_color.t.text)!;
     if (_bg.touched) {
       final t = _bg.t.text.trim();
-      cmd['bg'] = t.isEmpty ? '' : '#${t.toUpperCase()}';
+      cmd['bg'] = t.isEmpty ? '' : swatchHex(t)!;
     }
     if (_vertical != _f.vertical && _vertical != null) {
       cmd['vertical'] = _vertical;
@@ -331,8 +498,6 @@ class _CharDialogState extends State<CharDialog> {
     String label,
     String? error, {
     String? suffix,
-    String? prefix,
-    String? hint,
     String? helper,
   }) {
     final c = AppColors.of(context);
@@ -345,8 +510,6 @@ class _CharDialogState extends State<CharDialog> {
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
-        prefixText: prefix,
-        hintText: hint,
         helperText: helper,
         errorText: error,
       ),
@@ -363,10 +526,16 @@ class _CharDialogState extends State<CharDialog> {
       subtitle: '빈칸은 선택 안에서 값이 섞인 것입니다. 고친 값만 바꿉니다.',
       maxWidth: 520,
       actions: [
-        AppButton('닫기', onPressed: () => Navigator.of(context).pop()),
-        AppButton('적용', onPressed: _apply),
+        AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+        AppButton('적용', kind: ButtonKind.primary, onPressed: _apply),
       ],
       children: [
+        // 글꼴은 고르지 않는다. 문서는 앱에 든 글꼴 하나로 쓴다.
+        Text(
+          '글꼴: ${AppText.family}',
+          style: AppText.caption.copyWith(color: c.textMuted),
+        ),
+        const SizedBox(height: Space.x3),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -387,15 +556,26 @@ class _CharDialogState extends State<CharDialog> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _field(_color, '글자색', _colorError(), prefix: '#')),
+            Expanded(
+              child: ColorField(
+                controller: _color.t,
+                label: '글자색',
+                error: _colorError(),
+                onChanged: () => setState(() {}),
+                onSubmitted: _apply,
+              ),
+            ),
             const SizedBox(width: Space.x3),
             Expanded(
-              child: _field(
-                _bg,
-                '형광펜',
-                _bgError(),
-                prefix: '#',
+              child: ColorField(
+                controller: _bg.t,
+                label: '형광펜',
+                swatches: highlightSwatches,
+                clearable: true,
+                error: _bgError(),
                 helper: '비우면 형광펜 없음',
+                onChanged: () => setState(() {}),
+                onSubmitted: _apply,
               ),
             ),
           ],
@@ -431,7 +611,7 @@ class _CharDialogState extends State<CharDialog> {
   }
 }
 
-/// 문단 모양 창: 들여쓰기(cm), 간격(pt), 줄 간격(배수·고정 pt), 쪽과 줄. 섞인 값은 빈칸이고, 고친 값만 보낸다.
+/// 문단 모양 창: 들여쓰기(mm), 간격(pt), 줄 간격(배수·고정 pt), 쪽과 줄. 섞인 값은 빈칸이고, 고친 값만 보낸다.
 class ParaDialog extends StatefulWidget {
   const ParaDialog({super.key, required this.session});
 
@@ -441,14 +621,11 @@ class ParaDialog extends StatefulWidget {
   State<ParaDialog> createState() => _ParaDialogState();
 }
 
-String _cm(double? pt) => pt == null ? '' : (pt / ptPerCm).toStringAsFixed(2);
-
 class _ParaDialogState extends State<ParaDialog> {
   late final ParaFormat _p = widget.session.state?.paras ?? const ParaFormat();
-  late final double _bodyCm =
-      (widget.session.state?.bodyWidth ?? 481.89) / ptPerCm;
-  late final _left = _Field(_cm(_p.indentLeft));
-  late final _right = _Field(_cm(_p.indentRight));
+  late final double _body = widget.session.state?.bodyWidth ?? 481.89;
+  late final _left = _Field(mmOf(_p.indentLeft));
+  late final _right = _Field(mmOf(_p.indentRight));
   late final String? _firstMode0 = switch (_p.indentFirst) {
     null => null,
     0.0 => 'none',
@@ -459,7 +636,7 @@ class _ParaDialogState extends State<ParaDialog> {
   late final _first = _Field(
     _p.indentFirst == null || _p.indentFirst == 0
         ? ''
-        : _cm(_p.indentFirst!.abs()),
+        : mmOf(_p.indentFirst!.abs()),
   );
   late final _before = _Field(
     _p.spaceBefore == null ? '' : numText(_p.spaceBefore!),
@@ -498,19 +675,21 @@ class _ParaDialogState extends State<ParaDialog> {
     final v = _read(f.t.text);
     return v != null && v >= lo && v <= hi
         ? null
-        : '${numText(lo)}~${numText(hi)}$unit로 적습니다';
+        : '${numText(lo, 1)}~${numText(hi, 1)}$unit로 적습니다';
   }
 
-  String? _leftError() => _range(_left, 0, _bodyCm, 'cm');
-  String? _rightError() => _range(_right, 0, _bodyCm, 'cm');
+  String? _leftError() =>
+      _left.touched ? mmError(_left.t.text, 0, _body) : null;
+  String? _rightError() =>
+      _right.touched ? mmError(_right.t.text, 0, _body) : null;
   String? _firstError() =>
       _firstMode == 'none' || _firstMode == null || !_firstTouched
       ? null
       : (() {
           final v = _read(_first.t.text);
-          return v != null && v > 0 && v <= _bodyCm
+          return v != null && v > 0 && ptInRange(v, 0, _body) != null
               ? null
-              : '0보다 크고 ${numText(_bodyCm)}cm 이하로 적습니다';
+              : '0보다 크고 ${mmOf(_body)}mm 이하로 적습니다';
         })();
   String? _beforeError() => _range(_before, 0, 200, 'pt');
   String? _afterError() => _range(_after, 0, 200, 'pt');
@@ -541,14 +720,14 @@ class _ParaDialogState extends State<ParaDialog> {
       setState(() => _tried = true);
       return;
     }
-    double cm(_Field f) => _read(f.t.text)! * ptPerCm;
+    double mm(_Field f) => ptInRange(_read(f.t.text)!, 0, _body)!;
     final cmd = <String, Object?>{'k': 'setPara'};
-    if (_left.touched) cmd['indentLeft'] = cm(_left);
-    if (_right.touched) cmd['indentRight'] = cm(_right);
+    if (_left.touched) cmd['indentLeft'] = mm(_left);
+    if (_right.touched) cmd['indentRight'] = mm(_right);
     if (_firstTouched && _firstMode != null) {
       cmd['indentFirst'] = switch (_firstMode) {
-        'first' => cm(_first),
-        'hang' => -cm(_first),
+        'first' => mm(_first),
+        'hang' => -mm(_first),
         _ => 0.0,
       };
     }
@@ -617,20 +796,20 @@ class _ParaDialogState extends State<ParaDialog> {
     final c = AppColors.of(context);
     final sheet = Sheet(
       title: '문단 모양',
-      subtitle: '들여쓰기는 cm, 간격은 pt입니다. 빈칸은 고른 문단들에서 값이 섞인 것이고, 고친 값만 바꿉니다.',
+      subtitle: '들여쓰기는 mm, 간격은 pt입니다. 빈칸은 고른 문단들에서 값이 섞인 것이고, 고친 값만 바꿉니다.',
       maxWidth: 560,
       actions: [
-        AppButton('닫기', onPressed: () => Navigator.of(context).pop()),
-        AppButton('적용', onPressed: _apply),
+        AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+        AppButton('적용', kind: ButtonKind.primary, onPressed: _apply),
       ],
       children: [
         _label('들여쓰기'),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _field(_left, '왼쪽', _leftError(), 'cm')),
+            Expanded(child: _field(_left, '왼쪽', _leftError(), 'mm')),
             const SizedBox(width: Space.x3),
-            Expanded(child: _field(_right, '오른쪽', _rightError(), 'cm')),
+            Expanded(child: _field(_right, '오른쪽', _rightError(), 'mm')),
           ],
         ),
         const SizedBox(height: Space.x3),
@@ -650,7 +829,7 @@ class _ParaDialogState extends State<ParaDialog> {
             Expanded(
               child: _firstMode == 'none'
                   ? const SizedBox.shrink()
-                  : _field(_first, '첫 줄 값', _firstError(), 'cm'),
+                  : _field(_first, '첫 줄 값', _firstError(), 'mm'),
             ),
           ],
         ),

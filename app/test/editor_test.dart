@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SemanticsProperties;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/editing/session.dart';
 import 'package:kari/engine/engine.dart';
@@ -18,7 +19,7 @@ import 'package:kari/main.dart';
 import 'package:kari/screens/versions.dart';
 
 import 'design_test.dart'
-    show focusableCount, loadFonts, pumpApp, saveShot, sizes;
+    show filledLabels, focusableCount, loadFonts, pumpApp, saveShot, sizes;
 import 'library_test.dart' show Rig, paperTabCycle, pumpReal;
 
 /// 이력서를 연 문서 화면. 흉내 엔진과 그 문서의 id를 돌려준다.
@@ -42,7 +43,7 @@ Future<void> docMenu(WidgetTester tester, String item) async {
   await tester.pumpAndSettle();
 }
 
-/// 도구 줄의 넣기 메뉴(표, 이미지, 링크, 탭 정지)에서 [item]을 고른다.
+/// 도구 줄의 넣기 메뉴(표, 그림, 링크, 탭 정지)에서 [item]을 고른다.
 Future<void> insertMenu(WidgetTester tester, String item) async {
   await tester.tap(find.byTooltip('넣기'));
   await tester.pumpAndSettle();
@@ -268,9 +269,16 @@ void main() {
       await tester.tap(find.text('제출본'));
       await tester.pumpAndSettle();
       expect(find.textContaining(keepAll('김서연')), findsOneWidget);
+      // 편집 화면에는 채운 단추가 없다. 되돌리기는 테두리 단추이고, 채운 단추는 확인 창에서 나온다.
+      AppButton button(String label) =>
+          tester.widget(find.widgetWithText(AppButton, label));
+      expect(button('이 버전으로 되돌리기').kind, ButtonKind.secondary);
+      expect(filledLabels(tester), isEmpty);
       await tester.tap(find.text('이 버전으로 되돌리기'));
       await tester.pumpAndSettle();
       expect(find.text('이 버전으로 되돌릴까요?'), findsOneWidget);
+      // 되돌린 뒤에도 ⌘Z로 돌아갈 수 있는 일이라 위험 단추가 아니다.
+      expect(button('되돌리기').kind, ButtonKind.primary);
       expect(find.textContaining(keepAll('되돌리기 전')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await saveShot(tester, 'real-editor-restore-1024-light');
@@ -305,6 +313,13 @@ void main() {
       await tester.tap(find.text('지우기'));
       await tester.pumpAndSettle();
       expect(find.text('버전을 지울까요?'), findsOneWidget);
+      // 지운 버전은 되살릴 수 없다. 확인 단추는 위험 단추다.
+      expect(
+        tester
+            .widget<AppButton>(find.widgetWithText(AppButton, '지우기').last)
+            .kind,
+        ButtonKind.danger,
+      );
       await tester.tap(find.text('지우기').last);
       await tester.pumpAndSettle();
       expect(find.text('최종본'), findsNothing);
@@ -489,6 +504,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.fake.exported, ['/Users/me/Documents/이력서.pdf']);
       expect(find.text('PDF로 내보냈습니다 · 이력서.pdf'), findsOneWidget);
+      // 알림은 창 아래에 작게 뜬다(폭 420). 창 너비를 다 덮지 않는다. 성공에는 실패 아이콘이 없다.
+      final bar = find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.byType(Material),
+      );
+      expect(tester.getSize(bar.first).width, 420);
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.byIcon(Icons.error),
+        ),
+        findsNothing,
+      );
       await dismiss(tester);
     });
 
@@ -505,6 +533,16 @@ void main() {
         find.text('PDF로 내보내지 못했습니다 · PDF 파일을 쓰지 못했습니다: Permission denied (io)'),
         findsOneWidget,
       );
+      // 실패는 글에만 맡기지 않고 아이콘을 앞에 둔다.
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.byIcon(Icons.error),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await saveShot(tester, 'real-editor-notice-failed-light');
       expect(enabled(tester), isTrue);
       await dismiss(tester);
     });

@@ -25,7 +25,7 @@ void main() {
     tester,
   ) async {
     final (rig, id) = await openCv(tester, size: small);
-    await docMenu(tester, '쪽 설정');
+    await docMenu(tester, '쪽 설정…');
     expect(find.text('머리글'), findsOneWidget);
     // 지금 값: A4 세로, 여백 20mm
     expect(field('위'), findsOneWidget);
@@ -57,7 +57,7 @@ void main() {
     expect(st.footer, ['', '{쪽} / {전체}', '']);
     expect(st.hfSkipFirst, isTrue);
     // 다시 열면 지금 값이 보인다.
-    await docMenu(tester, '쪽 설정');
+    await docMenu(tester, '쪽 설정…');
     expect(find.widgetWithText(TextField, '김서연'), findsOneWidget);
     expect(find.widgetWithText(TextField, '{쪽} / {전체}'), findsOneWidget);
     await tester.tap(find.text('취소'));
@@ -66,7 +66,7 @@ void main() {
 
   testWidgets('본문이 72pt 미만이 되는 여백은 거절하고 창에 이유를 보인다', (tester) async {
     final (rig, id) = await openCv(tester);
-    await docMenu(tester, '쪽 설정');
+    await docMenu(tester, '쪽 설정…');
     await typeIn(tester, field('왼쪽').first, '100');
     await typeIn(tester, field('오른쪽').first, '100');
     await tester.tap(find.text('적용'));
@@ -110,7 +110,7 @@ void main() {
       expect(tester.takeException(), isNull, reason: '$mode 위쪽 줄');
       rig.fake.failures.remove('edit.cmd');
       await docMenu(tester, '버전 기록');
-      await docMenu(tester, '쪽 설정');
+      await docMenu(tester, '쪽 설정…');
       expect(tester.takeException(), isNull, reason: '$mode 쪽 설정 창');
       await tester.tap(find.text('취소'));
       await tester.pumpAndSettle();

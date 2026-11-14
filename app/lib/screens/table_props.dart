@@ -6,7 +6,8 @@ import '../editing/doc_colors.dart';
 import '../editing/session.dart';
 import '../engine/engine.dart';
 import 'dialogs.dart';
-import 'format_dialogs.dart' show HexField, Palette, numText, ptPerCm;
+import 'format_dialogs.dart'
+    show ColorField, HexField, Palette, mmError, mmOf, numText, ptInRange;
 
 /// 셀 세로 맞춤. 문단 정렬의 '가운데'와 헷갈리지 않게 '중간'이라 부른다.
 const _alignsV = [('top', '위'), ('center', '중간'), ('bottom', '아래')];
@@ -424,8 +425,12 @@ double? _read(String s) {
   return v != null && v.isFinite ? v : null;
 }
 
-/// pt를 cm 글로(소수 둘째 자리). 값이 섞였으면(null) 빈칸.
-String _cm(double? pt) => pt == null ? '' : (pt / ptPerCm).toStringAsFixed(2);
+/// 행 높이와 안쪽 여백의 위 끝(pt).
+const _maxRow = 1000.0;
+const _maxPad = 100.0;
+
+/// 안쪽 여백 칸을 놓는 차례(쪽 설정의 여백과 같다): 이름과 엔진의 자리(위, 오른쪽, 아래, 왼쪽 순).
+const _padSides = [('위', 0), ('아래', 2), ('왼쪽', 3), ('오른쪽', 1)];
 
 /// 모두 같으면 그 값, 섞였으면 null.
 double? _same(Iterable<double?> xs) {
@@ -433,8 +438,8 @@ double? _same(Iterable<double?> xs) {
   return xs.every((x) => x == first) ? first : null;
 }
 
-/// `표 속성…` 창: 표(맞춤, 기본 선 굵기와 색, 머리 행 수), 열(고른 열의 폭 cm, 열 폭 같게), 행(고른 행의 최소 높이
-/// cm, 행 높이 같게), 칸(안쪽 여백 넷 cm, 세로 맞춤). 섞인 값은 빈칸이고, 고친 값만 한 번에(되돌리기 한 단위) 보낸다.
+/// `표 속성…` 창: 표(맞춤, 기본 선 굵기와 색, 머리 행 수), 열(고른 열의 폭 mm, 열 폭 같게), 행(고른 행의 최소 높이
+/// mm, 행 높이 같게), 칸(안쪽 여백 넷 mm, 세로 맞춤). 섞인 값은 빈칸이고, 고친 값만 한 번에(되돌리기 한 단위) 보낸다.
 class TablePropsDialog extends StatefulWidget {
   const TablePropsDialog({super.key, required this.session});
 
@@ -447,15 +452,14 @@ class TablePropsDialog extends StatefulWidget {
 class _TablePropsDialogState extends State<TablePropsDialog> {
   late final TableState _t = widget.session.state!.table!;
   late final TableRange? _r = _t.range;
-  late final double _bodyCm =
-      (widget.session.state?.bodyWidth ?? 481.89) / ptPerCm;
+  late final double _body = widget.session.state?.bodyWidth ?? 481.89;
   late String _align = _t.align;
   late final _weight = _Field(numText(_t.border.weight));
   late final _color = _Field(_t.border.color.substring(1, 7));
   late final _header = _Field('${_t.headerRows}');
-  late final _colW = _Field(_cm(_same(_r?.colW ?? const [])));
-  late final _rowH = _Field(_cm(_same(_r?.rowH ?? const [])));
-  late final _pads = [for (var i = 0; i < 4; i++) _Field(_cm(_r?.pad[i]))];
+  late final _colW = _Field(mmOf(_same(_r?.colW ?? const [])));
+  late final _rowH = _Field(mmOf(_same(_r?.rowH ?? const [])));
+  late final _pads = [for (var i = 0; i < 4; i++) _Field(mmOf(_r?.pad[i]))];
   late final String? _alignV0 = _r == null ? _t.alignV : _r.alignV;
   late String? _alignV = _alignV0;
   bool _rowsEven = false;
@@ -477,7 +481,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     final v = _read(f.t.text);
     return v != null && v >= lo && v <= hi
         ? null
-        : '${numText(lo)}~${numText(hi)}$unit로 적습니다';
+        : '${numText(lo, 1)}~${numText(hi, 1)}$unit로 적습니다';
   }
 
   String? _weightError() => _range(_weight, 0, 6, 'pt');
@@ -492,10 +496,11 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
         : '0~${_t.rows - 1}행으로 적습니다';
   }
 
-  String? _colError() => _range(_colW, 12 / ptPerCm, _bodyCm, 'cm');
-  String? _rowError() =>
-      _rowsEven ? null : _range(_rowH, 0, 1000 / ptPerCm, 'cm');
-  String? _padError(int i) => _range(_pads[i], 0, 100 / ptPerCm, 'cm');
+  String? _mm(_Field f, double lo, double hi) =>
+      f.touched ? mmError(f.t.text, lo, hi) : null;
+  String? _colError() => _mm(_colW, minColumn, _body);
+  String? _rowError() => _rowsEven ? null : _mm(_rowH, 0, _maxRow);
+  String? _padError(int i) => _mm(_pads[i], 0, _maxPad);
 
   bool get _ok => [
     _weightError(),
@@ -512,7 +517,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     _allCols = picked.length <= 1;
     final w = _allCols ? _t.cols : picked;
     if (w.isEmpty) return;
-    setState(() => _colW.t.text = _cm(w.reduce((a, b) => a + b) / w.length));
+    setState(() => _colW.t.text = mmOf(w.reduce((a, b) => a + b) / w.length));
   }
 
   void _apply() {
@@ -525,15 +530,13 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     if (_weight.touched || _color.touched) {
       cmd['border'] = {
         'weight': _read(_weight.t.text) ?? _t.border.weight,
-        'color': _color.touched
-            ? '#${_color.t.text.trim().toUpperCase()}'
-            : _t.border.color,
+        'color': _color.touched ? swatchHex(_color.t.text)! : _t.border.color,
       };
     }
     if (_header.touched) cmd['headerRows'] = int.parse(_header.t.text.trim());
     final r = _r;
     if (_colW.touched && r != null) {
-      final w = _read(_colW.t.text)! * ptPerCm;
+      final w = ptInRange(_read(_colW.t.text)!, minColumn, _body)!;
       cmd['cols'] = [
         for (final (i, x) in _t.cols.indexed)
           _allCols || (i >= r.col && i < r.col + r.cols) ? w : x,
@@ -542,11 +545,12 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     if (_rowsEven) {
       cmd['rowsEven'] = true;
     } else if (_rowH.touched) {
-      cmd['h'] = _read(_rowH.t.text)! * ptPerCm;
+      cmd['h'] = ptInRange(_read(_rowH.t.text)!, 0, _maxRow)!;
     }
     if (_pads.any((p) => p.touched)) {
       cmd['pad'] = [
-        for (final p in _pads) p.touched ? _read(p.t.text)! * ptPerCm : null,
+        for (final p in _pads)
+          p.touched ? ptInRange(_read(p.t.text)!, 0, _maxPad)! : null,
       ];
     }
     if (_alignV != _alignV0 && _alignV != null) cmd['alignV'] = _alignV;
@@ -588,8 +592,8 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
       subtitle: '빈칸은 고른 칸들에서 값이 섞인 것입니다. 고친 값만 바꿉니다.',
       maxWidth: 640,
       actions: [
-        AppButton('닫기', onPressed: () => Navigator.of(context).pop()),
-        AppButton('적용', onPressed: _apply),
+        AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+        AppButton('적용', kind: ButtonKind.primary, onPressed: _apply),
       ],
       children: [
         _section('표'),
@@ -617,21 +621,12 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
             ),
             const SizedBox(width: Space.x3),
             Expanded(
-              child: TextField(
+              child: ColorField(
                 controller: _color.t,
-                maxLength: 6,
-                style: AppText.body.copyWith(
-                  color: c.text,
-                  fontFeatures: AppText.tabular,
-                ),
-                decoration: InputDecoration(
-                  labelText: '기본 선 색',
-                  prefixText: '#',
-                  counterText: '',
-                  errorText: _colorError(),
-                ),
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _apply(),
+                label: '기본 선 색',
+                error: _colorError(),
+                onChanged: () => setState(() {}),
+                onSubmitted: _apply,
               ),
             ),
             const SizedBox(width: Space.x3),
@@ -643,7 +638,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: _field(_colW, '고른 열의 폭', _colError(), suffix: 'cm'),
+              child: _field(_colW, '고른 열의 폭', _colError(), suffix: 'mm'),
             ),
             const SizedBox(width: Space.x2),
             AppButton('열 폭 같게', kind: ButtonKind.quiet, onPressed: _evenCols),
@@ -658,7 +653,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
                 ),
                 decoration: InputDecoration(
                   labelText: '고른 행의 최소 높이',
-                  suffixText: 'cm',
+                  suffixText: 'mm',
                   helperText: _rowsEven ? '가장 큰 행 높이로' : '0은 내용에 맞춤',
                   errorText: _rowError(),
                 ),
@@ -678,18 +673,23 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
           ],
         ),
         _section('칸'),
+        Padding(
+          padding: const EdgeInsets.only(bottom: Space.x2),
+          child: Text(
+            '안쪽 여백',
+            style: AppText.caption.copyWith(color: c.textMuted),
+          ),
+        ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final (i, label) in [
-              (0, '안쪽 여백 위'),
-              (1, '오른쪽'),
-              (2, '아래'),
-              (3, '왼쪽'),
-            ]) ...[
-              if (i > 0) const SizedBox(width: Space.x2),
+            for (final (n, (label, i)) in _padSides.indexed) ...[
+              if (n > 0) const SizedBox(width: Space.x2),
               Expanded(
-                child: _field(_pads[i], label, _padError(i), suffix: 'cm'),
+                child: Semantics(
+                  label: '안쪽 여백 $label',
+                  child: _field(_pads[i], label, _padError(i), suffix: 'mm'),
+                ),
               ),
             ],
           ],

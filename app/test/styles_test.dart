@@ -188,7 +188,7 @@ void main() {
       await openStyleDialog(tester, '제목 1');
       await saveShot(tester, 'styles-dialog-1024x640-light');
       expect(tester.takeException(), isNull);
-      expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
+      expect(filledLabels(tester, within: find.byType(Dialog)), ['적용']);
       // 자기 값은 칸에, 바탕 값은 빈칸에 옅게.
       expect(fieldText(tester, '크기'), '13');
       expect(fieldText(tester, '글자색'), '');
@@ -263,7 +263,7 @@ void main() {
       await tapIt(tester, inDialog('적용'));
       expect(rig.fake.cmds.length, before);
       expect(find.text('틀린 값이 있어 적용하지 않았습니다.'), findsOneWidget);
-      await tapIt(tester, inDialog('닫기'));
+      await tapIt(tester, inDialog('취소'));
 
       // 자기 테두리가 있으면 걷을 수 있다.
       await openStyleDialog(tester, '제목 2');
@@ -473,7 +473,7 @@ void main() {
           await tester.ensureVisible(find.text('테두리와 바탕'));
           await tester.pumpAndSettle();
           await saveShot(tester, 'styles-dialog-border-$tag');
-          await tapIt(tester, inDialog('닫기'));
+          await tapIt(tester, inDialog('취소'));
           await formatMenu(tester, '문단 모양…');
           await tester.ensureVisible(find.text('테두리와 바탕'));
           await tester.pumpAndSettle();
@@ -483,7 +483,7 @@ void main() {
             lessThanOrEqualTo(1),
           );
           await saveShot(tester, 'styles-border-$tag');
-          await tapIt(tester, inDialog('닫기'));
+          await tapIt(tester, inDialog('취소'));
           await styleMenu(tester, '새 스타일…');
           expect(tester.takeException(), isNull, reason: '$tag 새 스타일');
           await tapIt(tester, inDialog('취소'));

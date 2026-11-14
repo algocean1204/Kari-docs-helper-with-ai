@@ -29,8 +29,8 @@ void toggleGuides(EditSession s, Library library) {
   library.keep(Setting.tableGuides, s.guides);
 }
 
-/// 문서 화면. 위쪽 줄(이름, 저장 상태, 되돌리기·다시 하기, 쪽 설정, 내보내기, 버전 기록),
-/// 도구 줄, 안내 한 줄, 종이 영역, 열었을 때만 보이는 버전 기록 패널.
+/// 문서 화면. 위쪽 줄(이름, 저장 상태, 내보내기, `⋯` 메뉴의 쪽 설정과 버전 기록),
+/// 도구 줄(되돌리기·다시 하기부터), 안내 한 줄, 종이 영역, 열었을 때만 보이는 버전 기록 패널.
 class DocScreen extends StatefulWidget {
   const DocScreen({
     super.key,
@@ -262,10 +262,12 @@ class _DocScreenState extends State<DocScreen> {
     if (_exporting) return;
     setState(() => _exporting = true);
     String? message;
+    var failed = true;
     try {
       final path = await widget.library.savePath('${doc.name}.pdf');
       if (path != null) {
         await widget.library.engine.docExportPdf(doc.id, path);
+        failed = false;
         message = [
           'PDF로 내보냈습니다 · ${path.split('/').last}',
           ?missingLine(_session?.state?.missing ?? 0),
@@ -281,7 +283,7 @@ class _DocScreenState extends State<DocScreen> {
     if (message != null && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ).showSnackBar(SnackBar(content: NoticeText(message, failed: failed)));
     }
   }
 
@@ -293,7 +295,8 @@ class _DocScreenState extends State<DocScreen> {
     final what = kind == 'docx' ? 'Word 문서로' : '텍스트로';
     final engine = widget.library.engine;
     String? message;
-    var failed = false;
+    // 엔진이 내보내지 못했을 때만 다시 시도를 붙인다. 저장 위치를 고르지 못한 것도 실패로 알린다.
+    var failed = false, noPath = false;
     try {
       final path = await widget.library.savePath('${doc.name}.$kind');
       if (path != null) {
@@ -311,6 +314,7 @@ class _DocScreenState extends State<DocScreen> {
       failed = true;
       message = '$what 내보내지 못했습니다 · ${describe(e)}';
     } on PlatformException catch (e) {
+      noPath = true;
       message = '저장 위치를 고르지 못했습니다 · ${e.message ?? e.code}';
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -318,7 +322,7 @@ class _DocScreenState extends State<DocScreen> {
     if (message != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(message),
+          content: NoticeText(message, failed: failed || noPath),
           // 다시 시도 단추가 있어도 다른 결과처럼 잠깐 보이고 사라진다(메뉴에서 다시 누를 수 있다).
           persist: false,
           action: failed
@@ -361,7 +365,9 @@ class _DocScreenState extends State<DocScreen> {
       },
     );
     free();
-    if (why != null) messenger.showSnackBar(SnackBar(content: Text(why)));
+    if (why != null) {
+      messenger.showSnackBar(SnackBar(content: NoticeText(why, failed: true)));
+    }
     if (method == 'print' && mounted) _focusPaper();
   }
 
@@ -624,28 +630,6 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: Space.x3),
           if (s != null) ...[
-            Tooltip(
-              message: '되돌리기 ⌘Z',
-              child: AppButton(
-                '',
-                icon: Icons.undo,
-                semanticLabel: '되돌리기',
-                kind: ButtonKind.quiet,
-                onPressed: st?.canUndo == true ? s.undo : null,
-              ),
-            ),
-            const SizedBox(width: Space.x1),
-            Tooltip(
-              message: '다시 하기 ⇧⌘Z',
-              child: AppButton(
-                '',
-                icon: Icons.redo,
-                semanticLabel: '다시 하기',
-                kind: ButtonKind.quiet,
-                onPressed: st?.canRedo == true ? s.redo : null,
-              ),
-            ),
-            const SizedBox(width: Space.x3),
             // 주인공은 종이라 채운 단추가 없다. 덜 쓰는 쪽 설정과 버전 기록은 ⋯ 메뉴 안에 둔다.
             AppButton(
               'PDF로 내보내기',
@@ -660,13 +644,16 @@ class _TopBar extends StatelessWidget {
               shortcuts: const {'인쇄…': '⌘P', '개요': '⌥⌘O'},
               // 개요와 눈금선 보기는 켠 동안 확인 표시. 눈금선 보기는 앱 설정에 남긴다(문서마다 따로 두지 않는다).
               checked: {if (outlineOpen) '개요', if (s.guides) '표 눈금선 보기'},
+              // 내보내기·인쇄 / 문서 / 보기 세 묶음.
               items: [
                 ('인쇄…', st == null ? null : onPrint),
                 ('공유…', st == null ? null : onShare),
                 ('Word 문서로 내보내기…', st == null ? null : onDocx),
                 ('텍스트로 내보내기…', st == null ? null : onTxt),
-                ('쪽 설정', st == null ? null : onPage),
+                MoreMenu.divider,
+                ('쪽 설정…', st == null ? null : onPage),
                 (versionsOpen ? '버전 기록 닫기' : '버전 기록', onVersions),
+                MoreMenu.divider,
                 ('개요', st == null ? null : onOutline),
                 (
                   '표 눈금선 보기',
