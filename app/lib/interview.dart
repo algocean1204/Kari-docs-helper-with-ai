@@ -97,11 +97,13 @@ class InterviewRun extends ChangeNotifier {
   }
 
   /// 낸 답은 쓰던 답에서 바로 뺀다. 기다리는 동안 화면을 떠났다 돌아와도 다음 질문 칸에 남지 않게 하려는 것이다.
-  /// 답 자체를 거절했을 때(bad_request)만 되돌려 둔다.
+  /// 엔진이 답을 적지 못했으면(앞선 문답이 늘지 않았으면: 거절, 답을 적는 저장부터 실패) 되돌려 둔다.
   Future<void> answer(String text) async {
+    int answered() => (view?['history'] as List?)?.length ?? 0;
+    final before = answered();
     draft = '';
     await _call(IvBusy.reading, () => _engine.ivAnswer(id!, text));
-    if (error?.code == 'bad_request' && draft.isEmpty) draft = text;
+    if (answered() == before && draft.isEmpty) draft = text;
   }
 
   Future<void> skip() async {

@@ -503,6 +503,7 @@ fn ask_node(s: &mut Session, pack: &Pack, model: &mut Model) -> Result<Next, Err
         graded: None,
         feedback: None,
         aim: t.aim,
+        ungraded: false,
     });
     Ok(Next::Wait)
 }
@@ -558,6 +559,11 @@ fn score_node(s: &mut Session, pack: &Pack) -> Result<Next, Error> {
         // 모를 때 대처 질문은 채점하지 않는다. 다음 자리는 그 앞에서 정해 두었다.
         return Ok(Next::Go(Node::Pick));
     };
+    if t.ungraded {
+        // 채점 없이 넘긴 답: 면의 상태를 그대로 두고(점수를 지어내지 않는다) 다음 개념으로 간다.
+        s.next = None;
+        return Ok(Next::Go(Node::Pick));
+    }
     let idx = s
         .plan
         .iter()

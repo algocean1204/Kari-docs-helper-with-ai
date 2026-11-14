@@ -145,6 +145,32 @@ void main() {
       expect(done, ['docs.list', 'ai.first', 'ai.second']);
     });
 
+    test('모델 목록 받기는 자기 줄에서 돌아 내보내기와 면접 호출이 그 뒤에 서지 않는다', () async {
+      expect(netLane(jsonEncode({'m': 'ai.setKey', 'a': {}})), isTrue);
+      expect(
+        netLane(
+          jsonEncode({
+            'm': 'ai.models',
+            'a': {'refresh': true},
+          }),
+        ),
+        isTrue,
+      );
+      expect(netLane(jsonEncode({'m': 'ai.models', 'a': {}})), isFalse);
+      expect(netLane(jsonEncode({'m': 'ai.tasks', 'a': {}})), isFalse);
+      expect(netLane('{"m":'), isFalse);
+      final e = NativeEngine(call: _stand);
+      final done = <String>[];
+      Future<void> go(String m, [Json a = const {}]) async =>
+          done.add((await e.call(m, a)) as String);
+      await Future.wait([
+        go('ai.models', {'provider': 'anthropic', 'refresh': true}),
+        go('doc.exportPdf'),
+        go('iv.answer'),
+      ]);
+      expect(done, ['doc.exportPdf', 'iv.answer', 'ai.models']);
+    });
+
     test('줄의 아이솔레이트가 죽으면 그 줄만 unavailable로 실패한다', () async {
       final unavailable = throwsA(
         isA<EngineError>().having((e) => e.code, 'code', 'unavailable'),

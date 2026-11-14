@@ -94,6 +94,16 @@ class FakeIv {
         : null;
   }
 
+  /// 답을 적은 뒤 실패한 세션(진짜 엔진에서는 채점하다 멈춘 답). 채점 없이 넘길 수 있다.
+  bool _stuckGrading(Json s) {
+    final t = _turns(s).lastOrNull;
+    return s['error'] != null &&
+        s['status'] != 'done' &&
+        t != null &&
+        t['answer'] != null &&
+        t['ungraded'] != true;
+  }
+
   int _answered(Json s) => _turns(
     s,
   ).where((t) => t['answer'] != null || t['skipped'] == true).length;
@@ -125,6 +135,7 @@ class FakeIv {
       'elapsedMs': _answered(s) * 60000,
       'budgetMs': (s['minutes'] as int) * 60000,
       'hintsLeft': _hintsLeft(s),
+      'canSkipGrading': _stuckGrading(s),
       'feedback': s['pressure'] == 'coaching' && done.isNotEmpty
           ? '핵심 2개 중 1개를 짚었습니다.'
           : null,
@@ -134,6 +145,7 @@ class FakeIv {
             'question': x['question'],
             'answer': x['answer'],
             'skipped': x['skipped'] == true,
+            'ungraded': x['ungraded'] == true,
           },
       ],
       'error': s['error'],
@@ -284,6 +296,7 @@ class FakeIv {
         'elapsedMs': _answered(s) * 60000,
         'questions': _turns(s).length,
         'quoteFailures': 0,
+        'ungraded': _turns(s).where((t) => t['ungraded'] == true).length,
         'tokensIn': 1200 * _turns(s).length,
         'tokensOut': 300 * _turns(s).length,
         'tokensCached': 3000 * _turns(s).length,
@@ -632,7 +645,15 @@ class FakeIv {
         }
         return _reply(_session(a), answer: text);
       case 'iv.skip':
-        return _reply(_session(a));
+        final s = _session(a);
+        // 채점하다 멈춘 답은 채점 없이 넘기고 다음 질문으로 간다(진짜 엔진과 같다).
+        if (_stuckGrading(s)) {
+          _turns(s).last['ungraded'] = true;
+          s['error'] = null;
+          _next(s);
+          return view(s);
+        }
+        return _reply(s);
       case 'iv.hint':
         final s = _session(a);
         if (_hintsLeft(s) == 0) {

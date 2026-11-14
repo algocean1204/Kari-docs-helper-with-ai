@@ -85,8 +85,8 @@ pub fn data(call: &Call) -> Value {
 }
 
 /// 대본대로 채점한다. 체크포인트는 면마다 넷이고 앞의 셋이 필수다. 답에 든 표시에 따라:
-/// `[전부]` 모두 met, `[필수]` 필수 셋만 met, `[둘]` 앞의 둘만 met, `[넷째]` 필수가 아닌 넷째만 met,
-/// `[반]` 첫 체크포인트만 met, `[일부]` 첫 체크포인트만 partial, `[없음]`·표시 없음 모두 unmet, `[반대]` 첫 체크포인트 contra,
+/// `[전부]` 모두 met, `[필수]` 필수 셋만 met, `[앞둘]` 앞의 둘만 met, `[넷째]` 필수가 아닌 넷째만 met,
+/// `[첫만]` 첫 체크포인트만 met, `[일부]` 첫 체크포인트만 partial, `[없음]`·표시 없음 모두 unmet, `[반대]` 첫 체크포인트 contra,
 /// `[오개념]` 첫 오개념, `[모순]` 첫 답과의 확인되는 모순, `[지어낸모순]` 앞 답에 없는 인용의 모순,
 /// `[축반대]` 방어 축 `d.stance`만 contra.
 /// 인용은 답 전체(답에 그대로 있다).
@@ -99,9 +99,9 @@ pub fn script_grade(d: &Value) -> Value {
         .map(|(i, cp)| {
             let met = answer.contains("[전부]")
                 || (answer.contains("[필수]") && i < 3)
-                || (answer.contains("[둘]") && i < 2)
+                || (answer.contains("[앞둘]") && i < 2)
                 || (answer.contains("[넷째]") && i == 3)
-                || (answer.contains("[반]") && i == 0);
+                || (answer.contains("[첫만]") && i == 0);
             let v = if answer.contains("[축반대]") && cp["id"] == "d.stance" {
                 "contra"
             } else if met {

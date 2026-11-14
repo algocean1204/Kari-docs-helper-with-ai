@@ -135,3 +135,27 @@ fn empty_key_is_no_key() {
         .unwrap_err();
     assert_eq!(err, AiError::NoKey);
 }
+
+/// 서버가 오류 문구에 키를 되울려도 오류 값에는 키가 없고, 긴 문구는 잘린다.
+#[test]
+fn echoed_key_is_hidden_in_the_error() {
+    let echo = format!(
+        r#"{{"type":"error","error":{{"type":"invalid_request_error","message":"bad header x-api-key: {KEY} {}"}}}}"#,
+        "가".repeat(2000)
+    );
+    let srv = serve(vec![json(400, &echo), json(400, &echo)]);
+    let mut api = Anthropic::with_base_url(&srv.url);
+    api.retry_delays.clear();
+    let never = AtomicBool::new(false);
+    for err in [
+        api.models(KEY).unwrap_err(),
+        api.send(KEY, &ask("질문"), &haiku(), &never).unwrap_err(),
+    ] {
+        let AiError::BadRequest(m) = &err else {
+            panic!("{err:?}")
+        };
+        assert!(!m.contains(KEY), "{m}");
+        assert!(m.contains("<가림>"), "{m}");
+        assert!(m.chars().count() <= 300, "{}", m.chars().count());
+    }
+}

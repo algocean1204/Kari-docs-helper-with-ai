@@ -1,26 +1,29 @@
 //! Anthropic 어댑터. 원시 HTTP로 Messages API와 Models API를 부른다.
 
-use std::io::BufReader;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use ureq::http::Response;
 use ureq::{Agent, Body, RequestBuilder};
 
-use crate::http::{agent, read_json, with_retry};
+use crate::http::{agent, body_reader, read_json, with_retry};
 use crate::{body, reply, stream, AiError, ModelInfo, Reply, Request, Usage};
 
 const BASE_URL: &str = "https://api.anthropic.com";
 const VERSION: &str = "2026-10-21";
 /// 스트림에서 이만큼 아무것도 오지 않으면 끊는다.
 const STREAM_IDLE: Duration = Duration::from_secs(60);
+/// 모델 목록 요청 하나의 전체 한도.
+const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub struct Anthropic {
     base_url: String,
     /// 다시 시도 간격. 길이가 다시 시도 횟수다(기본 0.5초, 2초). 시험에서 줄인다.
     pub retry_delays: Vec<Duration>,
-    /// 응답 전체에는 시간 제한이 없다(생각이 길 수 있다). 연결만 10초.
+    /// 모델 목록 요청 하나의 전체 한도(기본 30초). 답하지 않는 서버에서 키 확인과 목록 받기가 끝나지 않는 일이 없게. 시험에서 줄인다.
+    pub list_timeout: Duration,
+    /// 응답 전체에는 시간 제한이 없다(생각이 길 수 있다). 연결만 10초. 모델 목록은 요청마다 `list_timeout`을 건 연결을 쓴다.
     agent: Agent,
     /// 스트림용. 읽기 한 번을 60초까지만 기다린다.
     stream_agent: Agent,
@@ -41,8 +44,9 @@ impl Anthropic {
         Anthropic {
             base_url: url.trim_end_matches('/').to_string(),
             retry_delays: vec![Duration::from_millis(500), Duration::from_secs(2)],
-            agent: agent(None),
-            stream_agent: agent(Some(STREAM_IDLE)),
+            agent: agent(None, None),
+            stream_agent: agent(Some(STREAM_IDLE), None),
+            list_timeout: LIST_TIMEOUT,
         }
     }
 
@@ -50,12 +54,19 @@ impl Anthropic {
     pub fn models(&self, key: &str) -> Result<Vec<ModelInfo>, AiError> {
         let never = AtomicBool::new(false);
         let url = format!("{}/v1/models", self.base_url);
+        let list_agent = agent(None, Some(self.list_timeout));
         let mut out = Vec::new();
         let mut after: Option<String> = None;
         loop {
-            let resp = with_retry(&self.retry_delays, &never, || {
-                let mut req = headers(self.agent.get(&url), key);
-                if let Some(id) = &after {
+            let (a, url, k, after_id) = (
+                list_agent.clone(),
+                url.clone(),
+                key.to_string(),
+                after.clone(),
+            );
+            let resp = with_retry(&self.retry_delays, &never, key, move || {
+                let mut req = headers(a.get(&url), &k);
+                if let Some(id) = &after_id {
                     req = req.query("after_id", id);
                 }
                 req.call()
@@ -98,8 +109,7 @@ impl Anthropic {
     ) -> Result<Reply, AiError> {
         let (body, effort) = body::build(req, info, true)?;
         let resp = self.post(&self.stream_agent, key, &body, cancel)?;
-        let reader = BufReader::new(resp.into_body().into_reader());
-        stream::read(reader, cancel, on_text, effort)
+        stream::read(body_reader(resp, cancel), cancel, on_text, effort)
     }
 
     fn post(
@@ -113,10 +123,11 @@ impl Anthropic {
             return Err(AiError::NoKey);
         }
         let url = format!("{}/v1/messages", self.base_url);
-        with_retry(&self.retry_delays, cancel, || {
-            headers(agent.post(&url), key)
+        let (agent, k, body) = (agent.clone(), key.to_string(), body.to_string());
+        with_retry(&self.retry_delays, cancel, key, move || {
+            headers(agent.post(&url), &k)
                 .header("content-type", "application/json")
-                .send(body)
+                .send(&body)
         })
     }
 }

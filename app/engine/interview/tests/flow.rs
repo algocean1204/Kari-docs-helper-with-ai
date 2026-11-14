@@ -42,7 +42,7 @@ fn mixed(s: &Session) -> Act {
     }
     match n % 6 {
         1 => Act::Answer(format!("{n}번 [전부]")),
-        2 => Act::Answer(format!("{n}번 [반]")),
+        2 => Act::Answer(format!("{n}번 [첫만]")),
         3 => Act::Skip,
         4 => Act::Answer(format!("{n}번 [오개념] [전부]")),
         _ => Act::Answer(format!("{n}번 [전부]")),
@@ -461,7 +461,7 @@ fn i5_contra_is_resolved_by_a_later_partial_but_not_by_unmet() {
     let save = &mut |_: &Session| Ok(());
     for (probe_answer, want, best) in [
         ("[일부]", Status::FirstPass, Verdict::Partial),
-        ("[반]", Status::FirstPass, Verdict::Met),
+        ("[첫만]", Status::FirstPass, Verdict::Met),
         ("[없음]", Status::Failed, Verdict::Contra),
     ] {
         let mut s = new(10, Years::New, Pressure::Standard);
@@ -508,7 +508,7 @@ fn i14_report() {
     let act = |s: &Session| {
         let n = s.turns.len();
         Act::Answer(match n {
-            1 => "연락은 kim@example.com로 [오개념] [반]".to_string(),
+            1 => "연락은 kim@example.com로 [오개념] [첫만]".to_string(),
             _ => format!("{n}번 [없음]"),
         })
     };
@@ -535,7 +535,7 @@ fn i14_report() {
     assert!(c.source.url.starts_with("https://"));
     assert!(!c.fix.is_empty());
     assert_eq!(
-        c.quote, "연락은 kim@example.com로 [오개념] [반]",
+        c.quote, "연락은 kim@example.com로 [오개념] [첫만]",
         "인용의 연락처는 되돌아온다"
     );
     assert!(
@@ -624,9 +624,9 @@ fn must_checkpoints_score_and_new_met_holds_the_follow_up() {
         ("[필수]", "[없음]", Status::FirstPass, Status::Failed),
         ("[필수]", "[전부]", Status::FirstPass, Status::Confirmed),
         // 필수 둘이면 0.67: 첫 통과. 꼬리질문은 셋째 필수를 겨냥한다.
-        ("[둘]", "[필수]", Status::FirstPass, Status::Confirmed),
-        ("[둘]", "[넷째]", Status::FirstPass, Status::Failed),
-        ("[둘]", "[없음]", Status::FirstPass, Status::Failed),
+        ("[앞둘]", "[필수]", Status::FirstPass, Status::Confirmed),
+        ("[앞둘]", "[넷째]", Status::FirstPass, Status::Failed),
+        ("[앞둘]", "[없음]", Status::FirstPass, Status::Failed),
         // 필수가 아닌 넷째만: 점수 0, 실패.
         ("[넷째]", "", Status::Failed, Status::Failed),
     ] {
@@ -684,13 +684,13 @@ fn report_lists_musts_first_and_once() {
         &[("net", &net.to_string()), ("db", &db.to_string())],
     )
     .unwrap();
-    // 첫 답은 넷째만(빠진 필수 셋), 그 뒤는 [둘](첫 통과 뒤 꼬리질문에서 실패, 빠진 필수 하나).
+    // 첫 답은 넷째만(빠진 필수 셋), 그 뒤는 [앞둘](첫 통과 뒤 꼬리질문에서 실패, 빠진 필수 하나).
     let act = |s: &Session| {
         let n = s.turns.len();
         Act::Answer(if n == 1 {
             "[넷째]".into()
         } else {
-            format!("{n}번 [둘]")
+            format!("{n}번 [앞둘]")
         })
     };
     let mut s = Session::new(start(10, Years::New, Pressure::Standard), &pack).unwrap();
@@ -740,7 +740,7 @@ fn aimed_answer_passes_then_follow_confirms_and_raises() {
         seen.borrow_mut().push((call.what, data(call)));
         scripted(call)
     };
-    s.answer("[반]", 1).unwrap(); // 첫 필수만: 필수 전부로는 0.33
+    s.answer("[첫만]", 1).unwrap(); // 첫 필수만: 필수 전부로는 0.33
     run(&mut s, &pack, &mut m, save).unwrap();
     assert_eq!(status(&s, &c, f.as_str()), Some(Status::FirstPass));
     assert_eq!(s.turns[1].phase, Some(kari_interview::pick::Phase::Follow));
@@ -757,7 +757,7 @@ fn aimed_answer_passes_then_follow_confirms_and_raises() {
         format!("{c}의 {} 내용 2번을 말한다", f.as_str())
     );
     assert!(ask.get("missing").is_none());
-    s.answer("[둘]", 1).unwrap();
+    s.answer("[앞둘]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f.as_str()), Some(Status::Confirmed));
     assert_eq!(s.turns[2].concept, c);
@@ -771,11 +771,11 @@ fn aimed_answer_passes_then_follow_confirms_and_raises() {
     assert_eq!(run_.aimed, [id(1).unwrap(), id(2).unwrap()]);
     // 올린 면에서도 첫 통과 뒤 꼬리질문은 다음 필수를 겨냥한다. 시나리오도 겨냥이 있다(재료는 그대로).
     let f2 = s.plan[0].faces[1];
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(s.turns[3].kind, QType::Scenario);
     assert_eq!(s.turns[3].aim, Some(format!("{c}.{}.2", f2.as_str())));
-    s.answer("[둘]", 1).unwrap();
+    s.answer("[앞둘]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f2.as_str()), Some(Status::Confirmed));
 }
@@ -789,7 +789,7 @@ fn a_tradeoff_follow_up_aims_at_the_next_must() {
     let mut s = new(10, Years::Senior, Pressure::Standard);
     run(&mut s, &pack, &mut scripted, save).unwrap();
     let c = s.turns[0].concept.clone();
-    for a in ["[반]", "[둘]", "[반]"] {
+    for a in ["[첫만]", "[앞둘]", "[첫만]"] {
         s.answer(a, 1).unwrap();
         run(&mut s, &pack, &mut scripted, save).unwrap();
     }
@@ -797,7 +797,7 @@ fn a_tradeoff_follow_up_aims_at_the_next_must() {
     assert_eq!(s.turns[2].face, Some(f3));
     assert_eq!(s.turns[3].kind, QType::Tradeoff);
     assert_eq!(s.turns[3].aim, Some(format!("{c}.{}.2", f3.as_str())));
-    s.answer("[둘]", 1).unwrap();
+    s.answer("[앞둘]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f3.as_str()), Some(Status::Confirmed));
 }
@@ -810,7 +810,7 @@ fn a_contra_on_a_defense_axis_does_not_open_a_probe() {
     let mut s = new(10, Years::New, Pressure::Real);
     run(&mut s, &pack, &mut scripted, save).unwrap();
     let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(s.turns[1].kind, QType::Rebut);
     s.answer("[전부] [축반대]", 1).unwrap();
@@ -837,9 +837,9 @@ fn a_raised_face_gets_its_retry_and_passes_on_the_aim() {
     let mut s = new(10, Years::New, Pressure::Standard);
     run(&mut s, &pack, &mut scripted, save).unwrap();
     let c = s.turns[0].concept.clone();
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
-    s.answer("[둘]", 1).unwrap();
+    s.answer("[앞둘]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     let f2 = s.plan[0].faces[1];
     assert_eq!(
@@ -851,7 +851,7 @@ fn a_raised_face_gets_its_retry_and_passes_on_the_aim() {
     assert_eq!(s.turns[3].phase, Some(Phase::Retry));
     assert_eq!(s.turns[3].kind, QType::Deepen);
     assert_eq!(s.turns[3].aim, s.turns[2].aim);
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f2.as_str()), Some(Status::FirstPass));
     assert_eq!(s.turns[4].phase, Some(Phase::Follow));
@@ -877,12 +877,12 @@ fn a_follow_up_asked_without_its_aim_holds_on_a_new_must() {
     let mut s = new(10, Years::New, Pressure::Standard);
     run(&mut s, &pack, &mut m, save).unwrap();
     let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut m, save).unwrap();
     assert_eq!(s.turns[1].kind, QType::Deepen);
     assert_eq!(s.turns[1].aim, None);
     assert_eq!(s.leak, 1);
-    s.answer("[둘]", 1).unwrap();
+    s.answer("[앞둘]", 1).unwrap();
     run(&mut s, &pack, &mut m, save).unwrap();
     let grade = seen
         .borrow()
@@ -1055,7 +1055,7 @@ fn a_face_lost_on_defense_reports_the_follow_up_and_missing_axes() {
 fn a_skipped_defense_follow_up_reports_all_its_axes() {
     let pack = test_pack();
     for (pressure, first, kind) in [
-        (Pressure::Real, "[반]", QType::Rebut),
+        (Pressure::Real, "[첫만]", QType::Rebut),
         (Pressure::Standard, "[필수]", QType::Evidence),
     ] {
         let act = move |s: &Session| match s.turns.len() {
@@ -1090,11 +1090,11 @@ fn a_skipped_defense_follow_up_reports_all_its_axes() {
 fn rebut_is_held_by_defense_axes() {
     let pack = test_pack();
     let save = &mut |_: &Session| Ok(());
-    for (follow, want) in [("[전부]", Status::Confirmed), ("[반]", Status::Failed)] {
+    for (follow, want) in [("[전부]", Status::Confirmed), ("[첫만]", Status::Failed)] {
         let mut s = new(10, Years::New, Pressure::Real);
         run(&mut s, &pack, &mut scripted, save).unwrap();
         let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
-        s.answer("[반]", 1).unwrap();
+        s.answer("[첫만]", 1).unwrap();
         run(&mut s, &pack, &mut scripted, save).unwrap();
         assert_eq!(s.turns[1].kind, QType::Rebut, "실전은 반박을 먼저");
         assert_eq!(s.turns[1].aim, None);
@@ -1190,10 +1190,10 @@ fn follow_does_not_pass_by_itself_and_a_passed_face_is_not_lowered() {
     let mut s = new(10, Years::Junior, Pressure::Standard);
     run(&mut s, &pack, &mut scripted, save).unwrap();
     let (c, f) = (s.turns[0].concept.clone(), s.turns[0].face.unwrap());
-    s.answer("[반]", 1).unwrap();
+    s.answer("[첫만]", 1).unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f.as_str()), Some(Status::FirstPass));
-    s.answer("[반]", 1).unwrap(); // 새로 말한 것이 없다
+    s.answer("[첫만]", 1).unwrap(); // 새로 말한 것이 없다
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(status(&s, &c, f.as_str()), Some(Status::Failed));
     assert_ne!(s.turns[2].concept, c, "내리지 않고 다음 개념");
@@ -1367,4 +1367,39 @@ fn failed_view_keeps_the_question() {
     s.end().unwrap();
     run(&mut s, &pack, &mut scripted, save).unwrap();
     assert_eq!(s.view()["question"], Value::Null);
+}
+
+/// 채점이 늘 실패하는 답(모델의 거절 같은)은 채점 없이 넘길 수 있다: 그 면의 점수는 그대로이고 다음 개념으로 가며,
+/// 리포트에는 채점하지 못한 답으로 센다. 답을 기다리는 동안의 "모르겠습니다"는 그대로다.
+#[test]
+fn a_turn_that_cannot_be_graded_can_be_passed_over() {
+    let pack = test_pack();
+    let save = &mut |_: &Session| Ok(());
+    let mut s = new(10, Years::New, Pressure::Standard);
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(s.view()["canSkipGrading"], false);
+    let first = s.turns[0].concept.clone();
+    s.answer("거절될 답 [전부]", 1).unwrap();
+    let mut refuse = |c: &Call| -> Result<Got, AiError> {
+        if c.what == "grade" {
+            Err(AiError::Refused(String::new()))
+        } else {
+            scripted(c)
+        }
+    };
+    assert!(run(&mut s, &pack, &mut refuse, save).is_err());
+    assert_eq!(s.node, Node::Grade);
+    assert_eq!(s.view()["canSkipGrading"], true);
+    s.skip(5).unwrap();
+    assert_eq!(s.waited_ms, 1, "기다린 시간은 답을 낼 때 이미 셌다");
+    run(&mut s, &pack, &mut refuse, save).unwrap();
+    assert_eq!(s.node, Node::Wait);
+    assert!(s.turns[0].ungraded && s.turns[0].graded.is_none());
+    assert_eq!(s.turns[0].answer.as_deref(), Some("거절될 답 [전부]"));
+    assert_eq!(s.faces[0].status, Status::Pending, "점수를 지어내지 않는다");
+    assert_ne!(s.turns[1].concept, first, "다음 개념으로 간다");
+    assert_eq!(s.view()["history"][0]["ungraded"], true);
+    s.end().unwrap();
+    run(&mut s, &pack, &mut scripted, save).unwrap();
+    assert_eq!(s.report.as_ref().unwrap().session.ungraded, 1);
 }

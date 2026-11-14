@@ -173,6 +173,8 @@ void main() {
       ('unauthorized', '키가 올바르지 않습니다. 다시 확인해 주세요.'),
       ('network', 'Anthropic에 연결하지 못했습니다. 네트워크를 확인해 주세요.'),
       ('rate_limited', '확인하지 못했습니다 (rate_limited)'),
+      ('rate', 'Anthropic 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.'),
+      ('billing', 'Anthropic 계정의 잔액이나 지출 한도에 걸렸습니다. 결제 설정을 확인해 주세요.'),
       ('secret', '이 기기의 보안 저장소(키체인)를 쓰지 못했습니다. 시험'),
     ]) {
       testWidgets('실패($code)는 대화 상자 안에 한 줄로 알리고 아무것도 저장하지 않는다', (tester) async {

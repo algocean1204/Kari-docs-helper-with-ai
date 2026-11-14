@@ -65,6 +65,8 @@ mod hooked {
         Cut,
         /// 이만큼 기다린 뒤 글 응답
         Slow(u64, String),
+        /// 이 글과 멈춘 이유(`refusal`, `max_tokens`)의 SSE 응답
+        Stopped(&'static str, &'static str),
     }
 
     type Handler = Box<dyn FnMut(&Value) -> Resp + Send>;
@@ -163,12 +165,16 @@ mod hooked {
     }
 
     fn sse(text: &str) -> String {
+        sse_stop(text, "end_turn")
+    }
+
+    fn sse_stop(text: &str, stop: &str) -> String {
         let events = [
             r#"{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","content":[],"model":"claude-haiku-5-5","stop_reason":null,"usage":{"input_tokens":30,"output_tokens":1}}}"#.to_string(),
             r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#.to_string(),
             json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}).to_string(),
             r#"{"type":"content_block_stop","index":0}"#.to_string(),
-            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}"#.to_string(),
+            json!({"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 12}}).to_string(),
             r#"{"type":"message_stop"}"#.to_string(),
         ];
         let body: String = events
@@ -264,6 +270,7 @@ mod hooked {
                                 thread::sleep(Duration::from_millis(ms));
                                 sse(&t)
                             }
+                            Resp::Stopped(t, stop) => sse_stop(t, stop),
                         }
                     };
                     let _ = stream.write_all(out.as_bytes());
@@ -780,7 +787,7 @@ mod hooked {
 
         let cases: [(&str, Resp); 3] = [
             ("unauthorized", Resp::Error(401, "authentication_error")),
-            ("ai", Resp::Error(429, "rate_limit_error")),
+            ("rate", Resp::Error(429, "rate_limit_error")),
             ("network", Resp::Cut),
         ];
         for (turn, (code, resp)) in cases.into_iter().enumerate() {
@@ -792,7 +799,7 @@ mod hooked {
             let tries = srv.posts().len() - n;
             assert_eq!(
                 tries,
-                if code == "ai" { 3 } else { 1 },
+                if code == "rate" { 3 } else { 1 },
                 "429만 다시 시도한다"
             );
             let v = ok("iv.session", json!({"id": id}));
@@ -853,8 +860,9 @@ mod hooked {
             .as_str()
             .unwrap()
             .to_string();
+        // 서버는 30초 동안 답하지 않는다. 시간 한도는 바쁜 기계에서도 흔들리지 않게 그보다 훨씬 짧고 넉넉히 둔다.
         srv.set(|b| match brain(b) {
-            Resp::Text(t) if data_of(b).get("checkpoints").is_some() => Resp::Slow(1500, t),
+            Resp::Text(t) if data_of(b).get("checkpoints").is_some() => Resp::Slow(30_000, t),
             r => r,
         });
         let n = srv.posts().len();
@@ -864,7 +872,7 @@ mod hooked {
         });
         let t = Instant::now();
         while srv.posts().len() == n {
-            assert!(t.elapsed() < Duration::from_secs(3), "요청이 오지 않았다");
+            assert!(t.elapsed() < Duration::from_secs(10), "요청이 오지 않았다");
             thread::sleep(Duration::from_millis(5));
         }
         let t = Instant::now();
@@ -879,7 +887,7 @@ mod hooked {
             "busy"
         );
         assert!(
-            t.elapsed() < Duration::from_millis(300),
+            t.elapsed() < Duration::from_secs(5),
             "막혔다: {:?}",
             t.elapsed()
         );
@@ -888,7 +896,10 @@ mod hooked {
             ok("iv.cancel", json!({"id": id})),
             json!({"canceled": true})
         );
+        // 취소는 서버가 답하기를 기다리지 않고 곧바로 돌아온다.
+        let t = Instant::now();
         let r = worker.join().unwrap();
+        assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
         assert_eq!(r["err"]["code"], "canceled", "{r}");
         assert_eq!(
             ok("iv.cancel", json!({"id": id})),
@@ -900,5 +911,77 @@ mod hooked {
         assert_eq!(v["status"], "failed");
         assert_eq!(v["history"][0]["answer"], "느린 채점 [전부]");
         assert_eq!(ok("iv.resume", json!({"id": id}))["turn"], 2);
+    }
+
+    /// 시작의 모델 호출이 실패하면 세션을 남기지 않는다: 다시 시도가 질문 0개짜리 세션을 쌓지 않고, 홈의 "이어 하기"도 없다.
+    #[test]
+    fn failed_starts_leave_no_sessions() {
+        let srv = serve();
+        let _case = begin("orphans", &srv);
+        let doc = resume_doc(&[("p1", "인덱스 튜닝")]);
+        srv.set(|_| Resp::Error(500, "api_error"));
+        for _ in 0..3 {
+            assert_eq!(err("iv.start", start_args(&doc))["code"], "server");
+        }
+        assert_eq!(ok("iv.sessions", json!({})), json!([]));
+        assert_eq!(ok("iv.dashboard", json!({}))["unfinished"], json!(null));
+        srv.set(brain);
+        assert_eq!(ok("iv.start", start_args(&doc))["status"], "waiting");
+        assert_eq!(ok("iv.sessions", json!({})).as_array().unwrap().len(), 1);
+    }
+
+    /// 채점이 같은 까닭으로 실패하는 답: 거절은 `refused`, 출력 한도에서 끊긴 답은 같은 요청을 다시 보내지 않고 `shape`
+    /// (파서의 영어 문구 없이). 그 답은 `iv.skip`으로 채점 없이 넘기고, 리포트에 채점하지 못한 답으로 남는다.
+    #[test]
+    fn an_answer_that_cannot_be_graded_can_be_passed_over() {
+        let srv = serve();
+        let _case = begin("ungraded", &srv);
+        let doc = resume_doc(&[("p1", "인덱스 튜닝")]);
+        let id = ok("iv.start", start_args(&doc))["id"].clone();
+        for (stop, code) in [("refusal", "refused"), ("max_tokens", "shape")] {
+            srv.set(move |b| {
+                if data_of(b).get("checkpoints").is_some() {
+                    Resp::Stopped(r#"{"checks":[{"id":"x","verd"#, stop)
+                } else {
+                    brain(b)
+                }
+            });
+            let n = srv.posts().len();
+            let e = err("iv.answer", json!({"id": id, "text": format!("{stop} 답")}));
+            assert_eq!(e["code"], code, "{e}");
+            assert_eq!(srv.posts().len() - n, 1, "같은 요청을 다시 보내지 않는다");
+            assert!(!e["message"].as_str().unwrap().contains("EOF"), "{e}");
+            assert_eq!(ok("iv.session", json!({"id": id}))["canSkipGrading"], true);
+            let v = ok("iv.skip", json!({"id": id}));
+            assert_eq!(v["status"], "waiting", "{v}");
+            assert_eq!(v["canSkipGrading"], false);
+        }
+        ok("iv.end", json!({"id": id}));
+        let r = ok("iv.report", json!({"id": id}));
+        assert_eq!(r["session"]["ungraded"], 2, "{}", r["session"]);
+    }
+
+    /// 오류 코드는 사람이 할 일이 다른 까닭마다 나뉜다.
+    #[test]
+    fn error_codes_tell_the_reason() {
+        let srv = serve();
+        let _case = begin("codes", &srv);
+        let doc = resume_doc(&[("p1", "인덱스 튜닝")]);
+        let id = ok("iv.start", start_args(&doc))["id"].clone();
+        srv.set(|_| Resp::Error(404, "not_found_error"));
+        assert_eq!(
+            err("iv.answer", json!({"id": id, "text": "답"}))["code"],
+            "model"
+        );
+        for (resp, code) in [
+            (Resp::Error(500, "api_error"), "server"),
+            (Resp::Error(529, "overloaded_error"), "server"),
+            (Resp::Error(429, "rate_limit_error"), "rate"),
+            (Resp::Error(429, "insufficient_quota"), "billing"),
+            (Resp::Error(400, "invalid_request_error"), "ai"),
+        ] {
+            srv.set(move |_| resp.clone());
+            assert_eq!(err("iv.resume", json!({"id": id}))["code"], code);
+        }
     }
 }

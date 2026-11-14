@@ -356,7 +356,7 @@ fn status_errors() {
             429,
             "insufficient_quota",
             "credit_balance_exhausted",
-            AiError::BadRequest("insufficient_quota 시험".into()),
+            AiError::Billing("insufficient_quota 시험".into()),
         ),
     ];
     for (status, kind, code, want) in cases {
@@ -408,7 +408,7 @@ fn retries_rate_limit_and_overload() {
 fn cancel_while_waiting_to_retry() {
     let srv = serve(vec![oa_error(503, "server_error", ""), ok("됐다")]);
     let mut api = OpenAi::with_base_url(&srv.url);
-    api.retry_delays = vec![Duration::from_secs(10)];
+    api.retry_delays = vec![Duration::from_secs(60)];
     let cancel = Arc::new(AtomicBool::new(false));
     let flag = cancel.clone();
     std::thread::spawn(move || {
@@ -418,7 +418,8 @@ fn cancel_while_waiting_to_retry() {
     let started = Instant::now();
     let err = api.send(KEY, &ask("질문"), &luna(), &cancel).unwrap_err();
     assert_eq!(err, AiError::Canceled);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    // 다시 시도 간격(60초)보다 훨씬 짧으면 된다. 바쁜 기계에서도 흔들리지 않게 넉넉히 둔다.
+    assert!(started.elapsed() < Duration::from_secs(10));
 }
 
 fn delta(item: &str, t: &str) -> String {
@@ -530,7 +531,7 @@ fn cancel_mid_stream() {
         Step::Write(event(&delta("msg_1", "하나"))),
         Step::Sleep(300),
         Step::Write(event(&delta("msg_1", "둘"))),
-        Step::Sleep(5000),
+        Step::Sleep(30_000),
     ]]);
     let cancel = AtomicBool::new(false);
     let mut pieces = Vec::new();
@@ -543,7 +544,8 @@ fn cancel_mid_stream() {
         .unwrap_err();
     assert_eq!(err, AiError::Canceled);
     assert_eq!(pieces, ["하나"]);
-    assert!(started.elapsed().as_millis() < 2000);
+    // 서버는 30초를 더 끈다. 한도는 바쁜 기계에서도 흔들리지 않게 넉넉히 둔다.
+    assert!(started.elapsed().as_secs() < 10, "{:?}", started.elapsed());
 }
 
 #[test]
@@ -583,4 +585,28 @@ fn client_by_provider() {
     assert!(kari_ai::client("other", None).is_none());
     assert_eq!(kari_ai::families("openai"), ["luna", "terra", "sol"]);
     assert_eq!(kari_ai::families("anthropic"), ["haiku", "sonnet", "opus"]);
+}
+
+/// 모델 목록은 전체 시간 한도가 있다: 답하지 않는 서버에서 한도 뒤 연결 오류로 돌아온다.
+/// 스트림은 응답 머리를 기다리는 동안에도 취소가 곧바로 먹는다.
+#[test]
+fn silent_server_does_not_hang_models_or_cancel() {
+    let srv = serve(vec![vec![Step::Sleep(30_000)], vec![Step::Sleep(30_000)]]);
+    let mut api = quick(&srv.url);
+    api.list_timeout = Duration::from_millis(500);
+    let started = Instant::now();
+    assert!(matches!(api.models(KEY), Err(AiError::Network(_))));
+    assert!(started.elapsed() < Duration::from_secs(10));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let flag = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        flag.store(true, Ordering::Relaxed);
+    });
+    let started = Instant::now();
+    let err = api
+        .stream(KEY, &ask("질문"), &luna(), &cancel, &mut |_| {})
+        .unwrap_err();
+    assert_eq!(err, AiError::Canceled);
+    assert!(started.elapsed() < Duration::from_secs(10));
 }

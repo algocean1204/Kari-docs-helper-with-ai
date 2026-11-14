@@ -110,6 +110,9 @@ pub struct Summary {
     pub elapsed_ms: u64,
     pub questions: u32,
     pub quote_failures: u32,
+    /// 채점이 되풀이해 실패해 채점 없이 넘긴 답의 수(앞서 저장한 리포트에는 없다)
+    #[serde(default)]
+    pub ungraded: u32,
     /// 캐시를 거치지 않은 입력
     pub tokens_in: u64,
     pub tokens_out: u64,
@@ -576,6 +579,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
             elapsed_ms: s.elapsed_ms(),
             questions: s.turns.len() as u32,
             quote_failures: s.quote_fail,
+            ungraded: s.turns.iter().filter(|t| t.ungraded).count() as u32,
             tokens_in: s.calls.iter().map(|c| c.input).sum(),
             tokens_out: s.calls.iter().map(|c| c.output).sum(),
             tokens_cached: s.calls.iter().map(|c| c.cache_read + c.cache_write).sum(),

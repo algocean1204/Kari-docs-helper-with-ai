@@ -216,29 +216,29 @@ void main() {
       expect(find.text('질문 2'), findsOneWidget);
     });
 
-    for (final (code, action) in [
-      ('network', '다시 시도'),
-      ('ai', '다시 시도'),
-      ('unauthorized', '설정 열기'),
-      ('no_key', '설정 열기'),
-      ('secret', '설정 열기'),
+    for (final (code, action, says) in [
+      ('network', '다시 시도', '네트워크를 확인한'),
+      ('ai', '다시 시도', '모델을 부르지 못했습니다'),
+      ('rate', '다시 시도', '요청 한도를 넘었습니다'),
+      ('server', '다시 시도', '서버가 붐비거나'),
+      ('billing', '다시 시도', '잔액이나 지출 한도'),
+      ('refused', '다시 시도', '답하기를 거절했습니다'),
+      ('shape', '다시 시도', '읽을 수 없는 모양'),
+      ('model', '설정 열기', '모델을 찾지 못했습니다'),
+      ('unauthorized', '설정 열기', 'API 키가 올바르지'),
+      ('no_key', '설정 열기', 'AI 연결이 필요합니다.'),
+      ('secret', '설정 열기', '보안 저장소(키체인)에서'),
     ]) {
       testWidgets('오류 $code: 낸 답이 보이고 "$action"로 이어 간다', (tester) async {
         final rig = await pumpIv(tester);
         await startFirst(tester);
-        rig.fake.iv.failNext = EngineError(code, '요청 한도를 넘었다');
+        // 엔진 문구에는 파서의 영어 문구가 들 수 있다. 화면은 경우마다 쉬운 말로 알리고 그 문구를 붙이지 않는다.
+        rig.fake.iv.failNext = EngineError(code, 'EOF while parsing');
         await answer(tester, '실패할 답');
+        expect(find.textContaining(keepAll(says)), findsOneWidget);
         expect(
-          find.textContaining(
-            keepAll(switch (code) {
-              'network' => '네트워크를 확인한',
-              'ai' => '요청 한도를',
-              'unauthorized' => 'API 키가 올바르지',
-              'secret' => '보안 저장소(키체인)에서',
-              _ => 'AI 연결이 필요합니다.',
-            }),
-          ),
-          findsOneWidget,
+          find.textContaining(keepAll('EOF while parsing')),
+          ['ai', 'no_key'].contains(code) ? findsOneWidget : findsNothing,
         );
         expect(find.widgetWithText(TextButton, action), findsOneWidget);
         // 키 문제여도 다시 시도가 함께 있다(설정에서 키를 고친 뒤 이어 간다).
@@ -268,6 +268,38 @@ void main() {
         expect(find.textContaining(keepAll('낸 답은 남아')), findsNothing);
       });
     }
+
+    testWidgets('답을 적는 저장부터 실패하면 친 답을 칸에 남긴다', (tester) async {
+      final rig = await pumpIv(tester);
+      await startFirst(tester);
+      String field() =>
+          tester.widget<TextField>(find.byType(TextField)).controller!.text;
+      rig.fake.failures['iv.answer'] = const EngineError(
+        'io',
+        'DB: database is locked',
+      );
+      await answer(tester, '오래 쓴 답');
+      expect(field(), '오래 쓴 답', reason: '엔진에 없는 답을 지우지 않는다');
+      rig.fake.failures.clear();
+      await tap(tester, find.widgetWithText(TextButton, '답변 내기'));
+      expect(find.text('질문 2'), findsOneWidget);
+      expect(field(), '', reason: '적힌 답은 칸에서 비운다');
+    });
+
+    testWidgets('채점하다 멈춘 답은 채점 없이 넘기고 리포트에 센다', (tester) async {
+      final rig = await pumpIv(tester);
+      await startFirst(tester);
+      rig.fake.iv.failNext = const EngineError('refused', '');
+      await answer(tester, '거절될 답');
+      await tap(tester, find.widgetWithText(TextButton, '채점 없이 넘기기'));
+      expect(find.text('질문 2'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, '채점 없이 넘기기'), findsNothing);
+      final turns = rig.fake.iv.sessions.values.single['turns'] as List;
+      expect((turns[0] as Json)['ungraded'], isTrue);
+      await finish(tester);
+      await tap(tester, find.text('리포트 보기'));
+      expect(find.textContaining('채점하지 못한 답 1개'), findsOneWidget);
+    });
 
     for (final (pressure, label, hints) in [
       ('coaching', '코칭', 1),

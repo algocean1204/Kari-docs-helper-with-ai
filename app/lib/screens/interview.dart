@@ -49,16 +49,20 @@ Future<void> discardInterview(
 }
 
 /// 오류 코드마다 사람이 할 일. (설명, 설정을 열어야 하는가)
+/// 엔진의 문구(서버나 파서의 영어 문구가 들 수 있다)는 키 없음과 그 밖의 요청 오류에만 붙인다.
 (String, bool) ivProblem(EngineError e) => switch (e.code) {
   // 엔진의 문구가 어느 제공사의 키가 필요한지 알린다.
   'no_key' => ('AI 연결이 필요합니다. ${e.message}', true),
   'unauthorized' => ('API 키가 올바르지 않습니다. 설정에서 키를 확인해 주세요.', true),
   'secret' => ('이 기기의 보안 저장소(키체인)에서 키를 읽지 못했습니다. 설정에서 키를 다시 넣어 주세요.', true),
   'network' => ('AI 서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.', false),
-  'ai' => (
-    '모델을 부르지 못했습니다(요청 한도를 넘었을 수 있습니다). 잠시 뒤 다시 시도해 주세요. ${e.message}',
-    false,
-  ),
+  'rate' => ('요청 한도를 넘었습니다. 잠시 뒤 다시 시도해 주세요.', false),
+  'server' => ('AI 서버가 붐비거나 오류를 냈습니다. 잠시 뒤 다시 시도해 주세요.', false),
+  'billing' => ('AI 제공사 계정의 잔액이나 지출 한도에 걸렸습니다. 제공사의 결제 설정을 확인해 주세요.', false),
+  'model' => ('고른 모델을 찾지 못했습니다. 설정의 일마다의 모델을 확인해 주세요.', true),
+  'refused' => ('모델이 이번 요청에 답하기를 거절했습니다. 다시 시도해도 같을 수 있습니다.', false),
+  'shape' => ('모델의 답이 중간에 끊겼거나 읽을 수 없는 모양이었습니다. 다시 시도해 주세요.', false),
+  'ai' => ('모델을 부르지 못했습니다. 잠시 뒤 다시 시도해 주세요. ${e.message}', false),
   'canceled' => ('진행 중이던 호출을 멈췄습니다.', false),
   _ => (describe(e), false),
 };
@@ -510,18 +514,20 @@ class _Notice extends StatelessWidget {
 }
 
 /// 오류와 사람이 할 일: 키 없음과 인증 실패는 설정 열기와 다시 시도(설정에서 키를 고친 뒤 같은 자리에서 이어 간다),
-/// 그 밖은 다시 시도.
+/// 그 밖은 다시 시도. 채점하다 멈춘 답이면 채점 없이 넘기기도 보인다(같은 까닭으로 되풀이해 실패할 때 나갈 길).
 class _Problem extends StatelessWidget {
   const _Problem({
     required this.error,
     required this.onOpenSettings,
     required this.onRetry,
     this.note,
+    this.onSkipGrading,
   });
 
   final EngineError error;
   final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
+  final VoidCallback? onSkipGrading;
 
   /// 설명 뒤에 붙이는 한마디(낸 답이 남아 있다는 것).
   final String? note;
@@ -548,6 +554,14 @@ class _Problem extends StatelessWidget {
                 style: AppText.body.copyWith(color: c.danger),
               ),
             ),
+            if (onSkipGrading != null) ...[
+              const SizedBox(width: Space.x2),
+              AppButton(
+                '채점 없이 넘기기',
+                kind: ButtonKind.quiet,
+                onPressed: onSkipGrading,
+              ),
+            ],
             if (settings) ...[
               const SizedBox(width: Space.x2),
               AppButton('설정 열기', onPressed: onOpenSettings),
@@ -614,10 +628,13 @@ class _SessionState extends State<_Session> {
   Future<void> _send() async {
     final text = _answer.text.trim();
     if (text.isEmpty || !_run.waiting) return;
+    int answered() => (_run.view?['history'] as List?)?.length ?? 0;
+    final before = answered();
     await _run.answer(text);
-    // 엔진은 모델을 부르기 전에 답을 적어 둔다. 실패해도 답은 그쪽에 남으므로(다시 시도가 그 답으로 이어 간다)
-    // 칸을 비운다. 답 자체를 거절했을 때(bad_request)만 남긴다. 기다리는 동안 화면을 떠났으면 진행 상태가 이미 비웠다.
-    if (mounted && _run.error?.code != 'bad_request') _answer.clear();
+    // 엔진은 모델을 부르기 전에 답을 적어 둔다. 그 뒤에 실패하면 답은 엔진에 남아(다시 시도가 그 답으로 이어 간다)
+    // 앞선 문답이 하나 는다. 그때만 칸을 비운다: 답을 적는 저장부터 실패했거나 답을 거절했으면 친 글을 칸에 남긴다.
+    // 기다리는 동안 화면을 떠났으면 진행 상태가 쓰던 답을 맞춰 둔다.
+    if (mounted && answered() > before) _answer.clear();
   }
 
   Future<void> _skip() async {
@@ -795,6 +812,9 @@ class _SessionState extends State<_Session> {
                             ? null
                             : _run.retry,
                         note: sent == null ? null : '낸 답은 남아 있습니다.',
+                        onSkipGrading: !done && v['canSkipGrading'] == true
+                            ? _run.skip
+                            : null,
                       ),
                       const SizedBox(height: Space.x4),
                     ],

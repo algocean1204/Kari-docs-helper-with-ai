@@ -450,6 +450,8 @@ class _Report extends StatelessWidget {
           [
             '걸린 시간 ${minutes(s['elapsedMs'])}',
             '질문 ${s['questions'] ?? 0}개',
+            // 채점이 되풀이해 실패해 채점 없이 넘긴 답. 주제별 깊이에 들지 않는다.
+            if (s['ungraded'] case final int n when n > 0) '채점하지 못한 답 $n개',
             // 가격표에 없는 판을 쓴 호출이 있으면 비용을 지어내지 않는다.
             if (s['cost'] case final num cost)
               '추정 비용 약 ${cost < 0.01 ? cost.toStringAsFixed(4) : cost.toStringAsFixed(2)}달러'
