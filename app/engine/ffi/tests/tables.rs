@@ -109,3 +109,15 @@ fn 글꼴에_없는_글자의_수가_상태에_실린다() {
     assert_eq!(s["missing"], 2, "😀 하나를 지우는 Backspace 한 번");
     assert_eq!(texts(id), ["가あ洪吉"]);
 }
+
+#[test]
+fn 한_쪽보다_높은_표_행이_있으면_상태가_알린다() {
+    let _case = Case::new("tables-overflow");
+    let id = new_session();
+    let s = cmd(id, json!({"k": "insertTable", "rows": 2, "cols": 1}));
+    assert_eq!(s["overflow"], 0);
+    // 한 칸에 쪽 높이를 넘는 글(줄 200개)을 붙인다.
+    let tall = vec!["줄"; 200].join("\n");
+    let s = cmd(id, json!({"k": "paste", "text": tall}));
+    assert_eq!(s["overflow"], 1, "{s}");
+}

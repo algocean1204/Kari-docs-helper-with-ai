@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 
 use icu_segmenter::GraphemeClusterSegmenter;
-use kari_doc::serde_json::json;
+use kari_doc::serde_json::{json, Value};
 use kari_doc::Document;
 use kari_layout::Layouter;
 
@@ -52,7 +52,7 @@ fn paras(doc: &Document) -> Vec<String> {
 /// 대소문자를 가리지 않을 때 견줄 글. 글자마다 소문자로 바꾸되, 바꾸면 글자 하나가 아니거나 바이트 길이가
 /// 달라지는 글자는 그대로 둔다. 그래서 바이트 위치가 원래 글과 같다.
 // 한계: 바이트 길이가 바뀌는 소문자(İ, ẞ 등)와 여러 글자가 되는 소문자는 가리지 않고 견주고, 한글 자모 정규화(NFC/NFD)도
-// 하지 않는다. 정확한 대소문자 접기가 필요하면 위치 표를 함께 만드는 접기로 바꾼다
+// 하지 않는다(붙여넣을 때 완성형으로 합친다). 정확한 대소문자 접기가 필요하면 위치 표를 함께 만드는 접기로 바꾼다
 fn fold(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -323,16 +323,9 @@ impl Cx<'_> {
             Pos::new(&p.para, off.max(0) as usize)
         };
         let (anchor, focus) = (shift(&self.st.sel.anchor), shift(&self.st.sel.focus));
-        // 뒤에서 앞으로 바꿔 앞 일치의 자리가 그대로이게 한다.
-        // 한계: 일치마다 문단 runs를 다시 계산한다(일치 수 × 문단 길이), 한 문단에 일치가 수만 개면 문단마다 한 번에 짠다
-        for h in hits.iter().rev() {
-            let text = self.d.doc.text(&h.para)?;
-            let old = text.get(h.start..h.end)?.to_string();
-            let ins = (!with.is_empty()).then(|| json!(with));
-            self.d.text_op(&h.para, h.start, h.end - h.start, ins)?;
-            if let Some(op) = self.d.ops.last_mut() {
-                op["expect"] = json!(old);
-            }
+        // 문단마다 text op 하나로 바꾼다(일치마다 하나씩 내면 문단 runs를 일치 수만큼 다시 계산한다).
+        for group in hits.chunk_by(|x, y| x.para == y.para) {
+            self.replace_in_para(group, with)?;
         }
         self.st.sel = Sel {
             anchor,
@@ -340,6 +333,53 @@ impl Cx<'_> {
             after_wrap: false,
         };
         self.after.snap = true;
+        Some(())
+    }
+
+    /// 한 문단의 일치들(앞에서 뒤로, 겹치지 않음)을 `with`로 바꾸는 `text` op 하나. 첫 일치부터 마지막 일치까지만
+    /// 다시 짜고, 일치 사이의 글은 속성째 둔다. 바뀐 글은 일치마다 그 자리의 글자 모양을 물려받는다.
+    fn replace_in_para(&mut self, hits: &[Hit], with: &str) -> Option<()> {
+        let para = &hits[0].para;
+        let (first, last) = (hits[0].start, hits[hits.len() - 1].end);
+        let old = self.d.doc.text(para)?.get(first..last)?.to_string();
+        let span = self.d.slice(para, first, last);
+        let mut out = Vec::new();
+        let (mut next, mut skip, mut pos) = (0, first, first);
+        for run in span.iter().filter_map(Value::as_object) {
+            let t = run.get("t").and_then(Value::as_str).unwrap_or("");
+            let (s, e) = (pos, pos + t.len());
+            pos = e;
+            let mut at = s.max(skip);
+            while at < e {
+                let piece = |from: usize, to: usize| {
+                    let mut r = run.clone();
+                    r.insert("t".into(), json!(&t[from - s..to - s]));
+                    Value::Object(r)
+                };
+                match hits.get(next).filter(|h| h.start < e) {
+                    Some(h) => {
+                        if h.start > at {
+                            out.push(piece(at, h.start));
+                        }
+                        if !with.is_empty() {
+                            let mut r = self.d.inherit(para, h.start, h.end - h.start);
+                            r.insert("t".into(), json!(with));
+                            out.push(Value::Object(r));
+                        }
+                        (next, skip, at) = (next + 1, h.end, h.end);
+                    }
+                    None => {
+                        out.push(piece(at, e));
+                        at = e;
+                    }
+                }
+            }
+        }
+        self.d
+            .text_op(para, first, last - first, Some(Value::Array(out)))?;
+        if let Some(op) = self.d.ops.last_mut() {
+            op["expect"] = json!(old);
+        }
         Some(())
     }
 }

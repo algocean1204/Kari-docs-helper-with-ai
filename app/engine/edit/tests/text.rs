@@ -322,3 +322,49 @@ fn 붙여_넣은_문단은_p의_스타일과_pf를_가진다() {
     assert_eq!(t.doc.prop(&new, "pf"), Some(&json!({"align": "RIGHT"})));
     let _: Value = t.runs(&new);
 }
+
+#[test]
+fn 문단_구분_문자도_문단을_나눈다() {
+    assert_eq!(
+        after(
+            &["|"],
+            vec![Command::Paste(
+                "줄1\u{2028}줄2\u{2029}줄3\u{0085}줄4\u{000B}줄5".into()
+            )]
+        ),
+        ["줄1", "줄2", "줄3", "줄4줄5|"]
+    );
+}
+
+#[test]
+fn 풀어쓴_한글은_완성형으로_합쳐_붙는다() {
+    // "한글" 풀어쓴 꼴(ㅎㅏㄴㄱㅡㄹ), 받침 없는 "가", 이미 완성형인 "나", 합칠 수 없는 낱자와 영문
+    let nfd =
+        "\u{1112}\u{1161}\u{11AB}\u{1100}\u{1173}\u{11AF} \u{1100}\u{1161}나\u{1161}x\u{11A8}";
+    assert_eq!(
+        after(&["|"], vec![Command::Paste(nfd.into())]),
+        ["한글 가나\u{1161}x\u{11A8}|"]
+    );
+    // 직접 넣는 글도 같다.
+    assert_eq!(
+        after(&["|"], vec![ins("\u{1112}\u{1161}\u{11AB}")]),
+        ["한|"]
+    );
+    // 이미 받침이 있는 음절 뒤의 종성은 합치지 않는다.
+    assert_eq!(after(&["|"], vec![ins("한\u{11A8}")]), ["한\u{11A8}|"]);
+}
+
+#[test]
+fn 너무_많은_줄은_붙여_넣지_않고_거절한다() {
+    let mut t = T::new(&["가|나"]);
+    let many = "a\n".repeat(50_000); // 줄 50,001개
+    let step = t.run(Command::Paste(many));
+    assert_eq!(step.refused, Some(kari_edit::Refusal::TooManyLines));
+    assert!(step.ops.is_empty());
+    assert_eq!(t.show(), ["가|나"]);
+    // 상한 안이면 붙는다.
+    let ok = "a\n".repeat(49_999);
+    let step = t.run(Command::Paste(ok));
+    assert_eq!(step.refused, None);
+    assert_eq!(step.ops.iter().filter(|o| o["op"] == "add").count(), 49_999);
+}

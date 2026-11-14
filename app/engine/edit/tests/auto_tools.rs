@@ -381,3 +381,55 @@ fn 개요는_제목_문단을_단계와_쪽과_함께_보인다() {
     let t = T::new(&["|본문"]);
     assert_eq!(outline(&t.doc, &t.lay, "p0"), (vec![], None));
 }
+
+#[test]
+fn 한_문단에_일치가_아주_많아도_모두_바꾸기는_문단당_op_하나이고_모양을_지킨다() {
+    let n = 20_000;
+    let run = |t: &str, w: Option<u32>| match w {
+        Some(w) => json!({"t": t, "s": {"weight": w}}),
+        None => json!({"t": t}),
+    };
+    // "a a ... a "(굵게) 뒤에 보통 글 "b a b"
+    let mut t = T::from_doc(doc_of(&[
+        json!({"runs": [run(&"a ".repeat(n), Some(700)), run("b a b", None)]}),
+    ]));
+    let start = std::time::Instant::now();
+    let step = t.run(Command::ReplaceAll {
+        query: "a".into(),
+        case: false,
+        word: false,
+        with: "bb".into(),
+    });
+    let ms = start.elapsed().as_secs_f64() * 1e3;
+    // 넉넉한 상한: 문단마다 한 번에 다시 짜면 이 크기에서도 한참 아래다.
+    assert!(ms < 5000.0, "{ms:.0}ms");
+    assert_eq!(step.ops.iter().filter(|o| o["op"] == "text").count(), 1);
+    assert_eq!(
+        t.runs("p0"),
+        json!([
+            {"t": "bb ".repeat(n), "s": {"weight": 700}},
+            {"t": "b bb b"}
+        ])
+    );
+    assert_eq!(t.text("p0"), format!("{}b bb b", "bb ".repeat(n)));
+}
+
+#[test]
+fn 모두_바꾸기는_여러_run에_걸친_일치와_빈_바꿈도_맞게_한다() {
+    let mut t = T::from_doc(doc_of(&[
+        json!({"runs": [{"t": "가나", "s": {"weight": 700}}, {"t": "다라 가나다"}]}),
+        json!({"runs": [{"t": "나다 나다"}]}),
+    ]));
+    t.run(Command::ReplaceAll {
+        query: "나다".into(),
+        case: false,
+        word: false,
+        with: "".into(),
+    });
+    assert_eq!(t.text("p0"), "가라 가");
+    assert_eq!(t.text("p1"), " ");
+    assert_eq!(
+        t.runs("p0"),
+        json!([{"t": "가", "s": {"weight": 700}}, {"t": "라 가"}])
+    );
+}

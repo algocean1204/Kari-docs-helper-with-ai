@@ -361,6 +361,8 @@ pub struct Layouter {
     pub(crate) overlay: Option<(usize, usize, usize)>,
     /// 글꼴에 없어 빈 네모로 그린 글자의 수(`missing`).
     missing: usize,
+    /// 한 쪽보다 높아 쪽 밖으로 나간 표 행 묶음의 수.
+    overflow: usize,
     /// 스타일마다 풀린 값의 해시와 그것을 구한 루트 `styles`의 rev.
     style_sigs: IdMap<u64>,
     style_rev: Option<u64>,
@@ -405,6 +407,7 @@ impl Layouter {
             placed: Vec::new(),
             overlay: None,
             missing: 0,
+            overflow: 0,
             style_sigs: IdMap::default(),
             style_rev: None,
             framing: Vec::new(),
@@ -712,6 +715,12 @@ impl Layouter {
         }
         let pages = paginate(&blocks, geom.body_h);
         drop(blocks);
+        // 한계: 한 쪽보다 높은 행은 나누지 않아 쪽 밖으로 나간다. 나간 내용이 있다는 것만 센다.
+        self.overflow = group_h
+            .iter()
+            .flatten()
+            .filter(|&&h| h > geom.body_h + 1e-3)
+            .count();
         self.tables = done;
         let root_rev = root.map_or(0, |r| r.rev);
         if root_rev != self.hf_rev {
@@ -748,6 +757,11 @@ impl Layouter {
     /// 마지막 `layout`에서 글꼴에 없어 빈 네모로 그린 글자의 수(본문과 셀의 문단. 머리글·바닥글은 뺀다).
     pub fn missing(&self) -> usize {
         self.missing
+    }
+
+    /// 마지막 `layout`에서 한 쪽보다 높아 쪽 밖으로 나간 표 행 묶음(세로로 합친 칸에 걸린 행들은 한 묶음)의 수.
+    pub fn overflow(&self) -> usize {
+        self.overflow
     }
 
     /// 마지막 `layout`에서 번호 목록 문단에 매긴 번호. 번호 목록이 아니면 `None`.

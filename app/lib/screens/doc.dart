@@ -270,11 +270,12 @@ class _DocScreenState extends State<DocScreen> {
     try {
       final path = await widget.library.savePath('${doc.name}.pdf');
       if (path != null) {
-        await widget.library.engine.docExportPdf(doc.id, path);
+        final r = await widget.library.engine.docExportPdf(doc.id, path);
         failed = false;
         message = [
           'PDF로 내보냈습니다 · ${path.split('/').last}',
           ?missingLine(_session?.state?.missing ?? 0),
+          ...exportNotes(r),
         ].join(' · ');
       }
     } on EngineError catch (e) {
@@ -361,11 +362,14 @@ class _DocScreenState extends State<DocScreen> {
       doc,
       method,
       args: args,
-      made: () {
+      made: (r) {
         // 공유는 서비스가 끝날 때까지 답이 늦을 수 있어 PDF를 만든 뒤 바로 메뉴를 되살린다.
         free();
-        final m = missingLine(_session?.state?.missing ?? 0);
-        if (m != null) messenger.showSnackBar(SnackBar(content: Text(m)));
+        final m = [
+          ?missingLine(_session?.state?.missing ?? 0),
+          ...exportNotes(r),
+        ].join(' · ');
+        if (m.isNotEmpty) messenger.showSnackBar(SnackBar(content: Text(m)));
       },
     );
     free();

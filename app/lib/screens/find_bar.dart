@@ -61,11 +61,14 @@ class StatusLine extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           // 글꼴에 없는 글자는 인쇄물에서야 알게 되지 않게 눈에 띄는 색으로 알린다.
-          if (missingLine(session.state?.missing ?? 0) case final m?) ...[
+          for (final m in [
+            ?missingLine(session.state?.missing ?? 0),
+            ?overflowLine(session.state?.overflow ?? 0),
+          ]) ...[
             Icon(Icons.warning_amber_rounded, size: 14, color: c.warning),
             const SizedBox(width: Space.x1),
             Text(m, style: AppText.caption.copyWith(color: c.warning)),
-            if (counts != null) const SizedBox(width: Space.x3),
+            const SizedBox(width: Space.x3),
           ],
           if (counts != null)
             Flexible(

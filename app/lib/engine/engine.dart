@@ -130,6 +130,7 @@ class EditState {
     this.image,
     this.table,
     this.missing = 0,
+    this.overflow = 0,
     this.zoom = 1,
     this.contentWidth = 0,
     this.chars = const CharFormat(),
@@ -203,6 +204,7 @@ class EditState {
             )
           : null,
       missing: (j['missing'] as int?) ?? 0,
+      overflow: (j['overflow'] as int?) ?? 0,
       table: j['table'] is Json
           ? TableState.fromJson(j['table'] as Json)
           : null,
@@ -302,6 +304,9 @@ class EditState {
 
   /// 글꼴에 없어 빈 네모로 보이는 글자의 수(문서 전체).
   final int missing;
+
+  /// 한 쪽보다 높아 쪽 밖으로 나간 표 행의 수(문서 전체).
+  final int overflow;
 
   /// 지금 보기 배율(1 = 100%). 쪽 너비에 맞춤이면 그때 나온 값이다.
   final double zoom;
@@ -466,6 +471,20 @@ class ParaFormat {
 
 /// 글꼴에 없는 글자 알림. 없으면 null.
 String? missingLine(int n) => n > 0 ? '글꼴에 없는 글자 $n자(네모로 보임)' : null;
+
+/// 한 쪽보다 높은 표 행 알림(그 행은 나뉘지 않아 쪽 밖으로 나간다). 없으면 null.
+String? overflowLine(int n) => n > 0 ? '쪽보다 높은 표 행 $n개(쪽 밖으로 나간 내용이 있음)' : null;
+
+/// 내보내기 응답이 알리는 것들: 쪽 밖으로 나간 표 행, 읽지 못해 회색 상자로 넣은 그림이 있던 쪽.
+List<String> exportNotes(Json r) {
+  final broken = [
+    for (final p in r['brokenImages'] as List? ?? const []) '$p쪽',
+  ];
+  return [
+    ?overflowLine((r['overflow'] as int?) ?? 0),
+    if (broken.isNotEmpty) '읽지 못한 그림은 회색 상자로 넣었습니다(${broken.join(', ')})',
+  ];
+}
 
 /// 커서가 있는 표와 셀의 상태.
 class TableState {
