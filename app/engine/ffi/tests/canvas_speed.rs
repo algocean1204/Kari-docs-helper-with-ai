@@ -4,12 +4,15 @@
 //!
 //! 끌기 한 걸음 = `canvas.pointer`(앞 사본에 적용 + 장면 배치 + 편집 표시 + 상태 JSON) + 화면 그리기
 //! (`kari_edit_render`, 바탕과 장면과 덧그림).
+//!
+//! 기본 시험에는 레티나 화면(띠로 나눠 그린다)에서 끌기와 고치기 뒤의 그림이 낡지 않았는지 보는 것이 있다.
 
 mod common;
 
 use std::time::Instant;
 
 use common::*;
+use kari::kari_edit_gen;
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{Document, Guard, Kind};
 use kari_layout::Layouter;
@@ -82,7 +85,8 @@ fn pct(v: &mut [f64], p: f64) -> f64 {
 
 fn line(name: &str, v: &mut [f64]) {
     println!(
-        "{name}: p50 {:.3}ms, p95 {:.3}ms, 최대 {:.3}ms",
+        "{name}: 평균 {:.3}ms, p50 {:.3}ms, p95 {:.3}ms, 최대 {:.3}ms",
+        v.iter().sum::<f64>() / v.len() as f64,
         pct(v, 0.5),
         pct(v, 0.95),
         pct(v, 1.0)
@@ -201,4 +205,82 @@ fn 누른_자리_찾기와_끌기_한_걸음의_시간을_잰다() {
     line("그리기 1920x1080 1배", &mut draw1);
     line("그리기 3840x2160 2배", &mut draw2);
     line("끌기 한 걸음(포인터 호출 + 1배 그리기)", &mut total1);
+}
+
+/// BGRA 버퍼의 한 화소 (r, g, b).
+fn at(px: &[u8], w: i32, x: i32, y: i32) -> (u8, u8, u8) {
+    let i = ((y * w + x) * 4) as usize;
+    (px[i + 2], px[i + 1], px[i])
+}
+
+/// 레티나 2배 화면(띠 여럿으로 나눠 그린다)에서 노드를 띠 경계 너머로 끌고, 걸음마다 그린 그림에 새 자리가 보이고 옛 자리가
+/// 비었는지 본다. 바뀜 번호가 걸음마다 올라야 앱이 다시 그린다. 밖에서 색을 바꾼 뒤에도 새 색이 보여야 한다.
+#[test]
+fn 레티나_화면에서_끌기와_고치기_뒤의_그림이_낡지_않는다() {
+    let _case = Case::new("canvas-fresh");
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "끌기"}))["id"]
+        .as_i64()
+        .unwrap();
+    ok("doc.open", json!({"id": id}));
+    ok(
+        "doc.commit",
+        json!({"id": id, "label": "만들기", "ops": [
+            {"op": "set", "id": "n1", "props": {"w": 1000, "h": 700}},
+            {"op": "add", "node": {"id": "a", "type": "rect", "parent": "n1",
+                "props": {"x": 100, "y": 100, "w": 200, "h": 100, "radius": [16, 16, 16, 16],
+                    "fills": [{"type": "SOLID", "color": "#336699FF"}]}}},
+        ]}),
+    );
+    ok("canvas.open", json!({"id": id}));
+    ok(
+        "canvas.view",
+        json!({"id": id, "width": 1000, "height": 700}),
+    );
+    let (w, h) = (2000, 1400);
+    let mut px = vec![0u8; (w * h * 4) as usize];
+    let draw = |px: &mut Vec<u8>| {
+        let r = unsafe { kari::kari_edit_render(id, px.as_mut_ptr(), w, h, w * 4, 2.0, 0.0) };
+        assert_eq!(r, 0);
+    };
+    let blue = (0x33, 0x66, 0x99);
+    let white = (0xFF, 0xFF, 0xFF);
+    draw(&mut px);
+    assert_eq!(at(&px, w, 400, 300), blue);
+    ok(
+        "canvas.pointer",
+        json!({"id": id, "phase": "down", "x": 150, "y": 150}),
+    );
+    // 한 걸음에 120 논리 화소씩 아래로: 사각형이 화면을 세로로 가로지르며 띠 경계를 지난다
+    let mut gen = kari_edit_gen(id);
+    for i in 1..=4 {
+        let y = 150 + 120 * i;
+        ok(
+            "canvas.pointer",
+            json!({"id": id, "phase": "move", "x": 150, "y": y}),
+        );
+        let g = kari_edit_gen(id);
+        assert!(g > gen, "걸음 {i}: 바뀜 번호가 올라야 다시 그린다");
+        gen = g;
+        draw(&mut px);
+        // 새 자리의 가운데와 위아래 끝 가까이는 파랑, 옛 자리의 가운데는 대지의 흰색
+        for dy in [-40, 0, 40] {
+            assert_eq!(at(&px, w, 400, 2 * (y + dy)), blue, "걸음 {i} 새 자리");
+        }
+        assert_eq!(at(&px, w, 400, 2 * (y - 120)), white, "걸음 {i} 옛 자리");
+    }
+    ok(
+        "canvas.pointer",
+        json!({"id": id, "phase": "up", "x": 150, "y": 630}),
+    );
+    // 밖에서 칠을 바꾸면 다음 그림에 새 색이 보인다
+    ok(
+        "doc.commit",
+        json!({"id": id, "label": "색", "ops": [
+            {"op": "set", "id": "a", "props": {"fills": [{"type": "SOLID", "color": "#CC3333FF"}]}},
+        ]}),
+    );
+    assert!(kari_edit_gen(id) > gen);
+    draw(&mut px);
+    assert_eq!(at(&px, w, 400, 2 * 630), (0xCC, 0x33, 0x33));
+    assert_eq!(at(&px, w, 400, 300), white);
 }
