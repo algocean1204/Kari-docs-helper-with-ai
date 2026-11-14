@@ -1117,7 +1117,7 @@ dependencies = [
  "foldhash",
  "kari-doc",
  "parley",
- "read-fonts 0.41.0",
+ "read-fonts 0.47.0",
  "sha2",
 ]
 
@@ -1791,6 +1791,20 @@ dependencies = [
  "bytemuck",
  "font-types 0.12.7",
  "once_cell",
+]
+
+[[package]]
+name = "read-fonts"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a39d2f8f681030a7bcbbcf3e8568775ac2393afd51401a2e2133ee89e3953897"
+dependencies = [
+ "bytemuck",
+ "foldhash",
+ "font-types 0.12.7",
+ "once_cell",
+ "smallvec",
+ "yoke",
 ]
 
 [[package]]
