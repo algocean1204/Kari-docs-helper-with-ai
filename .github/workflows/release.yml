@@ -56,13 +56,9 @@ jobs:
             ${{ runner.temp }}/Kari-macos-arm64.dmg.sha256
           retention-days: 7
       - name: 바뀐 점
-        # 릴리스 글과 appcast의 바뀐 점을 같은 글로 쓴다.
+        # 릴리스 글과 appcast의 바뀐 점을 같은 글로 쓴다. 지난 태그 이후 main의 커밋 제목을 type으로 묶는다.
         if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body \
-            > "$RUNNER_TEMP/notes.md"
+        run: app/scripts/release_notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
       - name: 앱 업데이트 꾸러미(서명 키가 있을 때만)
         if: github.event_name == 'push'
         env:

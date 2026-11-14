@@ -1,3 +1,4 @@
+<!-- PR 제목은 `type(scope): 설명` 꼴입니다(Conventional Commits). 예: fix(layout): 머리 행이 다음 쪽에서 빠지는 문제를 고침. 가지 이름은 `<type>/<짧은-주제>`입니다. -->
 <!-- 외부 기여는 연결된 이슈가 있어야 검토합니다. 먼저 이슈에서 방향을 맞춰 주세요. -->
 
 ## 연결 이슈
@@ -29,6 +30,7 @@ Fixes #
 ## 확인
 
 - [ ] 한 가지 주제만 다룬다
+- [ ] 제목이 Conventional Commits 꼴이다(`type(scope): 설명`)
 - [ ] `app/engine`을 고쳤다면 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`가 통과한다
 - [ ] `app`을 고쳤다면 `flutter analyze`, `flutter test`가 통과한다
 - [ ] 동작을 바꿨다면 그 동작을 잡는 시험을 넣었다

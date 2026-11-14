@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# 커밋 제목의 첫 줄이 Conventional Commits 꼴인지 본다(CI의 PR 제목 검사와 같은 규칙).
+# 켜기: git config core.hooksPath app/scripts/hooks
+# 끄기: git config --unset core.hooksPath  (한 번만 건너뛰려면 git commit --no-verify)
+
+# 한글을 한 글자로 세려면 UTF-8 로케일이 필요하다. 이 기기에 있는 것으로 다시 실행한다.
+probe=가
+if [ "${#probe}" != 1 ]; then
+  for loc in C.UTF-8 en_US.UTF-8 ko_KR.UTF-8; do
+    if [ "$(LC_ALL=$loc bash -c 'x=가; echo ${#x}' 2>/dev/null)" = 1 ]; then
+      export LC_ALL=$loc
+      exec bash "$0" "$@"
+    fi
+  done
+  echo "commit-msg: UTF-8 로케일이 없어 검사하지 않습니다" >&2
+  exit 0
+fi
+
+# 첫 줄: 빈 줄과 주석(#)을 건너뛴다.
+title=
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in '' | '#'*) continue ;; esac
+  title=$line
+  break
+done < "$1"
+
+# 병합, 되돌리기, 정리용 커밋은 git이 만든 제목 그대로 둔다.
+case "$title" in
+  '' | 'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+types='feat|fix|docs|test|refactor|perf|build|ci|chore|revert'
+re="^($types)(\([a-z0-9-]+\))?!?: .{1,72}$"
+if ! [[ $title =~ $re ]]; then
+  cat >&2 <<MSG
+커밋 제목이 'type(scope): 설명' 꼴이 아닙니다: $title
+  type: feat, fix, docs, test, refactor, perf, build, ci, chore, revert 중 하나
+  scope: 소문자, 숫자, 하이픈(생략 가능). 호환이 깨지면 콜론 앞에 !
+  설명: 1자 이상 72자 이하
+  예: fix(layout): 머리 행이 다음 쪽에서 빠지는 문제를 고침
+규칙은 .github/CONTRIBUTING.md에 있습니다. 한 번만 건너뛰려면 git commit --no-verify.
+MSG
+  exit 1
+fi
