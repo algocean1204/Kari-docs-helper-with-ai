@@ -1,0 +1,138 @@
+# PR의 제목, 가지 이름, 연결 이슈, 판 번호를 본다. 가벼워서 제목·본문을 고칠 때(edited)도 돈다.
+# 보호 규칙의 필수 검사는 마지막의 pr-meta다.
+name: PR meta
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-meta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr:
+    name: pr
+    # 스쿼시 병합의 커밋 제목이 되는 PR 제목, 가지 이름, 연결 이슈를 본다. 바깥 액션 없이 셸로만 한다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # 글자 수(한글 한 자 = 1)로 세려면 UTF-8 로케일이 필요하다.
+      LC_ALL: C.UTF-8
+      # 글은 환경 변수로만 받는다. 셸 줄에 직접 끼우면 제목의 글자가 명령이 된다.
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_BASE: ${{ github.event.pull_request.base.ref }}
+      PR_ASSOC: ${{ github.event.pull_request.author_association }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - name: 제목, 가지 이름, 연결 이슈
+        run: |
+          types='feat|fix|docs|test|refactor|perf|build|ci|chore|revert'
+          title_re="^($types)(\([a-z0-9-]+\))?!?: .{1,72}$"
+          branch_re="^($types)/[a-z0-9][a-z0-9._-]*$"
+          issue_re='(Fixes|Closes|Resolves|Refs) #[0-9]+'
+          fail=0
+          probe=가
+          if [ "${#probe}" != 1 ]; then
+            echo "::error::러너의 로케일이 UTF-8이 아니라 제목의 글자 수를 셀 수 없습니다"
+            exit 1
+          fi
+          if ! [[ "$PR_TITLE" =~ $title_re ]]; then
+            echo "::error title=PR 제목::제목을 'type(scope): 설명' 꼴로 고쳐 주세요. type은 feat, fix, docs, test, refactor, perf, build, ci, chore, revert 중 하나, scope는 소문자·숫자·하이픈이고 생략할 수 있으며, 호환이 깨지면 콜론 앞에 !를 붙입니다. 설명은 1자 이상 72자 이하입니다. 예: fix(layout): 머리 행이 다음 쪽에서 빠지는 문제를 고침. 제목은 PR 화면에서 고치면 검사가 다시 돕니다(.github/CONTRIBUTING.md)"
+            fail=1
+          fi
+          # main에는 develop에서만 간다(작업 가지 → develop → main).
+          if [ "$PR_BASE" = main ] && [ "$PR_BRANCH" != develop ]; then
+            echo "::error title=대상 가지::PR의 대상(base)을 develop으로 바꿔 주세요. main에는 develop에서만 병합합니다(.github/CONTRIBUTING.md)"
+            fail=1
+          fi
+          case "$PR_BRANCH" in
+            dependabot/*) ;;
+            develop) [ "$PR_BASE" = main ] || { echo "::error title=가지 이름::develop은 main으로 가는 PR에서만 씁니다"; fail=1; } ;;
+            *)
+              if ! [[ "$PR_BRANCH" =~ $branch_re ]]; then
+                echo "::error title=가지 이름::가지 이름을 '<type>/<짧은-주제>'로 지어 주세요. type은 feat, fix, docs, test, refactor, perf, build, ci, chore, revert 중 하나이고 주제는 소문자, 숫자, 하이픈입니다. 예: fix/table-header-repeat. 가지를 새로 만들어 PR을 다시 열어 주세요(.github/CONTRIBUTING.md)"
+                fail=1
+              fi
+              ;;
+          esac
+          case "$PR_ASSOC" in
+            OWNER|MEMBER|COLLABORATOR) ;;
+            *)
+              # 의존성 도구가 여는 PR에는 이슈가 없다.
+              if [ "$PR_AUTHOR" != 'dependabot[bot]' ] && ! [[ "$PR_BODY" =~ $issue_re ]]; then
+                echo "::error title=연결 이슈::본문에 연결 이슈를 'Fixes #번호'(Closes, Resolves, Refs도 됩니다) 꼴로 적어 주세요. 연결된 이슈가 없는 외부 PR은 검토하지 않습니다(.github/CONTRIBUTING.md)"
+                fail=1
+              fi
+              ;;
+          esac
+          exit "$fail"
+
+  version:
+    name: version
+    # 판 번호 규칙(.github/CONTRIBUTING.md의 '판 번호')을 본다. main으로 가는 PR은 판이 지난 태그 뒤의 규칙에 맞아야 하고,
+    # develop으로 가는 PR이 판을 바꾸면 릴리스 PR이어야 한다. 바깥 액션은 checkout뿐이다.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # 글은 환경 변수로만 받는다.
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+      PR_BASE: ${{ github.event.pull_request.base.ref }}
+      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 지난 태그와 그 뒤의 커밋 제목을 보려면 기록과 태그가 모두 있어야 한다.
+          fetch-depth: 0
+      - name: 판 번호
+        run: |
+          pub_version() { sed -n 's/^version:[[:space:]]*\([^[:space:]+]*\).*/\1/p' | head -n 1; }
+          new=$(pub_version < app/pubspec.yaml)
+          if [ -z "$new" ]; then
+            echo "::error title=판 번호::app/pubspec.yaml에서 version을 읽지 못했습니다"
+            exit 1
+          fi
+          if [ "$PR_BASE" = main ]; then
+            # main에 develop이 아닌 곳에서 오는 PR은 pr 작업이 거절한다.
+            [ "$PR_BRANCH" = develop ] || exit 0
+            # 이 저장소의 develop만 본다. 포크의 같은 이름 가지가 올린 스크립트는 돌리지 않는다.
+            if [ "$PR_HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+              echo "::error title=판 번호::main으로 가는 PR은 이 저장소의 develop에서만 열 수 있습니다"
+              exit 1
+            fi
+            if ! bash app/scripts/next_version.sh --check "$new"; then
+              echo "::error title=판 번호::app/pubspec.yaml의 판($new)이 규칙에 맞지 않습니다. develop에서 릴리스 PR(제목 'chore(release): <판>')로 판을 먼저 올려 주세요(.github/CONTRIBUTING.md의 '판 번호', Docs/contributing/release.md)"
+              exit 1
+            fi
+          else
+            old=$(git show "origin/$PR_BASE:app/pubspec.yaml" | pub_version)
+            if [ "$new" != "$old" ]; then
+              if [ "$PR_TITLE" != "chore(release): $new" ] || [ "$PR_BRANCH" != "chore/release-$new" ]; then
+                echo "::error title=판 번호::판 번호($old → $new)는 릴리스 PR에서만 바꿉니다. 제목은 'chore(release): $new', 가지는 'chore/release-$new'여야 합니다(.github/CONTRIBUTING.md의 '판 번호')"
+                exit 1
+              fi
+            fi
+          fi
+
+  pr-meta:
+    name: pr-meta
+    if: always()
+    needs: [pr, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: PR 검사 통과
+        run: |
+          for result in "${{ needs.pr.result }}" "${{ needs.version.result }}"; do
+            [ "$result" = success ] || exit 1
+          done
