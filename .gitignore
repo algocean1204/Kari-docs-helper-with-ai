@@ -50,6 +50,14 @@ secrets.json
 secrets.yaml
 secrets.toml
 sparkle_private_key*
+*.crt
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.keychain-db
+*.kdbx
+*.ovpn
+.git-credentials
 
 # ── 사용자 자료: 이력서, 면접 녹음, 로컬 DB ──
 *.sqlite
