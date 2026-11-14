@@ -32,6 +32,18 @@ Kari는 유지 관리자 한 사람이 검토하고 병합합니다. 모든 이�
 - `main`으로 가는 PR은 유지 관리자가 `develop`에서 엽니다. 다른 가지에서 `main`으로 연 PR은 CI가 거절합니다.
 - 릴리스 태그(`v*`)는 유지 관리자만 만듭니다. 릴리스용 가지는 두지 않습니다.
 
+## 판 번호
+
+[유의적 판 번호(SemVer 2.0.0)](https://semver.org/lang/ko/)의 `MAJOR.MINOR.PATCH` 꼴을 쓰되, 1.0.0 전까지는 언제나 `0.MINOR.PATCH`입니다. SemVer에서 0.y.z는 초기 개발의 판이라 무엇이든 바뀔 수 있다는 뜻이고, 이 저장소도 같습니다. 1.0.0은 유지 관리자가 정할 때까지 올리지 않습니다.
+
+- 큰 업데이트는 두 번째 숫자(MINOR)를 올리고 세 번째 숫자는 0으로 되돌립니다. 작은 이슈 수정은 세 번째 숫자(PATCH)를 올립니다. 0.1.1 → 0.2.0처럼 MINOR는 한 번에 하나씩 오릅니다.
+- 가르는 기준은 지난 `v*` 태그 이후 `main`에 들어갈 커밋 제목(`develop`에 스쿼시 병합된 PR 제목)입니다. `feat`나 `!`가 붙은 제목이 하나라도 있으면 MINOR, 아니면(`fix`, `perf`, `docs`, `test`, `refactor`, `build`, `ci`, `chore`, `revert`만 있으면) PATCH입니다. 그래서 PR 제목의 type이 곧 판 번호를 정합니다.
+- 판은 `app/pubspec.yaml`의 `version`에 적고(빌드 번호는 릴리스 빌드가 커밋 수로 붙입니다), 태그는 `v<판>`입니다. 시험판 꼴의 태그(`-beta` 등)는 쓰지 않습니다.
+- 판 번호는 유지 관리자가 `develop`에서 여는 릴리스 PR(제목 `chore(release): <판>`, 가지 `chore/release-<판>`)에서만 바꿉니다. 다른 PR이 `version` 줄을 바꾸면 CI가 거절합니다.
+- 릴리스의 순서는 릴리스 PR → `develop`에서 `main`으로 PR(병합 커밋) → `main`에 태그 `v<판>` → 초안 릴리스 → 게시입니다([Docs/contributing/release.md](../Docs/contributing/release.md)).
+
+CI의 `version` 검사는 `main`으로 가는 PR의 판이 지난 태그보다 크고 위 기준이 계산한 판과 같은지 봅니다(지난 판이 0.x일 때 `1.0.0`은 유지 관리자의 결정이라 받습니다). 릴리스 워크플로는 태그의 꼴(`v0.MINOR.PATCH` 또는 `v1.0.0`), 태그가 가리키는 커밋이 `main`에 들어 있는지, 태그의 판과 `app/pubspec.yaml`의 판이 같은지, 판이 지난 태그보다 큰지를 다시 보고, 하나라도 어긋나면 릴리스를 만들지 않습니다. 다음 판은 `app/scripts/next_version.sh [<끝>]`이 계산합니다(`git fetch --tags` 뒤에).
+
 ## 커밋과 PR 제목
 
 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/ko/v1.0.0/)을 따릅니다. `develop`으로의 병합은 스쿼시라 PR 제목이 곧 커밋 제목이므로, 검사는 PR 제목에 합니다. 가지 안의 커밋 제목은 자유롭지만 같은 꼴로 쓰면 좋습니다([로컬 검사](#로컬에서-커밋-제목-검사하기)).

@@ -7,6 +7,7 @@
 **[Kari 내려받기(macOS, Apple Silicon)](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest/download/Kari-macos-arm64.dmg)**
 
 [![CI](https://github.com/algocean1204/Kari-docs-helper-with-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/algocean1204/Kari-docs-helper-with-ai/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/algocean1204/Kari-docs-helper-with-ai)](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B%20Apple%20Silicon-lightgrey)
 
@@ -47,7 +48,8 @@
 ## 설치
 
 - 지원 기기: Apple Silicon 맥, macOS 13 이상
-- [Kari 내려받기](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest/download/Kari-macos-arm64.dmg) → dmg를 열고 Kari를 응용 프로그램 폴더로 끌어 놓습니다.
+- [Kari 내려받기](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest/download/Kari-macos-arm64.dmg) → dmg를 열고 Kari를 응용 프로그램 폴더로 끌어 놓습니다. 이 링크는 늘 가장 새 릴리스의 dmg를 가리킵니다.
+- 지난 판과 바뀐 점: [가장 새 릴리스](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest), [모든 릴리스](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases)
 - 처음 여는 법, AI 키와 비용, 자료의 위치와 지우는 법: [Docs/guide/install.md](Docs/guide/install.md)
 - 무엇이 기기 밖으로 나가는지: [Docs/guide/privacy.md](Docs/guide/privacy.md)
 
