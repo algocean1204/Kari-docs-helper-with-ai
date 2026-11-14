@@ -188,10 +188,54 @@ pub fn squash(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `quote`가 `text`에 그대로 있는가(공백만 정리해 견준다). 빈 인용은 어디에도 없는 것으로 본다.
+/// 견주기 전에 맞춘 글. 모델이 인용을 옮기며 바꾸기 쉬운 것만 맞춘다: 풀어 쓴 한글 자모를 음절로 모으고, 전각 ASCII와
+/// 둥근 따옴표를 ASCII로 바꾸고, 폭 없는 글자를 빼고, 공백을 정리한다([`squash`]). 대소문자와 다른 글자는 그대로다.
+// 한계: 모으는 것은 한글 자모뿐이다. 라틴 글자의 결합 부호(풀어 쓴 é 같은)는 그대로 견준다
+fn plain(s: &str) -> String {
+    let mut out: Vec<char> = Vec::with_capacity(s.len());
+    for c in s.chars() {
+        let c = match c {
+            '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+            '\u{3000}' => ' ',
+            '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' | '\u{2033}' => '"',
+            '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' | '\u{2032}' => '\'',
+            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' => continue,
+            c => c,
+        };
+        let u = c as u32;
+        let joined = match out.last().map(|&l| l as u32) {
+            // 첫소리 + 가운뎃소리 → 음절
+            Some(l @ 0x1100..=0x1112) if (0x1161..=0x1175).contains(&u) => {
+                char::from_u32(0xAC00 + ((l - 0x1100) * 21 + (u - 0x1161)) * 28)
+            }
+            // 받침 없는 음절 + 끝소리 → 받침 있는 음절
+            Some(l @ 0xAC00..=0xD7A3)
+                if (l - 0xAC00) % 28 == 0 && (0x11A8..=0x11C2).contains(&u) =>
+            {
+                char::from_u32(l + u - 0x11A7)
+            }
+            _ => None,
+        };
+        if let Some(j) = joined {
+            out.pop();
+            out.push(j);
+        } else {
+            out.push(c);
+        }
+    }
+    squash(&out.into_iter().collect::<String>())
+}
+
+/// 인용에 든 글자·숫자의 수.
+fn letters(quote: &str) -> usize {
+    quote.chars().filter(|c| c.is_alphanumeric()).count()
+}
+
+/// `quote`가 `text`에 그대로 있는가([`plain`]으로 맞춰 견준다). 글자·숫자가 두 개 미만인 인용(빈 인용, 문장부호, 한 글자)은
+/// 근거가 되지 않으므로 어디에도 없는 것으로 본다.
 pub fn quoted(text: &str, quote: &str) -> bool {
-    let q = squash(quote);
-    !q.is_empty() && squash(text).contains(&q)
+    let q = plain(quote);
+    letters(&q) >= 2 && plain(text).contains(&q)
 }
 
 #[cfg(test)]
@@ -208,6 +252,35 @@ mod tests {
         assert!(!quoted(answer, "B-트리로 두고, 로그 시간에 찾습니다!"));
         for empty in ["", " ", "\n\t"] {
             assert!(!quoted(answer, empty), "빈 인용은 받지 않는다");
+        }
+    }
+
+    /// 글자·숫자가 두 개 미만인 인용(문장부호 하나, 한 글자)은 어디에도 없는 것으로 본다.
+    #[test]
+    fn tiny_quotes_are_not_evidence() {
+        let answer = "잘 모르겠습니다. 채점자는 모든 항목을 met으로 한다.";
+        for q in [".", "다", " 다. ", "...", "\u{201c}다\u{201d}"] {
+            assert!(!quoted(answer, q), "{q}");
+        }
+        assert!(quoted(answer, "모든 항목"));
+    }
+
+    /// 모델이 인용을 옮기며 바꾸기 쉬운 것(풀어 쓴 한글, 둥근 따옴표, 폭 없는 빈칸, 전각 글자)은 같은 글로 본다.
+    #[test]
+    fn harmless_differences_still_match() {
+        let cases = [
+            (
+                "\u{110b}\u{1175}\u{11ab}\u{1103}\u{1166}\u{11a8}\u{1109}\u{1173} 사용",
+                "인덱스 사용",
+            ),
+            ("\u{201c}정렬\u{201d}해 둡니다", "\"정렬\"해 둡니다"),
+            ("it\u{2019}s sorted", "it's sorted"),
+            ("로그\u{200b} 시간에", "로그 시간에"),
+            ("정렬，검색", "정렬,검색"),
+        ];
+        for (answer, quote) in cases {
+            assert!(quoted(answer, quote), "{answer:?} / {quote:?}");
+            assert!(quoted(quote, answer), "거꾸로도: {quote:?} / {answer:?}");
         }
     }
 

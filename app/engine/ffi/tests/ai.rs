@@ -315,17 +315,39 @@ mod hooked {
         assert_nothing_saved(ANTHROPIC);
     }
 
+    /// 목록을 다시 받는 사이 키를 지우면, 늦게 온 목록이 "연결됨"을 되살리지 않는다.
+    #[test]
+    fn refresh_that_lands_after_delete_does_not_bring_the_key_back() {
+        let mut slow = vec![Step::Sleep(2_000)];
+        slow.extend(page(&[haiku()]));
+        let server = fake::serve(vec![page(&[haiku()]), slow]);
+        let _case = start("refresh-delete", &server.url);
+        set_key();
+        let worker =
+            thread::spawn(|| call("ai.models", json!({"provider": ANTHROPIC, "refresh": true})));
+        let t = Instant::now();
+        while server.requests().len() < 2 {
+            assert!(t.elapsed() < Duration::from_secs(10), "요청이 오지 않았다");
+            thread::sleep(Duration::from_millis(5));
+        }
+        ok("ai.deleteKey", json!({"provider": ANTHROPIC}));
+        let r = worker.join().unwrap();
+        assert_eq!(r["err"]["code"], "no_key", "{r}");
+        assert_nothing_saved(ANTHROPIC);
+    }
+
     /// 가짜 서버가 응답을 늦게 주는 동안 다른 스레드의 호출이 막히지 않는다.
     #[test]
     fn network_call_does_not_hold_the_command_lock() {
-        let mut slow = vec![Step::Sleep(1500)];
+        // 서버는 8초 뒤에 답한다. 시간 한도는 바쁜 기계에서도 흔들리지 않게 그보다 짧고 넉넉히 둔다.
+        let mut slow = vec![Step::Sleep(8_000)];
         slow.extend(page(&[haiku()]));
         let server = fake::serve(vec![slow]);
         let _case = start("lock", &server.url);
         let worker = thread::spawn(set_key);
         let t = Instant::now();
         while server.requests().is_empty() {
-            assert!(t.elapsed() < Duration::from_secs(3), "요청이 오지 않았다");
+            assert!(t.elapsed() < Duration::from_secs(10), "요청이 오지 않았다");
             thread::sleep(Duration::from_millis(5));
         }
         let t = Instant::now();
@@ -333,7 +355,7 @@ mod hooked {
         ok("ai.providers", json!({}));
         ok("ai.tasks", json!({}));
         assert!(
-            t.elapsed() < Duration::from_millis(300),
+            t.elapsed() < Duration::from_secs(4),
             "막혔다: {:?}",
             t.elapsed()
         );

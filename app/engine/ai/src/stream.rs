@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{json, Value};
 
+use crate::http::read_failed;
 use crate::reply::{add_usage, assemble, stop, str_of};
 use crate::{AiError, Effort, Reply, Usage};
 
@@ -20,14 +21,13 @@ pub(crate) fn read(
     let mut data = String::new();
     let mut line = String::new();
     loop {
-        // 한계: 취소는 줄 사이에서만 본다. 읽기가 막히면 다음 줄(서버 ping)이나 60초 한도까지 기다린다.
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::Canceled);
         }
         line.clear();
         let n = reader
             .read_line(&mut line)
-            .map_err(|e| AiError::Network(format!("스트림 읽기 실패: {e}")))?;
+            .map_err(|e| read_failed(e, cancel))?;
         if n == 0 {
             return Err(AiError::Network(
                 "스트림이 끝나기 전에 연결이 끊겼다".into(),
@@ -74,6 +74,9 @@ impl State {
             }
             "content_block_start" => {
                 let i = index(&ev)?;
+                if !ev["content_block"].is_object() {
+                    return Err(AiError::Protocol(format!("블록 {i}이 객체가 아니다")));
+                }
                 if self.blocks.len() <= i {
                     self.blocks.resize(i + 1, Value::Null);
                 }
@@ -145,11 +148,15 @@ impl State {
     }
 }
 
+/// 블록 번호. 한 답의 블록은 많아야 수십 개라, 이보다 큰 번호는 잘못된 응답으로 본다(빈 블록을 그만큼 잡지 않게).
+const MAX_BLOCKS: u64 = 256;
+
 fn index(ev: &Value) -> Result<usize, AiError> {
-    ev["index"]
-        .as_u64()
-        .map(|i| i as usize)
-        .ok_or_else(|| AiError::Protocol("이벤트에 index가 없다".into()))
+    match ev["index"].as_u64() {
+        Some(i) if i < MAX_BLOCKS => Ok(i as usize),
+        Some(i) => Err(AiError::Protocol(format!("블록 번호가 너무 크다: {i}"))),
+        None => Err(AiError::Protocol("이벤트에 index가 없다".into())),
+    }
 }
 
 fn append(block: &mut Value, key: &str, piece: &str) {

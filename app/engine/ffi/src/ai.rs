@@ -66,18 +66,27 @@ pub(crate) fn with_lib<T>(f: impl FnOnce(&mut Library) -> Result<T, Fail>) -> Re
 }
 
 /// 오류로 바꾼다. 문구에 키가 들어갈 길은 없지만, 경계를 넘기 전에 한 번 더 가린다.
+/// 코드는 사람이 할 일이 다른 경우마다 나눈다(화면이 경우마다 쉬운 말로 알린다).
 pub(crate) fn ai_fail(e: AiError, keys: &[&str]) -> Fail {
     let mut message = e.to_string();
     for key in keys.iter().filter(|k| !k.is_empty()) {
         message = message.replace(key, "<가림>");
     }
-    match e {
-        AiError::Unauthorized => fail("unauthorized", "키가 올바르지 않습니다."),
-        AiError::Network(_) => fail("network", message),
+    let code = match e {
+        AiError::Unauthorized => return fail("unauthorized", "키가 올바르지 않습니다."),
+        AiError::Network(_) => "network",
         // 보안 저장소(키체인) 단계의 실패. 화면이 "키는 맞지만 저장하지 못함"을 따로 알린다.
-        AiError::Secret(_) => fail("secret", message),
-        _ => fail("ai", message),
-    }
+        AiError::Secret(_) => "secret",
+        AiError::Refused(_) => "refused",
+        // 답이 끊겼거나 읽을 수 없는 모양이다.
+        AiError::Truncated | AiError::Protocol(_) => "shape",
+        AiError::RateLimited { .. } => "rate",
+        AiError::Billing(_) => "billing",
+        AiError::Overloaded | AiError::Server(_) => "server",
+        AiError::NotFound => "model",
+        _ => "ai",
+    };
+    fail(code, message)
 }
 
 fn known<'a>(a: &Args<'a>) -> Result<&'a str, Fail> {
@@ -195,7 +204,15 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 .map_err(|e| ai_fail(e, &[]))?
                 .ok_or_else(|| fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."))?;
             let models = fetch(p, &key)?;
-            with_lib(|lib| Ok(Value::from(store(lib, p, &models)?)))
+            // 받는 사이 키를 지웠거나 바꿨으면 옛 키의 목록으로 "연결됨"을 되살리지 않는다.
+            // 키 지우기는 보안 저장소를 먼저 지우고 이 잠금 안에서 목록을 비운다.
+            with_lib(|lib| {
+                let same = secrets().get(p).map_err(|e| ai_fail(e, &[]))?.as_deref() == Some(&key);
+                if !same || !has_key(lib, p)? {
+                    return Err(fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."));
+                }
+                Ok(Value::from(store(lib, p, &models)?))
+            })
         }
         // 보안 저장소에 그 제공사의 키가 있는지(라이브러리와 무관하게). 실제 앱 시험이 사용자의 키를 덮어쓰지 않으려고 본다.
         "ai.keyStored" => {

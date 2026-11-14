@@ -29,6 +29,8 @@ String keyError(EngineError e, String vendor) => switch (e.code) {
   'network' => '$vendor에 연결하지 못했습니다. 네트워크를 확인해 주세요.',
   // 키 확인은 됐지만 보안 저장소 단계(쓰기·읽기)에서 실패했다. 키는 저장되지 않는다.
   'secret' => '이 기기의 보안 저장소(키체인)를 쓰지 못했습니다. ${e.message}',
+  'billing' => '$vendor 계정의 잔액이나 지출 한도에 걸렸습니다. 결제 설정을 확인해 주세요.',
+  'rate' || 'server' => '$vendor 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.',
   _ => '확인하지 못했습니다 (${e.code})',
 };
 

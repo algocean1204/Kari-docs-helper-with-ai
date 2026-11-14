@@ -96,7 +96,7 @@ fn iv_fail(e: kari_interview::Error, keys: &[&str]) -> Fail {
     match e {
         E::Ai(AiError::Canceled) => fail("canceled", "호출을 취소했습니다."),
         E::Ai(a) => ai_fail(a, keys),
-        E::Shape(m) => fail("ai", format!("모델의 답을 읽지 못했습니다: {m}")),
+        E::Shape(m) => fail("shape", format!("모델의 답을 읽지 못했습니다: {m}")),
         E::Invalid(m) => bad(m),
         E::Save(m) => fail("io", m),
     }
@@ -214,11 +214,13 @@ fn caller<'a>(
             format: info.structured.then(|| c.schema.clone()),
         };
         let r = api.stream(key, &req, info, cancel, &mut |_| {})?;
-        if let Stop::Refusal { explanation, .. } = &r.stop {
-            return Err(AiError::Protocol(format!(
-                "모델이 답을 거절했습니다: {}",
-                explanation.as_deref().unwrap_or("")
-            )));
+        match &r.stop {
+            Stop::Refusal { explanation, .. } => {
+                return Err(AiError::Refused(explanation.clone().unwrap_or_default()))
+            }
+            // 출력 한도에서 끊긴 답은 같은 요청을 다시 보내도 같다: 모양을 다시 묻지 않고 바로 알린다.
+            Stop::MaxTokens => return Err(AiError::Truncated),
+            _ => {}
         }
         Ok(Got {
             text: r.text,
@@ -458,8 +460,20 @@ fn start(a: &Args) -> Res {
         put(lib, &s)?;
         Ok((s, ai))
     })?;
-    let (_busy, cancel) = claim(&s.id)?;
-    drive(s, Some(&ai), &cancel)
+    let id = s.id.clone();
+    let (_busy, cancel) = claim(&id)?;
+    let r = drive(s, Some(&ai), &cancel);
+    if r.is_err() {
+        // 질문을 하나도 받지 못한 시작은 남기지 않는다: 앱의 다시 시도는 새로 시작하므로, 남기면 실패마다
+        // 질문 0개짜리 세션이 쌓인다. 준비 단계가 만든 주장·공고 캐시는 따로 남아 다음 시작이 다시 쓴다.
+        let _ = with_lib(|lib| {
+            if load(lib, &id)?.turns.is_empty() {
+                lib.record_delete(SESSION, &id)?;
+            }
+            Ok(())
+        });
+    }
+    r
 }
 
 /// 세션의 시선 기록. 없으면 빈 기록(시선 기록을 끈 세션).

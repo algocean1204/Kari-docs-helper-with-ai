@@ -144,6 +144,9 @@ pub struct Turn {
     /// 이 질문이 겨냥한 필수 체크포인트 id
     #[serde(default)]
     pub aim: Option<String>,
+    /// 채점이 되풀이해 실패해 채점 없이 넘긴 답. 면의 점수에 들지 않는다
+    #[serde(default)]
+    pub ungraded: bool,
 }
 
 /// 마지막 실행의 오류. 상태는 마지막 저장 지점 그대로이고 `iv.resume`으로 이어 간다.
@@ -363,8 +366,26 @@ impl Session {
         Ok(())
     }
 
+    /// 채점을 기다리다 멈춘 답(채점 호출이 실패했다). 채점 없이 넘길 수 있다.
+    fn stuck_grading(&self) -> bool {
+        self.node == Node::Grade
+            && self
+                .turns
+                .last()
+                .is_some_and(|t| t.answer.is_some() && t.graded.is_none())
+    }
+
     /// "모르겠습니다". 채점하지 않고 실패로 본다.
+    /// 채점을 기다리다 멈춘 답이면(모델의 거절처럼 다시 해도 같은 까닭으로 실패한다) 그 답을 채점 없이 넘긴다:
+    /// 면의 점수에 넣지 않고 다음 개념으로 간다.
     pub fn skip(&mut self, waited_ms: u64) -> Result<(), Error> {
+        if self.stuck_grading() {
+            if let Some(t) = self.turns.last_mut() {
+                t.ungraded = true;
+            }
+            self.node = Node::Score;
+            return Ok(());
+        }
         self.open_turn()?.skipped = true;
         self.waited_ms += waited_ms;
         self.node = Node::Score;
@@ -437,6 +458,7 @@ impl Session {
                     "question": self.mask.restore(&t.question),
                     "answer": t.answer.as_deref().map(|a| self.mask.restore(a)),
                     "skipped": t.skipped,
+                    "ungraded": t.ungraded,
                 })
             })
             .collect();
@@ -456,6 +478,7 @@ impl Session {
             "elapsedMs": self.elapsed_ms(),
             "budgetMs": self.budget_ms(),
             "hintsLeft": self.hints_left(),
+            "canSkipGrading": self.stuck_grading(),
             "feedback": feedback,
             "history": history,
             "error": self.error,

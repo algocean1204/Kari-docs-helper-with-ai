@@ -199,7 +199,7 @@ fn a_summary_kept_at_first_pass_is_not_reported_as_lost() {
         1 | 3 | 5 => Act::Answer("[필수]".to_string()),
         2 | 4 => Act::Answer("[전부]".to_string()),
         6 if s.turns[5].hint.is_none() => Act::Hint,
-        6 => Act::Answer("[둘]".to_string()),
+        6 => Act::Answer("[앞둘]".to_string()),
         n => Act::Answer(format!("{n}번 [없음]")),
     };
     let mut s = new(10, Years::New, Pressure::Coaching);
@@ -210,7 +210,7 @@ fn a_summary_kept_at_first_pass_is_not_reported_as_lost() {
     let card = card_of(&s, &c, f.as_str());
     assert_eq!(card.note, "힌트를 써서 첫 통과까지만 인정됐습니다.");
     assert_eq!(card.question, s.turns[5].question);
-    assert_eq!(card.quote, "[둘]");
+    assert_eq!(card.quote, "[앞둘]");
     // 필수 둘은 met, 셋째만 이 턴에서 빠졌다.
     assert_eq!(card.missing.len(), 1);
     assert!(card.missing[0].text.contains("3번"));

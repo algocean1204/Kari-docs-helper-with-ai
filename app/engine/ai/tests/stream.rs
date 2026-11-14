@@ -189,7 +189,7 @@ fn cancel_mid_stream() {
         Step::Write(event(MSG_START) + &event(&text_start(0)) + &event(&text_delta(0, "하나"))),
         Step::Sleep(300),
         Step::Write(event(&text_delta(0, "둘"))),
-        Step::Sleep(5000),
+        Step::Sleep(30_000),
     ]]);
     let cancel = AtomicBool::new(false);
     let mut pieces = Vec::new();
@@ -206,5 +206,50 @@ fn cancel_mid_stream() {
     );
     assert_eq!(result.unwrap_err(), AiError::Canceled);
     assert_eq!(pieces, ["하나"]);
-    assert!(started.elapsed().as_millis() < 2000);
+    // 서버는 30초를 더 끈다. 한도는 바쁜 기계에서도 흔들리지 않게 넉넉히 둔다.
+    assert!(started.elapsed().as_secs() < 10, "{:?}", started.elapsed());
+}
+
+/// 서버가 객체가 아닌 블록이나 터무니없는 블록 번호를 주면 패닉하거나 메모리를 잡지 않고 응답 오류로 돌려준다.
+#[test]
+fn malformed_blocks_are_protocol_errors() {
+    for start in [
+        r#"{"type":"content_block_start","index":0,"content_block":"x"}"#,
+        r#"{"type":"content_block_start","index":0,"content_block":null}"#,
+        r#"{"type":"content_block_start","index":18446744073709551615,"content_block":{"type":"text","text":""}}"#,
+        r#"{"type":"content_block_start","index":1099511627776,"content_block":{"type":"text","text":""}}"#,
+    ] {
+        let (r, _) = run(sse(&[MSG_START, start, &text_delta(0, "가"), MSG_STOP]));
+        assert!(matches!(r, Err(AiError::Protocol(_))), "{start}: {r:?}");
+    }
+    let (r, _) = run(sse(&[MSG_START, &text_delta(300, "가"), MSG_STOP]));
+    assert!(matches!(r, Err(AiError::Protocol(_))), "{r:?}");
+}
+
+/// 응답 머리를 기다리는 동안에도, 본문의 다음 조각을 기다리는 동안에도 취소가 곧바로 먹는다.
+#[test]
+fn cancel_while_the_server_is_silent() {
+    for steps in [
+        vec![Step::Sleep(30_000)],
+        vec![
+            sse_head(),
+            Step::Write(event(MSG_START) + &event(&text_start(0))),
+            Step::Sleep(30_000),
+        ],
+    ] {
+        let srv = serve(vec![steps]);
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            flag.store(true, Ordering::Relaxed);
+        });
+        let started = std::time::Instant::now();
+        let err = Anthropic::with_base_url(&srv.url)
+            .stream(KEY, &ask("질문"), &haiku(), &cancel, &mut |_| {})
+            .unwrap_err();
+        assert_eq!(err, AiError::Canceled);
+        // 서버는 30초 동안 아무것도 보내지 않는다. 한도는 바쁜 기계에서도 흔들리지 않게 넉넉히 둔다.
+        assert!(started.elapsed().as_secs() < 10, "{:?}", started.elapsed());
+    }
 }

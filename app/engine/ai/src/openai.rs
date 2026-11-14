@@ -4,7 +4,7 @@
 //! 스키마(속성 순서를 지켜 글로 보낸다), 응답을 서버에 남기지 않는다(`store: false`), 취소는 연결을 끊는다.
 
 use std::collections::HashSet;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use ureq::http::Response;
 use ureq::{Agent, Body, RequestBuilder};
 
 use crate::body::ordered;
-use crate::http::{agent, read_json, with_retry};
+use crate::http::{agent, body_reader, read_failed, read_json, with_retry};
 use crate::reply::str_of;
 use crate::{clamp, AiError, Effort, Message, ModelInfo, Part, Reply, Request, Stop, Usage};
 
@@ -22,6 +22,8 @@ const MAX_TOKENS: u32 = 16000;
 const MAX_TOKENS_STREAM: u32 = 64000;
 /// 스트림에서 이만큼 아무것도 오지 않으면 끊는다.
 const STREAM_IDLE: Duration = Duration::from_secs(60);
+/// 모델 목록 요청 하나의 전체 한도.
+const LIST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// OpenAI에서 고를 수 있는 계열.
 pub const FAMILIES: [&str; 3] = ["luna", "terra", "sol"];
@@ -31,6 +33,8 @@ pub struct OpenAi {
     base_url: String,
     /// 다시 시도 간격. 길이가 다시 시도 횟수다(기본 0.5초, 2초). 시험에서 줄인다.
     pub retry_delays: Vec<Duration>,
+    /// 모델 목록 요청 하나의 전체 한도(기본 30초). 답하지 않는 서버에서 키 확인과 목록 받기가 끝나지 않는 일이 없게. 시험에서 줄인다.
+    pub list_timeout: Duration,
     agent: Agent,
     stream_agent: Agent,
 }
@@ -50,8 +54,9 @@ impl OpenAi {
         OpenAi {
             base_url: url.trim_end_matches('/').to_string(),
             retry_delays: vec![Duration::from_millis(500), Duration::from_secs(2)],
-            agent: agent(None),
-            stream_agent: agent(Some(STREAM_IDLE)),
+            agent: agent(None, None),
+            stream_agent: agent(Some(STREAM_IDLE), None),
+            list_timeout: LIST_TIMEOUT,
         }
     }
 
@@ -59,8 +64,9 @@ impl OpenAi {
     pub fn models(&self, key: &str) -> Result<Vec<ModelInfo>, AiError> {
         let never = AtomicBool::new(false);
         let url = format!("{}/v1/models", self.base_url);
-        let resp = with_retry(&self.retry_delays, &never, || {
-            auth(self.agent.get(&url), key).call()
+        let (a, k) = (agent(None, Some(self.list_timeout)), key.to_string());
+        let resp = with_retry(&self.retry_delays, &never, key, move || {
+            auth(a.get(&url), &k).call()
         })?;
         let page = read_json(resp)?;
         let data = page["data"]
@@ -93,12 +99,7 @@ impl OpenAi {
     ) -> Result<Reply, AiError> {
         let (body, effort) = build(req, info, true)?;
         let resp = self.post(&self.stream_agent, key, &body, cancel)?;
-        read_stream(
-            BufReader::new(resp.into_body().into_reader()),
-            cancel,
-            on_text,
-            effort,
-        )
+        read_stream(body_reader(resp, cancel), cancel, on_text, effort)
     }
 
     fn post(
@@ -112,10 +113,11 @@ impl OpenAi {
             return Err(AiError::NoKey);
         }
         let url = format!("{}/v1/responses", self.base_url);
-        with_retry(&self.retry_delays, cancel, || {
-            auth(agent.post(&url), key)
+        let (agent, k, body) = (agent.clone(), key.to_string(), body.to_string());
+        with_retry(&self.retry_delays, cancel, key, move || {
+            auth(agent.post(&url), &k)
                 .header("content-type", "application/json")
-                .send(body)
+                .send(&body)
         })
     }
 }
@@ -332,14 +334,13 @@ fn read_stream(
     // 중간 설명(commentary) 항목의 조각은 화면에 주지 않는다.
     let mut commentary: HashSet<String> = HashSet::new();
     loop {
-        // 한계: 취소는 줄 사이에서만 본다. 읽기가 막히면 다음 줄이나 60초 한도까지 기다린다.
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::Canceled);
         }
         line.clear();
         let n = reader
             .read_line(&mut line)
-            .map_err(|e| AiError::Network(format!("스트림 읽기 실패: {e}")))?;
+            .map_err(|e| read_failed(e, cancel))?;
         if n == 0 {
             return Err(AiError::Network(
                 "스트림이 끝나기 전에 연결이 끊겼다".into(),

@@ -307,6 +307,7 @@ mod tests {
                 elapsed_ms: 0,
                 questions: 0,
                 quote_failures: 0,
+                ungraded: 0,
                 tokens_in: 0,
                 tokens_out: 0,
                 tokens_cached: 0,

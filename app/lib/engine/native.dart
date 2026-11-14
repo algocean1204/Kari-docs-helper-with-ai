@@ -102,26 +102,47 @@ bool slowLane(String request) {
   }
 }
 
+/// 모델 목록을 받는 호출인지(`ai.setKey`, `refresh`를 준 `ai.models`). 답하지 않는 서버를 엔진의 한도(30초)까지
+/// 기다릴 수 있어 자기 줄에서 돈다: 앱을 열 때 하는 목록 새로 받기가 내보내기나 면접 호출을 그 뒤에 세우지 않게.
+bool netLane(String request) {
+  try {
+    final r = jsonDecode(request);
+    if (r is! Map) return false;
+    final a = r['a'];
+    return r['m'] == 'ai.setKey' ||
+        (r['m'] == 'ai.models' && a is Map && a['refresh'] == true);
+  } on FormatException {
+    return false;
+  }
+}
+
 /// 동적 라이브러리(Rust 엔진)를 부르는 엔진.
 ///
-/// 커밋이 수 ms 걸릴 수 있어 UI 스레드에서 부르지 않는다. 요청은 두 줄로 나눈다: 오래 걸리는 호출([slowLane])은
-/// 느린 줄, 나머지는 기본 줄. 줄마다 전용 아이솔레이트 하나가 받은 순서대로 실행하므로, 키 확인, PDF 내보내기, 면접의 질문과
-/// 채점을 기다리는 동안에도 편집은 멈추지 않는다(엔진의 `kari_call`은 어느 스레드에서 불러도 되고, 이 호출들은 오래 걸리는
-/// 동안 명령 잠금을 잡지 않는다).
+/// 커밋이 수 ms 걸릴 수 있어 UI 스레드에서 부르지 않는다. 요청은 세 줄로 나눈다: 모델 목록 받기([netLane])는 목록 줄,
+/// 오래 걸리는 호출([slowLane])은 느린 줄, 나머지는 기본 줄. 줄마다 전용 아이솔레이트 하나가 받은 순서대로 실행하므로, 키 확인,
+/// PDF 내보내기, 면접의 질문과 채점을 기다리는 동안에도 편집은 멈추지 않는다(엔진의 `kari_call`은 어느 스레드에서 불러도
+/// 되고, 이 호출들은 오래 걸리는 동안 명령 잠금을 잡지 않는다).
 /// 라이브러리를 싣지 못했거나 아이솔레이트가 죽으면 그 줄의 호출이 [EngineError]('unavailable')로 실패한다.
 class NativeEngine extends EngineApi {
   /// [call]은 시험에서만 바꾼다(엔진 대신 느리거나 죽는 함수). 최상위 함수여야 아이솔레이트로 넘어간다.
   NativeEngine({@visibleForTesting String Function(String) call = _call})
     : _main = _Lane('kari-engine', call),
-      _slow = _Lane('kari-slow', call);
+      _slow = _Lane('kari-slow', call),
+      _net = _Lane('kari-net', call);
 
   final _Lane _main;
   final _Lane _slow;
+  final _Lane _net;
   Future<void>? _fonts;
 
   @override
   Future<String> send(String request) =>
-      (slowLane(request) ? _slow : _main).send(request);
+      (netLane(request)
+              ? _net
+              : slowLane(request)
+              ? _slow
+              : _main)
+          .send(request);
 
   /// 편집 세션은 글꼴이 있어야 연다. 처음 열 때 앱의 글꼴 바이트를 한 번 넘긴다.
   @override

@@ -121,16 +121,25 @@ pub fn clamp(requested: Effort, supported: &[Effort]) -> Option<Effort> {
     below.or_else(|| supported.iter().copied().min())
 }
 
-/// 이 크레이트의 오류. 어느 변형에도 키가 들어가지 않는다.
+/// 이 크레이트의 오류. 상태 코드 오류의 문구는 서버가 되울린 키를 가린 뒤 자른다.
+/// 스트림 안의 `error` 이벤트 문구는 그대로 담는다(키는 부르는 쪽의 경계가 가린다).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AiError {
     NoKey,
     Unauthorized,
     Forbidden,
     NotFound,
-    RateLimited { retry_after_ms: Option<u64> },
+    RateLimited {
+        retry_after_ms: Option<u64>,
+    },
     Overloaded,
     BadRequest(String),
+    /// 잔액이나 지출 한도. 기다려도 풀리지 않는다
+    Billing(String),
+    /// 모델이 답을 거절했다
+    Refused(String),
+    /// 답이 출력 한도에서 끊겼다. 같은 요청을 다시 보내도 같다
+    Truncated,
     Server(u16),
     Network(String),
     Protocol(String),
@@ -152,6 +161,10 @@ impl fmt::Display for AiError {
             },
             AiError::Overloaded => write!(f, "서버가 붐빈다"),
             AiError::BadRequest(m) => write!(f, "잘못된 요청: {m}"),
+            AiError::Billing(m) => write!(f, "잔액이나 지출 한도에 걸렸다: {m}"),
+            AiError::Refused(m) if m.is_empty() => write!(f, "모델이 답을 거절했다"),
+            AiError::Refused(m) => write!(f, "모델이 답을 거절했다: {m}"),
+            AiError::Truncated => write!(f, "답이 출력 한도에서 끊겼다"),
             AiError::Server(code) => write!(f, "서버 오류({code})"),
             AiError::Network(m) => write!(f, "연결 오류: {m}"),
             AiError::Protocol(m) => write!(f, "응답을 읽지 못했다: {m}"),
