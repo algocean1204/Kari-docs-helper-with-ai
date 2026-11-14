@@ -153,6 +153,7 @@ flowchart LR
 | 만들기 | `docs.create` | 빈 문서와 첫 스냅샷. `styles`를 주면 그 스타일 표로 시작한다 |
 | 이름 바꾸기 | `docs.rename` | `doc` op 묶음 |
 | 복제 | `docs.duplicate` | 지금 상태로 새 문서. 원본 문서와 seq를 기록 |
+| 되살린 사본 | `docs.salvage` | 기록을 재생하지 못해 열리지 않는 문서라도 노드 행이 구조 검사를 통과하면 그 내용으로 새 문서(seq 0). 원본은 그대로 |
 | 휴지통, 되살리기 | `docs.trash`, `docs.untrash` | 휴지통 시각을 쓰고 지운다 |
 | 완전 삭제 | `docs.purge` | 문서의 모든 행을 지우고, 남은 문서가 쓰지 않는 에셋을 지운다 |
 
@@ -164,7 +165,9 @@ flowchart LR
 
 ## 백업
 
-라이브러리를 열 때 마지막 백업에서 하루가 지났으면 SQLite 온라인 백업으로 `backups/library-<ms>.db`를 만든다. 최근 10개를 남긴다. API 키는 DB와 백업에 들어가지 않는다 → [ai-connection.md](ai-connection.md).
+라이브러리를 열 때, 그리고 편집이 쉬거나(`doc.idle`) 문서를 닫을 때(`doc.close`) 마지막 백업에서 하루가 지났으면 SQLite 온라인 백업으로 `backups/library-<ms>.db`를 만든다. 최근 10개를 남긴다. API 키는 DB와 백업에 들어가지 않는다 → [ai-connection.md](ai-connection.md).
+
+라이브러리가 손상돼 열리지 않으면(`corrupt`) `lib.restoreBackup`이 가장 최근의 성한 백업으로 되살리고 연다. 손상된 파일은 `library.db.corrupt-<ms>`로 옆에 남는다. 손상이 아닌 까닭(더 새 형식, 잠김)이면 되살리지 않는다. 백업에는 `library.db`만 들어가고 `assets/`의 그림 파일은 들어가지 않는다.
 
 ## 더 읽을 것
 

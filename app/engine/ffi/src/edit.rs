@@ -74,8 +74,14 @@ fn auto_after(cmd: &Command) -> Option<Command> {
     }
 }
 
+/// 자동 서식만 저장하지 못했을 때의 안내.
+const AUTO_UNSAVED: &str = "자동 서식을 저장하지 못해 넣지 않았습니다. 입력은 저장했습니다.";
+
 /// 명령 하나를 하고, 문서를 바꿨고 자동 서식이 켜져 있으면 자동 서식을 따로 된 묶음으로 잇는다
 /// (되돌리기 한 번이면 자동 서식만 걷힌다).
+///
+/// 자동 서식의 커밋이 실패해도 앞 명령은 이미 커밋됐으므로 성공으로 돌려주고 안내만 붙인다. 오류로 돌려주면 앱이
+/// 호출 전체를 다시 보내 앞 명령이 두 번 들어간다. 자동 서식은 앞 사본에서도 걷혔으므로 화면과 저장된 문서가 같다.
 fn run_auto(
     lib: &mut Library,
     back: &mut OpenDoc,
@@ -85,8 +91,12 @@ fn run_auto(
 ) -> Result<Done, Fail> {
     let done = run(lib, back, s, cmd, now)?;
     let auto = auto_after(cmd).filter(|_| done.changed && s.lock(back.doc()).auto);
-    match auto {
-        Some(a) => Ok(done.and(run(lib, back, s, &a, now)?)),
+    match auto.map(|a| run(lib, back, s, &a, now)) {
+        Some(Ok(d)) => Ok(done.and(d)),
+        Some(Err(_)) => Ok(Done {
+            refused: Some(AUTO_UNSAVED),
+            ..done
+        }),
         None => Ok(done),
     }
 }

@@ -151,6 +151,25 @@ fn bad_requests_come_back_as_errors() {
 }
 
 #[test]
+fn lone_surrogates_become_replacement_chars() {
+    let case = Case::new("surrogates");
+    case.open();
+    // 짝 없는 앞쪽·뒤쪽 대리 문자, 짝이 맞는 쌍, 글자 그대로의 역빗금 뒤 `ud83d`
+    let name = r#"가\ud83d나\ude00다😀라\\ud83d"#;
+    let r = raw(&format!(
+        r#"{{"m":"docs.create","a":{{"kind":"flow","name":"{name}"}}}}"#
+    ));
+    assert!(r.get("ok").is_some(), "{r}");
+    let list = ok("docs.list", json!({}));
+    assert_eq!(names(&list), ["가\u{FFFD}나\u{FFFD}다😀라\\ud83d"]);
+    // 대리 문자와 상관없이 틀린 JSON은 그대로 거절한다.
+    assert_eq!(
+        raw(r#"{"m":"docs.list","a":{"x":"\ud83d}"#)["err"]["code"],
+        "bad_request"
+    );
+}
+
+#[test]
 fn every_name_through_kari_call() {
     let case = Case::new("names");
     case.open();
@@ -286,6 +305,8 @@ fn every_name_through_kari_call() {
     assert_eq!(ok("settings.get", json!({"key": "ai.effort"})), Value::Null);
     ok("settings.set", json!({"key": "ai.effort", "value": "max"}));
     assert_eq!(ok("settings.get", json!({"key": "ai.effort"})), "max");
+    // 위에서 문서를 닫을 때 이미 오늘의 백업을 만들었다. 마지막 백업이 오래전인 것처럼 해 때가 되게 한다.
+    ok("settings.set", json!({"key": "backup.last", "value": 0}));
     let backup = ok("lib.backupIfDue", json!({}));
     assert!(std::path::Path::new(backup["path"].as_str().unwrap()).exists());
     assert_eq!(

@@ -6,6 +6,7 @@
 // SHOT_DIR을 주면 화면 그림을 real-editor-*.png로 쓴다.
 
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SemanticsProperties;
@@ -198,6 +199,25 @@ void main() {
       expect(semantics(tester, '밑줄').toggled, isTrue);
     });
 
+    testWidgets('손상돼 열리지 않는 문서는 남은 내용으로 사본을 만들어 연다', (tester) async {
+      final rig = await pumpReal(tester);
+      rig.fake.failures['doc.open'] = const EngineError(
+        'corrupt',
+        '손상: 문서 1를 되살리지 못했습니다',
+      );
+      await tester.tap(find.text('이어서 쓰기'));
+      await tester.pumpAndSettle();
+      expect(find.text('남은 내용으로 사본 만들기'), findsOneWidget);
+      rig.fake.failures.clear();
+      await tester.tap(find.text('남은 내용으로 사본 만들기'));
+      await tester.pumpAndSettle();
+      final copy = rig.fake.docs.values.where((d) => d['name'] == '이력서 되살린 사본');
+      expect(copy, hasLength(1));
+      expect(find.text('이력서 되살린 사본'), findsWidgets);
+      expect(find.text('남은 내용으로 사본 만들기'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('저장하지 못하면 위쪽 줄에 알리고, 다시 시도하면 저장한다', (tester) async {
       final (rig, id) = await openCv(tester, size: sizes[0]);
       rig.fake.failures['edit.cmd'] = const EngineError('io', '디스크에 쓰지 못했습니다');
@@ -213,6 +233,93 @@ void main() {
       expect(find.text('저장하지 못했습니다'), findsNothing);
       expect(semantics(tester, '굵게').toggled, isTrue);
       expect(rig.fake.docs[id]!['seq'], 1);
+    });
+
+    testWidgets('저장하지 못한 편집이 있으면 화면을 떠나기 전에 다시 보내고, 그래도 안 되면 묻는다', (
+      tester,
+    ) async {
+      final (rig, id) = await openCv(tester);
+      const io = EngineError('io', '디스크에 쓰지 못했습니다');
+      rig.fake.failures['edit.cmd'] = io;
+      await tester.tap(find.byTooltip('굵게 ⌘B'));
+      await tester.pumpAndSettle();
+      // 머무르면 편집 화면과 다시 시도가 그대로 남는다.
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못한 편집이 있습니다'), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못했습니다'), findsOneWidget);
+      expect(find.text('이어서 쓰기'), findsNothing);
+      // 저장할 수 있게 되면 떠날 때 다시 보내 저장하고, 묻지 않는다.
+      rig.fake.failures.remove('edit.cmd');
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못한 편집이 있습니다'), findsNothing);
+      expect(find.text('이어서 쓰기'), findsOneWidget);
+      expect(rig.fake.docs[id]!['seq'], 1);
+      // 저장하지 않고 떠나기를 고르면 떠난다.
+      await tester.tap(find.text('이어서 쓰기'));
+      await tester.pumpAndSettle();
+      rig.fake.failures['edit.cmd'] = io;
+      await tester.tap(find.byTooltip('기울임 ⌘I'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<AppButton>(find.widgetWithText(AppButton, '저장하지 않고 떠나기'))
+            .kind,
+        ButtonKind.danger,
+      );
+      await tester.tap(find.text('저장하지 않고 떠나기'));
+      await tester.pumpAndSettle();
+      expect(find.text('이어서 쓰기'), findsOneWidget);
+      expect(rig.fake.docs[id]!['seq'], 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('앱을 끌 때 조합 중인 글을 확정하고 붙잡은 편집을 저장한 뒤 닫는다', (tester) async {
+      final (rig, id) = await openCv(tester);
+      tester.testTextInput.updateEditingValue(
+        const TextEditingValue(
+          text: '김서연ㅎ',
+          selection: TextSelection.collapsed(offset: 4),
+          composing: TextRange(start: 3, end: 4),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(firstPara(rig, id), '김서연');
+      final exit = tester.binding.handleRequestAppExit();
+      await tester.pumpAndSettle();
+      expect(await exit, AppExitResponse.exit);
+      expect(firstPara(rig, id), '김서연ㅎ');
+      final sent = rig.fake.sent;
+      expect(
+        sent.lastIndexOf('lib.close'),
+        greaterThan(sent.lastIndexOf('edit.ime')),
+      );
+    });
+
+    testWidgets('앱을 끌 때 그래도 저장하지 못하면 끄기를 멈추고 묻는다', (tester) async {
+      final (rig, _) = await openCv(tester);
+      rig.fake.failures['edit.cmd'] = const EngineError('io', '디스크에 쓰지 못했습니다');
+      await tester.tap(find.byTooltip('굵게 ⌘B'));
+      await tester.pumpAndSettle();
+      final stay = tester.binding.handleRequestAppExit();
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못한 편집이 있습니다'), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(await stay, AppExitResponse.cancel);
+      expect(rig.fake.sent, isNot(contains('lib.close')));
+      expect(find.text('저장하지 못했습니다'), findsOneWidget);
+      final quit = tester.binding.handleRequestAppExit();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('저장하지 않고 끄기'));
+      await tester.pumpAndSettle();
+      expect(await quit, AppExitResponse.exit);
+      expect(rig.fake.sent, contains('lib.close'));
     });
 
     testWidgets('조합 중에 단축키가 오면 조합 글을 먼저 확정한다', (tester) async {

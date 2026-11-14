@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/editing/canvas_session.dart';
+import 'package:kari/editing/session.dart' show stalledMessage;
 import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/native.dart';
 import 'package:kari/library.dart';
@@ -305,6 +306,52 @@ void main() {
     expect(s.noticeRev, 1);
   });
 
+  test('글 상자에서 저장이 실패하는 동안 친 글은 다시 시도 뒤 모두 남고, 보기는 그대로 움직인다', () async {
+    final s = await open();
+    await s.cmd('create', {'tool': 'text', 'x': 100, 'y': 100});
+    await s.settled;
+    TextEditingValue typed(String t) => TextEditingValue(
+      text: t,
+      selection: TextSelection.collapsed(offset: t.length),
+    );
+    s.imeUpdate(typed('가'));
+    await s.settled;
+    // 다른 연결에서 기록 표에 넣기를 막는다. 앱의 연결에는 쓰기 실패로 보인다.
+    void block(bool on) {
+      final r = Process.runSync('sqlite3', [
+        '${tmp.path}/library.db',
+        on
+            ? "CREATE TRIGGER no_write BEFORE INSERT ON batches BEGIN SELECT RAISE(ABORT, '시험: 쓰기 실패'); END;"
+            : 'DROP TRIGGER no_write;',
+      ]);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+    }
+
+    block(true);
+    s.imeUpdate(typed('가나'));
+    s.imeUpdate(typed('가나다'));
+    await s.settled;
+    expect(s.saveError?.code, 'io');
+    expect(s.unsaved, 2);
+    // 새 편집은 받지 않고 한 번 알린다. 보기(확대)는 문서를 바꾸지 않아 그대로 한다.
+    s.imeUpdate(typed('가나다라'));
+    await s.cmd('nudge', {'dir': 'right'});
+    await s.zoomAt(x: 500, y: 350, by: 2);
+    await s.settled;
+    expect(s.value.text, '가나다');
+    expect(s.notice, stalledMessage);
+    expect(s.unsaved, 2);
+    expect(s.state!.zoom, 2);
+    block(false);
+    s.retry();
+    await s.settled;
+    expect(s.saveError, isNull);
+    expect(s.unsaved, 0);
+    await s.cmd('endText');
+    await s.settled;
+    expect(paragraphs(await engine.docNodes(s.id)), contains('가나다'));
+  });
+
   test('확대·이동·모두 보기는 보기 상태만 바꾼다', () async {
     final s = await open();
     final seq = s.state!.seq;
@@ -320,5 +367,36 @@ void main() {
     expect(s.state!.zoom, isNot(1));
     expect(s.state!.seq, seq);
     expect(s.state!.canUndo, isFalse);
+  });
+
+  test('떠나기 전 확인(flush): 조합 중인 글을 확정하고, 저장하지 못하면 거짓이고 편집을 붙잡아 둔다', () async {
+    final s = await open();
+    await s.cmd('create', {'tool': 'text', 'x': 100, 'y': 100});
+    s.imeUpdate(
+      const TextEditingValue(
+        text: '가나',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 1, end: 2),
+      ),
+    );
+    await s.settled;
+    void block(bool on) {
+      final r = Process.runSync('sqlite3', [
+        '${tmp.path}/library.db',
+        on
+            ? "CREATE TRIGGER no_write BEFORE INSERT ON batches BEGIN SELECT RAISE(ABORT, '시험: 쓰기 실패'); END;"
+            : 'DROP TRIGGER no_write;',
+      ]);
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+    }
+
+    block(true);
+    expect(await s.flush(), isFalse);
+    expect(s.unsaved, 1);
+    block(false);
+    expect(await s.flush(), isTrue);
+    expect(s.unsaved, 0);
+    await s.close();
+    expect(paragraphs(await engine.docNodes(s.id)), contains('가나'));
   });
 }

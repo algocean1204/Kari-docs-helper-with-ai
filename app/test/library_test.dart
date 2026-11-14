@@ -549,6 +549,56 @@ void main() {
       expect(find.text('AI 연결'), findsOneWidget);
     });
 
+    testWidgets('손상돼 열지 못하면 묻고 나서 가장 최근 백업에서 되살린다', (tester) async {
+      final rig = Rig();
+      rig.fake.failures['lib.open'] = const EngineError(
+        'corrupt',
+        '자료 파일이 손상됐습니다',
+      );
+      rig.fake.backups = [
+        ms(today.subtract(const Duration(days: 1))),
+        ms(DateTime(2026, 11, 1)),
+      ];
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      expect(find.text('최근 백업'), findsOneWidget);
+      expect(find.text('어제'), findsOneWidget);
+      await tester.tap(find.text('백업에서 되살리기'));
+      await tester.pumpAndSettle();
+      expect(find.text('백업에서 되살릴까요?'), findsOneWidget);
+      // 취소하면 아무것도 하지 않는다.
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(rig.fake.sent, isNot(contains('lib.restoreBackup')));
+      await tester.tap(find.text('백업에서 되살리기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('백업에서 되살리기').last);
+      await tester.pumpAndSettle();
+      expect(rig.fake.sent, contains('lib.restoreBackup'));
+      expect(find.text('AI 연결'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('백업이 없거나 손상이 아니면 되살리기를 보이지 않는다', (tester) async {
+      final rig = Rig();
+      rig.fake.failures['lib.open'] = const EngineError(
+        'corrupt',
+        '자료 파일이 손상됐습니다',
+      );
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      expect(find.text('백업에서 되살리기'), findsNothing);
+      rig.fake.failures['lib.open'] = const EngineError(
+        'too_new',
+        '더 새 형식의 라이브러리입니다(3판).',
+      );
+      rig.fake.backups = [ms(today)];
+      await tester.tap(find.text('다시 시도'));
+      await tester.pumpAndSettle();
+      expect(find.text('too_new'), findsOneWidget);
+      expect(find.text('백업에서 되살리기'), findsNothing);
+      // 할 일 줄은 오류 코드마다 정해진 안내를 보인다.
+      expect(find.text(openAdvice('too_new')), findsOneWidget);
+    });
+
     testWidgets('여는 동안은 빈 바탕이고 200ms가 넘으면 불러오는 중이라고 알린다', (tester) async {
       final gate = Completer<void>();
       final engine = _SlowEngine(gate.future);

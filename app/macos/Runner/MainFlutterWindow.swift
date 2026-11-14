@@ -347,6 +347,9 @@ class MainFlutterWindow: NSWindow {
   /// 앞으로 나오지 않고, 창은 다른 창들 뒤에 둔다. 없으면 보통 앱과 같다.
   static let background = ProcessInfo.processInfo.environment["KARI_TEST_BACKGROUND"] == "1"
 
+  /// 창 닫기를 앱 끄기로 바꾸는 delegate(아래 QuitOnClose). 창은 delegate를 약하게 잡으므로 여기서 붙든다.
+  private let quitOnClose = QuitOnClose()
+
   override func makeKeyAndOrderFront(_ sender: Any?) {
     if Self.background { orderBack(sender) } else { super.makeKeyAndOrderFront(sender) }
   }
@@ -366,6 +369,7 @@ class MainFlutterWindow: NSWindow {
     }
     let flutterViewController = FlutterViewController()
     self.contentViewController = flutterViewController
+    if self.delegate == nil { self.delegate = quitOnClose }
     // 화면 배치가 지키는 가장 작은 창 크기(app/test/design_test.dart의 1024×700).
     self.setContentSize(NSSize(width: 1280, height: 800))
     self.contentMinSize = NSSize(width: 1024, height: 700)
@@ -566,5 +570,14 @@ func pasteboardImage() -> Any? {
     return ["path": url.path, "temp": true] as [String: Any]
   } catch {
     return fail("클립보드의 그림을 임시 파일로 쓰지 못했습니다")
+  }
+}
+
+/// 창은 하나뿐이라 닫으면 앱이 끝난다. 창을 먼저 닫으면 저장하지 못한 것이 있을 때 묻는 창을 띄울 자리가 없으므로,
+/// 닫기(닫기 단추가 묻는 windowShouldClose)를 창이 살아 있는 동안의 끄기 요청으로 바꾼다. 끄기를 취소하면 창이 남는다.
+final class QuitOnClose: NSObject, NSWindowDelegate {
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    NSApp.terminate(sender)
+    return false
   }
 }

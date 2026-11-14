@@ -8,7 +8,15 @@ import '../engine/engine.dart';
 import 'canvas_keys.dart' show textCommand;
 import 'ime.dart';
 import 'keys.dart' show selectorCommand;
-import 'session.dart' show blockedMessage, idleAfter;
+import 'session.dart'
+    show
+        blockedMessage,
+        closingDoc,
+        docClosing,
+        idleAfter,
+        OpenEdits,
+        refusedMessage,
+        stalledMessage;
 import 'version_host.dart';
 
 /// 파일과 붙여넣기 판을 운영체제에 묻는 채널. `pasteImage`는 붙여넣기 판의 그림을 `{path, temp}`로 준다(그림이 없으면
@@ -32,7 +40,7 @@ class _Slot {
 /// 견주어 `canvas.ime`로 보낸다. 위젯을 모르므로 입력 채널 없이도 쓴다(통합 시험).
 class CanvasSession extends ChangeNotifier
     with TextInputClient, DeltaTextInputClient
-    implements VersionHost {
+    implements VersionHost, OpenEdits {
   CanvasSession(this.engine, this.id, {DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
@@ -48,9 +56,14 @@ class CanvasSession extends ChangeNotifier
   /// 문서를 열지 못한 오류.
   EngineError? openError;
 
-  /// 저장하지 못한 명령의 오류. [retry]가 그 명령을 다시 보낸다.
+  /// 저장하지 못한 명령의 오류. 이것이 있는 동안 새 편집은 받지 않고, [retry]가 기다리는 편집을 차례로 다시 보낸다.
   EngineError? saveError;
-  Future<void> Function()? _retry;
+
+  /// 저장이 실패한 명령과, 실패를 알기 전에 이미 줄에 서 있던 편집(받은 순서). [retry]가 처음부터 다시 보낸다.
+  final _held = <Future<void> Function()>[];
+
+  /// 저장하지 못하고 기다리는 편집 수.
+  int get unsaved => _held.length;
 
   /// 안내 한 줄(엔진이 거절한 사유, 되돌리기가 막힌 이유). 같은 글이 다시 와도 [noticeRev]가 오른다.
   String? notice;
@@ -99,8 +112,9 @@ class CanvasSession extends ChangeNotifier
         );
       });
 
-  /// 문서를 열고(`doc.open`) 캔버스 세션을 연다.
+  /// 문서를 열고(`doc.open`) 캔버스 세션을 연다. 같은 문서를 닫던 화면이 있으면 그 닫기가 끝난 뒤에 연다.
   Future<void> open() => _then(() async {
+    await docClosing[id];
     try {
       await engine.docOpen(id);
       openError = null;
@@ -114,13 +128,22 @@ class CanvasSession extends ChangeNotifier
   /// 엔진 호출 하나를 줄에 세운다. 실패하면 엔진은 이미 명령 전으로 돌아가 있으므로 상태를 다시 읽는다.
   /// [merge]가 있으면 줄 끝의 아직 시작하지 않은 같은 종류와 합친다([combine]이 없으면 마지막 값).
   /// [ime]면 입력기 자신의 변경이라 입력 칸 값을 맞추지 않는다(맞추면 조합이 끊긴다).
+  /// [view]면 보기(크기, 스크롤, 확대)라 문서를 바꾸지 않으므로 저장이 실패하는 동안에도 보낸다.
+  ///
+  /// 저장이 실패하면 그 명령과, 이미 줄에 서 있던 편집을 버리지 않고 차례대로 붙잡아 둔다(`EditSession`과 같다).
+  /// 실패하는 동안 새 편집은 받지 않는다.
   Future<void> _run(
     Future<CanvasState> Function(Json) call, {
     Json args = const {},
     String? merge,
     Json Function(Json old, Json next)? combine,
     bool ime = false,
+    bool view = false,
   }) {
+    if (!view && saveError != null) {
+      _refuse();
+      return _queue;
+    }
     final tail = _tail;
     if (merge != null && tail != null && !tail.started && _tailKey == merge) {
       tail.args = combine == null ? args : combine(tail.args, args);
@@ -130,6 +153,8 @@ class CanvasSession extends ChangeNotifier
     final slot = _Slot(args, call);
     _tail = slot;
     _tailKey = merge;
+    Future<void> again() =>
+        _run(call, args: slot.args, merge: merge, combine: combine, ime: ime);
     return _then(() async {
       slot.started = true;
       var counted = ime;
@@ -139,53 +164,65 @@ class CanvasSession extends ChangeNotifier
       }
 
       try {
+        if (!view && saveError != null) {
+          _held.add(again);
+          notifyListeners();
+          return;
+        }
         final s = await slot.call(slot.args);
         finish();
-        saveError = null;
-        _retry = null;
         _apply(s, fromIme: ime);
       } on EngineError catch (e) {
         finish();
-        _failed(
-          e,
-          () => _run(
-            call,
-            args: slot.args,
-            merge: merge,
-            combine: combine,
-            ime: ime,
-          ),
-        );
+        // 보기의 실패는 문서와 상관없어 상태만 다시 읽는다.
+        if (!view && !_failed(e)) _held.add(again);
         try {
           _apply(await engine.canvasState(id));
         } on EngineError {
           notifyListeners();
         }
+      } finally {
+        // 엔진 오류가 아닌 예외(응답 모양이 틀림 등)에도 센 것을 푼다. 남으면 입력 칸을 엔진 값에 맞추는 길이 닫힌다.
+        finish();
       }
     });
   }
 
-  void _failed(EngineError e, Future<void> Function() again) {
+  /// 저장 실패가 아닌 거절(되돌리기가 막힘, 받을 수 없는 명령)이면 안내만 하고 참. 다시 보내도 같은 결과다.
+  bool _failed(EngineError e) {
     switch (e.code) {
       case 'blocked':
         notice = blockedMessage(e);
-        noticeRev++;
       case 'integrity':
         notice = e.message;
-        noticeRev++;
+      case 'bad_request' || 'op':
+        notice = refusedMessage;
       default:
         saveError = e;
-        _retry = again;
+        return false;
     }
+    noticeRev++;
+    return true;
   }
 
-  /// 저장하지 못한 명령을 다시 보낸다.
-  void retry() {
-    final again = _retry;
-    _retry = null;
-    saveError = null;
+  /// 저장이 실패한 동안 들어온 편집을 받지 않았다고 알린다. 끌기의 움직임마다 알리지 않게 한 번만.
+  void _refuse() {
+    if (notice == stalledMessage) return;
+    notice = stalledMessage;
+    noticeRev++;
     notifyListeners();
-    again?.call();
+  }
+
+  /// 저장하지 못한 편집을 받은 순서대로 다시 보낸다. 다시 실패하면 그 뒤의 것은 다시 기다린다.
+  void retry() {
+    final again = [..._held];
+    _held.clear();
+    saveError = null;
+    if (notice == stalledMessage) notice = null;
+    notifyListeners();
+    for (final f in again) {
+      f();
+    }
   }
 
   void _apply(CanvasState s, {bool fromIme = false}) {
@@ -203,6 +240,8 @@ class CanvasSession extends ChangeNotifier
   }
 
   void _restartIdle() {
+    // 닫은 뒤에도 닫기 전에 다시 보낸 편집의 응답이 온다. 그때는 타이머를 새로 걸지 않는다.
+    if (_closed) return;
     _idle?.cancel();
     _idle = Timer(idleAfter, () {
       _then(() async {
@@ -227,6 +266,7 @@ class CanvasSession extends ChangeNotifier
         args: {'width': width, 'height': height, 'colors': colors},
         merge: 'size',
         combine: (o, n) => n,
+        view: true,
       );
 
   /// 화면 델타(논리 화소)만큼 내용을 끌어 옮긴다. 아직 나가지 않은 것과 더한다.
@@ -239,6 +279,7 @@ class CanvasSession extends ChangeNotifier
       'dx': (o['dx'] as double) + (n['dx'] as double),
       'dy': (o['dy'] as double) + (n['dy'] as double),
     },
+    view: true,
   );
 
   /// 배율을 정하거나([zoom]) 키운다([by]). 화면의 ([x], [y]) 아래 점이 그대로다(없으면 보이는 영역의 가운데).
@@ -249,11 +290,15 @@ class CanvasSession extends ChangeNotifier
     combine: (o, n) => o.containsKey('by') && n.containsKey('by')
         ? {...n, 'by': (o['by'] as double) * (n['by'] as double)}
         : n,
+    view: true,
   );
 
   /// 보기 연산 하나: `actual`, `fitAll`, `fitSelection`, 그 밖에 `canvas.view`의 인자.
-  Future<void> viewOp(String op, [Json args = const {}]) =>
-      _run((a) => engine.canvasView(id, a), args: {'op': op, ...args});
+  Future<void> viewOp(String op, [Json args = const {}]) => _run(
+    (a) => engine.canvasView(id, a),
+    args: {'op': op, ...args},
+    view: true,
+  );
 
   // 입력
 
@@ -429,19 +474,33 @@ class CanvasSession extends ChangeNotifier
     });
   }
 
+  @override
+  Future<bool> flush() async {
+    if (saveError != null) retry();
+    _commitComposing();
+    await _queue;
+    return saveError == null;
+  }
+
   /// 화면을 떠날 때. 조합 중인 글을 확정하고 문서를 닫는다(엔진이 "문서를 닫을 때" 버전을 남긴다).
   /// 닫기가 실패해도 고친 내용은 커밋할 때 이미 저장됐으므로 알리지 않는다.
+  /// 저장하지 못한 편집이 있으면 닫기 전에 한 번 더 보내고, 또 실패하면 버린다. 그래서 화면은 떠나기 전에
+  /// [flush]로 확인한다(`EditSession`과 같다).
   Future<void> close() {
+    if (saveError != null) retry();
     _commitComposing();
     _detach();
     _idle?.cancel();
-    final done = _then(() async {
-      try {
-        await engine.docClose(id);
-      } on EngineError {
-        // 위와 같다.
-      }
-    });
+    final done = closingDoc(
+      id,
+      _then(() async {
+        try {
+          await engine.docClose(id);
+        } on EngineError {
+          // 위와 같다.
+        }
+      }),
+    );
     _closed = true;
     return done;
   }
@@ -475,9 +534,11 @@ class CanvasSession extends ChangeNotifier
     );
     // 입력기 밖의 이유(이동, 누르기, 되돌리기)로 바뀌었으면 입력 칸 값을 새로 맞춘다. 입력기 자신의 변경이면
     // 조합이 없고 더 보낼 것도 없을 때만, 값이 어긋났으면 맞춘다.
-    if (!fromIme) {
+    // 저장이 실패한 동안은 맞추지 않는다: 기다리는 입력기 변경이 지금 입력 칸 값에 이어져 있다.
+    if (saveError == null && !fromIme) {
       _setValue(v);
-    } else if (_pendingIme == 0 &&
+    } else if (saveError == null &&
+        _pendingIme == 0 &&
         t.composingStart < 0 &&
         composingText(_value).isEmpty &&
         (v.text != _value.text ||
@@ -517,7 +578,7 @@ class CanvasSession extends ChangeNotifier
   /// 조합 중이면 조합 글을 확정해 보내고 입력 칸 값을 맞춘다. 입력기가 아닌 명령 앞에 부른다.
   void _commitComposing() {
     final r = commitComposing(_value);
-    if (r == null) return;
+    if (r == null || saveError != null) return;
     final (change, after) = r;
     _setValue(after);
     _run(
@@ -547,6 +608,12 @@ class CanvasSession extends ChangeNotifier
 
   /// 입력기가 준 새 값. 옛 값과 견주어 엔진에 보낸다.
   void imeUpdate(TextEditingValue next) {
+    if (saveError != null) {
+      // 저장이 실패하는 동안은 받지 않는다. 입력 칸을 기다리는 편집에 이어진 값으로 되돌린다.
+      _setValue(_value);
+      _refuse();
+      return;
+    }
     final changes = imeChanges(_value, next);
     _value = next;
     for (final c in changes) {

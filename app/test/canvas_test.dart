@@ -1023,6 +1023,31 @@ void main() {
       expect(find.textContaining('PDF로 내보내지 못했습니다'), findsOneWidget);
     });
 
+    testWidgets('저장하지 못한 편집이 있으면 화면을 떠나기 전에 다시 보내고, 그래도 안 되면 묻는다', (
+      tester,
+    ) async {
+      final o = await openCanvas(tester, selection: [node('n2', 'rect')]);
+      o.fake.failures['canvas.cmd'] = const EngineError('io', '디스크에 쓰지 못했습니다');
+      await tester.enterText(find.byKey(const Key('num-X')), '48');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못했습니다'), findsOneWidget);
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못한 편집이 있습니다'), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못했습니다'), findsOneWidget);
+      final sent = o.calls('canvas.cmd').length;
+      o.fake.failures.remove('canvas.cmd');
+      await tester.tap(find.text('홈'));
+      await tester.pumpAndSettle();
+      expect(find.text('저장하지 못한 편집이 있습니다'), findsNothing);
+      expect(find.text('저장하지 못했습니다'), findsNothing);
+      expect(o.calls('canvas.cmd').length, greaterThan(sent));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('문서를 바꾸면 자동 저장됨이 보이고, 되돌리기 단추는 doc.undo를 부른다', (tester) async {
       final o = await openCanvas(tester, selection: [node('n2', 'rect')]);
       expect(find.textContaining('자동 저장됨'), findsNothing);

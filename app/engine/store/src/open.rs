@@ -176,7 +176,10 @@ impl Library {
         let dir = dir.as_ref();
         let db = dir.join(DB);
         let tmp = dir.join(format!("{DB}.restore"));
-        fs::copy(backup.as_ref(), &tmp)?;
+        if let Err(e) = fs::copy(backup.as_ref(), &tmp) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e.into());
+        }
         let checked = (|| {
             let c = Connection::open(&tmp)?;
             quick_check(&c)?;

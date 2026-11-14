@@ -37,6 +37,7 @@ class DocScreen extends StatefulWidget {
     required this.library,
     required this.docId,
     required this.onCreate,
+    this.onOpen,
     this.reveal,
     this.menu,
     this.onInterview,
@@ -53,6 +54,9 @@ class DocScreen extends StatefulWidget {
   /// 연 문서. 없으면 문서를 고르라고 안내한다.
   final int? docId;
   final VoidCallback onCreate;
+
+  /// 다른 문서를 연다(되살린 사본).
+  final ValueChanged<int>? onOpen;
 
   /// 연 뒤에 골라 보여 줄 글(홈의 "이력서에서 보기"). 문서에서 처음 나오는 같은 글을 고른다.
   final String? reveal;
@@ -129,6 +133,7 @@ class _DocScreenState extends State<DocScreen> {
       id,
       now: widget.library.now,
     );
+    widget.library.editing = s;
     // 보기 배율은 앱 설정 하나에 둔다(문서마다 따로 두지 않는다). 바꾸면 저장한다.
     s.zoom = widget.library.get<num>(Setting.zoom).toDouble();
     s.guides = widget.library.get<bool>(Setting.tableGuides);
@@ -156,6 +161,7 @@ class _DocScreenState extends State<DocScreen> {
     _versions = false;
     _find = false;
     if (s == null) return;
+    if (identical(widget.library.editing, s)) widget.library.editing = null;
     s.close();
     s.dispose();
   }
@@ -441,12 +447,22 @@ class _DocScreenState extends State<DocScreen> {
           onPick: (h) => _pickHeading(h, overlay: overlay),
           onClose: _toggleOutline,
         );
-        // 문서를 여는 오류를 먼저, 다음은 이름 바꾸기 같은 라이브러리 오류, 그다음 안내를 보인다.
+        // 이름 바꾸기·사본 만들기 같은 라이브러리 오류(방금 한 일의 실패)를 먼저, 다음은 문서를 여는 오류,
+        // 그다음 안내를 보인다.
         final libError = widget.library.error;
-        final Widget? line = s.openError != null
-            ? ErrorLine(describe(s.openError!), onRetry: s.open)
-            : libError != null
+        final Widget? line = libError != null
             ? ErrorLine(describe(libError), onRetry: widget.library.retry)
+            : s.openError != null
+            ? ErrorLine(
+                describe(s.openError!),
+                onRetry: s.open,
+                action: salvageAction(
+                  s.openError!,
+                  widget.library,
+                  doc,
+                  widget.onOpen,
+                ),
+              )
             : s.notice != null
             ? _Notice(s.notice!)
             : null;
@@ -727,6 +743,24 @@ class _SaveStatus extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 문서를 열지 못한 까닭이 손상이면 "남은 내용으로 사본 만들기": 기록을 재생하지 못해도 남은 내용으로 새 문서를
+/// 만들어 연다(원본은 그대로 둔다). 그 밖의 오류면 null.
+(String, VoidCallback)? salvageAction(
+  EngineError e,
+  Library library,
+  DocInfo? doc,
+  ValueChanged<int>? onOpen,
+) {
+  if (e.code != 'corrupt' || doc == null) return null;
+  return (
+    '남은 내용으로 사본 만들기',
+    () async {
+      final id = await library.salvage(doc);
+      if (id != null) onOpen?.call(id);
+    },
+  );
 }
 
 /// 저장 시각. 오늘이면 "14:20", 아니면 목록과 같은 표기.

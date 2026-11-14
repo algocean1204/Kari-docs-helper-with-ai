@@ -127,19 +127,25 @@ class _Start extends StatefulWidget {
 }
 
 class _StartState extends State<_Start> {
-  // 창을 닫거나 ⌘Q로 끌 때 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다.
   late final AppLifecycleListener _exit;
 
   @override
   void initState() {
     super.initState();
-    _exit = AppLifecycleListener(
-      onExitRequested: () async {
-        await widget.library.close();
-        return AppExitResponse.exit;
-      },
-    );
+    _exit = AppLifecycleListener(onExitRequested: _onExit);
     widget.library.open();
+  }
+
+  /// 앱을 끌 때(⌘Q, 그리고 macOS 쪽이 끄기 요청으로 바꾸는 창 닫기). 열린 편집 화면의 조합 중인 글과 저장하지 못한 편집을 보내고 라이브러리를 닫는다(엔진이
+  /// 열린 문서마다 "문서를 닫을 때" 버전을 남긴다). 그래도 저장하지 못한 것이 있으면 끄기를 멈추고 묻는다.
+  Future<AppExitResponse> _onExit() async {
+    final lib = widget.library;
+    if (await lib.shutdown()) return AppExitResponse.exit;
+    if (!mounted || !await confirmDiscard(context, '지금 끄면', '저장하지 않고 끄기')) {
+      return AppExitResponse.cancel;
+    }
+    await lib.shutdown(force: true);
+    return AppExitResponse.exit;
   }
 
   @override
@@ -160,6 +166,9 @@ class _StartState extends State<_Start> {
             error: lib.openError!,
             dir: lib.dir,
             onRetry: lib.open,
+            backups: lib.backups,
+            onRestore: lib.restoreBackup,
+            now: lib.now(),
           ),
         ),
         LibraryPhase.ready => Shell(
@@ -235,17 +244,58 @@ Future<bool> openFolder(String path) async {
   return false;
 }
 
+/// 저장하지 못한 편집이 남았을 때 묻는다. [when](지금 끄면, 이 화면을 떠나면)에 그 편집이 사라진다고 알리고,
+/// [confirm]을 고르면 참. 취소하면 편집 화면의 "저장하지 못했습니다"와 다시 시도가 그대로 남는다.
+Future<bool> confirmDiscard(
+  BuildContext context,
+  String when,
+  String confirm,
+) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: '저장하지 못한 편집이 있습니다',
+        message: '$when 저장하지 못한 편집은 사라집니다. 취소한 뒤 위쪽 줄의 다시 시도로 저장할 수 있습니다.',
+        confirm: confirm,
+        danger: true,
+      ),
+    ) ==
+    true;
+
 /// 라이브러리를 열지 못했을 때. 무엇이 안 됐는지, 오류 코드, 자료 폴더, 다음에 할 일을 보여 준다.
+/// 손상이고 백업이 있으면 가장 최근 백업에서 되살릴 수 있다(되살리기 전에 한 번 묻는다).
 class _OpenFailed extends StatelessWidget {
   const _OpenFailed({
     required this.error,
     required this.dir,
     required this.onRetry,
+    required this.backups,
+    required this.onRestore,
+    required this.now,
   });
 
   final EngineError error;
   final String dir;
   final VoidCallback onRetry;
+
+  /// 되살릴 수 있는 백업을 만든 시각(최근 것부터).
+  final List<int> backups;
+  final Future<void> Function() onRestore;
+  final DateTime now;
+
+  Future<void> _restore(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: '백업에서 되살릴까요?',
+        message:
+            '가장 최근 백업(${formatWhen(backups.first, now)})으로 자료를 되살립니다. '
+            '그 뒤에 고친 내용은 백업에 없습니다. 지금 파일은 자료 폴더에 그대로 남겨 둡니다.',
+        confirm: '백업에서 되살리기',
+      ),
+    );
+    if (ok == true) await onRestore();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -298,6 +348,10 @@ class _OpenFailed extends StatelessWidget {
               row('자료 폴더', dir),
               const SizedBox(height: Space.x2),
               row('할 일', openAdvice(error.code)),
+              if (error.code == 'corrupt' && backups.isNotEmpty) ...[
+                const SizedBox(height: Space.x2),
+                row('최근 백업', formatWhen(backups.first, now)),
+              ],
               const SizedBox(height: Space.x6),
               StatefulBuilder(
                 builder: (context, setState) => Column(
@@ -312,6 +366,11 @@ class _OpenFailed extends StatelessWidget {
                           kind: ButtonKind.primary,
                           onPressed: onRetry,
                         ),
+                        if (error.code == 'corrupt' && backups.isNotEmpty)
+                          AppButton(
+                            '백업에서 되살리기',
+                            onPressed: () => _restore(context),
+                          ),
                         AppButton(
                           '자료 폴더 열기',
                           onPressed: () async {
@@ -393,13 +452,32 @@ class _ShellState extends State<Shell> {
 
   Library get _lib => widget.library ?? _sample!;
 
-  void _go(AppRoute r) {
+  /// 편집 화면을 떠나도 되는지. 조합 중인 글과 저장하지 못한 편집을 먼저 보내고, 그래도 저장하지 못한 것이 있으면
+  /// 묻는다(편집 화면이 닫히면서 그 편집을 버리기 때문이다).
+  Future<bool> _leave() async {
+    final s = widget.library?.editing;
+    if (s != null &&
+        !await s.flush() &&
+        (!mounted ||
+            !await confirmDiscard(context, '이 화면을 떠나면', '저장하지 않고 떠나기'))) {
+      return false;
+    }
+    return mounted;
+  }
+
+  Future<void> _go(AppRoute r) async {
+    if (r != _route && !await _leave()) return;
     setState(() => _route = r);
     // 홈의 대시보드(하던 면접의 질문 번호 같은 것)를 다시 읽는다.
     if (r == AppRoute.home) _lib.refreshInterview();
   }
 
-  void _open(int id, {String? reveal}) => setState(() {
+  Future<void> _open(int id, {String? reveal}) async {
+    if (id != _doc && !await _leave()) return;
+    _show(id, reveal: reveal);
+  }
+
+  void _show(int id, {String? reveal}) => setState(() {
     _doc = id;
     _reveal = reveal;
     _route = AppRoute.editor;
@@ -412,8 +490,9 @@ class _ShellState extends State<Shell> {
       _go(AppRoute.editor);
       return;
     }
+    if (!await _leave()) return;
     final id = await widget.library!.create();
-    if (id != null && mounted) _open(id);
+    if (id != null && mounted) _show(id);
   }
 
   /// 캔버스 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
@@ -422,8 +501,9 @@ class _ShellState extends State<Shell> {
       _go(AppRoute.editor);
       return;
     }
+    if (!await _leave()) return;
     final id = await widget.library!.createCanvas();
-    if (id != null && mounted) _open(id);
+    if (id != null && mounted) _show(id);
   }
 
   void _startInterview({int? doc, String? posting, Json? again}) {
@@ -492,6 +572,7 @@ class _ShellState extends State<Shell> {
               key: ValueKey(_doc),
               library: lib,
               docId: _doc!,
+              onOpen: _open,
               menu: _menu,
             )
           : DocScreen(
@@ -499,6 +580,7 @@ class _ShellState extends State<Shell> {
               docId: _doc,
               reveal: _reveal,
               onCreate: _create,
+              onOpen: _open,
               menu: _menu,
               onInterview: () => _startInterview(doc: _doc),
             ),

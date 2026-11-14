@@ -389,13 +389,21 @@ Future<String?> showContextMenu(
   );
 }
 
-/// 오류 띠. 위험 색 글과 아이콘으로 알리고, 다시 시도할 수 있게 한다.
+/// 오류 띠. 위험 색 글과 아이콘으로 알리고, 다시 시도할 수 있게 한다. [action]이 있으면 그 단추를 앞에 둔다.
 /// 글은 두 줄까지 보이고, 더 길면 올려 두었을 때 전체가 보인다.
 class ErrorLine extends StatelessWidget {
-  const ErrorLine(this.message, {super.key, required this.onRetry});
+  const ErrorLine(
+    this.message, {
+    super.key,
+    required this.onRetry,
+    this.action,
+  });
 
   final String message;
   final VoidCallback? onRetry;
+
+  /// 다시 시도 밖에 할 수 있는 일(단추 글, 누르면 할 일).
+  final (String, VoidCallback)? action;
 
   @override
   Widget build(BuildContext context) {
@@ -431,6 +439,10 @@ class ErrorLine extends StatelessWidget {
                 ),
               ),
             ),
+            if (action case (final label, final onPressed)) ...[
+              const SizedBox(width: Space.x2),
+              AppButton(label, kind: ButtonKind.quiet, onPressed: onPressed),
+            ],
             if (onRetry != null) ...[
               const SizedBox(width: Space.x2),
               AppButton('다시 시도', kind: ButtonKind.quiet, onPressed: onRetry),
