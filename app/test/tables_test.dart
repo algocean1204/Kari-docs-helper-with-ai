@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
 
 import 'design_test.dart' show loadFonts, pumpApp, saveShot;
@@ -176,5 +177,18 @@ void main() {
     // 알림이 사라질 때까지 기다린다(남은 타이머 없이 끝나게).
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
+  });
+
+  test('쪽 밖으로 나간 표 행과 읽지 못한 그림은 내보내기 응답에서 알림 글이 된다', () {
+    expect(overflowLine(0), isNull);
+    expect(overflowLine(2), '쪽보다 높은 표 행 2개(쪽 밖으로 나간 내용이 있음)');
+    expect(exportNotes({'pages': 3}), isEmpty);
+    expect(
+      exportNotes({
+        'overflow': 1,
+        'brokenImages': [2, 5],
+      }),
+      ['쪽보다 높은 표 행 1개(쪽 밖으로 나간 내용이 있음)', '읽지 못한 그림은 회색 상자로 넣었습니다(2쪽, 5쪽)'],
+    );
   });
 }

@@ -327,6 +327,16 @@ fn 한_쪽보다_높은_행에서도_끝난다() {
     let out = l.layout(&d, None).clone();
     assert!(out.pages.len() <= 4, "{}", out.pages.len());
     assert_eq!(page_of(&l, "p2_0"), page_of(&l, "p1_0") + 1);
+    // 쪽 밖으로 나간 행은 하나라고 알린다.
+    assert_eq!(l.overflow(), 1);
+}
+
+#[test]
+fn 쪽_안에_들어가는_표는_넘침이_없다() {
+    let d = table_doc(&[200.0], 4, json!({}), plain, none);
+    let mut l = layouter();
+    l.layout(&d, None);
+    assert_eq!(l.overflow(), 0);
 }
 
 #[test]

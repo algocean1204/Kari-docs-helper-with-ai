@@ -7,15 +7,18 @@ mod image;
 mod view;
 
 pub use geo::{Geo, PAD, ZOOM_MAX, ZOOM_MIN};
-pub use image::{prepare_image, Images, Loader, Prepared, IMAGE_BUDGET, MAX_BYTES, MAX_SIDE};
+pub use image::{
+    decodes_whole, prepare_image, Images, Loader, Prepared, FIT_PIXELS, IMAGE_BUDGET, MAX_BYTES,
+    MAX_PIXELS, MAX_SIDE,
+};
 pub use view::{CanvasView, CANVAS_ZOOM_MAX, CANVAS_ZOOM_MIN};
 
 use kari_layout::{Cap, FontId, Item, Join, Layout, Rect, Seg, SLANT};
 use skia_safe::{
     paint, surfaces, AlphaType, BlurStyle, Borrows, Canvas, ClipOp, Color, ColorType, Data,
     FilterMode, Font, FontHinting, FontMgr, ImageInfo, MaskFilter, Matrix, MipmapMode, Paint,
-    PaintStyle, PathBuilder, PathEffect, Point, RRect, SamplingOptions, Surface, TextBlobBuilder,
-    Typeface,
+    PaintStyle, PathBuilder, PathEffect, Point, QuickReject, RRect, SamplingOptions, Surface,
+    TextBlobBuilder, Typeface,
 };
 
 /// 종이 그림자(디자인 토큰: 0 2px 8px, 검정 16%). CSS의 흐림 8px은 시그마 4다.
@@ -454,7 +457,10 @@ fn draw_item(canvas: &Canvas, faces: &Faces, images: &mut Images, item: &Item) {
         Item::Push { .. } | Item::Pop => {}
         Item::Image { rect, asset } => {
             let dst = sk_rect(rect[0], rect[1], rect[2], rect[3]);
-            // 화면 화소 크기로 미리 맞춘 그림을 옮겨 그린다(보간하지 않는다).
+            // 보이지 않는 그림은 읽지도 맞추지도 않는다.
+            if canvas.quick_reject(&dst) {
+                return;
+            }
             let (dev, _) = canvas.local_to_device_as_3x3().map_rect(dst);
             let (w, h) = (dev.width().round() as i32, dev.height().round() as i32);
             if w <= 0 || h <= 0 {
@@ -462,11 +468,19 @@ fn draw_item(canvas: &Canvas, faces: &Faces, images: &mut Images, item: &Item) {
             }
             match images.sized(asset, w, h) {
                 Some(img) => {
+                    // 화면 화소 크기로 미리 맞춘 그림은 옮겨 그린다(보간하지 않는다). 맞추지 않은 원본은 늘려 그린다
+                    // (Skia가 보이는 부분만 그린다).
+                    let fit = img.width() == w && img.height() == h;
+                    let sampling = if fit {
+                        SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
+                    } else {
+                        SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
+                    };
                     canvas.draw_image_rect_with_sampling_options(
                         &img,
                         None,
                         dst,
-                        SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                        sampling,
                         &Paint::default(),
                     );
                 }

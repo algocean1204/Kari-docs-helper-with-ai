@@ -31,7 +31,7 @@ Future<String?> handOff(
   DocInfo doc,
   String method, {
   Map<String, Object?> args = const {},
-  void Function()? made,
+  void Function(Json result)? made,
 }) async {
   final dir = Directory(
     '${lib.outDir}/${DateTime.now().microsecondsSinceEpoch}',
@@ -40,8 +40,8 @@ Future<String?> handOff(
   final verb = method == 'print' ? '인쇄' : '공유';
   try {
     dir.createSync(recursive: true);
-    await lib.engine.docExportPdf(doc.id, path);
-    made?.call();
+    final r = await lib.engine.docExportPdf(doc.id, path);
+    made?.call(r);
     await filesChannel.invokeMethod<bool>(method, {
       'path': path,
       'name': doc.name,

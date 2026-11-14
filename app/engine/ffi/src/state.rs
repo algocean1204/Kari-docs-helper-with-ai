@@ -207,6 +207,8 @@ pub(crate) fn state(lib: &Library, back: &OpenDoc, f: &Front, done: &Done) -> Re
         "table": table(f),
         // 글꼴에 없어 빈 네모로 그린 글자의 수(문서 전체의 본문과 셀).
         "missing": f.lay.missing(),
+        // 한 쪽보다 높아 쪽 밖으로 나간 표 행의 수.
+        "overflow": f.lay.overflow(),
         // 선택이 그림 하나일 때 그 크기(pt)와 대체 글, 그리고 넘지 못하는 본문 상자.
         "image": f.ed.image(&f.doc, &f.lay).map(|i| {
             let (bw, bh) = kari_layout::body_size(&f.doc);

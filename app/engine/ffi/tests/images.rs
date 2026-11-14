@@ -209,3 +209,69 @@ fn 복사한_조각은_같은_글이_붙으면_모양과_그림을_지킨다() {
     cmd(third, json!({"k": "paste", "text": ""}));
     assert_eq!(objects(third).len(), 1);
 }
+
+#[test]
+fn 이미_들어간_잘린_그림이_있어도_pdf는_나오고_어느_쪽인지_알린다() {
+    let case = Case::new("images-broken-pdf");
+    let id = new_session();
+    insert(id, "본문");
+    put_image(id, &data("photo.png"));
+    let out = case.dir.join("ok.pdf");
+    let r = ok("doc.exportPdf", json!({"id": id, "path": out}));
+    assert_eq!(r["brokenImages"], json!([]));
+    // 이미 저장된 그림이 가운데서 잘린 상태(넣을 때 거절하기 전에 들어간 것)를 만든다.
+    let hash = objects(id)[0]["asset"].as_str().unwrap().to_string();
+    let file = asset_file(&case.dir, &hash);
+    let bytes = std::fs::read(&file).unwrap();
+    std::fs::write(&file, &bytes[..bytes.len() * 6 / 10]).unwrap();
+    let out = case.dir.join("broken.pdf");
+    let r = ok("doc.exportPdf", json!({"id": id, "path": out}));
+    assert_eq!(r["brokenImages"], json!([1]), "{r}");
+    assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF"));
+    // 에셋 파일이 아예 없어도 같은 회색 상자이고 같이 알린다.
+    std::fs::remove_file(&file).unwrap();
+    let out = case.dir.join("missing.pdf");
+    let r = ok("doc.exportPdf", json!({"id": id, "path": out}));
+    assert_eq!(r["brokenImages"], json!([1]), "{r}");
+    assert!(std::fs::read(&out).unwrap().starts_with(b"%PDF"));
+}
+
+#[test]
+fn 가운데서_잘린_그림은_넣을_때_거절한다() {
+    let case = Case::new("images-truncated");
+    let id = new_session();
+    insert(id, "본문");
+    let tmp = case.dir.join("시험");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let cut = tmp.join("cut.png");
+    let png = std::fs::read(data("photo.png")).unwrap();
+    std::fs::write(&cut, &png[..png.len() * 6 / 10]).unwrap();
+    let s = put_image(id, &cut);
+    assert_eq!(s["changed"], false);
+    assert!(s["refused"].as_str().unwrap().contains("끝까지"), "{s}");
+}
+
+#[test]
+fn 특수_파일과_상대_경로는_읽지_않고_거절한다() {
+    let case = Case::new("images-special");
+    let id = new_session();
+    insert(id, "본문");
+    let fifo = case.dir.join("pipe.png");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let before = back_hash(id);
+    for p in [
+        Path::new("/dev/zero"),
+        fifo.as_path(),
+        Path::new("photo.png"),
+    ] {
+        let t = std::time::Instant::now();
+        let s = put_image(id, p);
+        assert_eq!(s["refused"], "그림 파일을 읽지 못했습니다.", "{p:?}");
+        assert!(t.elapsed().as_secs() < 5, "{p:?}");
+    }
+    assert_eq!(back_hash(id), before);
+}

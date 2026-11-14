@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use skia_safe::codec::Result as CodecResult;
 use skia_safe::{
     surfaces, Codec, CubicResampler, Data, EncodedImageFormat, EncodedOrigin, Image, ImageInfo,
     Paint, Rect, SamplingOptions,
@@ -11,8 +12,12 @@ use skia_safe::{
 pub const MAX_SIDE: u32 = 4000;
 /// 넣는 파일의 크기 상한(바이트).
 pub const MAX_BYTES: usize = 20 << 20;
+/// 넣는 그림의 전체 화소 수 상한. 푸는 동안 화소당 4바이트(최대 256MB)가 든다.
+pub const MAX_PIXELS: i64 = 64_000_000;
 /// 푼 그림을 기억해 두는 합계 상한(바이트).
 pub const IMAGE_BUDGET: usize = 64 << 20;
+/// 화면 화소 크기로 맞춰 기억하는 그림 하나의 화소 수 상한. 넘으면 맞추지 않고 원본을 그릴 때 늘린다.
+pub const FIT_PIXELS: i64 = 4 << 20;
 /// 다시 담는 JPEG의 품질.
 const JPEG_QUALITY: u32 = 90;
 
@@ -34,6 +39,22 @@ fn is_jpeg(d: &[u8]) -> bool {
     d.starts_with(&[0xFF, 0xD8])
 }
 
+/// 끝까지 풀리는지. 머리만 맞고 몸이 잘린 그림은 화면에는 그려지지만 PDF를 만들 때 비로소 터진다.
+fn is_whole(codec: &mut Codec) -> bool {
+    let probe = ImageInfo::new_n32_premul(codec.info().dimensions(), None);
+    let row = probe.min_row_bytes();
+    let mut px = vec![0u8; probe.compute_byte_size(row)];
+    codec.get_pixels_with_options(&probe, &mut px, row, None) == CodecResult::Success
+}
+
+/// 저장한 그림이 끝까지 풀리는지(이미 들어간 깨진 그림을 내보내기 전에 가려낸다). 치수가 `MAX_PIXELS`를 넘어도 아니다.
+pub fn decodes_whole(bytes: &[u8]) -> bool {
+    Codec::from_data(Data::new_copy(bytes)).is_some_and(|mut c| {
+        let d = c.info().dimensions();
+        i64::from(d.width) * i64::from(d.height) <= MAX_PIXELS && is_whole(&mut c)
+    })
+}
+
 /// 넣을 그림을 검사하고 정리한다(엔진이 검사한다. 화면만 믿지 않는다).
 /// PNG나 JPEG로 실제로 풀려야 하고 1px 이상이어야 한다. JPEG의 방향 정보가 "똑바로"가 아니면 똑바로 돌려,
 /// 긴 변이 4,000px를 넘으면 4,000px로 줄여 같은 형식으로 다시 담는다. 그 밖에는 원래 바이트를 그대로 둔다.
@@ -46,6 +67,13 @@ pub fn prepare_image(bytes: &[u8]) -> Result<Prepared, &'static str> {
         return Err("PNG나 JPEG 그림만 넣을 수 있습니다.");
     }
     let mut codec = Codec::from_data(Data::new_copy(bytes)).ok_or("그림을 읽지 못했습니다.")?;
+    let native = codec.info().dimensions();
+    if i64::from(native.width) * i64::from(native.height) > MAX_PIXELS {
+        return Err("그림이 너무 큽니다. 6,400만 화소(예: 8,000×8,000) 이하만 넣을 수 있습니다.");
+    }
+    if !is_whole(&mut codec) {
+        return Err("그림 파일이 끝까지 읽히지 않습니다. 다른 파일을 골라 주세요.");
+    }
     let origin = codec.origin();
     // 방향 정보대로 돌린 그림이 나온다. 90° 돌림이면 받는 크기의 가로·세로를 바꿔 준다.
     let mut info = codec.info();
@@ -119,6 +147,7 @@ pub struct Images {
     total: usize,
     tick: u64,
     budget: usize,
+    fitted: u64,
 }
 
 impl Images {
@@ -129,12 +158,18 @@ impl Images {
             total: 0,
             tick: 0,
             budget,
+            fitted: 0,
         }
     }
 
     /// 기억한 푼 그림의 합계(바이트).
     pub fn bytes(&self) -> usize {
         self.total
+    }
+
+    /// 지금까지 화면 크기로 맞추려고 만든 화소 수의 합.
+    pub fn fitted(&self) -> u64 {
+        self.fitted
     }
 
     /// 푼 그림. 처음이면 읽어 풀고 기억한다. 읽거나 풀지 못하면 `None`.
@@ -160,12 +195,18 @@ impl Images {
 
     /// 화면 화소 크기(`w`×`h`)로 미리 줄이거나 늘린 그림. 그릴 때마다 보간하지 않고 그대로 옮겨 그리게 한다
     /// (그림 10장을 매 프레임 보간하면 그리기가 두 배 넘게 느려졌다). 크기가 바뀌면(화면 배율) 새로 만든다.
+    /// 화소 수가 `FIT_PIXELS`를 넘으면(크게 확대한 그림) 맞추지 않고 원본을 돌려준다. 받은 쪽이 그릴 때 늘린다
+    /// (화면 크기로 맞추면 배율의 제곱만큼 커져 기억 상한을 넘고, 기억하지 못해 프레임마다 다시 만들게 된다).
     pub fn sized(&mut self, asset: &str, w: i32, h: i32) -> Option<Image> {
+        if i64::from(w) * i64::from(h) > FIT_PIXELS {
+            return self.get(asset);
+        }
         let key = format!("{asset}@{w}x{h}");
         if self.map.contains_key(&key) {
             return self.remember(key, None);
         }
         let src = self.get(asset)?;
+        self.fitted += w.max(1) as u64 * h.max(1) as u64;
         let mut surface = surfaces::raster_n32_premul((w.max(1), h.max(1)))?;
         surface.canvas().draw_image_rect_with_sampling_options(
             &src,

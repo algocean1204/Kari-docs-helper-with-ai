@@ -447,7 +447,8 @@ fn 바꾸기와_모두_바꾸기() {
         word: false,
         with: "\t카".into(),
     });
-    assert_eq!((step.label, step.ops.len()), ("모두 바꾸기", 4));
+    // 문단마다 op 하나
+    assert_eq!((step.label, step.ops.len()), ("모두 바꾸기", 2));
     assert_eq!(t.text("p0"), "\t카 \t카 가\t카");
     assert_eq!(t.text("p1"), "\t카 끝");
     undo_to(&mut t, &h0);

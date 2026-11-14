@@ -18,14 +18,52 @@ fn bad(c: char) -> bool {
     (c < ' ' && c != '\t' && c != '\n') || c == '\u{7F}' || c == '\u{FFFC}'
 }
 
-/// 넣을 글. `paste`면 줄 끝 문자 세 가지(CRLF, CR, LF)를 줄바꿈 하나로 맞춘다.
+/// 한 번에 붙여넣을 수 있는 줄 수의 상한. 넘으면 문단이 그만큼 생겨 몇 초씩 걸린다.
+pub(crate) const MAX_PASTE_LINES: usize = 50_000;
+
+/// 풀어쓴 한글 자모(초성·중성·종성)를 완성형 음절로 합친다(유니코드 표준의 산술 합성).
+/// macOS의 파일 이름처럼 풀어쓴 꼴로 복사된 글이 완성형 글과 같게 찾아지고 보이게 한다.
+fn compose_hangul(s: &str) -> String {
+    const S_BASE: u32 = 0xAC00;
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let c32 = c as u32;
+        let merged = out.chars().next_back().and_then(|l| {
+            let l = l as u32;
+            if (0x1100..=0x1112).contains(&l) && (0x1161..=0x1175).contains(&c32) {
+                // 초성 + 중성
+                Some(S_BASE + ((l - 0x1100) * 21 + (c32 - 0x1161)) * 28)
+            } else if (S_BASE..S_BASE + 11_172).contains(&l)
+                && (l - S_BASE).is_multiple_of(28)
+                && (0x11A8..=0x11C2).contains(&c32)
+            {
+                // 받침 없는 음절 + 종성
+                Some(l + (c32 - 0x11A7))
+            } else {
+                None
+            }
+        });
+        match merged.and_then(char::from_u32) {
+            Some(m) => {
+                out.pop();
+                out.push(m);
+            }
+            None => out.push(c),
+        }
+    }
+    out
+}
+
+/// 넣을 글. 풀어쓴 한글은 완성형으로 합친다. `paste`면 줄 끝 문자(CRLF, CR, LF)와 문단·줄 구분 문자
+/// (U+0085, U+2028, U+2029)를 줄바꿈 하나로 맞춘다.
 pub(crate) fn clean(s: &str, paste: bool) -> String {
     let s = if paste {
-        s.replace("\r\n", "\n").replace('\r', "\n")
+        s.replace("\r\n", "\n")
+            .replace(['\r', '\u{85}', '\u{2028}', '\u{2029}'], "\n")
     } else {
         s.to_string()
     };
-    s.chars().filter(|&c| !bad(c)).collect()
+    compose_hangul(&s.chars().filter(|&c| !bad(c)).collect::<String>())
 }
 
 /// 조합 중인 글. 줄바꿈도 뺀다(입력기는 조합 중에 줄을 바꾸지 않는다).
@@ -202,6 +240,9 @@ impl Cx<'_> {
     /// 여러 줄: 첫 줄은 P의 k에, 가운데 줄마다 새 문단, 마지막 줄 뒤에 P의 뒤쪽을 붙인다.
     fn paste_lines(&mut self, s: &str) -> Option<()> {
         let lines: Vec<&str> = s.split('\n').collect();
+        if lines.len() > MAX_PASTE_LINES {
+            return self.refuse(Refusal::TooManyLines);
+        }
         if lines.len() == 1 {
             let (a, b) = self.range();
             if a == b && s.is_empty() {

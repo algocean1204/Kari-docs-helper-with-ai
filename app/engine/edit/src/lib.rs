@@ -43,6 +43,8 @@ pub use utf16::{from_utf16, to_utf16};
 pub enum Refusal {
     /// 한 문단의 글이 run 길이(100,000자)나 run 수(10,000개) 제한을 넘는다.
     TooLong,
+    /// 한 번에 붙여넣거나 넣는 글이 5만 줄을 넘는다.
+    TooManyLines,
     /// 글자 모양이나 문단 모양의 값이 틀렸다(NaN, 범위 밖, 41자 넘는 스타일 이름).
     BadValue,
     /// 선택이나 배치가 문서와 맞지 않아 편집할 자리를 찾지 못했다.
@@ -68,6 +70,7 @@ impl Refusal {
     pub fn message(self) -> &'static str {
         match self {
             Refusal::TooLong => "한 문단에 넣을 수 있는 글의 양을 넘었습니다.",
+            Refusal::TooManyLines => "한 번에 붙여넣을 수 있는 글은 5만 줄까지입니다.",
             Refusal::BadValue => "글자나 문단 모양의 값이 올바르지 않습니다.",
             Refusal::NoPlace => "편집할 자리를 찾지 못했습니다.",
             Refusal::NestedTable => "표 안에는 표를 넣을 수 없습니다.",

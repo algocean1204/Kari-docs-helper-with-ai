@@ -312,13 +312,23 @@ pub(crate) fn ingest_file(
     lib: &mut Library,
     path: &std::path::Path,
 ) -> Result<Result<Picture, &'static str>, Fail> {
-    let too_big = std::fs::metadata(path).is_ok_and(|m| m.len() > kari_render::MAX_BYTES as u64);
-    if too_big {
+    use std::io::Read;
+    let unreadable = Ok(Err("그림 파일을 읽지 못했습니다."));
+    // 일반 파일만. 특수 파일(`/dev/zero`, 이름 있는 파이프)은 크기가 0으로 보여 끝없이 읽거나 열다가 멈춘다.
+    if !path.is_absolute() || !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+        return unreadable;
+    }
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(path).and_then(|f| {
+        f.take(kari_render::MAX_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+    });
+    if read.is_err() {
+        return unreadable;
+    }
+    if bytes.len() > kari_render::MAX_BYTES {
         return Ok(Err("20MB가 넘는 그림은 넣을 수 없습니다."));
     }
-    let Ok(bytes) = std::fs::read(path) else {
-        return Ok(Err("그림 파일을 읽지 못했습니다."));
-    };
     ingest_bytes(lib, &bytes)
 }
 

@@ -127,8 +127,11 @@ class _CanvasScreenState extends State<CanvasScreen> {
     try {
       final path = await widget.library.savePath('${doc.name}.pdf');
       if (path != null) {
-        await widget.library.engine.docExportPdf(doc.id, path);
-        message = 'PDF로 내보냈습니다 · ${path.split('/').last}';
+        final r = await widget.library.engine.docExportPdf(doc.id, path);
+        message = [
+          'PDF로 내보냈습니다 · ${path.split('/').last}',
+          ...exportNotes(r),
+        ].join(' · ');
         failed = false;
       }
     } on EngineError catch (e) {
