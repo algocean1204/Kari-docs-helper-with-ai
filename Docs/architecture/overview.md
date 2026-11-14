@@ -157,6 +157,7 @@ sequenceDiagram
 | `kari/files` | `share {path, name, x, y, w, h}` | 앱이 만든 PDF를 공유 메뉴에 넘긴다. 메뉴는 주어진 사각형(`⋯` 단추) 자리에 뜬다. 고른 서비스가 끝나거나 고르지 않고 닫히면 답한다 |
 | `kari/gaze` | `status`, `start`, `stop`, `openSettings`, `measure` | 시선 기록의 카메라: 권한 상태, 카메라 열기(처음이면 권한을 묻는다), 닫기, 시스템 설정의 카메라 권한 화면 열기, 얼굴 찾기 한 장의 처리 시간 재기(카메라를 켜지 않는다)(`app/macos/Runner/GazeMonitor.swift`) |
 | `kari/gaze` | `sample {face, yaw, pitch}` | Swift → Dart. 한 장의 얼굴 유무와 각도 → [interview-engine.md](interview-engine.md#시선-기록) |
+| `kari/update` | `start`, `setAuto`, `check`, `answer`, `retry`; Swift → Dart `found`, `status` | 앱 업데이트. 확인·내려받기·EdDSA 서명 확인(꾸러미와 appcast)·설치는 Sparkle(샌드박스용 설치 도구)이 하고, Swift(`app/macos/Runner/Updater.swift`)는 Sparkle의 사용자 화면 자리를 채널로 넘기며, 화면은 `app/lib/update.dart`가 그린다. 공개 키(`SUPublicEDKey`)가 없는 빌드는 Sparkle을 시작하지 않는다. 설치 도구는 앱에 Apple 종료 이벤트를 보내고, 앱이 꺼지지 않으면 `status waiting`으로 알려 "다시 시도"(`retry`)를 보인다. 릴리스의 서명은 `app/scripts/update_sign.swift`(CryptoKit)가 한다 |
 
 인쇄와 공유에 넘길 PDF는 `app/lib/screens/print_share.dart`의 `handOff`가 앱 임시 폴더의 `kari-share/` 아래에 `doc.exportPdf`로 만들고, 채널이 답하면 지운다.
 

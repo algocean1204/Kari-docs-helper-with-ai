@@ -1,5 +1,7 @@
 # 태그 v*를 밀면 macOS 앱을 빌드해 dmg를 만들고 초안 릴리스에 올린다. 게시는 유지 관리자가 글을 다듬은 뒤 한다.
 # 손으로 돌리면(Run workflow) 릴리스를 만들지 않고 dmg까지만 만들어 실행 기록의 산출물로 남긴다.
+# 시크릿 KARI_UPDATE_PRIVATE_KEY(앱 업데이트의 EdDSA 비밀 키)가 있으면 앱 업데이트 꾸러미(zip)와 그 서명을 담은
+# appcast.xml도 올린다. 앱은 게시된 가장 새 릴리스의 appcast.xml을 본다(Info.plist의 SUFeedURL).
 name: Release
 
 on:
@@ -21,6 +23,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 빌드 번호(커밋 수)를 세려면 기록 전체가 있어야 한다.
+          fetch-depth: 0
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -34,6 +39,10 @@ jobs:
         #   KARI_SIGN_IDENTITY: ${{ secrets.KARI_SIGN_IDENTITY }}
         #   KARI_NOTARY_PROFILE: ${{ secrets.KARI_NOTARY_PROFILE }}
         run: |
+          # 앱 업데이트는 빌드 번호(CFBundleVersion)로 새 판을 가린다. main은 스쿼시 병합이라 커밋 수가 늘기만 한다.
+          KARI_BUILD_NUMBER="$(git rev-list --count HEAD)"
+          export KARI_BUILD_NUMBER
+          echo "KARI_BUILD_NUMBER=$KARI_BUILD_NUMBER" >> "$GITHUB_ENV"
           app/scripts/package_dmg.sh --src "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/dist"
           cp "$RUNNER_TEMP"/dist/Kari-*-arm64.dmg "$RUNNER_TEMP/Kari-macos-arm64.dmg"
           cd "$RUNNER_TEMP" && shasum -a 256 Kari-macos-arm64.dmg > Kari-macos-arm64.dmg.sha256
@@ -46,10 +55,77 @@ jobs:
             ${{ runner.temp }}/Kari-macos-arm64.dmg
             ${{ runner.temp }}/Kari-macos-arm64.dmg.sha256
           retention-days: 7
+      - name: 바뀐 점
+        # 릴리스 글과 appcast의 바뀐 점을 같은 글로 쓴다.
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body \
+            > "$RUNNER_TEMP/notes.md"
+      - name: 앱 업데이트 꾸러미(서명 키가 있을 때만)
+        if: github.event_name == 'push'
+        env:
+          # 비밀 키는 이 환경 변수에서 app/scripts/update_sign.swift(CryptoKit)로만 간다. 파일, 명령 인자, 로그에 남기지 않는다.
+          KARI_UPDATE_PRIVATE_KEY: ${{ secrets.KARI_UPDATE_PRIVATE_KEY }}
+        run: |
+          if [ -z "${KARI_UPDATE_PRIVATE_KEY:-}" ]; then
+            echo "::notice::KARI_UPDATE_PRIVATE_KEY 시크릿이 없어 앱 업데이트 꾸러미를 만들지 않습니다"
+            exit 0
+          fi
+          cd "$RUNNER_TEMP"
+          # dmg 안의 앱을 그대로 묶는다(dmg와 같은 서명).
+          mkdir mnt
+          hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint mnt Kari-macos-arm64.dmg
+          ditto -c -k --sequesterRsrc --keepParent mnt/Kari.app Kari-macos-arm64.zip
+          PLIST=mnt/Kari.app/Contents/Info.plist
+          SHORT="$(plutil -extract CFBundleShortVersionString raw "$PLIST")"
+          BUILD="$(plutil -extract CFBundleVersion raw "$PLIST")"
+          APP_KEY="$(plutil -extract SUPublicEDKey raw "$PLIST" || true)"
+          hdiutil detach -quiet mnt
+          [ "$BUILD" = "$KARI_BUILD_NUMBER" ] || { echo "::error::앱의 빌드 번호($BUILD)가 $KARI_BUILD_NUMBER가 아닙니다"; exit 1; }
+          # 서명은 macOS의 CryptoKit으로만 한다(받아 온 실행 파일에 비밀 키를 넘기지 않는다). 확인은 앱의 공개 키로만 한다.
+          SIGNER="$GITHUB_WORKSPACE/app/scripts/update_sign.swift"
+          # 앱의 공개 키가 이 비밀 키의 짝인지 본다. 짝이 아니면 받는 쪽이 설치를 거절한다.
+          KEY="$(xcrun swift "$SIGNER" pub)" || { echo "::error::KARI_UPDATE_PRIVATE_KEY가 EdDSA 비밀 키(base64 32바이트) 꼴이 아닙니다"; exit 1; }
+          if [ "$APP_KEY" != "$KEY" ]; then
+            echo "::error::앱의 SUPublicEDKey가 KARI_UPDATE_PRIVATE_KEY의 공개 키($KEY)와 다릅니다. app/macos/Runner/Configs/AppInfo.xcconfig의 KARI_UPDATE_PUBLIC_KEY를 보세요"
+            exit 1
+          fi
+          SIG="$(xcrun swift "$SIGNER" sign Kari-macos-arm64.zip)"
+          xcrun swift "$SIGNER" verify "$APP_KEY" Kari-macos-arm64.zip "$SIG"
+          LEN="$(stat -f %z Kari-macos-arm64.zip)"
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Kari-macos-arm64.zip"
+          NOTES="$(sed 's/]]>/]]]]><![CDATA[>/g' notes.md)"
+          cat > appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Kari</title>
+              <item>
+                <title>Kari $SHORT ($BUILD)</title>
+                <pubDate>$(date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <sparkle:version>$BUILD</sparkle:version>
+                <sparkle:shortVersionString>$SHORT</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+                <description><![CDATA[$NOTES]]></description>
+                <enclosure url="$URL" length="$LEN" type="application/octet-stream" sparkle:edSignature="$SIG"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          xmllint --noout appcast.xml
+          # 앱은 서명된 피드만 받는다(Info.plist의 SURequireSignedFeed). 서명 뒤로는 appcast.xml을 고치지 않는다.
+          xcrun swift "$SIGNER" feed appcast.xml
+          xcrun swift "$SIGNER" verify-feed "$APP_KEY" appcast.xml
+          xmllint --noout appcast.xml
+          shasum -a 256 Kari-macos-arm64.zip > Kari-macos-arm64.zip.sha256
       - name: 초안 릴리스
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --generate-notes --title "Kari ${GITHUB_REF_NAME#v}" \
-            "$RUNNER_TEMP/Kari-macos-arm64.dmg" "$RUNNER_TEMP/Kari-macos-arm64.dmg.sha256"
+          cd "$RUNNER_TEMP"
+          files=(Kari-macos-arm64.dmg Kari-macos-arm64.dmg.sha256)
+          [ -f appcast.xml ] && files+=(Kari-macos-arm64.zip Kari-macos-arm64.zip.sha256 appcast.xml)
+          gh release create "$GITHUB_REF_NAME" --draft --notes-file notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"

@@ -1,16 +1,21 @@
 PODS:
   - FlutterMacOS (1.0.0)
+  - Sparkle (2.9.6)
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
+  - Sparkle (from `Sparkle.podspec.json`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
+  Sparkle:
+    :podspec: Sparkle.podspec.json
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  Sparkle: 959979ee084f1794ec3d153fc535c81ed7acb145
 
-PODFILE CHECKSUM: 89c84cf5c2351c1e554c6dea18d31a879fc3a19e
+PODFILE CHECKSUM: 5d42487e8834bea8ccddf724f1a68c15feaf06d0
 
 COCOAPODS: 1.17.0

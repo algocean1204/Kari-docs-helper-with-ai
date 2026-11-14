@@ -340,6 +340,9 @@ class MainFlutterWindow: NSWindow {
   /// 시선 기록의 카메라(채널 `kari/gaze`, GazeMonitor.swift). 카메라는 Dart가 `start`를 부를 때만 연다.
   private var gaze: GazeMonitor?
 
+  /// 앱 업데이트(채널 `kari/update`, Updater.swift). Sparkle은 Dart가 `start`를 부를 때 시작한다.
+  private var updater: AppUpdater?
+
   /// 주 메뉴가 바뀌는 것을 본다(MenuBarFix).
   private var menuWatch: NSKeyValueObservation?
 
@@ -508,6 +511,7 @@ class MainFlutterWindow: NSWindow {
     }
 
     gaze = GazeMonitor(messenger: flutterViewController.registrar(forPlugin: "Gaze").messenger)
+    updater = AppUpdater(messenger: flutterViewController.registrar(forPlugin: "Update").messenger)
 
     menuWatch = NSApp.observe(\.mainMenu, options: [.initial, .new]) { app, _ in
       MenuBarFix.apply(app.mainMenu)

@@ -24,6 +24,7 @@ import 'screens/dialogs.dart';
 import 'screens/paper.dart' show filesChannel;
 import 'screens/report.dart';
 import 'screens/settings.dart';
+import 'update.dart';
 
 /// 앱의 화면. 옆 메뉴의 순서이기도 하다.
 enum AppRoute {
@@ -649,7 +650,11 @@ class _ShellState extends State<Shell> {
         ],
       ),
     );
-    if (!widget.menuBar) return page;
+    // 앱 업데이트는 실제 자료로 돌 때만 본다(견본 상태와 디자인 시험은 업데이트를 묻지 않는다).
+    final shown = widget.library == null
+        ? page
+        : UpdateHost(updates: updates, child: page);
+    if (!widget.menuBar) return shown;
     return AppMenuBar(
       host: _menu,
       app: (
@@ -657,7 +662,7 @@ class _ShellState extends State<Shell> {
         home: () => _go(AppRoute.home),
         settings: () => _go(AppRoute.settings),
       ),
-      child: page,
+      child: shown,
     );
   }
 

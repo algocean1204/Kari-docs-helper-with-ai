@@ -16,6 +16,10 @@
 #   강화된 런타임(--options runtime)과 시각 도장(--timestamp)을 붙이고 dmg에도 서명한다.
 # - 거기에 KARI_NOTARY_PROFILE=<이름>(`xcrun notarytool store-credentials <이름>`으로 만든 키체인 프로필)을 주면
 #   dmg를 Apple에 공증 받고(notarytool submit --wait) 결과를 dmg에 붙인다(stapler staple).
+#
+# 빌드 번호
+# - KARI_BUILD_NUMBER=<수>를 주면 `flutter build --build-number`로 넘긴다. 앱 업데이트(Sparkle)는 이 번호(CFBundleVersion)로
+#   새 판인지 가린다. 주지 않으면 Flutter의 기본값(pubspec의 판)이다.
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -65,7 +69,9 @@ if [ -z "$APP_IN" ]; then
   SRC="$(cd "$SRC" && pwd)"
   [ -z "$(git -C "$SRC" status --porcelain)" ] || die "$SRC에 커밋하지 않은 변경이 있습니다(깨끗한 사본에서만 빌드합니다)"
   step "릴리스 빌드: $SRC/app"
-  (cd "$SRC/app" && flutter pub get && flutter build macos --release)
+  BUILD_ARGS=()
+  [ -n "${KARI_BUILD_NUMBER:-}" ] && BUILD_ARGS=(--build-number "$KARI_BUILD_NUMBER")
+  (cd "$SRC/app" && flutter pub get && flutter build macos --release ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"})
   APP_IN="$SRC/app/build/macos/Build/Products/Release/Kari.app"
   DOCS="$SRC"
 else
@@ -97,6 +103,18 @@ SIGN=(codesign --force --sign "${IDENTITY:--}")
 # 안쪽부터 바깥으로: 프레임워크 안의 dylib → 프레임워크 → 앱. 앱에는 Release.entitlements의 권한만 준다.
 while IFS= read -r -d '' lib; do "${SIGN[@]}" "$lib"; done \
   < <(find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0)
+# Sparkle(앱 업데이트) 안의 도구와 XPC 서비스. Sparkle 문서(Sandboxing)의 차례대로 강화된 런타임을 붙여 따로 서명한다.
+# Downloader.xpc는 제 권한을 지킨다. --deep은 쓰지 않는다(Downloader의 권한이 다른 것에 번진다).
+# 인증서로 서명할 때는 SIGN에 이미 --options runtime이 있다.
+SPK="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+SPK_SIGN=("${SIGN[@]}")
+[ -z "$IDENTITY" ] && SPK_SIGN+=(--options runtime)
+if [ -d "$SPK" ]; then
+  "${SPK_SIGN[@]}" "$SPK/XPCServices/Installer.xpc"
+  "${SPK_SIGN[@]}" --preserve-metadata=entitlements "$SPK/XPCServices/Downloader.xpc"
+  "${SPK_SIGN[@]}" "$SPK/Autoupdate"
+  "${SPK_SIGN[@]}" "$SPK/Updater.app"
+fi
 for fw in "$APP"/Contents/Frameworks/*.framework; do "${SIGN[@]}" "$fw"; done
 "${SIGN[@]}" --entitlements "$ENT" "$APP"
 

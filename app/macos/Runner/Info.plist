@@ -32,5 +32,23 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://github.com/algocean1204/Kari-docs-helper-with-ai/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>$(KARI_UPDATE_PUBLIC_KEY)</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUSignedFeedFailureExpirationInterval</key>
+	<integer>0</integer>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
 </dict>
 </plist>
