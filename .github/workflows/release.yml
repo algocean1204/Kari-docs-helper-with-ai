@@ -145,4 +145,5 @@ jobs:
             echo
             cat notes.md
           } > release-notes.md
-          gh release create "$GITHUB_REF_NAME" --draft --notes-file release-notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"
+          # 임시 폴더에는 git 저장소가 없어 저장소를 직접 알린다.
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --notes-file release-notes.md --title "Kari ${GITHUB_REF_NAME#v}" "${files[@]}"
