@@ -13,6 +13,11 @@
 
 </div>
 
+> **처음 열 때.** Kari는 Apple 공증을 받지 않은 오픈소스 앱이라, 처음 열면 macOS가 "'Kari.app'을(를) 열지 않음" 창을 띄웁니다.
+> 1. 그 창에서 **완료**를 누릅니다(휴지통으로 옮기지 않습니다).
+> 2. 시스템 설정 → **개인정보 보호 및 보안** → 아래 "보안"에서 Kari 옆의 **그래도 열기**를 누르고 맥 암호를 넣습니다.
+> 3. 그 뒤로는 바로 열립니다. macOS 13·14와 자세한 방법은 [설치 안내](Docs/guide/install.md)에 있습니다. 소스와 빌드 방법은 모두 이 저장소에 있습니다.
+
 > **English summary.** Kari is a local-first macOS app for writing a résumé and practicing technical interviews based on it.
 > Documents stay on your Mac; only the text interview calls the AI provider you choose (Anthropic or OpenAI) with your own key, after showing what will be sent.
 > Flutter UI, Rust engine. The interface and documentation are in Korean. MIT licensed.
