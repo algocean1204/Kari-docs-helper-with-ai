@@ -11,6 +11,7 @@
   dependencies만 따라간다(dev_dependencies 제외). 라이선스 글은 각 패키지 폴더의 LICENSE*.
 - Skia와 Skia가 품은 라이브러리: app/scripts/licenses/skia-bindings-<판>/skia/에 둔 그 판의 라이선스 글.
 - 글꼴: app/assets/fonts/Pretendard-LICENSE.txt.
+- Sparkle(앱 업데이트): 판은 app/macos/Podfile.lock, 글은 app/scripts/licenses/Sparkle-<판>/에 둔 그 판의 LICENSE.
 - 지식 팩의 출처: app/engine/interview/pack/의 source 항목.
 """
 
@@ -26,6 +27,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ENGINE, FONTS = HERE.parent / "engine", HERE.parent / "assets/fonts"  # 스크립트 폴더의 옆
+PODS_LOCK = HERE.parent / "macos/Podfile.lock"
 ROOT = HERE.parent.parent
 OUT = ROOT / "Docs/THIRD_PARTY_LICENSES.md"
 SELF = f"python3 {(HERE / 'third_party.py').relative_to(ROOT)}"
@@ -224,6 +226,12 @@ def others():
         files = [skia[-1] / r for r in rel if skia and (skia[-1] / r).is_file()]
         rows.append({"name": name, "version": "skia-bindings에 포함", "license": lic, "url": url,
                      "files": files, "note": "엔진 라이브러리에 링크됨", "folder": None})
+    # Sparkle의 LICENSE에는 안에 든 bsdiff(BSD-2-Clause), sais-lite(MIT), ed25519(Zlib)의 글도 함께 있다.
+    for v in re.findall(r"^  - Sparkle \(([0-9.]+)\)$", PODS_LOCK.read_text(), re.M):  # PODS의 판(DEPENDENCIES의 "= 판"은 뺀다)
+        local = HERE / "licenses" / f"Sparkle-{v}"
+        rows.append({"name": "Sparkle", "version": v, "license": "MIT AND BSD-2-Clause AND Zlib",
+                     "url": "https://github.com/sparkle-project/Sparkle", "files": license_files(local),
+                     "note": "앱 업데이트(Kari.app/Contents/Frameworks/Sparkle.framework)", "folder": local})
     return rows
 
 
@@ -257,7 +265,7 @@ def cell(s):
 
 def build():
     groups = [("Rust 크레이트(엔진 라이브러리 kari)", rust()), ("Dart 패키지(앱)", dart()),
-              ("글꼴, Skia와 그 안의 라이브러리", others())]
+              ("글꼴, Skia와 그 안의 라이브러리, Sparkle", others())]
     every = [r for _, rows in groups for r in rows]
     for r in every:
         if r.get("why"):  # 앞에서 이유를 정한 것(MPL 부분을 고지로 채운 것)

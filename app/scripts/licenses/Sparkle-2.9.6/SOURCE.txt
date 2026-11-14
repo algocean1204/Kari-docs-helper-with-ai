@@ -1,0 +1,1 @@
+https://github.com/sparkle-project/Sparkle/releases/download/2.9.6/Sparkle-2.9.6.tar.xz (LICENSE)

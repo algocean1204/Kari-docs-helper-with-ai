@@ -30,6 +30,11 @@ target 'Runner' do
   use_frameworks!
 
   flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+  # 앱 업데이트(Updater.swift). 2.9.6은 CocoaPods로 받을 수 있는 마지막 판이다(2.10부터 Swift Package Manager만).
+  # Sparkle.podspec.json은 trunk의 2.9.6 podspec에 내려받을 파일의 sha256을 더한 것이다(만든 사람 칸만 줄였다). 받은 파일이 그 값과 다르면
+  # pod install이 멈춘다. 값은 공식 릴리스 자산 Sparkle-2.9.6.tar.xz를 받아 계산했고 GitHub 릴리스의 자산 digest와 같다.
+  # 판을 올리면 이 파일의 판·주소·sha256과 app/scripts/licenses/Sparkle-<판>/을 함께 바꾼다.
+  pod 'Sparkle', :podspec => 'Sparkle.podspec.json'
   target 'RunnerTests' do
     inherit! :search_paths
   end

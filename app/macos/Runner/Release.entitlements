@@ -12,5 +12,12 @@
 	<true/>
 	<key>com.apple.security.print</key>
 	<true/>
+	<!-- 앱 업데이트: Sparkle의 설치 도구와 이어지는 이름. package_dmg.sh가 이 파일을 그대로 써서 다시 서명하므로
+	     $(PRODUCT_BUNDLE_IDENTIFIER) 대신 번들 ID를 글자로 적는다. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>dev.clonamic.kari-spks</string>
+		<string>dev.clonamic.kari-spki</string>
+	</array>
 </dict>
 </plist>

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../editing/canvas_keys.dart';
 import '../editing/canvas_session.dart';
 import '../editing/session.dart';
+import '../update.dart';
 import 'edit_dialogs.dart';
 import 'format_dialogs.dart';
 
@@ -164,6 +165,7 @@ MenuEntry _kariMenu(
   VoidCallback? Function(VoidCallback) nav,
 ) => MenuEntry.sub('Kari', [
   const MenuEntry.provided(PlatformProvidedMenuItemType.about),
+  MenuEntry('업데이트 확인…', run: nav(updates.check)),
   MenuEntry.divider,
   MenuEntry(
     '설정…',

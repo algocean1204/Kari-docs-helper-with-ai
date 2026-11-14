@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = dev.clonamic.kari
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 algocean. MIT License.
+
+// 앱 업데이트 꾸러미를 확인하는 EdDSA(ed25519) 공개 키(base64, 44자). Info.plist의 SUPublicEDKey로 들어간다.
+// 비어 있으면 업데이트를 켜지 않는다(Updater.swift). 짝이 되는 비밀 키는 릴리스 워크플로의 KARI_UPDATE_PRIVATE_KEY 시크릿에만 둔다.
+KARI_UPDATE_PUBLIC_KEY = UZgfKa6EqAWhE+9+zWfzfHdBTu1fHeIzBjsTrXODeGQ=

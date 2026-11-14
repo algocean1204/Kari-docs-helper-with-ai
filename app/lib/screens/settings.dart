@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../design/components.dart';
 import '../design/tokens.dart';
 import '../library.dart';
+import '../update.dart';
 import 'ai.dart';
 import 'ai_tasks.dart';
 import 'dialogs.dart';
@@ -17,7 +18,7 @@ const maskNote =
     '대표번호(15xx), 외국 번호, 숫자를 글자로 풀어 쓴 번호(예: 공일공)는 가리지 않습니다.';
 
 /// 설정. 맨 위에 AI 연결(제공사마다 키), 그 아래 접힌 묶음 "면접에 쓰는 모델", 개인정보(가리기 안내, 시선 기록),
-/// 문서(입력하면서 자동 서식).
+/// 문서(입력하면서 자동 서식), 업데이트(자동 확인).
 /// [library]가 있으면 키와 모델은 엔진의 `ai.*`로, 스위치는 설정으로 저장한다.
 /// [library]가 없으면 견본 상태(Claude 연결됨)로 그린다.
 class SettingsScreen extends StatefulWidget {
@@ -235,6 +236,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) => sample
                         ? setState(() => _gaze = v)
                         : lib.set(Setting.gaze, v),
+                  ),
+                ],
+              ),
+              _Section(
+                title: '업데이트',
+                children: [
+                  // 값은 Sparkle이 저장한다(Updater.swift). 엔진 설정 표에는 두지 않는다.
+                  ListenableBuilder(
+                    listenable: updates,
+                    builder: (context, _) => updates.available
+                        ? SwitchRow(
+                            label: '자동으로 업데이트 확인',
+                            caption:
+                                '24시간에 한 번까지 새 판이 있는지 확인하고, 있으면 알립니다. 받아서 설치하는 것은 "지금 업데이트"를 누를 때만 합니다. 메뉴의 Kari > 업데이트 확인…으로 언제든 확인할 수 있습니다.',
+                            value: updates.auto,
+                            onChanged: updates.setAuto,
+                          )
+                        : Text(
+                            keepAll(
+                              '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.',
+                            ),
+                            style: AppText.caption.copyWith(color: c.textMuted),
+                          ),
                   ),
                 ],
               ),

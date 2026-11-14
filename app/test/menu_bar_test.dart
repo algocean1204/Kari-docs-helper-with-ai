@@ -170,6 +170,7 @@ void main() {
       );
       expect(_shown(d, 'Kari'), [
         '[about]',
+        '업데이트 확인…',
         '설정… ⌘,',
         '[servicesSubmenu]',
         '[hide]',

@@ -446,7 +446,12 @@ void main() {
 
       // 5. 쪽 설정에서 바닥글에 쪽 번호를 넣는다.
       // 쪽 설정은 위 막대의 ⋯ 메뉴 안에 있다.
-      await tapThen(tester, find.byTooltip('문서 메뉴'), find.text('쪽 설정…'), '⋯ 메뉴');
+      await tapThen(
+        tester,
+        find.byTooltip('문서 메뉴'),
+        find.text('쪽 설정…'),
+        '⋯ 메뉴',
+      );
       await tapThen(tester, find.text('쪽 설정…'), find.text('쪽 번호 넣기'), '쪽 설정 창');
       await tester.tap(find.text('쪽 번호 넣기'));
       await pump(tester, const Duration(milliseconds: 100));
