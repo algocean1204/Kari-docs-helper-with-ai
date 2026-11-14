@@ -74,7 +74,7 @@ pub(crate) fn name(cmd: &Command, has_ops: bool) -> (&'static str, Option<Chain>
         C::Delete | C::DeleteWord => ("지우기", Some(Chain::Fwd)),
         C::Cut => ("지우기", None),
         C::Enter => ("문단 나누기", None),
-        C::Paste(_) | C::PasteFragment(_) => ("붙여넣기", None),
+        C::Paste(_) | C::PasteFragment(_) | C::PasteHtml { .. } => ("붙여넣기", None),
         C::Toggle(_) | C::SetChar(_) | C::ClearChar { .. } => ("글자 모양", None),
         C::SetStyle(_) | C::SetPara(_) | C::ClearPara => ("문단 모양", None),
         C::PageBreak => ("쪽 나누기", None),
@@ -110,6 +110,14 @@ pub(crate) fn name(cmd: &Command, has_ops: bool) -> (&'static str, Option<Chain>
         C::Table(p) if p.table_level() => ("표 모양", None),
         C::Table(_) => ("셀 모양", None),
         C::SetImage { .. } => ("이미지 크기", None),
+        C::MoveImage { copy, .. } => (
+            if *copy {
+                "이미지 복사"
+            } else {
+                "이미지 옮기기"
+            },
+            None,
+        ),
         C::Move { .. }
         | C::SelectAll
         | C::Click { .. }
@@ -188,7 +196,9 @@ pub(crate) fn run(cx: &mut Cx, cmd: &Command) -> Option<()> {
         C::SetPage(p) => cx.set_page(p),
         C::SetHeaderFooter(p) => cx.set_head_foot(p),
         C::InsertImage { asset, px } => cx.insert_image(asset, *px),
-        C::SetImage { w, alt } => cx.set_image(*w, alt.as_deref()),
+        C::SetImage { w, h, alt } => cx.set_image(*w, *h, alt.as_deref()),
+        C::MoveImage { page, x, y, copy } => cx.move_image(*page, *x, *y, *copy),
+        C::PasteHtml { html, text } => cx.paste_html(html, text),
         C::PasteFragment(f) => cx.paste_fragment(f),
         C::InsertTable { rows, cols } => cx.insert_table(*rows, *cols),
         C::TableRow { below } => cx.table_row(*below).map(|_| ()),

@@ -210,9 +210,14 @@ pub(crate) fn state(lib: &Library, back: &OpenDoc, f: &Front, done: &Done) -> Re
         // 한 쪽보다 높아 쪽 밖으로 나간 표 행의 수.
         "overflow": f.lay.overflow(),
         // 선택이 그림 하나일 때 그 크기(pt)와 대체 글, 그리고 넘지 못하는 본문 상자.
+        // `rect`는 화면에 놓인 그림 상자(내용 기준 논리 화소)로, 줄 폭에 맞춰 줄여 놓았으면 줄인 크기다.
         "image": f.ed.image(&f.doc, &f.lay).map(|i| {
             let (bw, bh) = kari_layout::body_size(&f.doc);
-            json!({"w": i.w, "h": i.h, "alt": i.alt, "bodyW": bw, "bodyH": bh})
+            let rect = f.lay.object_rect(&i.at).map(|r| {
+                let (x, y) = geo.to_px(r.page, r.x, r.y);
+                json!({"x": x, "y": y, "w": r.w * geo.k, "h": r.h * geo.k, "k": geo.k})
+            });
+            json!({"w": i.w, "h": i.h, "alt": i.alt, "bodyW": bw, "bodyH": bh, "min": kari_edit::MIN_IMAGE, "rect": rect})
         }),
         "replaced": done.replaced,
         "ime": ime(f),

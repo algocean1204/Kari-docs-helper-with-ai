@@ -75,6 +75,13 @@ class FakeEngine extends EngineApi {
   /// `edit.tableEdge`가 돌려줄 경계(내용 기준 점 → 경계 JSON, 없으면 null). 시험용.
   Json? Function(double x, double y)? tableEdgeAt;
 
+  /// 참이면 붙여넣기가 판의 HTML을 채널로 묻는다(시험이 채널을 흉내 낼 때만 켠다).
+  @override
+  bool readsRichBoard = false;
+
+  /// `edit.dropAt`이 돌려줄 놓일 글 자리(보이는 영역 기준 점 → 내용 기준 커서 자리, 없으면 null). 시험용.
+  Json? Function(double x, double y)? dropAtCaret;
+
   /// 문서마다 `edit.guides`로 받은 눈금선 보기. 시험용.
   final Map<int, bool> guides = {};
 

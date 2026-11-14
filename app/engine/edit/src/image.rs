@@ -1,15 +1,17 @@
-//! 그림 개체: 넣기, 크기와 대체 글 바꾸기, 선택된 그림 하나.
+//! 그림 개체: 넣기, 크기와 대체 글 바꾸기, 옮기기와 복사, 선택된 그림 하나.
 
 use kari_doc::serde_json::{json, Map, Value};
 use kari_layout::body_size;
 
 use crate::command::Cx;
-use crate::{ImageInfo, Pos, Refusal};
+use crate::{ImageInfo, Pos, Refusal, Sel};
 
 /// 개체 자리 글자(U+FFFC)의 바이트 길이.
 const OBJ_LEN: usize = 3;
 /// 1px = 0.75pt(96dpi)로 본다.
 const PT_PER_PX: f64 = 0.75;
+/// 손잡이로 줄일 수 있는 한 변의 가장 작은 길이(pt).
+pub const MIN_IMAGE: f64 = 12.0;
 /// 대체 글의 최대 글자 수(문서 코어의 `o.alt`).
 const MAX_ALT: usize = 1000;
 
@@ -20,7 +22,7 @@ fn fit((w, h): (f64, f64), (bw, bh): (f64, f64)) -> (f64, f64) {
 }
 
 impl Cx<'_> {
-    fn body(&self) -> (f64, f64) {
+    pub(crate) fn body(&self) -> (f64, f64) {
         let (w, h) = body_size(self.d.doc);
         (w as f64, h as f64)
     }
@@ -66,7 +68,9 @@ impl Cx<'_> {
         let (_, _, run) = self.selected_image()?;
         let o = run.get("o")?;
         let n = |k: &str| o.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        let (a, _) = self.range();
         Some(ImageInfo {
+            at: a,
             asset: o.get("asset")?.as_str()?.to_string(),
             w: n("w"),
             h: n("h"),
@@ -78,8 +82,9 @@ impl Cx<'_> {
         })
     }
 
-    /// `SetImage`: 선택이 그림 하나일 때만. 폭을 바꾸면 비율을 지켜 높이도 바꾸고, 본문 폭과 높이를 넘지 못한다.
-    pub fn set_image(&mut self, w: Option<f64>, alt: Option<&str>) -> Option<()> {
+    /// `SetImage`: 선택이 그림 하나일 때만. 폭이나 높이 하나만 주면 비율을 지켜 다른 쪽을 바꾸고 본문 폭과 높이를 넘지
+    /// 못한다. 둘 다 주면(손잡이 끌기) 각각 `MIN_IMAGE` 이상, 본문 상자 이하로 맞춘다.
+    pub fn set_image(&mut self, w: Option<f64>, h: Option<f64>, alt: Option<&str>) -> Option<()> {
         let Some((p, at, mut run)) = self.selected_image() else {
             return self.refuse(Refusal::NoPlace);
         };
@@ -89,13 +94,20 @@ impl Cx<'_> {
             .cloned()
             .unwrap_or_default();
         let old = o.clone();
-        if let Some(w) = w {
+        if w.is_some() || h.is_some() {
             let n = |k: &str| o.get(k).and_then(Value::as_f64).unwrap_or(0.0);
             let (ow, oh) = (n("w"), n("h"));
-            if !(w.is_finite() && w > 0.0) || ow <= 0.0 {
+            let ok = |v: Option<f64>| v.is_none_or(|v| v.is_finite() && v > 0.0);
+            if !(ok(w) && ok(h)) || ow <= 0.0 || oh <= 0.0 {
                 return self.refuse(Refusal::BadValue);
             }
-            let (nw, nh) = fit((w, oh * w / ow), self.body());
+            let (bw, bh) = self.body();
+            let (nw, nh) = match (w, h) {
+                (Some(w), Some(h)) => (w.clamp(MIN_IMAGE, bw), h.clamp(MIN_IMAGE, bh)),
+                (Some(w), None) => fit((w, oh * w / ow), (bw, bh)),
+                (None, Some(h)) => fit((ow * h / oh, h), (bw, bh)),
+                (None, None) => (ow, oh),
+            };
             o.insert("w".into(), json!(nw));
             o.insert("h".into(), json!(nh));
         }
@@ -115,5 +127,37 @@ impl Cx<'_> {
         run.insert("o".into(), Value::Object(o));
         self.d
             .text_op(&p, at, OBJ_LEN, Some(json!([Value::Object(run)])))
+    }
+
+    /// `MoveImage`: 선택된 그림 하나를 (page, x, y)에서 가장 가까운 글 자리로 옮긴다. 지우기와 넣기가 한 묶음이다.
+    /// `copy`면 지우지 않는다. 그림 자신의 앞뒤로 옮기면 할 일 없음(복사는 그 자리에 하나 더).
+    pub fn move_image(&mut self, page: usize, x: f32, y: f32, copy: bool) -> Option<()> {
+        let Some((p, at, run)) = self.selected_image() else {
+            return self.refuse(Refusal::NoPlace);
+        };
+        let Some((to, _)) = self.lay.hit(page, x, y) else {
+            return Some(());
+        };
+        let same = to.para == p;
+        if !copy && same && (at..=at + OBJ_LEN).contains(&to.off) {
+            return Some(());
+        }
+        // 같은 문단에서 앞의 그림을 지우면 뒤 자리가 그만큼 당겨진다.
+        let off = if !copy && same && to.off > at {
+            to.off - OBJ_LEN
+        } else {
+            to.off
+        };
+        if !copy {
+            self.d.text_op(&p, at, OBJ_LEN, None)?;
+        }
+        self.d
+            .text_op(&to.para, off, 0, Some(json!([Value::Object(run)])))?;
+        self.st.sel = Sel {
+            anchor: Pos::new(&to.para, off),
+            focus: Pos::new(&to.para, off + OBJ_LEN),
+            after_wrap: false,
+        };
+        Some(())
     }
 }

@@ -150,7 +150,7 @@ flowchart LR
 
 | 갈래 | 명령 |
 |---|---|
-| 글 | `insert`, `paste`, `enter`, `softBreak`, `backspace`, `delete`, `backspaceWord`, `deleteWord`, `backspaceLine`, `cut`, `selectAll`, `insertDate`, `setCase`(`upper`, `lower`, `title`) |
+| 글 | `insert`, `paste`, `pasteHtml`(`html`, `text`), `enter`, `softBreak`, `backspace`, `delete`, `backspaceWord`, `deleteWord`, `backspaceLine`, `cut`, `selectAll`, `insertDate`, `setCase`(`upper`, `lower`, `title`) |
 | 이동과 선택 | `move`(`left`, `right`, `wordLeft`, `wordRight`, `lineStart`, `lineEnd`, `up`, `down`, `docStart`, `docEnd`, `pageUp`, `pageDown`), `click`, `drag`, `goTo`(`para` 또는 `page`) |
 | 입력기 | `compose`, `commitCompose` |
 | 글자 모양 | `toggle`(`bold`, `italic`, `underline`, `strike`), `setChar`(`size`, `sizeStep`, `color`, `bg`, `vertical`, `spacing`, `font`), `clearChar` |
@@ -160,7 +160,7 @@ flowchart LR
 | 링크 | `setLink`, `insertLink` |
 | 쪽 | `setPage`(용지, 방향, 사용자 지정 크기, 여백), `setHeaderFooter` |
 | 표 | `insertTable`, `tableRow`, `tableCol`, `tableDeleteRow`, `tableDeleteCol`, `tableDelete`, `tableMerge`, `tableSplit`, `setTable`(`headerRows`, `cols`, `align`, `border`), `setRow`(`h`), `tableRowsEven`, `setCell`(`fill`, `alignV`, `pad`, `borders`), `clearCell`, `tableProps` |
-| 그림 | `setImage`(크기, 대체 글). 넣기는 `edit.insertImage` |
+| 그림 | `setImage`(`w`, `h`, 대체 글. 하나만 주면 비율을 지키고 둘을 주면 그 크기, 각 12pt 이상 본문 상자 이하), `moveImage`(`x`, `y`, `copy`: 고른 그림을 그 점에서 가장 가까운 글 자리로 옮기거나 복사). 넣기는 `edit.insertImage` |
 | 찾기 | `findNext`, `replaceOne`, `replaceAll`(`case`, `word`) |
 
 - `tab`: 목록 문단이면 들여쓰기·내어쓰기, 셀 안이면 다음 셀(마지막 셀이면 아래에 행을 넣고 그 첫 셀), 그 밖에는 탭 문자.
@@ -204,6 +204,8 @@ flowchart LR
 - 선 굵기는 0~6pt, 행 높이는 0~1,000pt, 안쪽 여백은 0~100pt로 자른다. 열 폭은 12pt 이상이고, 합이 본문 폭을 넘으면 같은 비율로 줄여 적는다. NaN, 열 수가 다른 `cols`, 없는 행, 행 수 이상의 머리 행 수는 거절한다.
 - `tableRowsEven`(`rowsEven`): 고른 행(한 행이면 표의 모든 행)의 `h`를 그 행들의 지금 높이 가운데 가장 큰 값으로 정한다.
 - `tableProps`: 표 속성 창의 적용 한 번. 고친 값만 담아 한 묶음으로 바꾼다.
+- `edit.dropAt {x, y}`: 그림을 끄는 동안 놓일 글 자리. 그 점에서 가장 가까운 커서 자리(`caret`: 내용 기준 논리 화소의 x, y, 높이. 없으면 null). 문서와 선택을 바꾸지 않는다. 앱은 놓을 때 `moveImage`를 보낸다(`app/lib/screens/paper.dart`). 선택이 그림 하나일 때 상태의 `image`에 크기(pt), 본문 상자, 가장 작은 한 변(`min`)과 화면에 놓인 상자(`rect`, 내용 기준 논리 화소, `k`는 pt당 논리 화소)가 실린다.
+- `pasteHtml`: HTML을 `kari-edit`의 `html_fragment`가 조각으로 읽고 `paste_fragment`가 붙인다. 파서는 html5ever이고 입력 상한(6MB, 태그 20만 개, 겹침 512단, 만드는 노드 60만 개. 노드와 단 수는 트리를 만드는 쪽이 세어 상한을 넘으면 읽기를 그만둔다)을 넘거나 읽을 글이 없으면 `text`를 평문으로 붙인다. 문단이 5만 개를 넘으면 거절한다. 판에서 HTML을 읽는 것은 앱(`MainFlutterWindow.swift`의 `pasteRich`. `public.html`, 없으면 512KB 이하의 `public.rtf`를 HTML로 바꾼 것)이고, 붙여넣기로 온 글이 앱 안에서 마지막으로 복사한 조각의 글과 같으면 HTML이 아니라 그 조각을 붙인다.
 - `edit.tableEdge {x, y}`: 그 점에서 4 논리 화소 안의 표 경계(열이나 행, 번호, 열 폭들, 그 행의 가장 작은 높이). 앱은 경계를 끌어 놓을 때 `setTable`의 `cols`나 `setRow`의 `h`를 보낸다(`app/lib/screens/table_props.dart`).
 - `edit.guides {on}`: 눈금선 보기를 켜고 끈다. 보기만 바뀐다. 앱 설정 `view.tableGuides` 하나이고 문서마다 두지 않는다.
 

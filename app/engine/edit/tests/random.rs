@@ -175,7 +175,7 @@ fn command(r: &mut Rng, t: &T) -> Command {
         .pick(&["가", "a", "A", " ", "링크", "😀", "e"])
         .to_string();
     let mut r2 = Rng(r.next() | 1);
-    match r.below(78) {
+    match r.below(82) {
         62 => Command::Rule,
         63 => {
             let side = |r: &mut Rng| match r.below(3) {
@@ -356,8 +356,39 @@ fn command(r: &mut Rng, t: &T) -> Command {
             w: r2
                 .chance(70)
                 .then(|| *r2.pick(&[30.0, 200.0, 9999.0, -1.0])),
+            // 손잡이 끌기처럼 높이도 같이 주는 때와, 높이만 주는 때.
+            h: r2
+                .chance(40)
+                .then(|| *r2.pick(&[2.0, 80.0, 9999.0, -1.0, f64::NAN])),
             alt: r2.chance(50).then(|| "사진".to_string()),
         },
+        // 그림 끌어 옮기기(⌥ 끌기는 복사): 쪽의 아무 점으로. 쪽 밖과 빈 곳도 간다.
+        78 | 79 => Command::MoveImage {
+            page,
+            x,
+            y,
+            copy: r2.chance(40),
+        },
+        // 다른 앱의 HTML. 온전한 것, 잘린 것, 겹친 것, 깊은 것, 거대한 속성.
+        80 | 81 => {
+            let deep = "<div>".repeat(3000) + "깊이" + &"</div>".repeat(3000);
+            let big = format!("<p style=\"{}\">큰 속성</p>", "color:red;".repeat(3000));
+            Command::PasteHtml {
+                html: r2
+                    .pick(&[
+                        "<p>가<b>나</b></p><h2>제목</h2><ul><li>하나<li>둘<ul><li>셋</ul></ul>",
+                        "<table><tr><td rowspan=2>a<td>b<tr><td>c</table><p>끝",
+                        "<b><i>겹침</b>잘림</i><a href=\"https://example.com\">링크",
+                        "<p>잘린 <b",
+                        "<script>x</script><style>p{color:red}</style><p>스크립트 뒤",
+                        "",
+                        deep.as_str(),
+                        big.as_str(),
+                    ])
+                    .to_string(),
+                text: "평문".into(),
+            }
+        }
         45 => Command::InsertTable {
             rows: r2.below(4),
             cols: 1 + r2.below(4),
@@ -562,7 +593,7 @@ fn 무작위_명령_20000개() {
     let (batches, labels, cut_in) = commands(0x5EED_CAFE_F00D_0005);
     // 이 씨앗이 명령의 모든 갈래를 지나는지(다른 씨앗은 갈래가 빠질 수 있어 불일치만 본다).
     assert!(
-        batches > 5000 && labels.len() == 26 && cut_in > 100,
+        batches > 5000 && labels.len() == 28 && cut_in > 100,
         "{labels:?}"
     );
 }
@@ -657,7 +688,7 @@ fn commands(seed: u64) -> Tally {
                     t.run(pick);
                 }
             }
-            if matches!(cmd, Command::SetImage { .. }) {
+            if matches!(cmd, Command::SetImage { .. } | Command::MoveImage { .. }) {
                 // 그림 크기는 그림 하나를 고른 때만 한다: 커서 앞 글자(대개 막 넣은 그림)를 고른다.
                 let pick = Command::Move {
                     to: Motion::Left,

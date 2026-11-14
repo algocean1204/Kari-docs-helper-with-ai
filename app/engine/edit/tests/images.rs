@@ -86,6 +86,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
     assert_eq!(t.ed.selected_text(&t.doc, &t.lay), "");
     // 크기: 비율을 지키고, 본문 폭을 넘지 못한다. 대체 글.
     let step = t.run(Command::SetImage {
+        h: None,
         w: Some(300.0),
         alt: Some("증명사진".into()),
     });
@@ -96,6 +97,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
     );
     let h2 = t.doc.hash();
     t.run(Command::SetImage {
+        h: None,
         w: Some(9999.0),
         alt: None,
     });
@@ -108,6 +110,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
     pick(&mut t);
     assert_eq!(
         t.run(Command::SetImage {
+            h: None,
             w: Some(-1.0),
             alt: None
         })
@@ -116,6 +119,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
     );
     assert_eq!(
         t.run(Command::SetImage {
+            h: None,
             w: Some(1.0),
             alt: Some("가".repeat(1001))
         })
@@ -125,6 +129,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
     t.run(mv(Motion::DocEnd));
     assert_eq!(
         t.run(Command::SetImage {
+            h: None,
             w: Some(100.0),
             alt: None
         })
