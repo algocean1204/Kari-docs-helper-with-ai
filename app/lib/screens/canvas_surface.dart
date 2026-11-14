@@ -19,7 +19,8 @@ import 'paper.dart' show hexColor;
 ///
 /// 흐름 문서의 종이(`PaperView`)와 같은 텍스처 다리를 쓴다. 선택 상자, 손잡이, 글 상자의 커서와 선택은 엔진이 같은
 /// 화소 버퍼에 그리므로 이 위젯은 아무것도 덧그리지 않는다. 포인터는 `canvas.pointer`, 스크롤·핀치는 `canvas.view`로 보낸다.
-/// 끌기 계산은 그 입력의 수정 키(⇧, ⌥)를 쓰므로, 끄는 동안 수정 키만 바뀌어도 마지막 자리로 `move`를 다시 보낸다.
+/// 끌기 계산은 그 입력의 수정 키(⇧, ⌥, ⌃)를 쓰므로, 끄는 동안 수정 키만 바뀌어도 마지막 자리로 `move`를 다시 보낸다
+/// (⌃는 맞춰 붙기를 끈다). 누르지 않고 ⌥를 누른 채 올려 두면 `hover`를 보내 엔진이 거리를 그리게 한다.
 /// 오른쪽 누름은 누른 것을 고르게 한 뒤 메뉴(복사, 붙여넣기, 복제, 지우기)를 띄운다.
 class CanvasSurface extends StatefulWidget {
   const CanvasSurface({
@@ -43,13 +44,17 @@ class CanvasSurface extends StatefulWidget {
   State<CanvasSurface> createState() => _CanvasSurfaceState();
 }
 
-/// 끌기 계산을 바꾸는 수정 키(⇧, ⌥).
+/// 끌기 계산을 바꾸는 수정 키(⇧, ⌥, ⌃).
 final _modifiers = {
   LogicalKeyboardKey.shiftLeft,
   LogicalKeyboardKey.shiftRight,
   LogicalKeyboardKey.altLeft,
   LogicalKeyboardKey.altRight,
+  LogicalKeyboardKey.controlLeft,
+  LogicalKeyboardKey.controlRight,
 };
+
+final _alts = {LogicalKeyboardKey.altLeft, LogicalKeyboardKey.altRight};
 
 class _CanvasSurfaceState extends State<CanvasSurface>
     with SingleTickerProviderStateMixin {
@@ -68,6 +73,12 @@ class _CanvasSurfaceState extends State<CanvasSurface>
 
   /// 끄는 동안의 마지막 포인터 자리. 수정 키만 바뀌었을 때 이 자리로 다시 보낸다.
   Offset _lastPos = Offset.zero;
+
+  /// 누르지 않고 판 위에 올려 둔 마지막 자리. ⌥만 누르거나 뗐을 때 이 자리로 `hover`를 보낸다.
+  Offset? _hoverPos;
+
+  /// ⌥로 거리를 보이게 한 `hover`를 보냈다(⌥를 떼거나 판을 벗어나면 지우는 `hover`를 한 번 보낸다).
+  bool _measuring = false;
 
   /// 핀치를 시작할 때의 배율과 지금까지 보낸 비율.
   double _pinchBase = 1;
@@ -171,6 +182,12 @@ class _CanvasSurfaceState extends State<CanvasSurface>
       _sendPointer('move', _lastPos);
       return KeyEventResult.ignored;
     }
+    // 누르지 않았을 때 ⌥를 누르거나 떼면 올려 둔 자리의 거리를 보이거나 지운다.
+    final hover = _hoverPos;
+    if (!_pressed && hover != null && _alts.contains(e.logicalKey)) {
+      if (e is! KeyRepeatEvent) _hover(hover);
+      return KeyEventResult.ignored;
+    }
     if (e is KeyUpEvent) return KeyEventResult.ignored;
     final k = HardwareKeyboard.instance;
     // 조합 중에는 지우기, 방향키, Enter를 입력기에 맡긴다. 입력기가 조합을 끝내고 넘기면 선택자로 온다.
@@ -256,7 +273,30 @@ class _CanvasSurfaceState extends State<CanvasSurface>
       shift: k.isShiftPressed,
       meta: k.isMetaPressed,
       alt: k.isAltPressed,
+      ctrl: k.isControlPressed,
     );
+  }
+
+  /// 올려 두기: ⌥를 누르고 있으면 거리를 보이게, 앞서 보였으면 지우게 `hover`를 보낸다. 그 밖에는 보내지 않는다
+  /// (엔진이 그리는 것이 없어 마우스가 움직일 때마다 부를 까닭이 없다).
+  void _hover(Offset at) {
+    final alt = HardwareKeyboard.instance.isAltPressed;
+    if (!alt && !_measuring) return;
+    _measuring = alt;
+    _sendPointer('hover', at);
+  }
+
+  void _onHover(PointerHoverEvent e) {
+    _hoverPos = e.localPosition;
+    if (!_pressed) _hover(e.localPosition);
+  }
+
+  void _onExit(PointerExitEvent e) {
+    _hoverPos = null;
+    if (_measuring) {
+      _measuring = false;
+      _s.pointer('hover', e.localPosition.dx, e.localPosition.dy);
+    }
   }
 
   /// 오른쪽 누름: 누른 것을 고르게 하고(이미 고른 것 안이면 그대로) 메뉴를 띄운다. 글 상자를 편집하는 중에는 띄우지 않는다.
@@ -290,6 +330,8 @@ class _CanvasSurfaceState extends State<CanvasSurface>
     }
     if (e.buttons != kPrimaryButton) return;
     widget.focusNode.requestFocus();
+    // 엔진은 누름에서 거리 표시를 지운다.
+    _measuring = false;
     final now = DateTime.now();
     final near = (e.localPosition - _downPos).distance < 4;
     _clicks = now.difference(_downAt) < kDoubleTapTimeout && near
@@ -387,6 +429,8 @@ class _CanvasSurfaceState extends State<CanvasSurface>
               cursor: tool == null
                   ? MouseCursor.defer
                   : SystemMouseCursors.precise,
+              onHover: _onHover,
+              onExit: _onExit,
               child: Listener(
                 onPointerDown: _down,
                 onPointerMove: _move,

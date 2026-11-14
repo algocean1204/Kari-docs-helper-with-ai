@@ -1091,7 +1091,8 @@ abstract class EngineApi {
   Future<CanvasState> canvasView(int id, Json view) =>
       _canvas('canvas.view', {'id': id, ...view});
 
-  /// [phase]: down, move, up, double, hover, cancel, context(오른쪽 누름). 끌기 계산은 그 입력의 [shift], [alt]를 쓴다.
+  /// [phase]: down, move, up, double, hover, cancel, context(오른쪽 누름). 끌기 계산은 그 입력의 [shift], [alt]를 쓰고,
+  /// [ctrl]이면 맞춰 붙지 않는다. ⌥를 누른 `hover`는 고른 것에서 그 자리의 노드까지의 거리를 보인다.
   Future<CanvasState> canvasPointer(
     int id,
     String phase,
@@ -1100,6 +1101,7 @@ abstract class EngineApi {
     bool shift = false,
     bool meta = false,
     bool alt = false,
+    bool ctrl = false,
   }) => _canvas('canvas.pointer', {
     'id': id,
     'phase': phase,
@@ -1108,6 +1110,7 @@ abstract class EngineApi {
     if (shift) 'shift': true,
     if (meta) 'meta': true,
     if (alt) 'alt': true,
+    if (ctrl) 'ctrl': true,
   });
 
   /// 노드 단위 명령. [name]: tool, create, delete, duplicate, nudge, selectAll, select, set, flip, align,

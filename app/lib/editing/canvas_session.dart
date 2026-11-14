@@ -302,7 +302,7 @@ class CanvasSession extends ChangeNotifier
 
   // 입력
 
-  /// 포인터 하나. 끌기 중의 `move`는 줄 끝의 것과 합친다.
+  /// 포인터 하나. 끌기 중의 `move`와 지나가기(`hover`)는 줄 끝의 같은 것과 합친다.
   Future<void> pointer(
     String phase,
     double x,
@@ -310,6 +310,7 @@ class CanvasSession extends ChangeNotifier
     bool shift = false,
     bool meta = false,
     bool alt = false,
+    bool ctrl = false,
   }) => _run(
     (a) => engine.canvasPointer(
       id,
@@ -319,6 +320,7 @@ class CanvasSession extends ChangeNotifier
       shift: a['shift'] == true,
       meta: a['meta'] == true,
       alt: a['alt'] == true,
+      ctrl: a['ctrl'] == true,
     ),
     args: {
       'phase': phase,
@@ -327,8 +329,9 @@ class CanvasSession extends ChangeNotifier
       'shift': shift,
       'meta': meta,
       'alt': alt,
+      'ctrl': ctrl,
     },
-    merge: phase == 'move' ? 'move' : null,
+    merge: phase == 'move' || phase == 'hover' ? phase : null,
   );
 
   /// 노드 단위 명령. 미리 보기가 아니면 조합 중인 글을 먼저 확정한다.

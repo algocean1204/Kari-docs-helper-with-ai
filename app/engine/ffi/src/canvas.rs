@@ -16,8 +16,8 @@ use kari_doc::{strip_revs, Document, Guard, Kind};
 use kari_edit::{boards, label_rect, CanvasEditor, End, Phase, Pointer, TextCmd};
 use kari_layout::{Layouter, Scene};
 use kari_render::{
-    draw_canvas, draw_canvas_overlay, draw_canvas_text, CanvasView, Faces, Frame, Images,
-    IMAGE_BUDGET,
+    draw_canvas, draw_canvas_marks, draw_canvas_overlay, draw_canvas_text, CanvasMarks, CanvasView,
+    Faces, Frame, Images, IMAGE_BUDGET,
 };
 use kari_store::{Actor, DocId, Error, Library, Meta, OpenDoc, Outcome};
 
@@ -282,6 +282,23 @@ pub(crate) fn render(id: DocId, frame: Frame) -> i32 {
     {
         return 1;
     }
+    let m = &f.chrome.marks;
+    if !m.is_empty() {
+        let seg = |s: &[[f64; 2]; 2]| [pt(&s[0]), pt(&s[1])];
+        let marks = CanvasMarks {
+            guides: m.guides.iter().map(seg).collect(),
+            dashed: m.dashed.iter().map(seg).collect(),
+            measures: m
+                .measures
+                .iter()
+                .map(|x| ([pt(&x.a), pt(&x.b)], x.label(), x.gap))
+                .collect(),
+        };
+        let fr = view_frame(&mut *pixels, dims, dpr, (0.0, 0.0));
+        if draw_canvas_marks(fr, &f.faces, &marks, 1.0).is_err() {
+            return 1;
+        }
+    }
     let Some(t) = &f.chrome.text else { return 0 };
     let quad = |q: &[[f64; 2]; 4]| [pt(&q[0]), pt(&q[1]), pt(&q[2]), pt(&q[3])];
     let rects: Vec<[[f32; 2]; 4]> = t.rects.iter().map(quad).collect();
@@ -376,10 +393,27 @@ fn state(lib: &Library, back: &OpenDoc, f: &mut CFront, gen: u64, changed: bool)
         "selection": sel,
         "handles": handles,
         "marquee": f.chrome.marquee.map(screen_rect),
+        "marks": marks_json(&f.chrome.marks, &v),
         "dragging": f.ed.dragging(),
         "tool": f.ed.tool().map(|t| t.name()),
         "text": edit::text_state(f, &v),
     }))
+}
+
+/// 맞춰 끌기의 안내선과 거리(화면 논리 화소). 그리기는 엔진이 한다(시험이 본다).
+fn marks_json(m: &kari_edit::Marks, v: &CanvasView) -> Value {
+    let pt = |p: &[f64; 2]| {
+        let (x, y) = v.to_screen(p[0], p[1]);
+        json!([x, y])
+    };
+    let seg = |s: &[[f64; 2]; 2]| json!([pt(&s[0]), pt(&s[1])]);
+    json!({
+        "guides": m.guides.iter().map(seg).collect::<Vec<_>>(),
+        "dashed": m.dashed.iter().map(seg).collect::<Vec<_>>(),
+        "measures": m.measures.iter().map(|x| json!({
+            "a": pt(&x.a), "b": pt(&x.b), "value": x.value, "label": x.label(), "gap": x.gap,
+        })).collect::<Vec<_>>(),
+    })
 }
 
 fn back(docs: &mut HashMap<DocId, OpenDoc>, id: DocId) -> Result<&mut OpenDoc, Fail> {
@@ -462,6 +496,7 @@ fn pointer(a: &Args, view: &CanvasView) -> Result<Pointer, Fail> {
         shift: flag("shift")?,
         meta: flag("meta")?,
         alt: flag("alt")?,
+        ctrl: flag("ctrl")?,
         px: 1.0 / view.zoom,
     })
 }
@@ -562,8 +597,9 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
         )?;
         f = s.lock(d.doc());
     }
-    // 지나가기는 보이는 것을 바꾸지 않는다: 바뀜 번호를 올리지 않아 화면이 다시 그려지지 않는다.
+    // 지나가기는 ⌥ 거리 재기가 바뀔 때만 보이는 것을 바꾼다. 그 밖에는 바뀜 번호를 올리지 않아 화면이 다시 그려지지 않는다.
     let hover = p.phase == Phase::Hover;
+    let mut bump = !hover;
     match out.end {
         End::Commit(label) => {
             drop(f);
@@ -577,10 +613,14 @@ fn pointer_cmd(e: &mut Engine, id: DocId, s: &CSession, a: &Args) -> Res {
             f.dirty = true;
             f.relayout();
         }
-        _ if hover => {}
+        _ if hover => {
+            let before = std::mem::take(&mut f.chrome.marks);
+            f.rechrome();
+            bump = f.chrome.marks != before;
+        }
         _ => f.rechrome(),
     }
-    if !hover {
+    if bump {
         s.bump();
     }
     let gen = s.gen.load(Ordering::Acquire);

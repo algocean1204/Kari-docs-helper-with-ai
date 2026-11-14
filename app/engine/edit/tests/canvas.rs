@@ -667,6 +667,7 @@ fn 편집기는_끌기_중_새_입력이_오면_취소를_알린다() {
             shift: false,
             meta: false,
             alt: false,
+            ctrl: true,
             px: 1.0,
         };
         let o = t.ed.pointer(&t.front, &mut t.lay, p);
