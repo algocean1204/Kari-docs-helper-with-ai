@@ -7,10 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/editing/keys.dart';
 import 'package:kari/engine/engine.dart';
+import 'package:kari/editing/doc_colors.dart' show swatchHex;
+import 'package:kari/screens/format_dialogs.dart'
+    show mmError, mmOf, ptInRange, ptPerMm;
+import 'package:kari/screens/toolbar.dart';
 
 import 'design_test.dart'
     show filledLabels, focusableCount, loadFonts, saveShot, sizes;
-import 'editor_test.dart' show docMenu, openCv, shortcut;
+import 'editor_test.dart' show docMenu, insertMenu, openCv, shortcut;
 import 'page_setup_test.dart' show stateOf;
 import 'interview_test.dart' show inDialog, small;
 import 'library_test.dart' show Rig, paperTabCycle;
@@ -199,17 +203,32 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
 
-      await formatMenu(tester, '쪽 나누기');
+      // 쪽 나누기는 넣는 일이라 넣기 메뉴에 있다.
+      await insertMenu(tester, '쪽 나누기');
       expect(lastCmd(rig), {'k': 'pageBreak'});
       await formatMenu(tester, '서식 지우기');
       expect(lastCmd(rig), {'k': 'clearChar'});
 
+      // 글자 / 문단 / 지우기 세 묶음: 구분선 둘이 묶음 사이에 놓인다.
+      await openFormat(tester);
+      expect(find.widgetWithText(MenuItemButton, '쪽 나누기'), findsNothing);
+      double top(Finder f) => tester.getTopLeft(f).dy;
+      Finder item(String label) => find.widgetWithText(MenuItemButton, label);
+      final lines = find.byType(Divider);
+      expect(lines, findsNWidgets(2));
+      expect(top(item('글자 모양…')), lessThan(top(lines.first)));
+      expect(top(lines.first), lessThan(top(item('문단 모양…'))));
+      expect(top(item('줄 간격 2')), lessThan(top(lines.last)));
+      expect(top(lines.last), lessThan(top(item('서식 지우기'))));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
       await formatMenu(tester, '글자 모양…');
       expect(find.text('글자 모양'), findsOneWidget);
-      await tapIt(tester, inDialog('닫기'));
+      await tapIt(tester, inDialog('취소'));
       await formatMenu(tester, '문단 모양…');
       expect(find.text('문단 모양'), findsOneWidget);
-      await tapIt(tester, inDialog('닫기'));
+      await tapIt(tester, inDialog('취소'));
 
       await tapIt(tester, find.byTooltip('번호'));
       await formatMenu(tester, '번호 시작 값…');
@@ -224,7 +243,7 @@ void main() {
       expect(lastCmd(rig), {'k': 'setList', 'start': 5});
     });
 
-    testWidgets('표 안에서는 쪽 나누기 항목이 꺼진다', (tester) async {
+    testWidgets('표 안에서는 넣기 메뉴의 쪽 나누기 항목이 꺼진다', (tester) async {
       final (rig, _) = await openCv(tester);
       await override(tester, rig, {
         'table': {
@@ -237,7 +256,7 @@ void main() {
           'alignV': 'top',
         },
       });
-      await openFormat(tester);
+      await tapIt(tester, find.byTooltip('넣기'));
       expect(
         tester
             .widget<MenuItemButton>(
@@ -291,7 +310,12 @@ void main() {
       await formatMenu(tester, '글자 모양…');
       await saveShot(tester, 'format-char-dialog-1024x640-light');
       expect(tester.takeException(), isNull);
-      expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
+      // 값을 모아 적용하는 창: 취소와 채운 적용.
+      expect(filledLabels(tester, within: find.byType(Dialog)), ['적용']);
+      expect(inDialog('취소'), findsOneWidget);
+      expect(inDialog('닫기'), findsNothing);
+      // 글꼴은 고르지 않고, 쓰는 글꼴을 밝힌다.
+      expect(find.text('글꼴: Pretendard'), findsOneWidget);
       for (final label in ['크기', '자간', '글자색', '형광펜']) {
         expect(
           tester
@@ -342,22 +366,54 @@ void main() {
       });
     });
 
-    testWidgets('문단 모양: cm ↔ pt, 섞인 값은 빈칸, 고친 값만, 범위 밖 알림', (tester) async {
+    testWidgets('글자 모양의 색 칸: 견본 네모를 누르면 색 판이 열리고, 고른 색이 칸에 적힌다', (
+      tester,
+    ) async {
       final (rig, _) = await openCv(tester, size: small);
-      await formatMenu(tester, '문단 모양…');
-      await saveShot(tester, 'format-para-dialog-1024x640-light');
-      expect(tester.takeException(), isNull);
-      expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
+      await formatMenu(tester, '글자 모양…');
       String text(String label) => tester
           .widget<TextField>(find.widgetWithText(TextField, label))
           .controller!
           .text;
-      expect(text('왼쪽'), '0.00');
+      await tapIt(tester, find.byTooltip('글자색 고르기'));
+      await saveShot(tester, 'format-char-color-1024x640-light');
+      expect(tester.takeException(), isNull);
+      await tapIt(tester, find.byTooltip('빨강'));
+      expect(text('글자색'), 'C00000');
+      // 형광펜은 형광펜 견본을 보이고, `형광펜 없음`으로 비운다.
+      await tapIt(tester, find.byTooltip('형광펜 고르기'));
+      await tapIt(tester, find.byTooltip('노랑'));
+      expect(text('형광펜'), 'FFF59D');
+      await tapIt(tester, find.byTooltip('형광펜 고르기'));
+      await tapIt(tester, find.text('형광펜 없음'));
+      expect(text('형광펜'), '');
+      await tapIt(tester, find.byTooltip('형광펜 고르기'));
+      await tapIt(tester, find.byTooltip('하늘'));
+      await tapIt(tester, inDialog('적용'));
+      expect(lastCmd(rig), {
+        'k': 'setChar',
+        'color': '#C00000',
+        'bg': '#B3E5FC',
+      });
+    });
+
+    testWidgets('문단 모양: mm ↔ pt, 섞인 값은 빈칸, 고친 값만, 범위 밖 알림', (tester) async {
+      final (rig, _) = await openCv(tester, size: small);
+      await formatMenu(tester, '문단 모양…');
+      await saveShot(tester, 'format-para-dialog-1024x640-light');
+      expect(tester.takeException(), isNull);
+      expect(filledLabels(tester, within: find.byType(Dialog)), ['적용']);
+      expect(inDialog('취소'), findsOneWidget);
+      String text(String label) => tester
+          .widget<TextField>(find.widgetWithText(TextField, label))
+          .controller!
+          .text;
+      expect(text('왼쪽'), '0');
       expect(text('문단 뒤'), '4');
       // 기본 줄 간격(글자 크기의 160%)은 한 줄(120%)의 1.33배다.
       expect(text('값'), '1.33');
 
-      await tester.enterText(find.widgetWithText(TextField, '왼쪽'), '2.5');
+      await tester.enterText(find.widgetWithText(TextField, '왼쪽'), '25');
       await tester.enterText(find.widgetWithText(TextField, '문단 앞'), '999');
       await tester.pumpAndSettle();
       expect(find.text('0~200pt로 적습니다'), findsOneWidget);
@@ -366,7 +422,7 @@ void main() {
       expect(rig.fake.cmds.length, before);
       await tester.enterText(find.widgetWithText(TextField, '문단 앞'), '6');
       await tapIt(tester, find.text('내어쓰기'));
-      await tester.enterText(find.widgetWithText(TextField, '첫 줄 값'), '0.5');
+      await tester.enterText(find.widgetWithText(TextField, '첫 줄 값'), '5');
       await tester.enterText(find.widgetWithText(TextField, '값'), '1.5');
       await tapIt(tester, find.text('다음 문단과 함께'));
       await tapIt(tester, inDialog('적용'));
@@ -384,10 +440,43 @@ void main() {
       expect(cmd['spaceBefore'], 6.0);
       expect(cmd['line'], {'unit': 'percent', 'value': 180.0});
       expect(cmd['keepNext'], isTrue);
-      // 엔진이 받은 pt를 다시 cm로 보인다.
+      // 엔진이 받은 pt를 다시 mm로 보인다(왕복해도 같은 값).
       await formatMenu(tester, '문단 모양…');
-      expect(text('왼쪽'), '2.50');
-      expect(text('첫 줄 값'), '0.50');
+      expect(text('왼쪽'), '25');
+      expect(text('첫 줄 값'), '5');
+      expect(find.text('mm'), findsNWidgets(3));
+      expect(find.text('cm'), findsNothing);
+    });
+
+    test('길이 글: pt를 mm로(소수 한 자리), 다시 pt로 가도 0.1mm 안에서 같다', () {
+      expect(mmOf(null), '');
+      expect(mmOf(0), '0');
+      expect(mmOf(20 * ptPerMm), '20');
+      expect(mmOf(12.7 * ptPerMm), '12.7');
+      expect(mmOf(4), '1.4');
+      for (final pt in [0.0, 4.0, 12.0, 36.0, 70.866, 110.0, 481.89]) {
+        final back = double.parse(mmOf(pt)) * ptPerMm;
+        expect((back - pt).abs(), lessThanOrEqualTo(0.05 * ptPerMm + 1e-9));
+        // 보인 값을 다시 읽어 보여도 글이 바뀌지 않는다.
+        expect(mmOf(back), mmOf(pt));
+      }
+    });
+
+    test('범위 안내의 끝 값은 그대로 받아들인다', () {
+      const body = 481.89; // 169.9998mm
+      expect(mmError('170', 0, body), isNull);
+      expect(ptInRange(170, 0, body), body);
+      expect(mmError('170.1', 0, body), '0~170mm로 적습니다');
+      expect(ptInRange(4.2, 12, body), 12); // 12pt = 4.233mm
+      expect(ptInRange(-1, 0, body), isNull);
+      expect(mmError('abc', 0, body), isNotNull);
+    });
+
+    test('색 칸은 앞의 #가 있어도 없어도 같은 값', () {
+      expect(swatchHex('1155cc'), '#1155CC');
+      expect(swatchHex(' #1155CC '), '#1155CC');
+      expect(swatchHex('##1155CC'), isNull);
+      expect(swatchHex('12345'), isNull);
     });
 
     testWidgets('문단 모양: 섞인 값은 빈칸이고 건드리지 않으면 아무것도 보내지 않는다', (tester) async {
@@ -413,19 +502,23 @@ void main() {
       expect(rig.fake.cmds.length, before);
     });
 
-    testWidgets('쪽 설정의 사용자 지정 용지(cm, 범위 밖 알림)', (tester) async {
+    testWidgets('쪽 설정의 사용자 지정 용지(mm, 범위 밖 알림)', (tester) async {
       final (rig, id) = await openCv(tester, size: small);
-      await docMenu(tester, '쪽 설정');
+      await docMenu(tester, '쪽 설정…');
       await tapIt(tester, find.text('사용자 지정'));
       expect(find.text('세로'), findsNothing);
       final w = find.widgetWithText(TextField, '너비');
-      expect(tester.widget<TextField>(w).controller!.text, '21.00');
-      await tester.enterText(w, '1');
+      expect(tester.widget<TextField>(w).controller!.text, '210');
+      await tester.enterText(w, '10');
       await tester.pumpAndSettle();
-      expect(find.textContaining('용지 한 변은'), findsOneWidget);
+      // 적힌 범위의 끝 값은 그대로 받는다.
+      expect(find.text('용지 한 변은 17.7~705.5mm로 적습니다.'), findsOneWidget);
       await saveShot(tester, 'format-page-custom-1024x640-light');
-      await tester.enterText(w, '15');
-      await tester.enterText(find.widgetWithText(TextField, '높이'), '20');
+      await tester.enterText(w, '17.7');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('용지 한 변은'), findsNothing);
+      await tester.enterText(w, '150');
+      await tester.enterText(find.widgetWithText(TextField, '높이'), '200');
       await tapIt(tester, inDialog('적용'));
       final cmd = lastCmd(rig);
       expect(cmd['k'], 'setPage');
@@ -433,13 +526,13 @@ void main() {
       expect(cmd['h'] as double, closeTo(566.93, 0.01));
       expect((await stateOf(rig, id)).page.preset, 'CUSTOM');
       // 다시 열면 사용자 지정이 골라져 있다.
-      await docMenu(tester, '쪽 설정');
+      await docMenu(tester, '쪽 설정…');
       expect(
         tester
             .widget<TextField>(find.widgetWithText(TextField, '너비'))
             .controller!
             .text,
-        '15.00',
+        '150',
       );
     });
   });
@@ -582,9 +675,26 @@ void main() {
           // 가장 붐비는 줄: 그림을 고른 때(그림 크기 단추).
           rig.openPath = () async => '/a/b.png';
           await tapIt(tester, find.byTooltip('넣기'));
-          await tapIt(tester, find.text('이미지').last);
+          await tapIt(tester, find.text('그림').last);
           expect(find.byTooltip('그림 크기'), findsOneWidget);
           expect(tester.takeException(), isNull, reason: tag);
+          // 되돌리기·다시 하기는 도구 줄의 맨 왼쪽에 있다(위쪽 줄에는 없다).
+          final toolbar = find.byType(EditToolbar);
+          final undo = find.descendant(
+            of: toolbar,
+            matching: find.byTooltip('되돌리기 ⌘Z'),
+          );
+          final redo = find.descendant(
+            of: toolbar,
+            matching: find.byTooltip('다시 하기 ⇧⌘Z'),
+          );
+          expect(undo, findsOneWidget, reason: tag);
+          expect(find.byTooltip('되돌리기 ⌘Z'), findsOneWidget, reason: tag);
+          expect(tester.getRect(undo).left, tester.getRect(toolbar).left + 16);
+          expect(
+            tester.getRect(redo).right,
+            lessThan(tester.getRect(find.byTooltip('문단 스타일')).left),
+          );
           // 1280보다 좁으면 정렬 넷이 펼침 하나로 접힌다.
           expect(
             find.byTooltip('정렬'),
@@ -610,7 +720,7 @@ void main() {
               lessThanOrEqualTo(1),
             );
             await saveShot(tester, 'format-$name-dialog-$tag');
-            await tapIt(tester, inDialog('닫기'));
+            await tapIt(tester, inDialog('취소'));
           }
           if (size.width < 1280) {
             await tapIt(tester, find.byTooltip('정렬'));

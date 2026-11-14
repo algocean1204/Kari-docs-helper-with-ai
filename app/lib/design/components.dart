@@ -82,7 +82,8 @@ class _RingPainter extends CustomPainter {
       old.color != color || old.radius != radius;
 }
 
-enum ButtonKind { primary, secondary, quiet }
+/// 단추의 종류. [danger]는 되돌릴 수 없는 일을 확인하는 단추에만 쓴다.
+enum ButtonKind { primary, secondary, quiet, danger }
 
 /// 단추. 상태: 기본, 올려 둠, 누름, 초점, 끔, 처리 중.
 class AppButton extends StatelessWidget {
@@ -109,11 +110,24 @@ class AppButton extends StatelessWidget {
   final String? shortcut;
   final bool loading;
 
+  /// 꺼진 채운 단추는 채움을 이만큼 낮춘다. 회색으로 바꾸지 않아 화면의 주 동작이 어디인지 남는다.
+  static const disabledFill = 0.7;
+
+  /// 꺼진 그 밖의 단추는 보조 글 색을 이만큼 낮춘다. 켜진 단추와 글 색만으로도 갈린다.
+  static const disabledText = 0.75;
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final primary = kind == ButtonKind.primary;
-    final fg = primary ? c.onAccent : c.text;
+    // 채운 단추: 채움과 그 위의 글.
+    final (Color? fill, Color fg) = switch (kind) {
+      ButtonKind.primary => (c.accent, c.onAccent),
+      ButtonKind.danger => (c.danger, c.surface),
+      _ => (null, c.text),
+    };
+    final offFg = fill != null
+        ? fg
+        : c.textMuted.withValues(alpha: disabledText);
     final style = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size(0, 32)),
       // 글 없이 아이콘만 있으면 네모난 단추가 되게 여백을 줄인다.
@@ -131,20 +145,16 @@ class AppButton extends StatelessWidget {
         ),
       ),
       backgroundColor: WidgetStateProperty.resolveWith((s) {
-        if (s.contains(WidgetState.disabled)) {
-          return kind == ButtonKind.quiet
-              ? c.text.withValues(alpha: 0.04)
-              : c.surface2;
+        final off = s.contains(WidgetState.disabled);
+        if (fill != null) {
+          return off ? fill.withValues(alpha: disabledFill) : fill;
         }
-        return switch (kind) {
-          ButtonKind.primary => c.accent,
-          ButtonKind.secondary => c.surface,
-          // 단추는 쉬는 상태에서도 누를 수 있어 보여야 한다. 어느 바탕 위에서나 보이게 글자색을 옅게 깐다.
-          ButtonKind.quiet => c.text.withValues(alpha: 0.06),
-        };
+        if (kind == ButtonKind.secondary) return off ? c.surface2 : c.surface;
+        // 단추는 쉬는 상태에서도 누를 수 있어 보여야 한다. 어느 바탕 위에서나 보이게 글자색을 옅게 깐다.
+        return c.text.withValues(alpha: off ? 0.04 : 0.06);
       }),
       foregroundColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.disabled) ? c.textMuted : fg,
+        (s) => s.contains(WidgetState.disabled) ? offFg : fg,
       ),
       side: WidgetStateProperty.resolveWith((s) {
         if (kind != ButtonKind.secondary) return BorderSide.none;
@@ -172,7 +182,7 @@ class AppButton extends StatelessWidget {
                 height: 14,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: c.textMuted,
+                  color: fill != null ? fg : c.textMuted,
                   semanticsLabel: '처리 중',
                 ),
               ),
@@ -216,7 +226,11 @@ class MoreMenu extends StatelessWidget {
   });
 
   /// 항목 이름과 누르면 할 일. 항목이 없으면 단추가 꺼지고, 할 일이 null인 항목은 꺼진다.
+  /// [divider]를 넣으면 그 자리에 구분선을 그어 항목을 묶는다.
   final List<(String, VoidCallback?)> items;
+
+  /// 묶음 사이의 구분선.
+  static const (String, VoidCallback?) divider = ('-', null);
   final String label;
   final String tooltip;
 
@@ -304,7 +318,9 @@ class MoreMenu extends StatelessWidget {
       style: menuStyle,
       menuChildren: [
         for (final (i, (label, onPressed)) in items.indexed)
-          if (inline[label] case final w?)
+          if (label == divider.$1)
+            Divider(height: Space.x2 + 1, color: c.divider)
+          else if (inline[label] case final w?)
             w
           else
             MenuItemButton(
@@ -337,7 +353,8 @@ class MoreMenu extends StatelessWidget {
   }
 }
 
-/// 한 줄 오류. 위험 색 글과 아이콘으로 알리고, 다시 시도할 수 있게 한다.
+/// 오류 띠. 위험 색 글과 아이콘으로 알리고, 다시 시도할 수 있게 한다.
+/// 글은 두 줄까지 보이고, 더 길면 올려 두었을 때 전체가 보인다.
 class ErrorLine extends StatelessWidget {
   const ErrorLine(this.message, {super.key, required this.onRetry});
 
@@ -366,11 +383,16 @@ class ErrorLine extends StatelessWidget {
             Icon(Icons.error, size: 16, color: c.danger),
             const SizedBox(width: Space.x2),
             Expanded(
-              child: Text(
-                message,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.body.copyWith(color: c.danger),
+              child: Tooltip(
+                message: message,
+                // 읽어 주는 글은 잘리지 않으므로 같은 글을 두 번 읽지 않게 한다.
+                excludeFromSemantics: true,
+                child: Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body.copyWith(color: c.danger),
+                ),
               ),
             ),
             if (onRetry != null) ...[
@@ -742,7 +764,7 @@ class DiffText extends StatelessWidget {
   }
 }
 
-/// 여러 개 가운데 하나를 고르는 줄. 고른 것은 바탕과 굵기로 함께 표시한다.
+/// 여러 개 가운데 하나를 고르는 줄. 고른 것은 테두리와 바탕, 굵기로 함께 표시한다.
 class Segmented<T> extends StatelessWidget {
   const Segmented({
     super.key,
@@ -777,7 +799,7 @@ class Segmented<T> extends StatelessWidget {
                 child: ExcludeSemantics(
                   child: Material(
                     color: v == value ? c.surface : Colors.transparent,
-                    borderRadius: BorderRadius.circular(Radii.control),
+                    shape: segmentShape(c, selected: v == value),
                     child: InkWell(
                       onTap: () => onChanged(v),
                       borderRadius: BorderRadius.circular(Radii.control),
@@ -803,6 +825,43 @@ class Segmented<T> extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// 고르기 줄의 칸 모양. 고른 칸의 바탕은 줄의 바탕과 밝기가 거의 같아, 경계색 테두리로 고른 자리를 알린다.
+ShapeBorder segmentShape(AppColors c, {required bool selected}) =>
+    RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radii.control),
+      side: selected ? BorderSide(color: c.border) : BorderSide.none,
+    );
+
+/// 알림 띠(스낵바)의 내용. 실패는 색에만 맡기지 않고 아이콘을 앞에 둔다.
+class NoticeText extends StatelessWidget {
+  const NoticeText(this.message, {super.key, this.failed = false});
+
+  final String message;
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!failed) return Text(message);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(
+            Icons.error,
+            size: 16,
+            // 띠의 글과 같은 색. 띠의 바탕은 본문 글색이다.
+            color: AppColors.of(context).surface,
+            semanticLabel: '실패',
+          ),
+        ),
+        const SizedBox(width: Space.x2),
+        Expanded(child: Text(message)),
+      ],
     );
   }
 }

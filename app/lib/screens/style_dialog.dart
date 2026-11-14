@@ -304,7 +304,7 @@ class BorderEdit {
       k: sides.contains(k)
           ? {
               'weight': _read(weight.text)!,
-              'color': '#${color.text.trim().toUpperCase()}',
+              'color': swatchHex(color.text)!,
               'gap': _read(gap.text)!,
             }
           : null,
@@ -312,7 +312,7 @@ class BorderEdit {
 
   String get shadeValue {
     final t = shade.text.trim();
-    return t.isEmpty ? '' : '#${t.toUpperCase()}';
+    return t.isEmpty ? '' : swatchHex(t)!;
   }
 
   /// `setPara`에 더할 값(건드린 것만).
@@ -360,9 +360,6 @@ class BorderGroup extends StatelessWidget {
       String label,
       String? error, {
       String? suffix,
-      String? prefix,
-      String? helper,
-      String? hint,
     }) => TextField(
       controller: t,
       style: AppText.body.copyWith(
@@ -372,12 +369,6 @@ class BorderGroup extends StatelessWidget {
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
-        prefixText: prefix,
-        helperText: helper,
-        hintText: hint,
-        floatingLabelBehavior: hint == null
-            ? null
-            : FloatingLabelBehavior.always,
         errorText: error,
       ),
       onChanged: (_) => onChanged(),
@@ -445,11 +436,11 @@ class BorderGroup extends StatelessWidget {
             ),
             const SizedBox(width: Space.x3),
             Expanded(
-              child: field(
-                e.color,
-                '선 색',
-                on ? e.colorError : null,
-                prefix: '#',
+              child: ColorField(
+                controller: e.color,
+                label: '선 색',
+                error: on ? e.colorError : null,
+                onChanged: onChanged,
               ),
             ),
             const SizedBox(width: Space.x3),
@@ -468,13 +459,15 @@ class BorderGroup extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: field(
-                e.shade,
-                '바탕색',
-                e.shadeTouched ? e.shadeError : null,
-                prefix: '#',
+              child: ColorField(
+                controller: e.shade,
+                label: '바탕색',
+                swatches: const [...highlightSwatches, ...textSwatches],
+                clearable: true,
+                error: e.shadeTouched ? e.shadeError : null,
                 helper: shadeHint == null ? '비우면 바탕 없음' : '비우면 바탕 스타일을 따름',
                 hint: shadeHint,
+                onChanged: onChanged,
               ),
             ),
             // 위 줄의 세 칸과 폭을 맞춘다.
@@ -512,7 +505,7 @@ class _SideToggle extends StatelessWidget {
         child: ExcludeSemantics(
           child: Material(
             color: on ? c.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(Radii.control),
+            shape: segmentShape(c, selected: on),
             child: InkWell(
               onTap: onTap,
               borderRadius: BorderRadius.circular(Radii.control),
@@ -724,7 +717,7 @@ class _StyleDialogState extends State<StyleDialog> {
     _base = part('base', 'para');
     String n(Object? v, [int digits = 2]) =>
         v is num ? numText(v.toDouble(), digits) : '';
-    String cm(Object? v) => v is num ? (v / ptPerCm).toStringAsFixed(2) : '';
+    String mm(Object? v) => mmOf(v is num ? v.toDouble() : null);
     String hex(Object? v) => v is String ? v.replaceFirst('#', '') : '';
     _name = TextEditingController(text: j['name'] as String? ?? '');
     _based = j['based'] as String?;
@@ -736,9 +729,9 @@ class _StyleDialogState extends State<StyleDialog> {
       _marks[k] = _marks0[k] = oc[k] as bool?;
     }
     _align = _align0 = _own['align'] as String?;
-    _left = _Own(cm(_own['indentLeft']), cm(_base['indentLeft']));
-    _right = _Own(cm(_own['indentRight']), cm(_base['indentRight']));
-    _first = _Own(cm(_own['indentFirst']), cm(_base['indentFirst']));
+    _left = _Own(mm(_own['indentLeft']), mm(_base['indentLeft']));
+    _right = _Own(mm(_own['indentRight']), mm(_base['indentRight']));
+    _first = _Own(mm(_own['indentFirst']), mm(_base['indentFirst']));
     _before = _Own(n(_own['spaceBefore']), n(_base['spaceBefore']));
     _after = _Own(n(_own['spaceAfter']), n(_base['spaceAfter']));
     final line = _own['line'] as Json?;
@@ -796,10 +789,12 @@ class _StyleDialogState extends State<StyleDialog> {
     final v = f.value;
     return v != null && v >= lo && v <= hi
         ? null
-        : '${numText(lo)}~${numText(hi)}$unit로 적습니다';
+        : '${numText(lo, 1)}~${numText(hi, 1)}$unit로 적습니다';
   }
 
-  double get _bodyCm => (widget.session.state?.bodyWidth ?? 481.89) / ptPerCm;
+  double get _body => widget.session.state?.bodyWidth ?? 481.89;
+  String? _mm(_Own f) =>
+      !f.touched || f.empty ? null : mmError(f.t.text, -_body, _body);
 
   String? get _nameError {
     final t = _name.text.trim();
@@ -814,9 +809,9 @@ class _StyleDialogState extends State<StyleDialog> {
       !_color.touched || _color.empty || swatchValue(_color.t.text) != null
       ? null
       : '여섯 자리 16진수로 적습니다';
-  String? get _leftError => _range(_left, -_bodyCm, _bodyCm, 'cm');
-  String? get _rightError => _range(_right, -_bodyCm, _bodyCm, 'cm');
-  String? get _firstError => _range(_first, -_bodyCm, _bodyCm, 'cm');
+  String? get _leftError => _mm(_left);
+  String? get _rightError => _mm(_right);
+  String? get _firstError => _mm(_first);
   String? get _beforeError => _range(_before, 0, 200, 'pt');
   String? get _afterError => _range(_after, 0, 200, 'pt');
   bool get _lineTouched => _unit != _unit0 || _line.touched;
@@ -858,18 +853,16 @@ class _StyleDialogState extends State<StyleDialog> {
     put(ch, 'size', _size, (v) => (v * 10).round() / 10);
     put(ch, 'spacing', _spacing, (v) => v);
     if (_color.touched) {
-      ch['color'] = _color.empty
-          ? null
-          : '#${_color.t.text.trim().toUpperCase()}';
+      ch['color'] = _color.empty ? null : swatchHex(_color.t.text)!;
     }
     for (final k in _marks.keys) {
       if (_marks[k] != _marks0[k]) ch[k] = _marks[k];
     }
     final pa = <String, Object?>{};
     if (_align != _align0) pa['align'] = _align;
-    put(pa, 'indentLeft', _left, (v) => v * ptPerCm);
-    put(pa, 'indentRight', _right, (v) => v * ptPerCm);
-    put(pa, 'indentFirst', _first, (v) => v * ptPerCm);
+    put(pa, 'indentLeft', _left, (v) => ptInRange(v, -_body, _body)!);
+    put(pa, 'indentRight', _right, (v) => ptInRange(v, -_body, _body)!);
+    put(pa, 'indentFirst', _first, (v) => ptInRange(v, -_body, _body)!);
     put(pa, 'spaceBefore', _before, (v) => v);
     put(pa, 'spaceAfter', _after, (v) => v);
     if (_lineTouched) {
@@ -918,13 +911,7 @@ class _StyleDialogState extends State<StyleDialog> {
     Navigator.of(context).pop();
   }
 
-  Widget _field(
-    _Own f,
-    String label,
-    String? error, {
-    String? suffix,
-    String? prefix,
-  }) {
+  Widget _field(_Own f, String label, String? error, {String? suffix}) {
     final c = AppColors.of(context);
     return TextField(
       controller: f.t,
@@ -935,7 +922,6 @@ class _StyleDialogState extends State<StyleDialog> {
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
-        prefixText: prefix,
         // 칸이 비면 바탕 스타일의 값을 옅게 보인다.
         hintText: f.hint.isEmpty ? null : f.hint,
         floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -1030,8 +1016,8 @@ class _StyleDialogState extends State<StyleDialog> {
               onPressed: () => _send('styleDelete'),
             ),
           const Spacer(),
-          AppButton('닫기', onPressed: () => Navigator.of(context).pop()),
-          AppButton('적용', onPressed: _apply),
+          AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+          AppButton('적용', kind: ButtonKind.primary, onPressed: _apply),
         ],
         children: [
           TextField(
@@ -1068,7 +1054,15 @@ class _StyleDialogState extends State<StyleDialog> {
           _label('글자'),
           _row([
             _field(_size, '크기', _sizeError, suffix: 'pt'),
-            _field(_color, '글자색', _colorError, prefix: '#'),
+            ColorField(
+              controller: _color.t,
+              label: '글자색',
+              error: _colorError,
+              // 칸이 비면 바탕 스타일의 색을 옅게 보인다.
+              hint: _color.hint,
+              onChanged: () => setState(() {}),
+              onSubmitted: _apply,
+            ),
             _field(_spacing, '자간', _spacingError, suffix: 'pt'),
           ]),
           const SizedBox(height: Space.x3),
@@ -1106,9 +1100,9 @@ class _StyleDialogState extends State<StyleDialog> {
           ]),
           const SizedBox(height: Space.x3),
           _row([
-            _field(_left, '왼쪽 들여쓰기', _leftError, suffix: 'cm'),
-            _field(_right, '오른쪽 들여쓰기', _rightError, suffix: 'cm'),
-            _field(_first, '첫 줄(내어쓰기는 −)', _firstError, suffix: 'cm'),
+            _field(_left, '왼쪽 들여쓰기', _leftError, suffix: 'mm'),
+            _field(_right, '오른쪽 들여쓰기', _rightError, suffix: 'mm'),
+            _field(_first, '첫 줄(내어쓰기는 −)', _firstError, suffix: 'mm'),
           ]),
           const SizedBox(height: Space.x3),
           _row([

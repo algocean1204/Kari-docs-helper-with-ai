@@ -18,16 +18,25 @@ String grouped(int n) {
 }
 
 /// 상태 줄의 글: `3쪽 · 1,234자 · 공백 제외 1,050자 · 낱말 210개`. 선택이 있으면
-/// `선택 120자 · 공백 제외 100자 · 낱말 20개`를 앞에 붙인다.
+/// `선택 120자 / 전체 1,234자 · 3쪽`만 보인다(나머지는 [countDetail]).
 String countLine(Counts c) {
-  final all =
-      '${grouped(c.pages)}쪽 · ${grouped(c.chars)}자 · 공백 제외 ${grouped(c.charsNoSpace)}자'
-      ' · 낱말 ${grouped(c.words)}개';
   final sel = c.sel;
   return sel == null
-      ? all
-      : '선택 ${grouped(sel.chars)}자 · 공백 제외 ${grouped(sel.charsNoSpace)}자'
-            ' · 낱말 ${grouped(sel.words)}개 · $all';
+      ? '${grouped(c.pages)}쪽 · ${grouped(c.chars)}자 · 공백 제외 ${grouped(c.charsNoSpace)}자'
+            ' · 낱말 ${grouped(c.words)}개'
+      : '선택 ${grouped(sel.chars)}자 / 전체 ${grouped(c.chars)}자 · ${grouped(c.pages)}쪽';
+}
+
+/// 선택이 있을 때 상태 줄의 도구 설명: 줄에서 뺀 공백 제외 글자 수와 낱말 수. 선택이 없으면 null.
+String? countDetail(Counts c) {
+  final sel = c.sel;
+  if (sel == null) return null;
+  String part(String name, int noSpace, int words) =>
+      '$name: 공백 제외 ${grouped(noSpace)}자 · 낱말 ${grouped(words)}개';
+  return [
+    part('선택', sel.charsNoSpace, sel.words),
+    part('전체', c.charsNoSpace, c.words),
+  ].join('\n');
 }
 
 /// 편집 화면 아래 오른쪽의 상태 줄. 세기 전에는 비어 있다.
@@ -60,13 +69,16 @@ class StatusLine extends StatelessWidget {
           ],
           if (counts != null)
             Flexible(
-              child: Text(
-                countLine(counts),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.caption.copyWith(
-                  color: c.textMuted,
-                  fontFeatures: AppText.tabular,
+              child: Tooltip(
+                message: countDetail(counts) ?? '',
+                child: Text(
+                  countLine(counts),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption.copyWith(
+                    color: c.textMuted,
+                    fontFeatures: AppText.tabular,
+                  ),
                 ),
               ),
             ),
@@ -102,7 +114,7 @@ class ZoomMenu extends StatelessWidget {
   }
 }
 
-/// 찾기 막대. 편집 화면 오른쪽 위에 겹쳐 뜬다: 찾을 글, `3/12`, 이전, 다음, 대소문자 구분, 단어 단위, 바꾸기 펼치기,
+/// 찾기 막대. 편집 화면 오른쪽 위에 겹쳐 뜬다: 찾을 글, `3/12`, 이전, 다음, 대소문자 구분, 낱말 단위, 바꾸기 펼치기,
 /// 닫기. 펼치면 새 글, `바꾸기`, `모두 바꾸기`. Enter 다음, Shift+Enter 이전, ⌘G·⇧⌘G, Esc 닫기.
 class FindBar extends StatefulWidget {
   const FindBar({
@@ -308,7 +320,7 @@ class FindBarState extends State<FindBar> {
                         setState(() {});
                       }, on: s.findCase),
                       // 일치의 앞뒤가 글자·숫자가 아닐 때만 찾는다(바꾸기에도 적용).
-                      icon('단어 단위로 찾기', Icons.space_bar, () {
+                      icon('낱말 단위로 찾기', Icons.space_bar, () {
                         s.find(_query.text, word: !s.findWord);
                         setState(() {});
                       }, on: s.findWord),

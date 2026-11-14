@@ -3,7 +3,7 @@
 // 메뉴 막대: 메뉴와 항목, 단축키 표시, 편집 화면 밖·대화 상자 중에 꺼짐, 체크가 상태를 따름, 편집 상태가 바뀌어도
 // 메뉴의 모양이 같으면 macOS에 다시 보내지 않음. 메뉴 항목과 도구 막대 단추, 단축키가 같은 명령을 낸다.
 // 개요: 단계와 들여쓰기, 누르면 이동, 커서의 제목 표시, 고칠 때 갱신, 제목 없음, 좁은 창의 겹침, 켬·끔 저장.
-// 작은 도구: 서식 없이 붙여넣기, 오늘 날짜, 대소문자, 낱말 수, 쪽으로 가기, 단어 단위로 찾기. 자동 서식 설정.
+// 작은 도구: 서식 없이 붙여넣기, 오늘 날짜, 대소문자, 낱말 수, 쪽으로 가기, 낱말 단위로 찾기. 자동 서식 설정.
 // 1024×640과 1280×800, 두 테마에서 넘침 없음, 채운 단추 0개, Tab으로 닿음.
 // SHOT_DIR을 주면 화면 그림을 design19-*.png로 쓴다.
 
@@ -341,7 +341,7 @@ void main() {
       // 선택이 없으면 복사·잘라내기·대소문자는 꺼진다.
       expect(_enabled(d, ['편집', '복사']), isFalse);
       expect(_enabled(d, ['서식', '대소문자', '모두 대문자']), isFalse);
-      await docMenu(tester, '쪽 설정');
+      await docMenu(tester, '쪽 설정…');
       expect(find.byType(Dialog), findsOneWidget);
       expect(_enabled(d, ['서식', '굵게']), isFalse);
       expect(_enabled(d, ['파일', '새 문서']), isFalse);
@@ -395,12 +395,14 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      Future<void> format(String item) async {
-        await tester.tap(find.byTooltip('서식'));
+      Future<void> pick(String menu, String item) async {
+        await tester.tap(find.byTooltip(menu));
         await tester.pumpAndSettle();
         await tester.tap(find.text(item).last);
         await tester.pumpAndSettle();
       }
+
+      Future<void> format(String item) => pick('서식', item);
 
       // (메뉴 경로, 도구 막대, 단축키)
       final cases =
@@ -459,8 +461,9 @@ void main() {
               () => shortcut(tester, LogicalKeyboardKey.backslash),
             ),
             (
+              // 도구 막대에서도 메뉴 막대와 같은 넣기 메뉴에 있다.
               ['넣기', '쪽 나누기'],
-              () => format('쪽 나누기'),
+              () => pick('넣기', '쪽 나누기'),
               () => shortcut(tester, LogicalKeyboardKey.enter),
             ),
             (
@@ -687,7 +690,7 @@ void main() {
       expect(find.byType(GoToPageDialog), findsOneWidget);
     });
 
-    testWidgets('낱말 수와 단어 단위로 찾기', (tester) async {
+    testWidgets('낱말 수와 낱말 단위로 찾기', (tester) async {
       final (rig, d) = await _open(tester);
       await tester.pump(countAfter);
       await tester.pumpAndSettle();
@@ -695,7 +698,7 @@ void main() {
       await shortcut(tester, LogicalKeyboardKey.keyF);
       expect(find.byType(FindBar), findsOneWidget);
       await tester.enterText(find.byType(TextField).last, '김');
-      await tester.tap(find.byTooltip('단어 단위로 찾기'));
+      await tester.tap(find.byTooltip('낱말 단위로 찾기'));
       await tester.pumpAndSettle();
       expect(_session(tester).findWord, isTrue);
       await shortcut(tester, LogicalKeyboardKey.keyG);
@@ -783,7 +786,7 @@ void main() {
           await tester.pumpAndSettle();
           await shortcut(tester, LogicalKeyboardKey.keyF);
           await tester.enterText(find.byType(TextField).last, '김서연');
-          await tester.tap(find.byTooltip('단어 단위로 찾기'));
+          await tester.tap(find.byTooltip('낱말 단위로 찾기'));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
           expect(filledLabels(tester), isEmpty);

@@ -154,6 +154,7 @@ class _VersionPanelState extends State<VersionPanel> {
         title: '버전을 지울까요?',
         message: '"${versionTitle(v)}" 버전을 지웁니다. 문서의 글은 바뀌지 않습니다.',
         confirm: '지우기',
+        danger: true,
       ),
     );
     if (ok == true) _load(() => _engine.versionDelete(v['id'] as int));
@@ -322,11 +323,8 @@ class _VersionPanelState extends State<VersionPanel> {
           spacing: Space.x2,
           runSpacing: Space.x2,
           children: [
-            AppButton(
-              '이 버전으로 되돌리기',
-              kind: ButtonKind.primary,
-              onPressed: () => _restore(v),
-            ),
+            // 편집 화면의 주인공은 종이라 채운 단추를 두지 않는다. 채운 단추는 확인 창에서 한 번 나온다.
+            AppButton('이 버전으로 되돌리기', onPressed: () => _restore(v)),
             if (v['kind'] == 'named')
               AppButton('이름 바꾸기', onPressed: () => _rename(v)),
             AppButton(

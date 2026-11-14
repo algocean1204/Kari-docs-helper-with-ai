@@ -303,6 +303,17 @@ void main() {
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull, reason: '$tag ⋯ 메뉴');
           await saveShot(tester, 'editor-doc-menu-$tag');
+          // ⋯ 메뉴는 내보내기·인쇄 / 문서 / 보기 세 묶음이다. 창을 여는 항목에는 …이 붙는다.
+          double top(Finder f) => tester.getTopLeft(f).dy;
+          Finder item(String label) =>
+              find.widgetWithText(MenuItemButton, label);
+          final lines = find.byType(Divider);
+          expect(lines, findsNWidgets(2), reason: tag);
+          expect(top(item('텍스트로 내보내기…')), lessThan(top(lines.first)));
+          expect(top(lines.first), lessThan(top(item('쪽 설정…'))));
+          expect(top(item('버전 기록')), lessThan(top(lines.last)));
+          expect(top(lines.last), lessThan(top(item('개요'))));
+          expect(top(item('개요')), lessThan(top(item('표 눈금선 보기'))));
           await tester.sendKeyEvent(LogicalKeyboardKey.escape);
           await tester.pumpAndSettle();
           await insertTable(tester, '2', '3');
@@ -314,14 +325,14 @@ void main() {
       debugDisableShadows = true;
     });
 
-    testWidgets('넣기 메뉴의 항목이 동작한다: 이미지, 탭 정지', (tester) async {
+    testWidgets('넣기 메뉴의 항목이 동작한다: 그림, 탭 정지', (tester) async {
       final (rig, _) = await openCv(tester, size: small);
       var asked = 0;
       rig.openPath = () async {
         asked++;
         return null;
       };
-      await insertMenu(tester, '이미지');
+      await insertMenu(tester, '그림');
       expect(asked, 1);
       await insertMenu(tester, '탭 정지');
       expect(find.text('오른쪽 끝 맞춤 탭'), findsOneWidget);

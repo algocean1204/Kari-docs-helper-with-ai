@@ -126,6 +126,14 @@ void main() {
       );
       await docMenu(tester, '인쇄…');
       expect(find.text('인쇄하지 못했습니다 · PDF를 인쇄 창에 넘기지 못했습니다'), findsOneWidget);
+      // 실패 알림에는 아이콘이 붙는다.
+      expect(
+        find.descendant(
+          of: find.byType(SnackBar),
+          matching: find.byIcon(Icons.error),
+        ),
+        findsOneWidget,
+      );
       expect(emptyOut(), isTrue);
       await dismiss(tester);
     });

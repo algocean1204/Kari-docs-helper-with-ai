@@ -1,4 +1,4 @@
-// 그림의 화면: 이미지 단추, 열기 취소, 거절 메시지, 그림 크기 창. 흉내 엔진으로 돈다.
+// 그림의 화면: 넣기 메뉴의 그림, 열기 취소, 거절 메시지, 그림 크기 창. 흉내 엔진으로 돈다.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,21 +12,21 @@ Finder field(String label) => find.widgetWithText(TextField, label);
 void main() {
   setUpAll(loadFonts);
 
-  testWidgets('이미지 단추: 열기를 취소하면 그대로, 고르면 넣고 그림 크기 단추가 나온다', (tester) async {
+  testWidgets('넣기 메뉴의 그림: 열기를 취소하면 그대로, 고르면 넣고 그림 크기 단추가 나온다', (tester) async {
     final (rig, id) = await openCv(tester, size: sizes[0]);
     var asked = 0;
     rig.openPath = () async {
       asked++;
       return null;
     };
-    await insertMenu(tester, '이미지');
+    await insertMenu(tester, '그림');
     expect(asked, 1);
     expect(firstPara(rig, id), '김서연');
     expect(find.byTooltip('그림 크기'), findsNothing);
     // 초점은 종이로 돌아온다.
     expect(FocusManager.instance.primaryFocus?.debugLabel, '문서 본문');
     rig.openPath = () async => '/Users/me/Pictures/증명사진.jpg';
-    await insertMenu(tester, '이미지');
+    await insertMenu(tester, '그림');
     expect(firstPara(rig, id), '김서연\u{FFFC}');
     expect(find.byTooltip('그림 크기'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -35,7 +35,7 @@ void main() {
   testWidgets('받을 수 없는 파일은 거절 사유를 안내 한 줄로 알린다', (tester) async {
     final (rig, id) = await openCv(tester);
     rig.openPath = () async => '/Users/me/움직이는.gif';
-    await insertMenu(tester, '이미지');
+    await insertMenu(tester, '그림');
     expect(find.text('PNG나 JPEG 그림만 넣을 수 있습니다.'), findsOneWidget);
     expect(firstPara(rig, id), '김서연');
   });
@@ -45,7 +45,7 @@ void main() {
   ) async {
     final (rig, id) = await openCv(tester, size: sizes[0]);
     rig.openPath = () async => '/a/b.png';
-    await insertMenu(tester, '이미지');
+    await insertMenu(tester, '그림');
     await tapTip(tester, '그림 크기');
     // 150pt = 52.9mm, 높이 100pt = 35.3mm
     expect(find.widgetWithText(TextField, '52.9'), findsOneWidget);

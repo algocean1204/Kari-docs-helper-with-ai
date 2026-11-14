@@ -43,16 +43,30 @@ void main() {
       )),
       '3쪽 · 1,234자 · 공백 제외 1,050자 · 낱말 210개',
     );
+    // 고른 글이 있으면 고른 것과 전체의 글자 수, 쪽 수만 보인다. 나머지는 도구 설명으로 간다.
+    const picked = (
+      chars: 1234,
+      charsNoSpace: 1050,
+      paras: 3,
+      pages: 3,
+      sel: (chars: 120, charsNoSpace: 100, words: 20),
+      words: 210,
+    );
+    expect(countLine(picked), '선택 120자 / 전체 1,234자 · 3쪽');
     expect(
-      countLine((
+      countDetail(picked),
+      '선택: 공백 제외 100자 · 낱말 20개\n전체: 공백 제외 1,050자 · 낱말 210개',
+    );
+    expect(
+      countDetail((
         chars: 1234,
         charsNoSpace: 1050,
         paras: 3,
         pages: 3,
-        sel: (chars: 120, charsNoSpace: 100, words: 20),
+        sel: null,
         words: 210,
       )),
-      '선택 120자 · 공백 제외 100자 · 낱말 20개 · 3쪽 · 1,234자 · 공백 제외 1,050자 · 낱말 210개',
+      isNull,
     );
   });
 
@@ -259,8 +273,10 @@ void main() {
     await shortcut(tester, LogicalKeyboardKey.keyA);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
+    expect(find.text('선택 5자 / 전체 5자 · 1쪽'), findsOneWidget);
+    // 줄에서 뺀 수는 그 글의 도구 설명에 있다.
     expect(
-      find.text('선택 5자 · 공백 제외 4자 · 낱말 2개 · 1쪽 · 5자 · 공백 제외 4자 · 낱말 2개'),
+      find.byTooltip('선택: 공백 제외 4자 · 낱말 2개\n전체: 공백 제외 4자 · 낱말 2개'),
       findsOneWidget,
     );
   });
@@ -305,7 +321,7 @@ void main() {
     // 넣기 메뉴의 항목에도 읽어 주는 이름이 있고, 링크는 단축키를 함께 보인다.
     await tester.tap(find.byTooltip('넣기'));
     await tester.pumpAndSettle();
-    for (final label in ['표', '이미지', '탭 정지']) {
+    for (final label in ['표', '그림', '탭 정지']) {
       expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
     }
     expect(find.bySemanticsLabel(RegExp(r'^링크\s*⌘K$')), findsOneWidget);

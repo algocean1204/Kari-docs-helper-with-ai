@@ -140,7 +140,7 @@ void main() {
       );
       await tester.tap(find.text('이어서 쓰기'));
       await tester.pumpAndSettle();
-      await insertMenu(tester, '이미지');
+      await insertMenu(tester, '그림');
       await insertTable(tester, '3', '3');
       await tapTip(tester, '셀 바탕색');
       await tester.tap(find.byTooltip('노랑').last);

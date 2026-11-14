@@ -11,11 +11,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/fake.dart';
 import 'package:kari/library.dart';
 import 'package:kari/main.dart';
+import 'package:kari/screens/dialogs.dart' show trashedWhen;
 import 'package:kari/screens/name_field.dart';
 import 'package:kari/screens/settings.dart' show maskNote;
 
@@ -398,25 +400,90 @@ void main() {
       expect(find.text('휴지통 1개'), findsOneWidget);
     });
 
-    testWidgets('완전히 삭제는 한 번 더 묻는다', (tester) async {
+    testWidgets('완전히 지우기는 한 번 더 묻는다', (tester) async {
       final rig = await pumpReal(tester);
       await tester.tap(find.text('휴지통 1개'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('완전히 삭제'));
+      // 줄에는 버린 날과 남은 날이 보인다(이틀 전에 버렸고 30일 뒤에 지운다).
+      expect(find.textContaining('2일 전에 버림 · 28일 뒤 지워짐'), findsOneWidget);
+      await tester.tap(find.text('완전히 지우기'));
       await tester.pumpAndSettle();
       expect(find.textContaining(keepAll('되돌릴 수 없습니다')), findsOneWidget);
+      // 되돌릴 수 없는 일의 확인 단추는 위험 단추다.
+      expect(
+        tester
+            .widget<AppButton>(find.widgetWithText(AppButton, '완전히 지우기').last)
+            .kind,
+        ButtonKind.danger,
+      );
       await tester.tap(find.text('취소'));
       await tester.pumpAndSettle();
       expect(rig.fake.docs.length, 4);
-      await tester.tap(find.text('완전히 삭제'));
+      await tester.tap(find.text('완전히 지우기'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('완전히 삭제').last);
+      await tester.tap(find.text('완전히 지우기').last);
       await tester.pumpAndSettle();
       expect(rig.fake.docs.length, 3);
       expect(find.text('휴지통이 비었습니다.'), findsOneWidget);
       await tester.tap(find.text('닫기'));
       await tester.pumpAndSettle();
       expect(find.textContaining('휴지통'), findsNothing);
+    });
+
+    testWidgets('휴지통 비우기: 한 번 묻고(위험 단추) 모두 완전히 지운다. 비었으면 꺼진다', (tester) async {
+      final rig = await pumpReal(tester);
+      await openMore(tester, '경력기술서');
+      await tester.tap(find.text('휴지통으로 옮기기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('휴지통 2개'));
+      await tester.pumpAndSettle();
+      // 방금 버린 문서는 오늘 버린 것으로 보인다.
+      expect(find.textContaining('오늘 버림 · 30일 뒤 지워짐'), findsOneWidget);
+      await tester.tap(find.text('휴지통 비우기'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(keepAll('문서 2개를 완전히 지웁니다. 되돌릴 수 없습니다.')),
+        findsOneWidget,
+      );
+      final confirm = find.widgetWithText(AppButton, '휴지통 비우기').last;
+      expect(tester.widget<AppButton>(confirm).kind, ButtonKind.danger);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(rig.fake.docs.length, 4);
+      await tester.tap(find.text('휴지통 비우기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('휴지통 비우기').last);
+      await tester.pumpAndSettle();
+      expect(rig.fake.docs.length, 2);
+      expect(find.text('휴지통이 비었습니다.'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '휴지통 비우기'))
+            .onPressed,
+        isNull,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    test('휴지통 줄의 글: 버린 날과 남은 날', () {
+      final now = DateTime(2026, 11, 14, 12);
+      int ago(Duration d) => now.subtract(d).millisecondsSinceEpoch;
+      expect(
+        trashedWhen(ago(const Duration(hours: 3)), now),
+        '오늘 버림 · 30일 뒤 지워짐',
+      );
+      expect(
+        trashedWhen(ago(const Duration(days: 2)), now),
+        '2일 전에 버림 · 28일 뒤 지워짐',
+      );
+      expect(
+        trashedWhen(ago(const Duration(days: 29)), now),
+        '29일 전에 버림 · 1일 뒤 지워짐',
+      );
+      expect(
+        trashedWhen(ago(const Duration(days: 31)), now),
+        '31일 전에 버림 · 다음에 앱을 열 때 지워짐',
+      );
     });
 
     testWidgets('엔진 호출이 실패하면 한 줄로 알리고 목록은 그대로 둔다', (tester) async {
@@ -708,7 +775,7 @@ void main() {
       final size = mode == ThemeMode.light ? sizes[0] : sizes[1];
       final tag = '${size.width.toInt()}-${mode.name}';
 
-      testWidgets('그림 $tag: 메뉴, 이름 바꾸기, 휴지통, 삭제 확인, 오류', (tester) async {
+      testWidgets('그림 $tag: 메뉴, 이름 바꾸기, 휴지통, 지우기 확인, 오류', (tester) async {
         debugDisableShadows = false;
         final rig = await pumpReal(tester, size: size, mode: mode);
         await openMore(tester, '경력기술서');
@@ -729,7 +796,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await saveShot(tester, 'real-trash-$tag');
-        await tester.tap(find.text('완전히 삭제'));
+        await tester.tap(find.text('완전히 지우기'));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         await saveShot(tester, 'real-purge-$tag');

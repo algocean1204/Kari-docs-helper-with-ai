@@ -43,9 +43,10 @@ const _lists = [
   ('ordered', '번호', Icons.format_list_numbered),
 ];
 
-/// 도구 줄: 문단 스타일, 글자 크기, 굵게·기울임·밑줄(켜진 것은 눌린 모양), 글자색, 정렬 네 가지(좁은 창에서는 펼침 하나),
-/// 글머리표·번호(커서 문단의 종류면 눌린 모양), 내어쓰기·들여쓰기, `넣기` 메뉴(표, 이미지, 링크 창, 탭 정지 창),
-/// `서식` 메뉴(취소선, 형광펜, 첨자, 글자·문단 모양 창, 줄 간격, 쪽 나누기, 서식 지우기, 번호 시작 값).
+/// 도구 줄: 되돌리기·다시 하기, 문단 스타일, 글자 크기, 굵게·기울임·밑줄(켜진 것은 눌린 모양), 글자색,
+/// 정렬 네 가지(좁은 창에서는 펼침 하나), 글머리표·번호(커서 문단의 종류면 눌린 모양), 내어쓰기·들여쓰기,
+/// `넣기` 메뉴(표, 그림, 링크 창, 탭 정지 창, 가로줄, 쪽 나누기),
+/// `서식` 메뉴(글자: 취소선, 형광펜, 첨자, 글자 모양 창 / 문단: 문단 모양 창, 줄 간격, 번호 시작 값 / 서식 지우기).
 /// 그림을 골랐으면 `그림 크기`가 더 나온다.
 /// 커서가 표 안이면 아래에 표 도구 줄이 하나 더 나온다(1024 폭에서 한 줄에 다 들어가지 않아 줄을 나눴다).
 /// 누른 뒤에는 [onDone]으로 초점을 종이에 돌려준다.
@@ -64,7 +65,7 @@ class EditToolbar extends StatelessWidget {
   final EditSession session;
   final VoidCallback onDone;
 
-  /// 넣을 그림 파일 고르기(열기 대화 상자). 없으면 `이미지` 단추가 꺼진다.
+  /// 넣을 그림 파일 고르기(열기 대화 상자). 없으면 `그림` 항목이 꺼진다.
   final Future<String?> Function()? openPath;
 
   @override
@@ -87,6 +88,34 @@ class EditToolbar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // 되돌리기는 편집 도구라 도구 줄의 맨 앞에 둔다.
+          for (final (label, keys, icon, run) in [
+            (
+              '되돌리기',
+              '⌘Z',
+              Icons.undo,
+              st?.canUndo == true ? session.undo : null,
+            ),
+            (
+              '다시 하기',
+              '⇧⌘Z',
+              Icons.redo,
+              st?.canRedo == true ? session.redo : null,
+            ),
+          ]) ...[
+            Tooltip(
+              message: '$label $keys',
+              child: AppButton(
+                '',
+                icon: icon,
+                semanticLabel: label,
+                kind: ButtonKind.quiet,
+                onPressed: run,
+              ),
+            ),
+            const SizedBox(width: 2),
+          ],
+          const SizedBox(width: Space.x3 - 2),
           StyleMenu(
             session: session,
             send: send,
@@ -177,14 +206,14 @@ class EditToolbar extends StatelessWidget {
             label: '넣기',
             tooltip: '넣기',
             icon: Icons.add,
-            shortcuts: const {'링크': '⌘K'},
+            shortcuts: const {'링크': '⌘K', '쪽 나누기': '⌘↩'},
             items: [
-              // 표 안의 표는 엔진이 거절한다. 항목을 꺼서 미리 막는다.
+              // 표 안의 표와 쪽 나누기는 엔진이 거절한다. 항목을 꺼서 미리 막는다.
               (
                 '표',
                 st == null || st.table != null ? null : () => _table(context),
               ),
-              ('이미지', st == null || openPath == null ? null : _image),
+              ('그림', st == null || openPath == null ? null : _image),
               (
                 '링크',
                 st == null
@@ -196,6 +225,12 @@ class EditToolbar extends StatelessWidget {
               ),
               ('탭 정지', st == null ? null : () => _tabs(context)),
               ('가로줄', st == null ? null : () => send({'k': 'rule'})),
+              (
+                '쪽 나누기',
+                st == null || st.table != null
+                    ? null
+                    : () => send({'k': 'pageBreak'}),
+              ),
             ],
           ),
           const SizedBox(width: 2),
@@ -459,14 +494,19 @@ class _ColorMenuState extends State<_ColorMenu> {
                             height: 1,
                           ),
                         ),
-                        const SizedBox(height: 3),
+                        const SizedBox(height: 2),
+                        // 띠 뒤에 종이색을 깐다. 어두운 도구 줄에서도 어두운 글자색이 보이고, 종이 위의 색이라는 뜻과도 맞다.
                         // 섞였으면 빈 띠(테두리만).
                         Container(
-                          width: 18,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: now == null ? null : Color(now),
-                            border: Border.all(color: c.border, width: 0.5),
+                          color: c.paper,
+                          padding: const EdgeInsets.all(1),
+                          child: Container(
+                            width: 18,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: now == null ? null : Color(now),
+                              border: Border.all(color: c.border, width: 0.5),
+                            ),
                           ),
                         ),
                       ],
@@ -530,7 +570,6 @@ class _FormatMenuState extends State<_FormatMenu> {
         '취소선': '⇧⌘X',
         '위 첨자': '⌃⌘+',
         '아래 첨자': '⌃⌘−',
-        '쪽 나누기': '⌘↩',
         '서식 지우기': '⌘\\',
       },
       checked: {
@@ -579,12 +618,14 @@ class _FormatMenuState extends State<_FormatMenu> {
           ),
         ),
       },
+      // 글자 / 문단 / 지우기 세 묶음.
       items: [
         ('취소선', on({'k': 'toggle', 'mark': 'strike'})),
         ('형광펜', null),
         ('위 첨자', on({'k': 'toggleVertical', 'to': 'super'})),
         ('아래 첨자', on({'k': 'toggleVertical', 'to': 'sub'})),
         ('글자 모양…', st == null ? null : () => _open(CharDialog(session: s))),
+        MoreMenu.divider,
         ('문단 모양…', st == null ? null : () => _open(ParaDialog(session: s))),
         for (final m in lineChoices)
           (
@@ -594,11 +635,10 @@ class _FormatMenuState extends State<_FormatMenu> {
               'line': {'unit': 'percent', 'value': m * singleLinePercent},
             }),
           ),
-        // 표 안에서는 엔진이 쪽 나누기를 거절한다. 항목을 꺼서 미리 막는다.
-        ('쪽 나누기', st?.table != null ? null : on({'k': 'pageBreak'})),
-        ('서식 지우기', on({'k': 'clearChar'})),
         if (st?.list?.kind == 'ordered')
           ('번호 시작 값…', () => _open(ListStartDialog(session: s))),
+        MoreMenu.divider,
+        ('서식 지우기', on({'k': 'clearChar'})),
       ],
     );
   }
