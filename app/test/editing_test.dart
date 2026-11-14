@@ -1,4 +1,5 @@
 // 편집의 Dart 단위 시험: 입력기 견주기, 키 → 명령 표, 화면이 쓰는 작은 함수.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/tokens.dart';
@@ -6,6 +7,7 @@ import 'package:kari/editing/ime.dart';
 import 'package:kari/editing/keys.dart';
 import 'package:kari/editing/session.dart';
 import 'package:kari/engine/engine.dart';
+import 'package:kari/engine/fake.dart';
 import 'package:kari/screens/doc.dart';
 import 'package:kari/screens/paper.dart';
 import 'package:kari/screens/versions.dart';
@@ -280,6 +282,39 @@ void main() {
       expect(selectorCommand('moveToEndOfDocument:'), move('docEnd'));
       expect(selectorCommand('noop:'), isNull);
       expect(selectorCommand('insertNewline'), isNull);
+    });
+  });
+
+  group('편집 세션의 줄', () {
+    test('엔진 오류가 아닌 예외 뒤에도 입력 칸을 엔진 값에 다시 맞춘다', () async {
+      final errors = <FlutterErrorDetails>[];
+      final report = FlutterError.onError;
+      FlutterError.onError = errors.add;
+      addTearDown(() => FlutterError.onError = report);
+      final fake = FakeEngine();
+      await fake.libOpen('/견본');
+      final s = EditSession(fake, await fake.docsCreate('flow', '이력서'));
+      addTearDown(s.dispose);
+      s.open();
+      await s.settled;
+      // 응답의 모양이 틀려 상태를 읽지 못한다(캐스트 오류).
+      fake.stateOverride = {'ime': 3};
+      s.imeUpdate(v('가'));
+      await s.settled;
+      expect(errors, hasLength(1));
+      // 엔진이 입력 칸과 다른 값을 주면 맞춘다.
+      fake.stateOverride = {
+        'ime': {
+          'text': '다른 글',
+          'selStart': 4,
+          'selEnd': 4,
+          'composingStart': -1,
+          'composingEnd': -1,
+        },
+      };
+      s.imeUpdate(v('가나'));
+      await s.settled;
+      expect(s.value.text, '다른 글');
     });
   });
 

@@ -733,6 +733,17 @@ abstract class EngineApi {
     return r?['path'] as String?;
   }
 
+  /// 라이브러리 폴더 [dir]의 백업을 만든 시각(유닉스 ms). 최근 것부터. 라이브러리를 열지 못했을 때도 부른다.
+  Future<List<int>> libBackups(String dir) async => [
+    for (final b in await call('lib.backups', {'dir': dir}) as List)
+      (b as Json)['created'] as int,
+  ];
+
+  /// 손상돼 열리지 않는 라이브러리를 가장 최근의 성한 백업으로 되살리고 연다. 손상된 파일은 폴더에 남는다.
+  /// 되살린 백업을 만든 시각(유닉스 ms).
+  Future<int> libRestoreBackup(String dir) async =>
+      (await call('lib.restoreBackup', {'dir': dir}) as Json)['backup'] as int;
+
   /// 최근 고친 순. [trashed]가 참이면 휴지통만.
   Future<List<DocInfo>> docsList({bool trashed = false}) async => [
     for (final d in await call('docs.list', {'trashed': trashed}) as List)
@@ -762,6 +773,11 @@ abstract class EngineApi {
   /// 사본의 id.
   Future<int> docsDuplicate(int id, String name) async =>
       (await call('docs.duplicate', {'id': id, 'name': name}) as Json)['id']
+          as int;
+
+  /// 기록을 재생하지 못해 열리지 않는 문서의 남은 내용으로 만든 새 문서의 id. 원본은 그대로 둔다.
+  Future<int> docsSalvage(int id, String name) async =>
+      (await call('docs.salvage', {'id': id, 'name': name}) as Json)['id']
           as int;
 
   Future<void> docsTrash(int id) => call('docs.trash', {'id': id});

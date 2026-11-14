@@ -30,8 +30,14 @@ use fail::{bad, fail, Args, Res};
 
 fn handle(request: Option<&str>) -> Res {
     let request = request.ok_or_else(|| bad("요청이 UTF-8 문자열이 아닙니다."))?;
-    let req: Value =
-        serde_json::from_str(request).map_err(|e| bad(format!("요청이 JSON이 아닙니다: {e}")))?;
+    let req: Value = match serde_json::from_str(request) {
+        Ok(v) => v,
+        // 짝 없는 대리 문자(`\ud83d`)는 JSON으로 읽히지 않는다. 붙여넣은 글 한 조각이 요청 전체를 막지 않게
+        // U+FFFD로 바꿔 다시 읽는다.
+        Err(e) => lone_surrogates(request)
+            .and_then(|fixed| serde_json::from_str(&fixed).ok())
+            .ok_or_else(|| bad(format!("요청이 JSON이 아닙니다: {e}")))?,
+    };
     let m = req
         .get("m")
         .and_then(Value::as_str)
@@ -66,6 +72,37 @@ fn handle(request: Option<&str>) -> Res {
     } else {
         library::dispatch(&mut state, m, &Args(a))
     }
+}
+
+/// JSON 글에서 짝 없는 대리 문자의 이스케이프를 `\ufffd`로 바꾼다. 바꾼 것이 없으면 None.
+fn lone_surrogates(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let unit = |i: usize| {
+        (b.get(i..i + 2) == Some(b"\\u"))
+            .then(|| s.get(i + 2..i + 6))
+            .flatten()
+            .and_then(|h| u16::from_str_radix(h, 16).ok())
+    };
+    let (mut out, mut last, mut i) = (String::new(), 0, 0);
+    while i < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        match unit(i) {
+            Some(0xD800..=0xDBFF) if matches!(unit(i + 6), Some(0xDC00..=0xDFFF)) => i += 12,
+            Some(0xD800..=0xDFFF) => {
+                out.push_str(&s[last..i]);
+                out.push_str("\\ufffd");
+                i += 6;
+                last = i;
+            }
+            // 다른 이스케이프(`\\`, `\"`, `\u0041` 등)는 건너뛴다.
+            Some(_) => i += 6,
+            None => i += 2,
+        }
+    }
+    (last > 0).then(|| out + &s[last..])
 }
 
 /// 패닉을 잡아 오류 응답으로 바꾸고, 결과를 응답 JSON으로 만든다.

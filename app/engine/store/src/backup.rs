@@ -1,7 +1,7 @@
 //! 설정과 백업.
 
 use std::fs::{self, File};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{params, OptionalExtension, MAIN_DB};
 use serde_json::{json, Value};
@@ -53,22 +53,38 @@ impl Library {
         if tmp.exists() {
             fs::remove_file(&tmp)?;
         }
-        self.conn
-            .backup(MAIN_DB, &tmp, None::<fn(rusqlite::backup::Progress)>)?;
-        File::open(&tmp)?.sync_all()?;
-        fs::rename(&tmp, &path)?;
+        let made = (|| -> Result<()> {
+            self.conn
+                .backup(MAIN_DB, &tmp, None::<fn(rusqlite::backup::Progress)>)?;
+            File::open(&tmp)?.sync_all()?;
+            fs::rename(&tmp, &path)?;
+            Ok(())
+        })();
+        if made.is_err() {
+            // 이름에 시각이 들어가 다음 백업이 지우지 않으므로, 실패한 조각은 여기서 지운다.
+            let _ = fs::remove_file(&tmp);
+        }
+        made?;
         sync_dir(&dir)?;
-        let mut old: Vec<(u64, PathBuf)> = fs::read_dir(&dir)?
-            .filter_map(|e| e.ok())
-            .filter_map(|e| Some((backup_ms(e.file_name().to_str()?)?, e.path())))
-            .collect();
-        old.sort();
-        let extra = old.len().saturating_sub(KEEP);
-        for (_, p) in old.into_iter().take(extra) {
+        for (_, p) in Library::backups(&self.dir)?.into_iter().skip(KEEP) {
             fs::remove_file(p)?;
         }
         self.set_setting("backup.last", &json!(now))?;
         Ok(path)
+    }
+
+    /// 라이브러리 폴더 `dir`의 백업(만든 시각 ms, 경로). 최근 것부터. 라이브러리를 열지 못했을 때도 쓴다.
+    pub fn backups(dir: impl AsRef<Path>) -> Result<Vec<(u64, PathBuf)>> {
+        let dir = dir.as_ref().join("backups");
+        if !dir.is_dir() {
+            return Ok(Vec::new());
+        }
+        let mut list: Vec<(u64, PathBuf)> = fs::read_dir(&dir)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| Some((backup_ms(e.file_name().to_str()?)?, e.path())))
+            .collect();
+        list.sort_by(|a, b| b.cmp(a));
+        Ok(list)
     }
 
     /// 마지막 백업(설정 `backup.last`)에서 `every_ms`가 지났으면 백업한다.

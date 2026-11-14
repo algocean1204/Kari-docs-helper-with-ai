@@ -283,6 +283,17 @@ fn 백업으로_열면_문서가_같고_열_개만_남는다() {
 }
 
 #[test]
+fn 백업이_실패하면_임시_조각을_남기지_않는다() {
+    let t = Tmp::new("backup-fail");
+    let mut lib = Library::open(&t.0).unwrap();
+    // 백업 이름 자리에 폴더가 있어 마지막 이름 바꾸기가 실패한다.
+    let taken = t.0.join("backups/library-3000.db");
+    fs::create_dir_all(taken.join("x")).unwrap();
+    assert!(lib.backup(3000).is_err());
+    assert!(!t.0.join("backups/library-3000.db.tmp").exists());
+}
+
+#[test]
 fn 손상된_DB를_백업으로_되살린다() {
     let t = Tmp::new("corrupt");
     let (id, hash, backup) = {

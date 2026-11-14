@@ -10,7 +10,7 @@ import '../library.dart';
 import 'app_menu.dart';
 import 'canvas_props.dart';
 import 'canvas_surface.dart';
-import 'doc.dart' show savedWhen;
+import 'doc.dart' show salvageAction, savedWhen;
 import 'name_field.dart';
 import 'paper.dart' show drawsPaper;
 import 'versions.dart';
@@ -22,11 +22,15 @@ class CanvasScreen extends StatefulWidget {
     super.key,
     required this.library,
     required this.docId,
+    this.onOpen,
     this.menu,
   });
 
   final Library library;
   final int docId;
+
+  /// 다른 문서를 연다(되살린 사본).
+  final ValueChanged<int>? onOpen;
 
   /// 메뉴 막대에 문서 명령을 내는 자리. 없으면 메뉴 막대가 없다(시험).
   final MenuHost? menu;
@@ -79,12 +83,16 @@ class _CanvasScreenState extends State<CanvasScreen> {
       now: widget.library.now,
     );
     s.addListener(_onSession);
+    widget.library.editing = s;
     s.open();
   }
 
   /// 화면을 떠나면 문서를 닫는다. 엔진이 "문서를 닫을 때" 버전을 남긴다.
   void _stop() {
     _session.removeListener(_onSession);
+    if (identical(widget.library.editing, _session)) {
+      widget.library.editing = null;
+    }
     _versions = false;
     _session.close();
     _session.dispose();
@@ -216,14 +224,21 @@ class _CanvasScreenState extends State<CanvasScreen> {
                             top: Space.x3,
                             left: Space.x4,
                             right: Space.x4,
-                            child: openError != null
+                            // 방금 한 라이브러리 일(사본 만들기 등)의 실패를 먼저 보인다.
+                            child: libError != null
                                 ? ErrorLine(
-                                    describe(openError),
-                                    onRetry: s.open,
+                                    describe(libError),
+                                    onRetry: widget.library.retry,
                                   )
                                 : ErrorLine(
-                                    describe(libError!),
-                                    onRetry: widget.library.retry,
+                                    describe(openError!),
+                                    onRetry: s.open,
+                                    action: salvageAction(
+                                      openError,
+                                      widget.library,
+                                      _doc,
+                                      widget.onOpen,
+                                    ),
                                   ),
                           ),
                       ],

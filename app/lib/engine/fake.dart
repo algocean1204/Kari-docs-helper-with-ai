@@ -25,6 +25,9 @@ class FakeEngine extends EngineApi {
   final Map<int, Json> docs = {};
   final Map<String, Object?> settings = {};
 
+  /// 백업을 만든 시각(최근 것부터). `lib.restoreBackup`은 첫 것으로 되살린 척하고 연다. 시험용.
+  List<int> backups = [];
+
   /// 이름(`docs.trash` 등)을 넣어 두면 그 호출이 이 오류로 실패한다. 시험용.
   final Map<String, EngineError> failures = {};
 
@@ -105,6 +108,16 @@ class FakeEngine extends EngineApi {
       _open = true;
       return {'schema': 2, 'docs': docs.length};
     }
+    if (m == 'lib.backups') {
+      return [
+        for (final b in backups) {'created': b},
+      ];
+    }
+    if (m == 'lib.restoreBackup') {
+      if (backups.isEmpty) throw const EngineError('not_found', '백업이 없습니다.');
+      _open = true;
+      return {'schema': 2, 'docs': docs.length, 'backup': backups.first};
+    }
     if (!_open) throw const EngineError('not_open', '라이브러리를 열기 전입니다');
     if (m.startsWith('ai.')) return ai.handle(m, a);
     if (m.startsWith('iv.')) return iv.handle(m, a);
@@ -149,7 +162,7 @@ class FakeEngine extends EngineApi {
         d['seq'] = (d['seq'] as int) + 1;
         d['updated'] = t;
         return {'seq': d['seq']};
-      case 'docs.duplicate':
+      case 'docs.duplicate' || 'docs.salvage':
         final d = doc();
         final nodes = jsonDecode(jsonEncode(d['nodes'])) as List;
         final origin = {'doc': d['id'], 'seq': d['seq']};

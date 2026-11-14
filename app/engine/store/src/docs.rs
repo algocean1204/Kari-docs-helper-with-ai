@@ -179,6 +179,19 @@ impl Library {
     /// 현재 내용으로 새 문서(seq 0)를 만든다. 원본(문서, seq)을 기록한다.
     pub fn duplicate_doc(&mut self, id: DocId, name: &str) -> Result<DocId> {
         let src = self.open_doc(id)?.doc;
+        self.insert_copy(id, &src, name)
+    }
+
+    /// 기록을 재생하지 못해 열리지 않는 문서라도, 노드 행이 구조 검사를 통과하면 그 내용으로 새 문서(seq 0)를
+    /// 만든다. 원본은 그대로 둔다(되살린 사본).
+    pub fn salvage_doc(&mut self, id: DocId, name: &str) -> Result<DocId> {
+        let row = rows::doc_row(&self.conn, id)?;
+        let src = rows::load_nodes(&self.conn, id, &row)
+            .map_err(|e| Error::Corrupt(format!("문서 {id}의 내용을 읽지 못했습니다: {e}")))?;
+        self.insert_copy(id, &src, name)
+    }
+
+    fn insert_copy(&mut self, id: DocId, src: &Document, name: &str) -> Result<DocId> {
         let nodes: Vec<Node> = src
             .nodes()
             .map(|n| Node {

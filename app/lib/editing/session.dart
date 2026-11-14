@@ -40,7 +40,7 @@ const outlineAfter = Duration(milliseconds: 300);
 /// 위젯을 모르므로 입력 채널 없이도 쓴다(통합 시험).
 class EditSession extends ChangeNotifier
     with TextInputClient, DeltaTextInputClient
-    implements VersionHost {
+    implements VersionHost, OpenEdits {
   EditSession(this.engine, this.id, {DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
@@ -59,9 +59,14 @@ class EditSession extends ChangeNotifier
   /// 문서를 열지 못한 오류.
   EngineError? openError;
 
-  /// 저장하지 못한 명령의 오류. [retry]가 그 명령을 다시 보낸다.
+  /// 저장하지 못한 명령의 오류. 이것이 있는 동안 새 편집은 받지 않고, [retry]가 기다리는 편집을 차례로 다시 보낸다.
   EngineError? saveError;
-  Future<void> Function()? _retry;
+
+  /// 저장이 실패한 명령과, 실패를 알기 전에 이미 줄에 서 있던 편집(받은 순서). [retry]가 처음부터 다시 보낸다.
+  final _held = <Future<void> Function()>[];
+
+  /// 저장하지 못하고 기다리는 편집 수.
+  int get unsaved => _held.length;
 
   /// 안내 한 줄: 명령을 거절한 사유, 되돌리기가 막힌 이유.
   String? notice;
@@ -130,8 +135,9 @@ class EditSession extends ChangeNotifier
         );
       });
 
-  /// 문서를 열고(`doc.open`) 편집 세션을 연다.
+  /// 문서를 열고(`doc.open`) 편집 세션을 연다. 같은 문서를 닫던 화면이 있으면 그 닫기가 끝난 뒤에 연다.
   Future<void> open() => _then(() async {
+    await docClosing[id];
     try {
       await engine.docOpen(id);
       final s = await engine.editOpen(id);
@@ -146,12 +152,21 @@ class EditSession extends ChangeNotifier
 
   /// 문서를 바꿀 수 있는 엔진 호출 하나. 실패하면 엔진은 이미 명령 전으로 돌아가 있으므로 상태를 다시 읽는다.
   /// [ime]면 입력기 자신의 변경이라 입력 칸 값을 맞추지 않는다(맞추면 조합이 끊긴다).
+  /// [sync]가 아닌 호출(보기, 찾기)은 문서를 바꾸지 않으므로 저장이 실패하는 동안에도 보낸다.
+  ///
+  /// 저장이 실패하면 그 명령과, 이미 줄에 서 있던 편집을 버리지 않고 차례대로 붙잡아 둔다. 입력기의 변경은 앞
+  /// 변경에 이어진 값이라 하나만 다시 보내면 위치가 어긋난다. 실패하는 동안 새 편집은 받지 않는다.
   Future<void> _run(
     Future<EditState> Function() call, {
     bool ime = false,
     bool sync = true,
     VoidCallback? done,
   }) {
+    if (sync && saveError != null) {
+      _refuse();
+      return _queue;
+    }
+    Future<void> again() => _run(call, ime: ime, sync: sync, done: done);
     if (ime) _pendingIme++;
     return _then(() async {
       var counted = ime;
@@ -161,45 +176,66 @@ class EditSession extends ChangeNotifier
       }
 
       try {
+        if (sync && saveError != null) {
+          _held.add(again);
+          notifyListeners();
+          return;
+        }
         final s = await call();
         finish();
-        saveError = null;
-        _retry = null;
         done?.call();
         if (sync) commands++;
         _apply(s, fromIme: ime || !sync);
       } on EngineError catch (e) {
         finish();
-        _failed(e, () => _run(call, ime: ime, sync: sync, done: done));
-        if (sync) commands++;
+        // 보기·찾기의 실패는 문서와 상관없어 상태만 다시 읽는다.
+        if (sync) {
+          if (!_failed(e)) _held.add(again);
+          commands++;
+        }
         try {
           _apply(await engine.editState(id));
         } on EngineError {
           notifyListeners();
         }
+      } finally {
+        // 엔진 오류가 아닌 예외(응답 모양이 틀림 등)에도 센 것을 푼다. 남으면 입력 칸을 엔진 값에 맞추는 길이 닫힌다.
+        finish();
       }
     });
   }
 
-  void _failed(EngineError e, Future<void> Function() again) {
+  /// 저장 실패가 아닌 거절(되돌리기가 막힘, 받을 수 없는 명령)이면 안내만 하고 참. 다시 보내도 같은 결과다.
+  bool _failed(EngineError e) {
     switch (e.code) {
       case 'blocked':
         notice = blockedMessage(e);
       case 'integrity':
         notice = e.message;
+      case 'bad_request' || 'op':
+        notice = refusedMessage;
       default:
         saveError = e;
-        _retry = again;
+        return false;
     }
+    return true;
   }
 
-  /// 저장하지 못한 명령을 다시 보낸다.
-  void retry() {
-    final again = _retry;
-    _retry = null;
-    saveError = null;
+  void _refuse() {
+    notice = stalledMessage;
     notifyListeners();
-    again?.call();
+  }
+
+  /// 저장하지 못한 편집을 받은 순서대로 다시 보낸다. 다시 실패하면 그 뒤의 것은 다시 기다린다.
+  void retry() {
+    final again = [..._held];
+    _held.clear();
+    saveError = null;
+    if (notice == stalledMessage) notice = null;
+    notifyListeners();
+    for (final f in again) {
+      f();
+    }
   }
 
   void _apply(EditState s, {bool fromIme = false}) {
@@ -221,9 +257,11 @@ class EditSession extends ChangeNotifier
     final v = imeValue(s);
     // 입력기 밖의 이유(이동, 누르기, 되돌리기)로 바뀌었으면 입력 칸 값을 새로 맞춘다. 입력기 자신의 변경이면
     // 조합이 없고 더 보낼 것도 없을 때만, 문단이 바뀌는 등 값이 어긋났으면 맞춘다.
-    if (!fromIme) {
+    // 저장이 실패한 동안은 맞추지 않는다: 기다리는 입력기 변경이 지금 입력 칸 값에 이어져 있다.
+    if (saveError == null && !fromIme) {
       _setValue(v);
-    } else if (_pendingIme == 0 &&
+    } else if (saveError == null &&
+        _pendingIme == 0 &&
         s.composingStart < 0 &&
         composingText(_value).isEmpty &&
         (v.text != _value.text ||
@@ -242,6 +280,8 @@ class EditSession extends ChangeNotifier
 
   /// 편집이나 선택이 바뀐 뒤 150ms 조용하면 다시 센다.
   void _recount() {
+    // 닫은 뒤에도 닫기 전에 다시 보낸 편집의 응답이 온다. 그때는 타이머를 새로 걸지 않는다.
+    if (_closed) return;
     _count?.cancel();
     _count = Timer(countAfter, () {
       _then(() async {
@@ -264,6 +304,7 @@ class EditSession extends ChangeNotifier
   }
 
   void _reoutline() {
+    if (_closed) return;
     _outlineTimer?.cancel();
     _outlineTimer = Timer(outlineAfter, _readOutline);
   }
@@ -309,6 +350,7 @@ class EditSession extends ChangeNotifier
   }
 
   void _restartIdle() {
+    if (_closed) return;
     _idle?.cancel();
     _idle = Timer(idleAfter, () {
       _then(() async {
@@ -327,7 +369,7 @@ class EditSession extends ChangeNotifier
   /// 조합 중이면 조합 글을 확정해 보내고 입력 칸 값을 맞춘다. 입력기가 아닌 명령 앞에 부른다.
   void _commitComposing() {
     final r = commitComposing(_value);
-    if (r == null) return;
+    if (r == null || saveError != null) return;
     final (change, after) = r;
     _setValue(after);
     _run(() => engine.editIme(id, change.toArgs(), now: _ms()), ime: true);
@@ -487,21 +529,35 @@ class EditSession extends ChangeNotifier
     return out.future;
   }
 
+  @override
+  Future<bool> flush() async {
+    if (saveError != null) retry();
+    _commitComposing();
+    await _queue;
+    return saveError == null;
+  }
+
   /// 화면을 떠날 때. 조합 중인 글을 확정하고 문서를 닫는다(엔진이 "문서를 닫을 때" 버전을 남긴다).
+  /// 저장하지 못한 편집이 있으면 닫기 전에 한 번 더 보내고, 또 실패하면 버린다. 그래서 화면은 떠나기 전에
+  /// [flush]로 확인하고, 저장하지 못한 것이 남으면 사용자에게 묻는다.
   /// 닫기가 실패해도 고친 내용은 커밋할 때 이미 저장됐으므로 알리지 않는다.
   Future<void> close() {
+    if (saveError != null) retry();
     detach();
     _idle?.cancel();
     _count?.cancel();
     _outlineTimer?.cancel();
     _closed = true;
-    return _then(() async {
-      try {
-        await engine.docClose(id);
-      } on EngineError {
-        // 위와 같다.
-      }
-    });
+    return closingDoc(
+      id,
+      _then(() async {
+        try {
+          await engine.docClose(id);
+        } on EngineError {
+          // 위와 같다.
+        }
+      }),
+    );
   }
 
   // 입력 채널. 종이 영역이 초점을 가질 때만 붙인다.
@@ -557,6 +613,12 @@ class EditSession extends ChangeNotifier
 
   /// 입력기가 준 새 값. 옛 값과 견주어 엔진에 보낸다.
   void imeUpdate(TextEditingValue next) {
+    if (saveError != null) {
+      // 저장이 실패하는 동안은 받지 않는다. 입력 칸을 기다리는 편집에 이어진 값으로 되돌린다.
+      _setValue(_value);
+      _refuse();
+      return;
+    }
     final changes = imeChanges(_value, next);
     _value = next;
     for (final c in changes) {
@@ -636,6 +698,32 @@ List<(String, String)> stylesOf(List<Json> roots) {
             e.key as String,
       ),
   ];
+}
+
+/// 엔진이 받을 수 없는 명령이라 문서를 바꾸지 않았을 때의 안내.
+const refusedMessage = '이 명령은 처리할 수 없어 문서를 바꾸지 않았습니다.';
+
+/// 저장이 실패한 동안 새 편집을 받지 않을 때의 안내.
+const stalledMessage = '저장하지 못한 편집이 있어 지금은 고칠 수 없습니다. 다시 시도를 누르세요.';
+
+/// 열린 편집 화면의 세션(흐름 문서, 캔버스). 화면을 떠나거나 앱을 끄기 전에 부른다.
+abstract interface class OpenEdits {
+  /// 조합 중인 글을 확정하고 저장하지 못한 편집을 다시 보낸 뒤, 앞선 호출이 모두 끝나기를 기다린다.
+  /// 모두 저장됐으면 참. 거짓이면 저장하지 못한 편집이 그대로 남아 있다(다시 부르면 또 보낸다).
+  Future<bool> flush();
+}
+
+/// 문서마다 아직 끝나지 않은 닫기(`doc.close`). 엔진은 문서를 닫을 때 그 편집 세션까지 지우고 화면마다 줄이
+/// 따로라, 같은 문서를 닫자마자 다시 연 화면은 앞 화면의 닫기가 끝난 뒤에 연다.
+final docClosing = <int, Future<void>>{};
+
+/// 닫기 [done]을 [docClosing]에 적어 두고 끝나면 지운다.
+Future<void> closingDoc(int id, Future<void> done) {
+  docClosing[id] = done;
+  done.whenComplete(() {
+    if (identical(docClosing[id], done)) docClosing.remove(id);
+  });
+  return done;
 }
 
 /// 되돌리기가 막혔을 때의 안내. detail은 막은 단위의 목록이다.

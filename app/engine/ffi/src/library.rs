@@ -10,7 +10,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{Kind, Node};
-use kari_store::{Actor, DocId, Library, Meta, OpenDoc, Outcome, Reason, VersionInfo, VERSION};
+use kari_store::{
+    Actor, DocId, Error as StoreError, Library, Meta, OpenDoc, Outcome, Reason, VersionInfo,
+    VERSION,
+};
 
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::session;
@@ -130,6 +133,46 @@ fn lib_open(state: &mut Option<Engine>, a: &Args) -> Res {
     Ok(json!({"schema": VERSION, "docs": count}))
 }
 
+/// 앱을 켜 둔 채로도 하루 한 번 백업한다. 편집이 쉬거나 문서를 닫을 때 때가 됐는지 본다(바뀐 것이 있을 때다).
+/// 백업이 실패해도 편집과 버전은 이미 저장됐으므로 그 호출을 실패로 만들지 않는다. 다음 때에 다시 해 본다.
+fn backup_if_due(e: &mut Engine) {
+    let _ = e.lib.backup_if_due(now_ms(), DAY_MS);
+}
+
+/// 손상돼 열리지 않는 라이브러리를 가장 최근의 성한 백업으로 되살리고 연다. 손상된 파일은 옆에
+/// (`library.db.corrupt-<ms>`) 남는다. 손상이 아닌 까닭(더 새 형식, 잠김)으로 열리지 않으면 건드리지 않는다.
+fn restore_backup(state: &mut Option<Engine>, a: &Args) -> Res {
+    if state.is_some() {
+        return Err(bad("라이브러리가 이미 열려 있습니다."));
+    }
+    let dir = PathBuf::from(a.str("dir")?);
+    if !dir.is_absolute() {
+        return Err(bad("dir는 절대 경로입니다."));
+    }
+    match Library::open(&dir) {
+        Err(StoreError::Corrupt(_)) => {}
+        Err(e) => return Err(e.into()),
+        Ok(_) => return Err(bad("라이브러리가 손상되지 않아 되살리지 않았습니다.")),
+    }
+    let mut last = fail("not_found", "백업이 없습니다.");
+    for (ms, path) in Library::backups(&dir)? {
+        match Library::restore_backup(&dir, &path) {
+            Ok(lib) => {
+                *state = Some(Engine {
+                    lib,
+                    dir,
+                    docs: HashMap::new(),
+                });
+                let e = on(state)?;
+                let count = e.lib.docs(false)?.len() + e.lib.docs(true)?.len();
+                return Ok(json!({"schema": VERSION, "docs": count, "backup": ms}));
+            }
+            Err(e) => last = e.into(),
+        }
+    }
+    Err(last)
+}
+
 pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
     match m {
         "lib.open" => lib_open(state, a),
@@ -144,6 +187,11 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             }
             Ok(Value::Null)
         }
+        "lib.backups" => Ok(Library::backups(a.str("dir")?)?
+            .iter()
+            .map(|(ms, _)| json!({"created": ms}))
+            .collect()),
+        "lib.restoreBackup" => restore_backup(state, a),
         "lib.backupIfDue" => {
             let e = on(state)?;
             let path = e.lib.backup_if_due(now_ms(), DAY_MS)?;
@@ -207,6 +255,10 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let e = on(state)?;
             Ok(json!({"id": e.lib.duplicate_doc(a.id("id")?, a.str("name")?)?}))
         }
+        "docs.salvage" => {
+            let e = on(state)?;
+            Ok(json!({"id": e.lib.salvage_doc(a.id("id")?, a.str("name")?)?}))
+        }
         "docs.trash" => {
             on(state)?.lib.trash_doc(a.id("id")?, now_ms())?;
             Ok(Value::Null)
@@ -240,6 +292,7 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             e.lib.create_version(id, Reason::Close, "", now_ms())?;
             e.docs.remove(&id);
             session::remove(id);
+            backup_if_due(e);
             Ok(Value::Null)
         }
         "doc.nodes" => {
@@ -332,6 +385,7 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let v = e
                 .lib
                 .create_version(a.id("id")?, Reason::Idle, "", now_ms())?;
+            backup_if_due(e);
             Ok(v.as_ref().map_or(Value::Null, version_json))
         }
         "doc.stateAt" => {

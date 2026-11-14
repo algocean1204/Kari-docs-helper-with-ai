@@ -260,6 +260,8 @@ pub fn run(seed: u64) -> Tally {
                 0..=44 => {
                     let p0 = target(&mut r, &mut t);
                     drag(&mut r, &mut t, p0, &mut tally, &tag);
+                    // 누르기가 편집 중이던 빈 글 상자를 지우는 묶음을 끌기의 묶음과 따로 낼 수 있다.
+                    h.sync_all(&t, &tag);
                 }
                 45..=54 => {
                     let p = target(&mut r, &mut t);

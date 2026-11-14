@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'editing/session.dart' show OpenEdits, docClosing;
 import 'engine/engine.dart';
 import 'gaze.dart';
 import 'interview.dart';
@@ -42,6 +43,9 @@ class Library extends ChangeNotifier {
   LibraryPhase phase = LibraryPhase.opening;
   EngineError? openError;
 
+  /// 손상돼 열지 못했을 때 되살릴 수 있는 백업을 만든 시각(유닉스 ms, 최근 것부터). 그 밖에는 비었다.
+  List<int> backups = const [];
+
   /// 살아 있는 문서. 최근 고친 순.
   List<DocInfo> docs = const [];
   List<DocInfo> trashed = const [];
@@ -67,6 +71,9 @@ class Library extends ChangeNotifier {
   /// 지금 진행하는 면접. 화면을 옮겨도 이어진다.
   late final interview = InterviewRun(this);
 
+  /// 지금 열린 편집 화면의 세션. 편집 화면이 열 때 적고 닫을 때 지운다. 화면을 떠나거나 앱을 끄기 전에 쓴다.
+  OpenEdits? editing;
+
   /// 시선 기록의 카메라. 앱만 넣는다. 견본 모드와 시험은 넣지 않아 카메라 채널을 부르지 않는다.
   GazeCamera? camera;
   late final gaze = GazeRecorder(this);
@@ -83,11 +90,42 @@ class Library extends ChangeNotifier {
     try {
       await engine.libOpen(dir);
     } on EngineError catch (e) {
-      openError = e;
-      phase = LibraryPhase.failed;
-      notifyListeners();
+      await _failed(e);
       return;
     }
+    await _ready();
+  }
+
+  /// 손상돼 열지 못한 라이브러리를 가장 최근의 성한 백업으로 되살리고 연다. 손상된 파일은 자료 폴더에 남는다.
+  Future<void> restoreBackup() async {
+    phase = LibraryPhase.opening;
+    notifyListeners();
+    try {
+      await engine.libRestoreBackup(dir);
+    } on EngineError catch (e) {
+      await _failed(e);
+      return;
+    }
+    await _ready();
+  }
+
+  Future<void> _failed(EngineError e) async {
+    openError = e;
+    backups = const [];
+    if (e.code == 'corrupt') {
+      try {
+        backups = await engine.libBackups(dir);
+      } on EngineError {
+        // 백업을 읽지 못하면 되살리기를 보이지 않는다.
+      }
+    }
+    phase = LibraryPhase.failed;
+    notifyListeners();
+  }
+
+  Future<void> _ready() async {
+    openError = null;
+    backups = const [];
     phase = LibraryPhase.ready;
     await _run(() async {
       final cutoff = _now().subtract(keepTrash).millisecondsSinceEpoch;
@@ -120,6 +158,16 @@ class Library extends ChangeNotifier {
       }
     }
     if (changed) await _run(_loadAi);
+  }
+
+  /// 앱을 끌 때. 열린 편집 화면의 조합 중인 글을 확정하고 저장하지 못한 편집을 다시 보낸 뒤 라이브러리를 닫는다.
+  /// 그래도 저장하지 못한 것이 있으면 닫지 않고 거짓을 돌려준다([force]면 그래도 닫는다).
+  Future<bool> shutdown({bool force = false}) async {
+    if (!force && !(await editing?.flush() ?? true)) return false;
+    // 막 떠난 화면의 닫기(줄에 남은 편집과 `doc.close`)가 라이브러리를 닫기 전에 닿게 한다.
+    await Future.wait([...docClosing.values]);
+    await close();
+    return true;
   }
 
   /// 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다. 앱이 꺼질 때 부른다.
@@ -163,6 +211,16 @@ class Library extends ChangeNotifier {
       () async => id = await engine.docsDuplicate(d.id, copyName(d.name)),
     );
     return docs.where((x) => x.id == id).firstOrNull;
+  }
+
+  /// 기록이 손상돼 열리지 않는 문서의 남은 내용으로 "… 되살린 사본"을 만들고 그 id를 돌려준다. 원본은 그대로 둔다.
+  /// 실패하면 null.
+  Future<int?> salvage(DocInfo d) async {
+    int? id;
+    await _run(
+      () async => id = await engine.docsSalvage(d.id, salvageName(d.name)),
+    );
+    return id;
   }
 
   Future<void> trash(DocInfo d) => _run(() => engine.docsTrash(d.id));
@@ -390,6 +448,10 @@ bool validName(String s) {
 /// 복제본의 이름. 200자를 넘지 않게 원래 이름을 자른다.
 String copyName(String name) =>
     '${String.fromCharCodes(name.runes.take(197))} 사본';
+
+/// 되살린 사본의 이름. 200자를 넘지 않게 원래 이름을 자른다.
+String salvageName(String name) =>
+    '${String.fromCharCodes(name.runes.take(193))} 되살린 사본';
 
 /// 오류 한 줄의 글. 엔진의 설명에 코드를 붙인다.
 String describe(EngineError e) =>

@@ -359,26 +359,35 @@ void main() {
     expect(await texts(s.id), ['처음 글 더']);
   });
 
+  /// 다른 연결에서 기록 표에 넣기를 막는다(엔진 시험 threads.rs와 같은 방법). 앱의 연결에는 쓰기 실패로 보인다.
+  /// [label]을 주면 그 이름의 묶음만 막는다.
+  void block(bool on, {String? label}) {
+    final when = label == null ? '' : "WHEN NEW.label = '$label' ";
+    final r = Process.runSync('sqlite3', [
+      '${tmp.path}/library.db',
+      on
+          ? "CREATE TRIGGER no_write BEFORE INSERT ON batches ${when}BEGIN SELECT RAISE(ABORT, '시험: 쓰기 실패'); END;"
+          : 'DROP TRIGGER no_write;',
+    ]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
+  }
+
+  TextEditingValue typed(String text) => TextEditingValue(
+    text: text,
+    selection: TextSelection.collapsed(offset: text.length),
+  );
+
   test('커밋이 실패하면 저장하지 못했다고 알리고, 다시 시도하면 저장한다', () async {
     final s = await open();
     await type(s, '가');
-    // 다른 연결에서 기록 표에 넣기를 막는다(엔진 시험 threads.rs와 같은 방법). 앱의 연결에는 쓰기 실패로 보인다.
-    void block(bool on) {
-      final r = Process.runSync('sqlite3', [
-        '${tmp.path}/library.db',
-        on
-            ? "CREATE TRIGGER no_write BEFORE INSERT ON batches BEGIN SELECT RAISE(ABORT, '시험: 쓰기 실패'); END;"
-            : 'DROP TRIGGER no_write;',
-      ]);
-      expect(r.exitCode, 0, reason: '${r.stderr}');
-    }
-
     block(true);
     try {
       await type(s, '가나');
       expect(s.saveError?.code, 'io');
-      // 엔진은 앞 사본을 명령 전으로 돌렸고, 입력 칸도 그에 맞췄다.
-      expect(s.value.text, '가');
+      expect(s.unsaved, 1);
+      // 엔진은 앞 사본을 명령 전으로 돌렸다. 입력 칸은 기다리는 편집에 이어진 값 그대로다.
+      expect(s.state!.imeText, '가');
+      expect(s.value.text, '가나');
     } finally {
       block(false);
     }
@@ -386,5 +395,149 @@ void main() {
     await s.settled;
     expect(s.saveError, isNull);
     expect(await texts(s.id), ['가나']);
+  });
+
+  test('저장이 실패하는 동안 이미 친 글은 다시 시도 뒤 순서대로 모두 남고, 새 입력은 받지 않는다', () async {
+    final s = await open();
+    await type(s, '가');
+    block(true);
+    // 사용자는 실패를 알기 전에 이어서 친다(응답을 기다리지 않는다).
+    s.imeUpdate(typed('가나'));
+    s.imeUpdate(typed('가나다'));
+    s.imeUpdate(typed('가나다라'));
+    await s.settled;
+    expect(s.saveError?.code, 'io');
+    expect(s.unsaved, 3);
+    expect(await texts(s.id), ['가']);
+    // 실패를 안 뒤의 입력과 명령은 받지 않고 알린다. 입력 칸은 기다리는 편집에 이어진 값으로 돌아간다.
+    s.imeUpdate(typed('가나다라마'));
+    await s.cmd({'k': 'enter'});
+    await s.settled;
+    expect(s.value.text, '가나다라');
+    expect(s.notice, stalledMessage);
+    expect(s.unsaved, 3);
+    // 다시 시도가 또 실패하면 그 뒤의 것도 순서대로 다시 기다린다.
+    s.retry();
+    await s.settled;
+    expect(s.saveError?.code, 'io');
+    expect(s.unsaved, 3);
+    block(false);
+    s.retry();
+    await s.settled;
+    expect(s.saveError, isNull);
+    expect(s.unsaved, 0);
+    expect(s.notice, isNull);
+    expect(await texts(s.id), ['가나다라']);
+    expect(s.value.text, '가나다라');
+    // 다시 받는다.
+    await type(s, '가나다라마');
+    expect(await texts(s.id), ['가나다라마']);
+  });
+
+  test('같은 문서를 닫자마자 다시 열어도 새 화면이 열리고 입력이 저장된다', () async {
+    final a = await open();
+    // 조합 중: 화면을 떠나면 조합 확정(edit.ime) 뒤에 doc.close가 앞 세션의 줄에 선다.
+    a.imeUpdate(
+      const TextEditingValue(
+        text: '한',
+        selection: TextSelection.collapsed(offset: 1),
+        composing: TextRange(start: 0, end: 1),
+      ),
+    );
+    await a.settled;
+    final closing = a.close();
+    final b = EditSession(engine, a.id);
+    sessions.add(b);
+    final opening = b.open();
+    await Future.wait([closing, opening]);
+    expect(b.openError, isNull);
+    expect(b.state, isNotNull);
+    await type(b, '${b.value.text}글');
+    expect(b.saveError, isNull);
+    expect(await texts(a.id), ['한글']);
+  });
+
+  test('짝 없는 대리 문자가 든 글을 붙여도 저장되고 그 글자는 대체 문자가 된다', () async {
+    final s = await open();
+    await s.cmd({'k': 'paste', 'text': '가\uD83D나'});
+    expect(s.saveError, isNull);
+    expect(await texts(s.id), ['가\uFFFD나']);
+  });
+
+  test('앱을 끌 때 붙잡은 편집을 다시 보내고, 그래도 저장하지 못하면 라이브러리를 닫지 않는다', () async {
+    final s = await open();
+    await type(s, '가');
+    block(true);
+    s.imeUpdate(typed('가나'));
+    s.imeUpdate(typed('가나다'));
+    await s.settled;
+    expect(s.unsaved, 2);
+    final lib = Library(engine, tmp.path)..editing = s;
+    expect(await lib.shutdown(), isFalse);
+    // 닫지 않았다: 붙잡은 편집이 그대로 있고 라이브러리를 읽을 수 있다.
+    expect(s.unsaved, 2);
+    expect(await texts(s.id), ['가']);
+    block(false);
+    expect(await lib.shutdown(), isTrue);
+    await engine.libOpen(tmp.path);
+    expect(await texts(s.id), ['가나다']);
+  });
+
+  test('앱을 끌 때 조합 중인 마지막 음절도 저장한다', () async {
+    final s = await open();
+    s.imeUpdate(
+      const TextEditingValue(
+        text: '안녕',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 1, end: 2),
+      ),
+    );
+    await s.settled;
+    expect(await texts(s.id), ['안']);
+    final lib = Library(engine, tmp.path)..editing = s;
+    expect(await lib.shutdown(), isTrue);
+    await engine.libOpen(tmp.path);
+    expect(await texts(s.id), ['안녕']);
+  });
+
+  test('떠나기 전 확인(flush): 다시 보내도 저장하지 못하면 붙잡은 편집을 그대로 두고, 저장되면 참', () async {
+    final s = await open();
+    await type(s, '라');
+    block(true);
+    await type(s, '라마');
+    expect(s.unsaved, 1);
+    expect(await s.flush(), isFalse);
+    expect(s.saveError?.code, 'io');
+    expect(s.unsaved, 1);
+    block(false);
+    expect(await s.flush(), isTrue);
+    expect(s.unsaved, 0);
+    await s.close();
+    expect(await texts(s.id), ['라마']);
+  });
+
+  test('자동 서식만 저장하지 못해도 앞 입력은 한 번만 들어간다', () async {
+    // Enter 뒤 자동 링크.
+    final s = await open();
+    await type(s, 'https://example.com');
+    block(true, label: '자동 서식');
+    await s.cmd({'k': 'enter'});
+    expect(s.saveError, isNull);
+    expect(s.unsaved, 0);
+    expect(s.notice, isNotNull);
+    block(false);
+    s.retry();
+    await s.settled;
+    expect(await texts(s.id), ['https://example.com', '']);
+    // 입력기의 공백 뒤 자동 목록.
+    final t = await open('목록');
+    await type(t, '-');
+    block(true, label: '자동 서식');
+    await type(t, '- ');
+    expect(t.saveError, isNull);
+    block(false);
+    t.retry();
+    await t.settled;
+    expect(await texts(t.id), ['- ']);
   });
 }

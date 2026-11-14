@@ -180,7 +180,7 @@ sequenceDiagram
 |---|---|
 | `library.db` | SQLite 라이브러리 DB 하나. 문서, 기록, 스냅샷, 버전, 에셋 정보, 설정, 면접 기록 |
 | `assets/<해시 앞 2자>/<해시>` | 그림 파일. 이름은 내용의 SHA-256 |
-| `backups/library-<ms>.db` | 백업. 라이브러리를 열 때 마지막 백업에서 하루가 지났으면 만든다. 최근 10개를 남긴다 |
+| `backups/library-<ms>.db` | 백업. 라이브러리를 열 때, 편집이 쉬거나 문서를 닫을 때 마지막 백업에서 하루가 지났으면 만든다. 최근 10개를 남긴다 |
 
 - 위치: `~/Library/Application Support/dev.clonamic.kari`. 앱은 샌드박스 안에서 돌아 실제로는 `~/Library/Containers/dev.clonamic.kari/` 아래에 놓인다.
 - 환경 변수 `KARI_HOME`을 주면 그 폴더를 쓴다.
