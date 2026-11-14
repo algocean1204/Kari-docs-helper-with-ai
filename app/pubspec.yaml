@@ -13,7 +13,7 @@ dependencies:
   ffi: ^2.1.4
   # hook/build.dart가 엔진의 동적 라이브러리를 빌드해 앱에 싣는다.
   code_assets: ^1.0.0
-  hooks: ^1.0.0
+  hooks: ^2.2.0
 
 dev_dependencies:
   flutter_test:
