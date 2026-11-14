@@ -764,10 +764,7 @@ class _PaperViewState extends State<PaperView>
                   scale: _pinch,
                   child: surface == null
                       ? null
-                      : Texture(
-                          textureId: surface.textureId,
-                          filterQuality: FilterQuality.none,
-                        ),
+                      : Surface.view(surface.textureId),
                 ),
                 // 모든 일치는 옅게(지금 일치는 엔진이 선택 색으로 그린다).
                 for (final r in pinching ? const <Rect4>[] : _marks)

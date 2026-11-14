@@ -1,6 +1,7 @@
 import 'dart:ffi';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 /// 엔진이 그린 화소를 Flutter 텍스처로 올리는 macOS 접착(macos/Runner/MainFlutterWindow.swift).
 ///
@@ -38,6 +39,10 @@ class Surface {
       ).asFunction(),
     );
   }
+
+  /// 텍스처를 보이는 위젯. 위젯 시험에는 텍스처가 없어, 화면을 그림으로 남기는 시험이 그린 화소를 보일 위젯으로 바꾼다.
+  static Widget Function(int textureId) view = (id) =>
+      Texture(textureId: id, filterQuality: FilterQuality.none);
 
   /// 텍스처를 푼다. 편집 화면을 떠날 때.
   static Future<void> dispose() => _channel.invokeMethod<void>('dispose');
