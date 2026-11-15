@@ -17,8 +17,8 @@ use std::sync::{Mutex, PoisonError};
 
 use kari_layout::{Cap, FontId, Item, Join, Layout, Rect, Seg, SLANT};
 use skia_safe::{
-    paint, surfaces, AlphaType, BlurStyle, Borrows, Canvas, ClipOp, Color, ColorType, Data,
-    FilterMode, Font, FontHinting, FontMgr, ImageInfo, MaskFilter, Matrix, MipmapMode, Paint,
+    paint, surfaces, AlphaType, BlendMode, BlurStyle, Borrows, Canvas, ClipOp, Color, ColorType,
+    Data, FilterMode, Font, FontHinting, FontMgr, ImageInfo, MaskFilter, Matrix, MipmapMode, Paint,
     PaintStyle, PathBuilder, PathEffect, Point, QuickReject, RRect, SamplingOptions, Surface,
     TextBlobBuilder, Typeface,
 };
@@ -184,7 +184,7 @@ fn target(frame: Frame, bg: Option<[u8; 4]>, top: i32) -> Result<Target, &'stati
     })
 }
 
-/// 화소 버퍼에 그린다. 순서: 바탕색 → 보이는 쪽마다 그림자와 흰 종이 → 선택 영역 → 표시 목록 → 조합 밑줄.
+/// 화소 버퍼에 그린다. 순서: 바탕색 → 보이는 쪽마다 그림자와 흰 종이 → 표시 목록 → 선택 영역(곱하기) → 조합 밑줄.
 /// 커서는 그리지 않는다(앱이 그 위에 올린다). 버퍼의 크기와 줄 간격을 넘겨 쓰지 않는다.
 /// 그림은 `images`가 풀어 기억해 둔 것을 쓴다.
 pub fn draw(
@@ -209,11 +209,15 @@ pub fn draw(
         canvas.save();
         canvas.translate((g.left, top));
         canvas.scale((g.k, g.k));
-        let sel = fill(scene.colors.selection);
+        draw_items(canvas, faces, &Mutex::new(&mut *images), &page.items);
+        // 선택은 항목 위에 곱하기로 얹는다. 항목보다 먼저 칠하면 칸·문단·글자의 바탕이 선택을 덮고,
+        // 곱하기라 흰 종이 위에서는 선택 색 그대로이고 글자는 가리지 않는다.
+        // 한계: 아주 어두운 바탕 위에서는 선택이 거의 보이지 않는다
+        let mut sel = fill(scene.colors.selection);
+        sel.set_blend_mode(BlendMode::Multiply);
         for r in scene.selection.iter().filter(|r| r.page == i) {
             canvas.draw_rect(sk_rect(r.x, r.y, r.w, r.h), &sel);
         }
-        draw_items(canvas, faces, &Mutex::new(&mut *images), &page.items);
         if scene.guides && !page.guides.is_empty() {
             guides(canvas, &page.guides, g.k);
         }

@@ -263,6 +263,31 @@ fn selection_color() {
 }
 
 #[test]
+fn selection_shows_over_cell_fill() {
+    let mut k = kit();
+    let mut d = doc(json!({}), &plain(&["앞"]));
+    let ops = json!([
+        {"op": "add", "node": {"id": "t", "type": "table", "parent": "root", "props": {"cols": [200]}}},
+        {"op": "add", "node": {"id": "r", "type": "row", "parent": "t"}},
+        {"op": "add", "node": {"id": "c", "type": "cell", "parent": "r", "props": {"fill": "#FFFF00FF"}}},
+        {"op": "add", "node": {"id": "q", "type": "para", "parent": "c", "props": {"runs": [{"t": "2026-11-15"}]}}},
+    ]);
+    d.apply(&ops, Guard::default()).unwrap();
+    k.lay.layout(&d, None);
+    let sel = k.lay.selection(&Pos::new("p0", 0), &Pos::new("q", 10));
+    let r = *sel.iter().max_by(|a, b| a.y.total_cmp(&b.y)).unwrap();
+    let mut s = shoot(&k, (1000.0, 700.0), 0.0, &sel, &[]);
+    let (x, y) = s.geo.to_px(0, r.x, r.y);
+    let (w, h) = (r.w * s.geo.k, r.h * s.geo.k);
+    // 칸의 바탕이 선택을 덮지 않는다(바탕색 그대로인 화소가 없다). 글은 그대로 보인다.
+    let yellow = s.share(x, y, w, h, |p| p == [0xFF, 0xFF, 0x00, 0xFF]);
+    assert!(yellow < 0.01, "칸 바탕이 선택을 덮음: {yellow}");
+    let ink = s.share(x, y, w, h, dark);
+    assert!(ink > 0.02, "선택한 글이 보여야 한다: {ink}");
+    s.save("03-selection-cell-fill");
+}
+
+#[test]
 fn composing_underline() {
     let mut k = kit();
     let d = doc(json!({}), &plain(&LINES[..2]));
