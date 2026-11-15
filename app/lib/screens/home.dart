@@ -13,8 +13,9 @@ typedef OpenDoc = void Function(DocInfo doc, {String? reveal});
 /// 면접 준비 화면으로 간다. 그 문서와 공고를 골라 둔다.
 typedef StartInterview = void Function({int? doc, String? posting});
 
-/// 홈(대시보드). 위에서 아래로: 주인공 카드 하나 → 준비 줄(첫 연습을 마치면 사라짐) → 문서 → 채용공고.
-/// 주인공 카드는 상태에 따라 하나이고, 화면의 채운 단추는 그 카드의 것 하나뿐이다.
+/// 홈(대시보드). 위에서 아래로: 앱 설명 한 줄 → 다음 할 일 카드 하나 → 첫 실행 체크리스트(첫 연습을 마치면 사라짐)
+/// → 내 진척 → 문서와 채용공고(최근 것 몇 개). 화면의 채운 단추는 다음 할 일 카드의 것 하나뿐이다.
+/// [full]이면 옆 메뉴 "문서"의 화면이다: 문서와 채용공고를 모두 보인다.
 class LibraryHome extends StatelessWidget {
   const LibraryHome({
     super.key,
@@ -28,6 +29,10 @@ class LibraryHome extends StatelessWidget {
     required this.onStartInterview,
     required this.onResume,
     required this.onShowReport,
+    this.onCreateSample,
+    this.onPractice,
+    this.onShowAll,
+    this.full = false,
   });
 
   final Library library;
@@ -48,6 +53,21 @@ class LibraryHome extends StatelessWidget {
 
   /// 그 면접의 리포트로 간다.
   final ValueChanged<String> onShowReport;
+
+  /// 견본 이력서로 새 문서를 만들고 연다. 없으면 체크리스트에 그 단추가 없다.
+  final VoidCallback? onCreateSample;
+
+  /// 그 연습(세션 목록의 한 줄)의 설정으로 면접 준비에 간다(리포트의 "이 주제로 다시 연습"과 같다).
+  final ValueChanged<Json>? onPractice;
+
+  /// 문서와 채용공고를 모두 보는 화면(옆 메뉴의 "문서")으로 간다.
+  final VoidCallback? onShowAll;
+
+  /// 문서와 채용공고만 모두 보인다.
+  final bool full;
+
+  /// 홈에 보이는 문서와 공고의 수. 나머지는 "모두 보기"에 있다.
+  static const recentMax = 5;
 
   Future<void> _rename(BuildContext context, DocInfo d) async {
     final name = await showDialog<String>(
@@ -142,18 +162,29 @@ class LibraryHome extends StatelessWidget {
     builder: (context, _) => _build(context),
   );
 
+  /// "모두 보기 (n)" 글 단추. 숨긴 것이 있을 때만.
+  Widget? _showAll(String what, int total) =>
+      full || total <= recentMax || onShowAll == null
+      ? null
+      : Padding(
+          padding: const EdgeInsets.only(top: Space.x1),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: AppButton(
+              '$what 모두 보기 ($total)',
+              kind: ButtonKind.quiet,
+              onPressed: onShowAll,
+            ),
+          ),
+        );
+
   Widget _build(BuildContext context) {
     final c = AppColors.of(context);
     final docs = library.docs;
     final now = library.now();
     final error = library.error;
     final finished = library.sessions.any((s) => s['status'] == 'done');
-    final steps = <(String, bool, VoidCallback)>[
-      ('이력서', docs.any((d) => d.kind == 'flow'), onCreate),
-      ('AI 연결', library.connected, onOpenSettings),
-      ('채용공고', library.postings.isNotEmpty, onAddPosting),
-      ('첫 연습', finished, () => onStartInterview()),
-    ];
+    final hasResume = docs.any((d) => d.kind == 'flow');
     String about(DocInfo d) =>
         '${kindLabel(d.kind)} · ${formatWhen(d.updated, now)}';
     final docList = _Section(
@@ -161,9 +192,11 @@ class LibraryHome extends StatelessWidget {
       action: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 캔버스는 이력서 밖의 일이라 글 단추로 둔다.
           AppButton(
             '새 캔버스',
             icon: Icons.dashboard_outlined,
+            kind: ButtonKind.quiet,
             onPressed: onCreateCanvas,
           ),
           const SizedBox(width: Space.x2),
@@ -179,7 +212,8 @@ class LibraryHome extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final d in docs)
+          if (docs.isEmpty) _Empty('문서가 없습니다. 새 문서를 만들거나 다른 앱의 파일을 가져오세요.'),
+          for (final d in full ? docs : docs.take(recentMax))
             _Row(
               icon: d.kind == 'canvas'
                   ? Icons.dashboard_outlined
@@ -189,6 +223,7 @@ class LibraryHome extends StatelessWidget {
               onTap: () => onOpen(d),
               action: _more(context, d),
             ),
+          ?_showAll('문서', docs.length),
           if (library.trashed.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: Space.x2),
@@ -208,42 +243,34 @@ class LibraryHome extends StatelessWidget {
         ],
       ),
     );
+    final postings = library.postings;
     final postingList = _Section(
       title: '채용공고',
       action: AppButton('공고 추가', icon: Icons.add, onPressed: onAddPosting),
-      child: library.postings.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.x3,
-                vertical: Space.x2,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (postings.isEmpty) _Empty('지원할 채용공고를 붙여넣으면 질문의 깊이를 맞춥니다.'),
+          for (final p in full ? postings : postings.take(recentMax))
+            _Row(
+              icon: Icons.work_outline,
+              title: p['title'] as String,
+              subtitle: '${formatWhen(p['added'] as int, now)}에 추가',
+              onTap: () => _showPosting(context, p),
+              action: MoreMenu(
+                tooltip: '채용공고 메뉴',
+                items: [
+                  ('내용 보기', () => _showPosting(context, p)),
+                  ('지우기', () => _removePosting(context, p)),
+                ],
               ),
-              child: KeepText(
-                '지원할 채용공고를 붙여넣으면 질문의 깊이를 맞춥니다.',
-                style: AppText.body.copyWith(color: c.textMuted),
-              ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final p in library.postings)
-                  _Row(
-                    icon: Icons.work_outline,
-                    title: p['title'] as String,
-                    subtitle: '${formatWhen(p['added'] as int, now)}에 추가',
-                    onTap: () => _showPosting(context, p),
-                    action: MoreMenu(
-                      tooltip: '채용공고 메뉴',
-                      items: [
-                        ('내용 보기', () => _showPosting(context, p)),
-                        ('지우기', () => _removePosting(context, p)),
-                      ],
-                    ),
-                  ),
-              ],
             ),
+          ?_showAll('공고', postings.length),
+        ],
+      ),
     );
-    // 문서가 없으면 주인공 카드가 "새 문서"를 갖고 있다. 휴지통만 남았으면 목록 대신 그 단추를 둔다.
-    final showDocs = docs.isNotEmpty || library.trashed.isNotEmpty;
+    // 문서가 없으면 다음 할 일 카드가 이력서 쓰기와 가져오기를 갖고 있다. 휴지통만 남았으면 목록 대신 그 단추를 둔다.
+    final showDocs = full || docs.isNotEmpty || library.trashed.isNotEmpty;
     final wide = MediaQuery.sizeOf(context).width >= Breakpoints.outline;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(Space.x8),
@@ -257,13 +284,55 @@ class LibraryHome extends StatelessWidget {
                 ErrorLine(describe(error), onRetry: library.retry),
                 const SizedBox(height: Space.x4),
               ],
-              _hero(context),
-              // 채용공고는 없어도 연습할 수 있다. 첫 연습을 마쳤으면 남은 단계가 있어도 줄을 거둔다.
-              if (!finished && steps.any((s) => !s.$2)) ...[
+              if (!full) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Space.x6),
+                  child: KeepText(
+                    appAbout,
+                    style: AppText.body.copyWith(color: c.textMuted),
+                  ),
+                ),
                 const SizedBox(height: Space.x3),
-                _ReadyLine(steps: steps),
+                _hero(context, showDocs),
+                // 첫 연습을 마치면 다시 보이지 않는다(채용공고는 없어도 연습할 수 있다).
+                if (!finished) ...[
+                  const SizedBox(height: Space.x4),
+                  _Checklist(
+                    steps: [
+                      (
+                        '이력서',
+                        hasResume,
+                        '면접 질문은 이력서에 쓴 문장에서 나옵니다. 위 카드에서 쓰거나 가져옵니다.',
+                        onCreateSample == null
+                            ? null
+                            : ('견본으로 시작', onCreateSample!),
+                      ),
+                      (
+                        'AI 연결',
+                        library.connected,
+                        '질문과 채점에 AI를 씁니다. API 키나 ChatGPT 플랜으로 연결합니다.',
+                        // 이력서가 있으면 다음 할 일 카드가 이 단계를 맡는다.
+                        hasResume ? null : ('AI 연결하기', onOpenSettings),
+                      ),
+                      (
+                        '채용공고(선택)',
+                        postings.isNotEmpty,
+                        '붙여넣으면 공고가 요구하는 수준에 맞춰 질문의 깊이를 정합니다.',
+                        ('공고 붙여넣기', onAddPosting),
+                      ),
+                      (
+                        '첫 연습',
+                        finished,
+                        '연습을 마치면 리포트가 나오고, 설명하지 못한 문장을 이력서에서 고칩니다.',
+                        null,
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: Space.x6),
+                _progress(context),
+                const SizedBox(height: Space.x6),
               ],
-              const SizedBox(height: Space.x8),
               if (wide && showDocs)
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -287,8 +356,9 @@ class LibraryHome extends StatelessWidget {
   String _docName(Object? id) =>
       library.docs.where((d) => d.id == id).firstOrNull?.name ?? '지운 문서';
 
-  /// 주인공 카드: 위에서부터 먼저 맞는 상태 하나.
-  Widget _hero(BuildContext context) {
+  /// 다음 할 일 카드: 위에서부터 먼저 맞는 상태 하나. 채운 단추는 하나이고 나머지는 글 단추다.
+  /// [showDocs]면 아래 문서 목록이 가져오기와 새 캔버스를 갖고 있다.
+  Widget _hero(BuildContext context, bool showDocs) {
     final dash = library.dashboard;
     final unfinished = dash['unfinished'] as Json?;
     if (unfinished != null) {
@@ -323,81 +393,241 @@ class LibraryHome extends StatelessWidget {
         ),
       );
     }
-    final doc = library.docs.where((d) => d.id == dash['doc']).firstOrNull;
-    if (doc != null) {
-      return _Progress(
-        library: library,
-        doc: doc,
-        onStart: () =>
-            onStartInterview(doc: doc.id, posting: dash['posting'] as String?),
-        onWrite: () => onOpen(doc),
-        onReveal: (quote) => onOpen(doc, reveal: quote),
-        onShowReport: onShowReport,
+    final recent = library.docs.where((d) => d.kind == 'flow').firstOrNull;
+    if (recent == null) {
+      return _Hero(
+        title: '이력서부터 씁니다',
+        about: '이력서에 쓴 문장이 면접 질문의 출발점이 됩니다.',
+        // 문서 목록이 숨어 있으면 가져오기와 캔버스도 여기서 한다.
+        extra: showDocs
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppButton(
+                    '가져오기…',
+                    kind: ButtonKind.quiet,
+                    icon: Icons.file_open_outlined,
+                    onPressed: onImport,
+                  ),
+                  const SizedBox(width: Space.x2),
+                  AppButton(
+                    '새 캔버스',
+                    kind: ButtonKind.quiet,
+                    icon: Icons.dashboard_outlined,
+                    onPressed: onCreateCanvas,
+                  ),
+                ],
+              ),
+        action: AppButton(
+          '이력서 쓰기',
+          kind: ButtonKind.primary,
+          icon: Icons.note_add_outlined,
+          onPressed: onCreate,
+        ),
       );
     }
-    final recent = library.docs.where((d) => d.kind == 'flow').firstOrNull;
-    final now = library.now();
-    if (recent != null && library.connected) {
+    final write = AppButton(
+      '이어서 쓰기',
+      kind: ButtonKind.quiet,
+      onPressed: () => onOpen(recent),
+    );
+    if (!library.connected) {
       return _Hero(
-        title: '이 이력서로 면접을 연습할 수 있습니다',
-        about: recent.name,
+        title: 'AI를 연결하면 면접을 연습할 수 있습니다',
+        about: 'Claude나 OpenAI의 API 키, 또는 ChatGPT 플랜으로 연결합니다.',
+        extra: write,
+        action: AppButton(
+          'AI 연결하기',
+          kind: ButtonKind.primary,
+          icon: Icons.key_outlined,
+          onPressed: onOpenSettings,
+        ),
+      );
+    }
+    // 마친 연습이 있으면 그 이력서(대시보드의 대상)로, 없으면 최근에 고친 이력서로 연습한다.
+    final doc = library.docs.where((d) => d.id == dash['doc']).firstOrNull;
+    final weak = (dash['focus'] as List? ?? const []).cast<Json>();
+    final again = library.sessions
+        .where((s) => s['id'] == weak.firstOrNull?['session'])
+        .firstOrNull;
+    final practice = onPractice;
+    if (doc != null && again != null && practice != null) {
+      return _Hero(
+        title: '설명하지 못한 문장이 있습니다',
+        about: doc.name,
         extra: AppButton(
           '이어서 쓰기',
           kind: ButtonKind.quiet,
-          onPressed: () => onOpen(recent),
+          onPressed: () => onOpen(doc),
         ),
         action: AppButton(
-          '면접 연습 시작',
+          '약한 문장 다시 연습',
           kind: ButtonKind.primary,
           icon: Icons.forum_outlined,
-          onPressed: () => onStartInterview(doc: recent.id),
+          onPressed: () => practice(again),
         ),
       );
     }
-    if (recent != null) {
-      return _Hero(
-        lead: '최근에 고친 문서',
-        title: recent.name,
-        about: '${kindLabel(recent.kind)} · ${formatWhen(recent.updated, now)}',
-        action: AppButton(
-          '이어서 쓰기',
-          kind: ButtonKind.primary,
-          icon: Icons.edit_outlined,
-          onPressed: () => onOpen(recent),
-        ),
-      );
-    }
+    final target = doc ?? recent;
     return _Hero(
-      title: '이력서부터 씁니다',
-      about: '이력서에 쓴 문장이 면접 질문의 출발점이 됩니다.',
-      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스와 가져오기도 여기서 한다.
-      extra: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppButton(
-            '가져오기…',
-            kind: ButtonKind.quiet,
-            icon: Icons.file_open_outlined,
-            onPressed: onImport,
-          ),
-          const SizedBox(width: Space.x2),
-          AppButton(
-            '새 캔버스',
-            kind: ButtonKind.quiet,
-            icon: Icons.dashboard_outlined,
-            onPressed: onCreateCanvas,
-          ),
-        ],
+      title: '이 이력서로 면접을 연습할 수 있습니다',
+      about: target.name,
+      extra: AppButton(
+        '이어서 쓰기',
+        kind: ButtonKind.quiet,
+        onPressed: () => onOpen(target),
       ),
       action: AppButton(
-        '새 문서',
+        '면접 연습 시작',
         kind: ButtonKind.primary,
-        icon: Icons.note_add_outlined,
-        onPressed: onCreate,
+        icon: Icons.forum_outlined,
+        onPressed: () => onStartInterview(
+          doc: target.id,
+          posting: doc == null ? null : dash['posting'] as String?,
+        ),
+      ),
+    );
+  }
+
+  /// 내 진척: 엔진이 남긴 기록(대시보드, 세션 목록)만 읽는다. AI를 부르지 않는다.
+  Widget _progress(BuildContext context) {
+    final c = AppColors.of(context);
+    final done = library.sessions.where((s) => s['status'] == 'done').toList();
+    if (done.isEmpty) {
+      return const _Section(
+        title: '내 진척',
+        child: _Empty('연습을 한 번 마치면 설명해 낸 문장, 주제별 깊이, 다시 볼 주제가 여기에 쌓입니다.'),
+      );
+    }
+    final now = library.now();
+    final dash = library.dashboard;
+    final doc = library.docs.where((d) => d.id == dash['doc']).firstOrNull;
+    final defended = dash['defended'] as int? ?? 0;
+    final total = dash['total'] as int? ?? 0;
+    final focus = (dash['focus'] as List? ?? const []).cast<Json>();
+    final topics =
+        ((dash['lastReport'] as Json?)?['topics'] as List? ?? const [])
+            .cast<Json>();
+    final review = topics.where(
+      (t) => (t['reach'] as int) < (t['target'] as int),
+    );
+    final posting = library.postings
+        .where((p) => p['id'] == dash['posting'])
+        .firstOrNull;
+    // 글은 줄(_Row)의 글과 같은 자리에서 시작하게 줄의 안쪽 여백만큼 민다.
+    Widget pad(Widget child) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Space.x3),
+      child: child,
+    );
+    Widget caption(String text, {String? info, String? name}) => pad(
+      Padding(
+        padding: const EdgeInsets.only(top: Space.x4, bottom: Space.x1),
+        child: Row(
+          children: [
+            Text(text, style: AppText.caption.copyWith(color: c.textMuted)),
+            if (info != null) ...[
+              const SizedBox(width: Space.x1),
+              InfoTip(info, name: name ?? text),
+            ],
+          ],
+        ),
+      ),
+    );
+    final latest = done.first['created'] as int;
+    return _Section(
+      title: '내 진척',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          pad(
+            Text(
+              '연습 ${done.length}번 · 최근 ${formatWhen(latest, now)}',
+              style: AppText.body.copyWith(
+                color: c.textMuted,
+                fontFeatures: AppText.tabular,
+              ),
+            ),
+          ),
+          if (doc != null) ...[
+            const SizedBox(height: Space.x3),
+            pad(
+              Text(
+                posting == null
+                    ? doc.name
+                    : '${posting['title']} · ${doc.name}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.label.copyWith(color: c.text),
+              ),
+            ),
+            const SizedBox(height: Space.x1),
+            pad(
+              total == 0
+                  ? Text(
+                      '이력서에서 연결된 주제를 찾지 못했습니다',
+                      style: AppText.body.copyWith(color: c.text),
+                    )
+                  : _Defended(defended: defended, total: total),
+            ),
+          ],
+          if (topics.isNotEmpty) ...[
+            caption('주제별 깊이', info: depthInfo, name: '깊이 단계'),
+            pad(
+              Text(
+                [
+                  for (final t in topics)
+                    '${t['name']} 깊이 ${t['reach']}/${t['target']}단계',
+                ].join(' · '),
+                style: AppText.body.copyWith(
+                  color: c.text,
+                  fontFeatures: AppText.tabular,
+                ),
+              ),
+            ),
+          ],
+          if (review.isNotEmpty) ...[
+            caption('다시 볼 주제'),
+            pad(
+              Wrap(
+                spacing: Space.x2,
+                runSpacing: Space.x2,
+                children: [
+                  for (final t in review)
+                    StatusPill(t['name'] as String, tone: Tone.warning),
+                ],
+              ),
+            ),
+          ],
+          if (doc != null && focus.isNotEmpty) ...[
+            caption('먼저 준비할 문장', info: claimStatusInfo, name: '문장 상태'),
+            for (final f in focus)
+              pad(
+                _FocusRow(
+                  focus: f,
+                  onTap: () => onShowReport(f['session'] as String),
+                  onReveal: () => onOpen(doc, reveal: f['quote'] as String),
+                ),
+              ),
+          ],
+          caption('최근 연습'),
+          for (final s in done.take(3))
+            _Row(
+              icon: Icons.checklist,
+              title:
+                  '${formatWhen(s['created'] as int, now)} · ${_docName(s['doc'])}',
+              subtitle:
+                  '질문 ${s['questions']}개 · 깊이 ${s['reach'] ?? 0}단계 / 목표 ${s['target']}단계',
+              onTap: () => onShowReport(s['id'] as String),
+            ),
+        ],
       ),
     );
   }
 }
+
+/// 앱이 하는 일 한 줄. 홈 맨 위에 둔다.
+const appAbout = '내 이력서로 백엔드 개발 직무의 기술 면접을 글로 연습하고, 리포트를 보며 이력서를 고칩니다.';
 
 /// 남은 시간 표기 "07:05".
 String clock(int ms) {
@@ -406,17 +636,34 @@ String clock(int ms) {
   return '${two(s ~/ 60)}:${two(s % 60)}';
 }
 
-/// 글로 된 주인공 카드: 제목 한 줄, 설명 한 줄, 오른쪽에 채운 단추 하나(와 글 단추 하나).
+/// 목록이 비었을 때의 안내 한 줄. 줄의 글과 같은 자리에서 시작한다.
+class _Empty extends StatelessWidget {
+  const _Empty(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(
+      horizontal: Space.x3,
+      vertical: Space.x2,
+    ),
+    child: KeepText(
+      text,
+      style: AppText.body.copyWith(color: AppColors.of(context).textMuted),
+    ),
+  );
+}
+
+/// 글로 된 다음 할 일 카드: 제목 한 줄, 설명 한 줄, 오른쪽에 채운 단추 하나(와 글 단추).
 class _Hero extends StatelessWidget {
   const _Hero({
     required this.title,
     required this.about,
     required this.action,
-    this.lead,
     this.extra,
   });
 
-  final String? lead;
   final String title;
   final String about;
   final Widget action;
@@ -434,13 +681,11 @@ class _Hero extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (lead != null) ...[
-                  Text(
-                    lead!,
-                    style: AppText.caption.copyWith(color: c.textMuted),
-                  ),
-                  const SizedBox(height: Space.x1),
-                ],
+                Text(
+                  '다음 할 일',
+                  style: AppText.caption.copyWith(color: c.textMuted),
+                ),
+                const SizedBox(height: Space.x1),
                 Text(
                   title,
                   maxLines: 1,
@@ -469,152 +714,65 @@ class _Hero extends StatelessWidget {
   }
 }
 
-/// 진행 카드: 방어한 주장 수가 이 화면의 큰 수이고, 그 아래에 먼저 준비할 주장이 최대 둘.
-class _Progress extends StatelessWidget {
-  const _Progress({
-    required this.library,
-    required this.doc,
-    required this.onStart,
-    required this.onWrite,
-    required this.onReveal,
-    required this.onShowReport,
-  });
+/// 설명해 낸 문장 n / m. 홈에서 크게 보여 주는 숫자는 이것 하나다.
+class _Defended extends StatelessWidget {
+  const _Defended({required this.defended, required this.total});
 
-  final Library library;
-  final DocInfo doc;
-  final VoidCallback onStart;
-  final VoidCallback onWrite;
-  final ValueChanged<String> onReveal;
-  final ValueChanged<String> onShowReport;
+  final int defended;
+  final int total;
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final dash = library.dashboard;
-    final defended = dash['defended'] as int? ?? 0;
-    final total = dash['total'] as int? ?? 0;
-    final focus = (dash['focus'] as List? ?? const []).cast<Json>();
-    final last = dash['lastReport'] as Json?;
-    final posting = library.postings
-        .where((p) => p['id'] == dash['posting'])
-        .firstOrNull;
-    return Panel(
-      lead: true,
-      padding: const EdgeInsets.all(Space.x6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  posting == null
-                      ? doc.name
-                      : '${posting['title']} · ${doc.name}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.title.copyWith(color: c.text),
-                ),
-              ),
-              const SizedBox(width: Space.x4),
-              AppButton('이어서 쓰기', kind: ButtonKind.quiet, onPressed: onWrite),
-              const SizedBox(width: Space.x2),
-              AppButton(
-                '면접 연습 시작',
-                kind: ButtonKind.primary,
-                icon: Icons.forum_outlined,
-                onPressed: onStart,
-              ),
-            ],
-          ),
-          const SizedBox(height: Space.x4),
-          if (total == 0) ...[
-            Text(
-              '이력서에서 연결된 주제를 찾지 못했습니다',
-              style: AppText.body.copyWith(color: c.text),
-            ),
-            if (last != null) ...[
-              const SizedBox(height: Space.x1),
-              _Row(
-                icon: Icons.checklist,
-                title: '지난 면접',
-                subtitle: [
-                  for (final t in (last['topics'] as List).cast<Json>())
-                    '${t['name']} 깊이 ${t['reach']}/${t['target']}단계',
-                ].join(' · '),
-                onTap: () => onShowReport(last['session'] as String),
-              ),
-            ],
-          ] else ...[
-            // 이 화면에서 크게 보여 주는 숫자는 이것 하나다.
-            Semantics(
-              label: '면접에서 물을 문장 $total개 중 $defended개를 설명했습니다',
-              child: ExcludeSemantics(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      '$defended',
-                      style: AppText.figure.copyWith(
-                        color: c.text,
-                        fontFeatures: AppText.tabular,
-                      ),
-                    ),
-                    Text(
-                      ' / $total',
-                      style: AppText.title.copyWith(
-                        color: c.textMuted,
-                        fontFeatures: AppText.tabular,
-                      ),
-                    ),
-                    const SizedBox(width: Space.x3),
-                    Flexible(
-                      child: Text(
-                        '면접에서 물을 문장을 설명했습니다',
-                        style: AppText.body.copyWith(color: c.text),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: Space.x2),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(Space.x1),
-              child: LinearProgressIndicator(
-                value: defended / total,
-                minHeight: 6,
-                // 막대는 "설명함"과 같은 색이다. 강조색은 채운 단추에만 쓴다.
-                color: c.success,
-                backgroundColor: c.surface2,
-                semanticsLabel: '설명한 문장',
-                semanticsValue: '$defended/$total',
-              ),
-            ),
-            if (focus.isNotEmpty) ...[
-              const SizedBox(height: Space.x6),
-              Row(
-                children: [
-                  Text(
-                    '먼저 준비할 문장',
-                    style: AppText.caption.copyWith(color: c.textMuted),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          label: '면접에서 물을 문장 $total개 중 $defended개를 설명했습니다',
+          child: ExcludeSemantics(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  '$defended',
+                  style: AppText.figure.copyWith(
+                    color: c.text,
+                    fontFeatures: AppText.tabular,
                   ),
-                  const SizedBox(width: Space.x1),
-                  const InfoTip(claimStatusInfo, name: '문장 상태'),
-                ],
-              ),
-              const SizedBox(height: Space.x1),
-              for (final f in focus)
-                _FocusRow(
-                  focus: f,
-                  onTap: () => onShowReport(f['session'] as String),
-                  onReveal: () => onReveal(f['quote'] as String),
                 ),
-            ],
-          ],
-        ],
-      ),
+                Text(
+                  ' / $total',
+                  style: AppText.title.copyWith(
+                    color: c.textMuted,
+                    fontFeatures: AppText.tabular,
+                  ),
+                ),
+                const SizedBox(width: Space.x3),
+                Flexible(
+                  child: Text(
+                    '면접에서 물을 문장을 설명했습니다',
+                    style: AppText.body.copyWith(color: c.text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: Space.x2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(Space.x1),
+          child: LinearProgressIndicator(
+            value: defended / total,
+            minHeight: 6,
+            // 막대는 "설명함"과 같은 색이다. 강조색은 채운 단추에만 쓴다.
+            color: c.success,
+            backgroundColor: c.surface2,
+            semanticsLabel: '설명한 문장',
+            semanticsValue: '$defended/$total',
+          ),
+        ),
+      ],
     );
   }
 }
@@ -729,59 +887,95 @@ class _FocusRow extends StatelessWidget {
   }
 }
 
-/// 준비 줄: "준비 2/4 · 이력서 ✓ · AI 연결 · 채용공고 · 첫 연습". 끝나지 않은 단계는 글 단추다.
-/// 끝에 면접이 다루는 직무를 적는다(키를 넣기 전에 알 수 있게).
-class _ReadyLine extends StatelessWidget {
-  const _ReadyLine({required this.steps});
+/// 첫 실행 체크리스트. 끝난 단계는 이름과 체크 표시 한 줄로 접고, 남은 단계는 왜 하는지 한 줄과 글 단추를 보인다.
+/// 홈이 첫 연습을 마칠 때까지만 그린다.
+class _Checklist extends StatelessWidget {
+  const _Checklist({required this.steps});
 
-  /// (이름, 끝났는가, 누르면 할 일)
-  final List<(String, bool, VoidCallback)> steps;
+  /// (이름, 끝났는가, 왜 하는지, 글 단추의 이름과 할 일)
+  final List<(String, bool, String, (String, VoidCallback)?)> steps;
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
-    final dot = Text('·', style: AppText.body.copyWith(color: c.textMuted));
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Space.x6),
-      child: Wrap(
-        spacing: Space.x2,
-        runSpacing: Space.x1,
-        crossAxisAlignment: WrapCrossAlignment.center,
+    return Panel(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.x6,
+        vertical: Space.x4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '준비 ${steps.where((s) => s.$2).length}/${steps.length}',
-            style: AppText.label.copyWith(
-              color: c.textMuted,
-              fontFeatures: AppText.tabular,
-            ),
-          ),
-          for (final (name, done, onTap) in steps) ...[
-            dot,
-            if (done)
-              Semantics(
-                label: '$name 끝남',
-                child: ExcludeSemantics(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        name,
-                        style: AppText.body.copyWith(color: c.textMuted),
-                      ),
-                      const SizedBox(width: 2),
-                      Icon(Icons.check, size: 14, color: c.success),
-                    ],
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '처음 시작하기',
+                  style: AppText.label.copyWith(color: c.text),
                 ),
-              )
-            else
-              AppButton(name, kind: ButtonKind.quiet, onPressed: onTap),
-          ],
-          dot,
-          Text(
-            '면접 연습은 백엔드 개발 직무용입니다',
-            style: AppText.caption.copyWith(color: c.textMuted),
+              ),
+              Text(
+                '준비 ${steps.where((s) => s.$2).length}/${steps.length}',
+                style: AppText.label.copyWith(
+                  color: c.textMuted,
+                  fontFeatures: AppText.tabular,
+                ),
+              ),
+            ],
           ),
+          for (final (name, done, why, button) in steps)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.x3),
+              child: done
+                  ? Semantics(
+                      label: '$name 끝남',
+                      child: ExcludeSemantics(
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: c.success,
+                            ),
+                            const SizedBox(width: Space.x2),
+                            Text(
+                              name,
+                              style: AppText.body.copyWith(color: c.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        Icon(
+                          Icons.radio_button_unchecked,
+                          size: 16,
+                          color: c.textMuted,
+                        ),
+                        const SizedBox(width: Space.x2),
+                        Text(
+                          name,
+                          style: AppText.label.copyWith(color: c.text),
+                        ),
+                        const SizedBox(width: Space.x3),
+                        Expanded(
+                          child: KeepText(
+                            why,
+                            style: AppText.caption.copyWith(color: c.textMuted),
+                          ),
+                        ),
+                        if (button != null) ...[
+                          const SizedBox(width: Space.x3),
+                          AppButton(
+                            button.$1,
+                            kind: ButtonKind.quiet,
+                            onPressed: button.$2,
+                          ),
+                        ],
+                      ],
+                    ),
+            ),
         ],
       ),
     );

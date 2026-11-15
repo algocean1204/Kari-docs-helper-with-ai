@@ -34,7 +34,8 @@ import 'package:kari/screens/find_bar.dart';
 import 'package:kari/screens/navigate.dart';
 import 'package:kari/screens/paper.dart';
 
-import 'app_test.dart' show paperOf, pump, typingLatency, unstuck, until;
+import 'app_test.dart'
+    show newDocLabel, paperOf, pump, typingLatency, unstuck, until;
 
 const menuTest = MethodChannel('kari/menu-test');
 
@@ -210,10 +211,10 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('새 문서').evaluate().isNotEmpty,
+      () async => find.textContaining(newDocLabel).evaluate().isNotEmpty,
       '홈',
     );
-    await tester.tap(find.text('새 문서').first);
+    await tester.tap(find.textContaining(newDocLabel).first);
     await until(
       tester,
       () async =>

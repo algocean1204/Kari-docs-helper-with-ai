@@ -667,13 +667,13 @@ void main() {
     });
   });
 
-  // 네 단계 점검표 대신 준비 줄. AI 연결은 그 줄의 글 단추다.
-  group('홈의 준비 줄: AI 연결', () {
-    testWidgets('키가 없으면 "AI 연결"을 눌러 설정 화면에 간다', (tester) async {
+  // 홈의 첫 실행 체크리스트. 이력서가 없으면 AI 연결 단계에 글 단추 "AI 연결하기"가 있다.
+  group('홈의 체크리스트: AI 연결', () {
+    testWidgets('키가 없으면 "AI 연결하기"를 눌러 설정 화면에 간다', (tester) async {
       await pumpAi(tester, route: AppRoute.home);
       expect(find.text('준비 0/4'), findsOneWidget);
       expect(find.text('면접 연습 시작'), findsNothing);
-      await tap(tester, find.text('AI 연결'));
+      await tap(tester, find.widgetWithText(TextButton, 'AI 연결하기'));
       expect(providerButton('Claude 키 넣기'), findsOneWidget);
     });
 
@@ -688,11 +688,11 @@ void main() {
           openai: openai,
         );
         expect(find.text('준비 1/4'), findsOneWidget);
-        expect(find.widgetWithText(TextButton, 'AI 연결'), findsNothing);
+        expect(find.widgetWithText(TextButton, 'AI 연결하기'), findsNothing);
         expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
         // 이력서가 아직 없어 면접은 시작할 수 없다.
         expect(find.text('면접 연습 시작'), findsNothing);
-        expect(button(tester, '새 문서').onPressed, isNotNull);
+        expect(button(tester, '이력서 쓰기').onPressed, isNotNull);
       });
     }
   });
@@ -715,7 +715,7 @@ void main() {
           mode: mode,
         );
         await shot('home-step');
-        await tap(tester, find.text('AI 연결'));
+        await tap(tester, find.widgetWithText(TextButton, 'AI 연결하기'));
         await shot('settings-empty');
         await tap(tester, providerButton('Claude 키 넣기'));
         await shot('key');

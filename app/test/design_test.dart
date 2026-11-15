@@ -566,7 +566,7 @@ void main() {
       await saveShot(tester, 'editor-1024-light-claims');
     });
 
-    testWidgets('첫 실행 홈: 이력서부터 쓰라고 하고, 준비 줄이 있고, 넘침이 없다', (tester) async {
+    testWidgets('첫 실행 홈: 이력서부터 쓰라고 하고, 체크리스트가 있고, 넘침이 없다', (tester) async {
       for (final size in [sizes[0], sizes[1]]) {
         await pumpApp(tester, AppRoute.home, size, firstRun: true);
         expect(tester.takeException(), isNull);
@@ -576,7 +576,7 @@ void main() {
         expect(find.text('면접 연습 시작'), findsNothing);
         await saveShot(tester, 'home-first-${size.width.toInt()}-light');
       }
-      await tester.tap(find.text('AI 연결'));
+      await tester.tap(find.widgetWithText(TextButton, 'AI 연결하기'));
       await tester.pumpAndSettle();
       // 설정의 구역 목록.
       expect(find.text('업데이트와 정보'), findsOneWidget);
@@ -584,6 +584,9 @@ void main() {
 
     testWidgets('공고 추가: 붙여넣으면 추가할 수 있고, 추가하면 닫힌다', (tester) async {
       await pumpApp(tester, AppRoute.home, sizes[0]);
+      // 홈이 창보다 길어 공고 구역이 보이게 굴린다.
+      await tester.ensureVisible(find.text('공고 추가'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('공고 추가'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -608,7 +611,8 @@ void main() {
       tester,
     ) async {
       await pumpApp(tester, AppRoute.home, sizes[0]);
-      await tester.tap(find.text('면접 연습 시작'));
+      // 견본에는 설명하지 못한 문장이 있어 다음 할 일이 "약한 문장 다시 연습"이다.
+      await tester.tap(find.text('약한 문장 다시 연습'));
       await tester.pumpAndSettle();
       expect(find.text('보내는 내용 보기'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, '시작'));
@@ -642,9 +646,9 @@ void main() {
 
     testWidgets('옆 메뉴로 화면을 옮긴다: 홈 → 면접 → 끝내기 → 리포트', (tester) async {
       await pumpApp(tester, AppRoute.home, sizes[1]);
-      // 진행 카드는 마지막 면접의 공고와 문서를 제목으로 둔다. 면접 연습 시작은 그 둘을 골라 둔다.
+      // 내 진척은 마지막 면접의 공고와 문서를 제목으로 둔다. 약한 문장 다시 연습은 그 연습의 값을 골라 둔다.
       expect(find.text('예시페이 백엔드 엔지니어 · 이력서'), findsOneWidget);
-      await tester.tap(find.text('면접 연습 시작'));
+      await tester.tap(find.text('약한 문장 다시 연습'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, '예시페이 백엔드 엔지니어'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, '시작'));

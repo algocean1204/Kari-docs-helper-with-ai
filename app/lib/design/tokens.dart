@@ -247,7 +247,7 @@ abstract final class Motion {
 
 /// 창 너비에 따른 배치 기준.
 abstract final class Breakpoints {
-  /// 이보다 좁으면 옆 메뉴를 아이콘만 남긴다.
+  /// 이보다 좁으면 옆 메뉴를 좁힌다(이름은 남기고, 들어가지 않으면 줄인다).
   static const double wideNav = 1180;
 
   /// 이보다 좁으면 편집기의 개요 패널을 숨긴다.

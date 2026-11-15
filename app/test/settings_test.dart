@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/components.dart' show InfoTip;
+import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/main.dart' show AppRoute;
 import 'package:kari/screens/settings.dart';
@@ -311,6 +312,23 @@ void main() {
     await tap(tester, find.byIcon(Icons.home_outlined));
     await tap(tester, find.byIcon(Icons.settings_outlined));
     expect(titles(tester), ['Figma']);
+  });
+
+  testWidgets('열 구역을 주면(키 오류의 설정 열기) 면접을 할 수 있어도 마지막에 본 구역보다 그것을 연다', (
+    tester,
+  ) async {
+    final rig = await pumpAi(tester, connected: true);
+    await openArea(tester, 'Figma');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: SettingsScreen(library: rig.library, area: SettingsArea.ai),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(titles(tester), ['AI 연결']);
   });
 
   testWidgets('좁은 창(1024×640)과 넓은 창, 두 테마에서 구역마다 넘침이 없고 구역 이름이 한 줄이다', (

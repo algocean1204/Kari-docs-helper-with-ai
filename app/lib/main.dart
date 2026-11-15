@@ -497,9 +497,15 @@ class _ShellState extends State<Shell> {
     return mounted;
   }
 
-  Future<void> _go(AppRoute r) async {
+  /// 설정 화면을 열 때 고를 구역. 없으면 마지막으로 본 구역이다.
+  SettingsArea? _settingsArea;
+
+  Future<void> _go(AppRoute r, {SettingsArea? area}) async {
     if (r != _route && !await _leave()) return;
-    setState(() => _route = r);
+    setState(() {
+      _route = r;
+      _settingsArea = area;
+    });
     // 홈의 대시보드(하던 면접의 질문 번호 같은 것)를 다시 읽는다.
     if (r == AppRoute.home) _lib.refreshInterview();
   }
@@ -538,6 +544,26 @@ class _ShellState extends State<Shell> {
       builder: (_) => ImportDialog(library: lib, path: path),
     );
     if (id != null && mounted) _show(id);
+  }
+
+  /// 견본 이력서로 새 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
+  Future<void> _createSample() async {
+    if (widget.library == null) {
+      _go(AppRoute.editor);
+      return;
+    }
+    if (!await _leave()) return;
+    final id = await widget.library!.createSample();
+    if (id != null && mounted) _show(id);
+  }
+
+  /// 문서와 채용공고를 모두 보는 화면(옆 메뉴의 "문서"). 연 문서는 닫는다. 견본 상태는 견본 문서 화면이다.
+  Future<void> _showDocs() async {
+    if (!await _leave()) return;
+    setState(() {
+      _doc = null;
+      _route = AppRoute.editor;
+    });
   }
 
   /// 캔버스 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
@@ -580,7 +606,7 @@ class _ShellState extends State<Shell> {
     doc: _ivDoc,
     posting: _ivPosting,
     again: _ivAgain,
-    onOpenSettings: () => _go(AppRoute.settings),
+    onOpenSettings: _openAi,
     onCreateDoc: _create,
     onAddPosting: _addPosting,
     onShowReport: _showReport,
@@ -594,8 +620,9 @@ class _ShellState extends State<Shell> {
     onStart: _startInterview,
   );
 
-  Widget _home(Library lib) => LibraryHome(
+  Widget _home(Library lib, {bool full = false}) => LibraryHome(
     library: lib,
+    full: full,
     // 견본 상태는 견본 문서 화면으로 간다.
     onOpen: (d, {reveal}) => widget.library == null
         ? _go(AppRoute.editor)
@@ -603,15 +630,20 @@ class _ShellState extends State<Shell> {
     onCreate: _create,
     onCreateCanvas: _createCanvas,
     onImport: _import,
-    onOpenSettings: () => _go(AppRoute.settings),
+    onOpenSettings: _openAi,
     onAddPosting: _addPosting,
     onStartInterview: _startInterview,
     onResume: _resume,
     onShowReport: _showReport,
+    onCreateSample: _createSample,
+    onPractice: (s) => _startInterview(doc: s['doc'] as int, again: s),
+    onShowAll: _showDocs,
   );
 
   Widget _real(Library lib) => switch (_route) {
     AppRoute.home => _home(lib),
+    // 연 문서가 없으면 문서 목록이다(막다른 안내 화면으로 보내지 않는다).
+    AppRoute.editor when _doc == null => _home(lib, full: true),
     AppRoute.editor =>
       lib.docs.any((d) => d.id == _doc && d.kind == 'canvas')
           ? CanvasScreen(
@@ -634,10 +666,14 @@ class _ShellState extends State<Shell> {
     AppRoute.report => _report(lib),
     AppRoute.settings => SettingsScreen(
       library: lib,
+      area: _settingsArea,
       onInterview: _startInterview,
       onAddPosting: _addPosting,
     ),
   };
+
+  /// 키를 넣으러 가는 길(홈의 AI 연결하기, 면접의 설정 열기): 설정의 AI 연결 구역을 연다.
+  Future<void> _openAi() => _go(AppRoute.settings, area: SettingsArea.ai);
 
   Future<void> _addPosting() => showDialog<bool>(
     context: context,
@@ -665,7 +701,8 @@ class _ShellState extends State<Shell> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            width: collapsed ? 56 : 208,
+            // 좁아도 이름을 남긴다. 들어가지 않으면 줄이고, 툴팁과 읽는 이름은 그대로다.
+            width: collapsed ? 104 : 208,
             color: c.surface,
             padding: const EdgeInsets.symmetric(
               horizontal: Space.x2,
@@ -675,6 +712,19 @@ class _ShellState extends State<Shell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.x3,
+                      Space.x1,
+                      Space.x3,
+                      Space.x3,
+                    ),
+                    child: Text(
+                      'Kari',
+                      // 앱 이름이지 구역 제목이 아니라 구역 제목의 글자 역할을 쓰지 않는다.
+                      style: AppText.label.copyWith(color: c.text),
+                    ),
+                  ),
                   for (final r in AppRoute.values) ...[
                     // 설정은 아래쪽에 따로 둔다.
                     if (r == AppRoute.settings) const Spacer(),
@@ -682,7 +732,10 @@ class _ShellState extends State<Shell> {
                       route: r,
                       selected: r == _route,
                       collapsed: collapsed,
-                      onTap: () => _go(r),
+                      onTap: () =>
+                          r == AppRoute.editor && widget.library != null
+                          ? _showDocs()
+                          : _go(r),
                     ),
                     const SizedBox(height: 2),
                   ],
@@ -767,20 +820,19 @@ class _NavItem extends StatelessWidget {
               child: SizedBox(
                 height: 36,
                 child: Row(
-                  mainAxisAlignment: collapsed
-                      ? MainAxisAlignment.center
-                      : MainAxisAlignment.start,
                   children: [
-                    if (!collapsed) const SizedBox(width: Space.x3),
+                    SizedBox(width: collapsed ? Space.x2 : Space.x3),
                     Icon(route.icon, size: 18, color: fg),
-                    if (!collapsed) ...[
-                      const SizedBox(width: Space.x2),
-                      Text(
+                    const SizedBox(width: Space.x2),
+                    Flexible(
+                      child: Text(
                         route.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: (selected ? AppText.label : AppText.body)
                             .copyWith(color: selected ? c.accentText : c.text),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),

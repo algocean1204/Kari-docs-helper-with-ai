@@ -258,6 +258,12 @@ class Stage {
 
   /// [target]의 가운데(또는 [at]만큼 옮긴 자리)로 가서 누른다.
   Future<void> click(Finder target, {Offset? at, int after = 250}) async {
+    // 홈처럼 창보다 긴 화면은 누를 것이 창 밖에 있으면 먼저 그 자리까지 굴린다.
+    final view = tester.view.physicalSize / tester.view.devicePixelRatio;
+    if (!(Offset.zero & view).contains(tester.getRect(target.first).center)) {
+      await tester.ensureVisible(target.first);
+      await frames(2);
+    }
     final box = tester.getRect(target.first);
     await clickAt(at == null ? box.center : box.topLeft + at, after: after);
   }

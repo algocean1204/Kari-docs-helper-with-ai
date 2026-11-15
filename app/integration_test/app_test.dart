@@ -29,6 +29,9 @@ import 'package:kari/screens/paper.dart';
 /// 창이 보여야만 되는 시험(그려진 프레임을 재는 입력 지연, 문서 창에 붙어 뜨는 인쇄·공유 창)은 건너뛴다.
 final background = Platform.environment['KARI_TEST_BACKGROUND'] == '1';
 
+/// 홈에서 새 글 문서를 만드는 단추: 이력서가 없으면 다음 할 일 카드의 "이력서 쓰기", 있으면 문서 목록의 "새 문서".
+final newDocLabel = RegExp(r'^(새 문서|이력서 쓰기)$');
+
 /// 창이 가려지면(다른 창 뒤, 다른 데스크톱 공간, 전체 화면 앱) macOS가 화면 갱신 신호를 멈추고, 그러면
 /// 실제 앱 시험의 pump가 그 신호를 기다리며 끝나지 않는다. [f]가 300ms 안에 끝나지 않으면 그동안 프레임을
 /// 손으로 돌린다(위젯 트리는 갱신되고, 그림은 화면에 나가지 않는다). 앱 코드는 건드리지 않는다.
@@ -104,8 +107,12 @@ Future<(Library, int)> newDoc(
     if (made) Directory(dir).deleteSync(recursive: true);
   });
   await unstuck(tester.pumpWidget(App(library: library)));
-  await until(tester, () async => find.text('새 문서').evaluate().isNotEmpty, '홈');
-  await tester.tap(find.text('새 문서').first);
+  await until(
+    tester,
+    () async => find.textContaining(newDocLabel).evaluate().isNotEmpty,
+    '홈',
+  );
+  await tester.tap(find.textContaining(newDocLabel).first);
   await until(
     tester,
     () async =>
@@ -218,10 +225,10 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('새 문서').evaluate().isNotEmpty,
+      () async => find.textContaining(newDocLabel).evaluate().isNotEmpty,
       '홈',
     );
-    await tester.tap(find.text('새 문서').first);
+    await tester.tap(find.textContaining(newDocLabel).first);
     PaperView paper() => tester.widget<PaperView>(find.byType(PaperView));
     await until(
       tester,
