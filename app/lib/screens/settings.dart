@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design/components.dart';
 import '../design/tokens.dart';
+import '../engine/engine.dart';
 import '../library.dart';
 import '../update.dart';
 import 'ai.dart';
@@ -58,6 +59,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (ok == true && mounted) setState(() => _saved = true);
   }
 
+  /// 제공사별로 다시 확인하는 중인 것과, 실패한 까닭. 실패해도 키는 지우지 않는다.
+  final _rechecking = <String>{};
+  final _recheckError = <String, String>{};
+
+  Future<void> _recheck(Library lib, String provider) async {
+    if (_rechecking.contains(provider)) return;
+    setState(() {
+      _rechecking.add(provider);
+      _recheckError.remove(provider);
+    });
+    try {
+      await lib.recheckKey(provider);
+    } on EngineError catch (e) {
+      _recheckError[provider] = keyError(e, providerNames[provider]!.$2);
+    } finally {
+      // 뜻밖의 예외가 나도 줄이 확인 중에 머물지 않게 한다.
+      if (mounted) setState(() => _rechecking.remove(provider));
+    }
+  }
+
+  /// "11월 15일 14:30" 꼴.
+  static String _when(DateTime t) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.month}월 ${t.day}일 ${two(t.hour)}:${two(t.minute)}';
+  }
+
   Future<void> _deleteKey(Library lib, String provider) async {
     final name = providerNames[provider]!.$1;
     final ok = await showDialog<bool>(
@@ -104,15 +131,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     '가입하고 결제 수단을 등록한 뒤 만듭니다. 둘 중 하나만 있어도 됩니다.\n'
                     '비용은 쓴 만큼 제공사가 청구합니다. 연습마다의 추정 비용은 리포트의 "이번 연습"에 보입니다.',
                 children: [
-                  for (final p in providerNames.keys)
+                  for (final p in providerNames.keys) ...[
                     _Provider(
                       name: providerNames[p]!.$1,
                       company: providerNames[p]!.$4,
-                      status: has(p)
-                          ? const StatusPill('연결됨', tone: Tone.success)
-                          : const StatusPill('키 없음'),
+                      note: has(p) && !sample && lib.keyCheckedAt(p) != null
+                          ? '마지막 확인 ${_when(lib.keyCheckedAt(p)!)}'
+                          : null,
+                      status: !has(p)
+                          ? const StatusPill('키 없음')
+                          : _recheckError.containsKey(p)
+                          ? const StatusPill('확인 실패', tone: Tone.danger)
+                          : const StatusPill('연결됨', tone: Tone.success),
                       actions: [
                         if (has(p)) ...[
+                          AppButton(
+                            _rechecking.contains(p) ? '확인 중…' : '다시 확인',
+                            semanticLabel: '${providerNames[p]!.$1} 키 다시 확인',
+                            kind: ButtonKind.quiet,
+                            onPressed: sample || _rechecking.contains(p)
+                                ? (sample ? () {} : null)
+                                : () => _recheck(lib, p),
+                          ),
                           AppButton(
                             '키 바꾸기',
                             semanticLabel: '${providerNames[p]!.$1} 키 바꾸기',
@@ -138,6 +178,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                       ],
                     ),
+                    if (has(p) && _recheckError.containsKey(p))
+                      ErrorLine(
+                        _recheckError[p]!,
+                        onRetry: _rechecking.contains(p)
+                            ? null
+                            : () => _recheck(lib!, p),
+                      ),
+                  ],
                   // 방금 키를 저장했고 면접을 시작할 수 있으면 다음 걸음을 알린다. 채운 단추는 두지 않는다.
                   if (_saved && lib != null && lib.connected)
                     Row(
@@ -443,16 +491,20 @@ class _Provider extends StatelessWidget {
     required this.name,
     required this.company,
     required this.status,
+    this.note,
     this.actions = const [],
   });
 
   final String name;
   final String company;
   final Widget status;
+
+  /// 회사 이름 아래의 한 줄(마지막으로 확인한 때).
+  final String? note;
   final List<Widget> actions;
 
-  /// "키 바꾸기"와 "키 지우기"가 들어가는 폭.
-  static const actionsWidth = 184.0;
+  /// "다시 확인", "키 바꾸기", "키 지우기"가 들어가는 폭.
+  static const actionsWidth = 260.0;
 
   @override
   Widget build(BuildContext context) {
@@ -468,6 +520,11 @@ class _Provider extends StatelessWidget {
                 company,
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
+              if (note != null)
+                Text(
+                  note!,
+                  style: AppText.caption.copyWith(color: c.textMuted),
+                ),
             ],
           ),
         ),
