@@ -340,6 +340,18 @@ void main() {
       expect(find.text('이어서 쓰기'), findsOneWidget);
     });
 
+    test('같은 이름이 있으면 "제목 없는 문서 2"처럼 번호를 붙인다', () async {
+      final rig = Rig();
+      await rig.library.open();
+      await rig.library.create();
+      await rig.library.create();
+      await rig.library.create();
+      expect(
+        [for (final d in rig.library.docs) d.name],
+        ['제목 없는 문서 3', '제목 없는 문서 2', '제목 없는 문서'],
+      );
+    });
+
     testWidgets('이름 바꾸기: 빈 이름과 200자 초과는 저장할 수 없다', (tester) async {
       final rig = await pumpReal(tester);
       await openMore(tester, '경력기술서');

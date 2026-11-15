@@ -246,18 +246,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ListenableBuilder(
                     listenable: updates,
                     builder: (context, _) => updates.available
-                        ? SwitchRow(
-                            label: '자동으로 업데이트 확인',
-                            caption:
-                                '24시간에 한 번까지 새 판이 있는지 확인하고, 있으면 알립니다. 받아서 설치하는 것은 "지금 업데이트"를 누를 때만 합니다. 메뉴의 Kari > 업데이트 확인…으로 언제든 확인할 수 있습니다.',
-                            value: updates.auto,
-                            onChanged: updates.setAuto,
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _VersionRow(updates: updates),
+                              const SizedBox(height: Space.x4),
+                              SwitchRow(
+                                label: '자동으로 업데이트 확인',
+                                caption:
+                                    '24시간에 한 번까지 새 판이 있는지 확인하고, 있으면 알립니다. 받아서 설치하는 것은 "지금 업데이트"를 누를 때만 합니다. 메뉴의 Kari > 업데이트 확인…으로 언제든 확인할 수 있습니다.',
+                                value: updates.auto,
+                                onChanged: updates.setAuto,
+                              ),
+                            ],
                           )
-                        : Text(
-                            keepAll(
-                              '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.',
-                            ),
-                            style: AppText.caption.copyWith(color: c.textMuted),
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (updates.version.isNotEmpty) ...[
+                                _VersionRow(updates: updates, button: false),
+                                const SizedBox(height: Space.x2),
+                              ],
+                              Text(
+                                keepAll(
+                                  '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.',
+                                ),
+                                style: AppText.caption.copyWith(
+                                  color: c.textMuted,
+                                ),
+                              ),
+                            ],
                           ),
                   ),
                 ],
@@ -266,6 +284,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 지금 쓰는 판과 "지금 확인". 단추는 메뉴의 "업데이트 확인…"과 같은 확인을 한다.
+class _VersionRow extends StatelessWidget {
+  const _VersionRow({required this.updates, this.button = true});
+
+  final Updates updates;
+  final bool button;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final build = updates.build.isEmpty ? '' : ' (빌드 ${updates.build})';
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('지금 쓰는 판', style: AppText.label.copyWith(color: c.text)),
+              const SizedBox(height: 2),
+              Text(
+                'Kari ${updates.version}$build',
+                style: AppText.caption.copyWith(color: c.textMuted),
+              ),
+            ],
+          ),
+        ),
+        if (button) ...[
+          const SizedBox(width: Space.x4),
+          AppButton('지금 확인', onPressed: updates.check),
+        ],
+      ],
     );
   }
 }

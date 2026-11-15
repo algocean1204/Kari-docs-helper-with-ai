@@ -179,25 +179,39 @@ class Library extends ChangeNotifier {
     }
   }
 
+  /// 방금 만들어 아직 열지 않은 캔버스. 화면이 처음 열 때 대지 전체가 보이게 맞춘다.
+  final newCanvases = <int>{};
+
+  /// 이미 쓰는 이름이면 "이름 2", "이름 3"처럼 비어 있는 번호를 붙인다.
+  String _freeName(String base) {
+    final taken = {for (final d in docs) d.name};
+    var name = base;
+    for (var n = 2; taken.contains(name); n++) {
+      name = '$base $n';
+    }
+    return name;
+  }
+
   /// 흐름 문서 "제목 없는 문서"를 만들고 그 id를 돌려준다. 실패하면 null.
   Future<int?> create() async {
     int? id;
+    final name = _freeName('제목 없는 문서');
     // 새 문서의 스타일로 저장한 값을 쓰기로 했으면 그 값으로 시작한다(복제와 버전 복원은 상관없다).
     final styles = newDocStyles;
     if (styles != null) {
-      await _run(
-        () async => id = await engine.docsCreateStyled('제목 없는 문서', styles),
-      );
+      await _run(() async => id = await engine.docsCreateStyled(name, styles));
       return id;
     }
-    await _run(() async => id = await engine.docsCreate('flow', '제목 없는 문서'));
+    await _run(() async => id = await engine.docsCreate('flow', name));
     return id;
   }
 
   /// 캔버스 문서 "제목 없는 캔버스"(대지 하나)를 만들고 그 id를 돌려준다. 실패하면 null.
   Future<int?> createCanvas() async {
     int? id;
-    await _run(() async => id = await engine.docsCreate('canvas', '제목 없는 캔버스'));
+    final name = _freeName('제목 없는 캔버스');
+    await _run(() async => id = await engine.docsCreate('canvas', name));
+    if (id != null) newCanvases.add(id!);
     return id;
   }
 
