@@ -22,6 +22,7 @@ class Library extends ChangeNotifier {
     this.savePath = pickSavePath,
     this.openPath = pickOpenPath,
     this.importPath = pickImportPath,
+    this.showOther = showOtherKari,
     String? outDir,
   }) : _now = now ?? DateTime.now,
        outDir = outDir ?? '${Directory.systemTemp.path}/kari-share';
@@ -36,6 +37,9 @@ class Library extends ChangeNotifier {
 
   /// 가져올 파일 고르기(DOCX, HTML, zip). 시험은 바꿔 끼운다.
   final OpenPath importPath;
+
+  /// 같은 자료 폴더를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져오기. 시험은 바꿔 끼운다.
+  final ShowOther showOther;
 
   /// 인쇄·공유에 넘길 PDF를 잠깐 두는 폴더. 앱의 임시 폴더 안에 앱이 만든 하위 폴더 하나다.
   /// 공유가 끝났는지 알 수 없는 경우가 있어 앱을 켤 때 비운다. 시험은 바꿔 끼운다.
@@ -127,6 +131,17 @@ class Library extends ChangeNotifier {
         // 백업을 읽지 못하면 되살리기를 보이지 않는다.
       }
     }
+    // 다른 Kari가 이 자료를 쓰고 있으면 그 창을 앞으로 가져온다. 이 창에는 까닭과 다시 시도가 남는다.
+    final detail = e.detail;
+    if (e.code == 'in_use' && detail is Map && detail['pid'] is int) {
+      try {
+        await showOther(detail['pid'] as int);
+      } on PlatformException {
+        // 가져오지 못해도 안내는 그대로 보인다.
+      } on MissingPluginException {
+        // 위와 같다.
+      }
+    }
     phase = LibraryPhase.failed;
     notifyListeners();
   }
@@ -137,9 +152,7 @@ class Library extends ChangeNotifier {
     phase = LibraryPhase.ready;
     await _run(() async {
       final cutoff = _now().subtract(keepTrash).millisecondsSinceEpoch;
-      for (final d in await engine.docsList(trashed: true)) {
-        if (d.trashed! < cutoff) await engine.docsPurge(d.id);
-      }
+      await engine.docsPurgeTrashed(cutoff);
       for (final k in Setting.values) {
         settings[k.key] = await engine.settingsGet(k.key);
       }
@@ -494,6 +507,14 @@ typedef SavePath = Future<String?> Function(String name);
 Future<String?> pickSavePath(String name) => const MethodChannel(
   'kari/files',
 ).invokeMethod<String>('savePath', {'name': name});
+
+/// 같은 자료를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져온다.
+typedef ShowOther = Future<void> Function(int pid);
+
+/// `kari/files`의 `activate`. macOS 쪽은 같은 번들 ID의 앱일 때만 앞으로 가져온다.
+Future<void> showOtherKari(int pid) => const MethodChannel(
+  'kari/files',
+).invokeMethod<void>('activate', {'pid': pid});
 
 /// 열 파일을 고른다. 고르면 절대 경로, 취소하면 null.
 typedef OpenPath = Future<String?> Function();

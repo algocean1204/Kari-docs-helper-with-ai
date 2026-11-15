@@ -84,8 +84,8 @@ class CanvasProps extends StatelessWidget {
           if (sel.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(Space.x4),
-              child: Text(
-                keepAll('고른 것이 없습니다. 도구를 골라 만들거나 판에서 눌러 고르세요.'),
+              child: KeepText(
+                '고른 것이 없습니다. 도구를 골라 만들거나 판에서 눌러 고르세요.',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             );

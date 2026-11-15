@@ -130,8 +130,8 @@ class _ImportDialogState extends State<ImportDialog> {
                   )
                 else
                   for (final l in lost)
-                    Text(
-                      keepAll('· $l'),
+                    KeepText(
+                      '· $l',
                       style: AppText.body.copyWith(color: c.text),
                     ),
               ],

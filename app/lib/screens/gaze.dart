@@ -39,8 +39,8 @@ class GazeChoice extends StatelessWidget {
           ),
         ),
         const SizedBox(height: Space.x1),
-        Text(
-          keepAll('카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다.'),
+        KeepText(
+          '카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다.',
           style: AppText.caption.copyWith(color: c.textMuted),
         ),
         if (blocked != null) ...[

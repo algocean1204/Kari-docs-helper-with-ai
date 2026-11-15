@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -183,6 +184,97 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls.map((c) => c.method), ['start']);
       expect(find.textContaining('이 판은 앱 안에서 업데이트할 수 없습니다'), findsOneWidget);
+    });
+
+    testWidgets('빌드 번호가 숫자가 아닌 개발 빌드는 앱 안 업데이트를 끄고 설정에서 그 까닭을 알린다', (
+      tester,
+    ) async {
+      final calls = _native(
+        tester,
+        start: {
+          'available': true,
+          'auto': true,
+          'version': '0.2.2',
+          'build': '0.2.2',
+        },
+      );
+      final u = await _host(tester);
+      expect(u.devBuild, isTrue);
+      expect(u.available, isFalse);
+      expect(u.auto, isFalse);
+      await u.check();
+      await tester.pumpAndSettle();
+      expect(calls.map((c) => c.method), ['start']);
+      expect(find.textContaining('숫자가 아닌 개발용 빌드'), findsOneWidget);
+
+      // 설정의 업데이트 줄
+      updates
+        ..available = false
+        ..version = '0.2.2'
+        ..build = '0.2.2';
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: const Scaffold(body: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(keepAll(updates.unavailableNote)), findsOneWidget);
+      expect(updates.unavailableNote, contains('빌드 번호(0.2.2)'));
+      expect(find.text('지금 확인'), findsNothing);
+      // 숫자 빌드는 그대로 받는다.
+      updates.build = '7';
+      expect(updates.devBuild, isFalse);
+    });
+
+    testWidgets('바뀐 점의 마크다운은 제목, 목록, 굵게, 링크로 그리고 링크는 기본 브라우저로 연다', (
+      tester,
+    ) async {
+      _native(tester);
+      final opened = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('kari/files'),
+        (c) async {
+          opened.add(c.arguments);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('kari/files'),
+          null,
+        ),
+      );
+      await _host(tester);
+      await _fromNative(tester, 'found', {
+        'version': '0.2.3',
+        'build': '43',
+        'notes':
+            '## 고친 점\n\n- **표** 붙여넣기를 고침\n  - 안쪽 항목\n1. 첫째\n자세한 것은 [릴리스](https://example.com/r)에서. `코드`는 그대로',
+      });
+      expect(find.text('고친 점'), findsOneWidget);
+      expect(find.textContaining('##'), findsNothing);
+      expect(find.textContaining('**'), findsNothing);
+      expect(find.text('•'), findsNWidgets(2));
+      expect(find.text('1.'), findsOneWidget);
+      expect(find.text('표 붙여넣기를 고침'), findsOneWidget);
+      expect(find.text('자세한 것은 릴리스에서. `코드`는 그대로'), findsOneWidget);
+      // 굵게는 굵은 글, 링크는 누르면 연다.
+      final item = tester.widget<Text>(find.text('표 붙여넣기를 고침'));
+      final bold = (item.textSpan! as TextSpan).children!.first as TextSpan;
+      expect(bold.text, '표');
+      expect(bold.style!.fontWeight, FontWeight.w700);
+      final line = tester.widget<Text>(find.text('자세한 것은 릴리스에서. `코드`는 그대로'));
+      final link = (line.textSpan! as TextSpan).children![1] as TextSpan;
+      expect(link.text, '릴리스');
+      (link.recognizer! as TapGestureRecognizer).onTap!();
+      await tester.pump();
+      expect(opened, [
+        {'url': 'https://example.com/r'},
+      ]);
     });
 
     testWidgets('"업데이트 확인"은 확인을 macOS 쪽에 부탁한다', (tester) async {

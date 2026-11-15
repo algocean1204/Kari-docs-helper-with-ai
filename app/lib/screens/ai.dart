@@ -328,10 +328,8 @@ class _KeyDialogState extends State<KeyDialog> {
             ),
           ),
           const SizedBox(height: Space.x2),
-          Text(
-            keepAll(
-              '키는 ${keyConsoles[widget.provider]}에서 가입하고 결제 수단을 등록한 뒤 만듭니다. 비용은 쓴 만큼 제공사($vendor)가 청구합니다.',
-            ),
+          KeepText(
+            '키는 ${keyConsoles[widget.provider]}에서 가입하고 결제 수단을 등록한 뒤 만듭니다. 비용은 쓴 만큼 제공사($vendor)가 청구합니다.',
             style: AppText.caption.copyWith(color: c.textMuted),
           ),
           if (_error != null) ...[

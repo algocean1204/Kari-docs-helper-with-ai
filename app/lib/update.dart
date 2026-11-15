@@ -1,9 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'design/components.dart';
 import 'design/tokens.dart';
 import 'screens/dialogs.dart';
+import 'screens/report.dart' show openSource;
 
 /// 새 판 하나: 보이는 판, 빌드 번호, 바뀐 점.
 typedef UpdateOffer = ({String version, String build, String notes});
@@ -21,6 +23,15 @@ class Updates extends ChangeNotifier {
 
   /// 지금 쓰는 판과 빌드 번호. macOS 쪽이 번들에서 읽어 준다(없으면 빈 글).
   String version = '', build = '';
+
+  /// 빌드 번호가 숫자가 아닌 빌드(소스에서 만든 개발 빌드는 판 글 `0.2.2`가 빌드 번호가 된다). 새 판의 빌드 번호와
+  /// 견주면 앞뒤가 뒤바뀔 수 있어 앱 안 업데이트를 쓰지 않는다. macOS 쪽도 이런 빌드에서는 Sparkle을 시작하지 않는다.
+  bool get devBuild => build.isNotEmpty && !RegExp(r'^\d+$').hasMatch(build);
+
+  /// 앱 안에서 업데이트할 수 없을 때 설정과 메뉴가 보이는 글.
+  String get unavailableNote => devBuild
+      ? '이 빌드는 빌드 번호($build)가 숫자가 아닌 개발용 빌드라 앱 안 업데이트를 껐습니다. 새 판은 GitHub의 Releases에서 받아 주세요.'
+      : '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.';
 
   /// 자동으로 새 판을 확인하는지(24시간에 한 번까지). 값은 Sparkle이 저장한다.
   bool auto = false;
@@ -41,10 +52,10 @@ class Updates extends ChangeNotifier {
     _channel.setMethodCallHandler(_onCall);
     try {
       final r = await _channel.invokeMapMethod<String, Object?>('start');
-      available = r?['available'] == true;
-      auto = r?['auto'] == true;
       version = '${r?['version'] ?? ''}';
       build = '${r?['build'] ?? ''}';
+      available = r?['available'] == true && !devBuild;
+      auto = available && r?['auto'] == true;
     } on MissingPluginException {
       // 채널이 없는 곳(위젯 시험)에서는 업데이트를 받지 않는다.
     } on PlatformException {
@@ -62,7 +73,7 @@ class Updates extends ChangeNotifier {
   /// 메뉴의 "업데이트 확인…". 결과(새 판 알림이나 "최신입니다")는 채널로 돌아온다.
   Future<void> check() async {
     if (!available) {
-      _notice('이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.');
+      _notice(unavailableNote);
       return;
     }
     _notice('새 판이 있는지 확인하는 중입니다');
@@ -209,12 +220,137 @@ class UpdateDialog extends StatelessWidget {
         if (offer.notes.isNotEmpty) ...[
           Text('바뀐 점', style: AppText.label.copyWith(color: c.text)),
           const SizedBox(height: Space.x2),
-          SelectableText(
-            offer.notes,
-            style: AppText.body.copyWith(color: c.textMuted),
-          ),
+          NotesText(offer.notes),
         ],
       ],
+    );
+  }
+}
+
+/// 바뀐 점(릴리스 글의 마크다운)을 서식 있는 글로 보인다. 제목(`#`), 목록(`-`, `*`, `+`, `1.`), 굵게(`**`),
+/// 링크(`[글](주소)`)만 풀고 그 밖의 문법은 글 그대로 둔다. 링크는 기본 브라우저로 연다. 글은 골라 복사할 수 있다.
+// 한계: 줄 단위로만 본다. 표, 코드 묶음, 인용, 기울임, 줄 안의 코드는 글 그대로 보인다.
+class NotesText extends StatefulWidget {
+  const NotesText(this.notes, {super.key});
+
+  final String notes;
+
+  @override
+  State<NotesText> createState() => _NotesTextState();
+}
+
+final _heading = RegExp(r'^#{1,6}\s+(.*?)\s*#*$');
+final _bullet = RegExp(r'^(\s*)[-*+]\s+(.*)$');
+final _numbered = RegExp(r'^(\s*)(\d+)[.)]\s+(.*)$');
+final _inline = RegExp(r'\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)');
+
+class _NotesTextState extends State<NotesText> {
+  /// 링크 주소마다 누르기 하나. 화면을 다시 그려도 같은 것을 쓰고, 화면이 사라질 때 버린다.
+  final _taps = <String, TapGestureRecognizer>{};
+
+  @override
+  void dispose() {
+    for (final t in _taps.values) {
+      t.dispose();
+    }
+    super.dispose();
+  }
+
+  List<InlineSpan> _spans(String s, AppColors c) {
+    final out = <InlineSpan>[];
+    var at = 0;
+    for (final m in _inline.allMatches(s)) {
+      if (m.start > at) out.add(TextSpan(text: s.substring(at, m.start)));
+      if (m[1] case final bold?) {
+        out.add(
+          TextSpan(
+            text: bold,
+            style: TextStyle(fontWeight: FontWeight.w700, color: c.text),
+          ),
+        );
+      } else {
+        final url = m[3]!;
+        out.add(
+          TextSpan(
+            text: m[2],
+            style: TextStyle(
+              color: c.accentText,
+              decoration: TextDecoration.underline,
+            ),
+            recognizer: _taps[url] ??= TapGestureRecognizer()
+              ..onTap = () => openSource(url),
+            mouseCursor: SystemMouseCursors.click,
+          ),
+        );
+      }
+      at = m.end;
+    }
+    if (at < s.length) out.add(TextSpan(text: s.substring(at)));
+    return out;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final body = AppText.body.copyWith(color: c.textMuted);
+    final rows = <Widget>[];
+    var gap = false;
+    for (final raw in widget.notes.split('\n')) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) {
+        gap = rows.isNotEmpty;
+        continue;
+      }
+      if (gap) rows.add(const SizedBox(height: Space.x2));
+      gap = false;
+      if (_heading.firstMatch(line) case final m?) {
+        if (rows.isNotEmpty) rows.add(const SizedBox(height: Space.x1));
+        rows.add(
+          Semantics(
+            header: true,
+            child: Text.rich(
+              TextSpan(children: _spans(m[1]!, c)),
+              style: AppText.label.copyWith(color: c.text),
+            ),
+          ),
+        );
+        continue;
+      }
+      final item = _bullet.firstMatch(line);
+      final number = item == null ? _numbered.firstMatch(line) : null;
+      if (item != null || number != null) {
+        final indent = (item ?? number)![1]!.length ~/ 2;
+        final mark = item != null ? '•' : '${number![2]}.';
+        final text = item != null ? item[2]! : number![3]!;
+        rows.add(
+          Padding(
+            padding: EdgeInsets.only(left: Space.x4 * indent),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: Space.x4,
+                  child: Text(mark, style: body),
+                ),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(children: _spans(text, c)),
+                    style: body,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        continue;
+      }
+      rows.add(Text.rich(TextSpan(children: _spans(line, c)), style: body));
+    }
+    return SelectionArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: rows,
+      ),
     );
   }
 }

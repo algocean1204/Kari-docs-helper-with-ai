@@ -798,6 +798,11 @@ abstract class EngineApi {
   Future<void> docsUntrash(int id) => call('docs.untrash', {'id': id});
   Future<void> docsPurge(int id) => call('docs.purge', {'id': id});
 
+  /// 휴지통에 넣은 때가 [before](유닉스 ms)보다 앞선 문서를 한 번에 완전히 지운다. 지운 수.
+  Future<int> docsPurgeTrashed(int before) async =>
+      (await call('docs.purgeTrashed', {'before': before}) as Json)['purged']
+          as int;
+
   /// {id, kind, name, seq, hash, canUndo, canRedo}
   Future<Json> docOpen(int id) async =>
       await call('doc.open', {'id': id}) as Json;

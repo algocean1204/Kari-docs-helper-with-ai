@@ -252,8 +252,8 @@ class _InterviewTabState extends State<InterviewTab> {
                 child,
                 if (note != null) ...[
                   const SizedBox(height: Space.x1),
-                  Text(
-                    keepAll(note),
+                  KeepText(
+                    note,
                     style: AppText.caption.copyWith(color: c.textMuted),
                   ),
                 ],
@@ -273,8 +273,8 @@ class _InterviewTabState extends State<InterviewTab> {
             children: [
               Text('면접 연습', style: AppText.display.copyWith(color: c.text)),
               const SizedBox(height: Space.x1),
-              Text(
-                keepAll('이력서와 채용공고로 백엔드 개발 직무의 기술 면접을 글로 연습합니다.'),
+              KeepText(
+                '이력서와 채용공고로 백엔드 개발 직무의 기술 면접을 글로 연습합니다.',
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
               const SizedBox(height: Space.x6),
@@ -511,8 +511,8 @@ class _Notice extends StatelessWidget {
             children: [
               Text(title, style: AppText.title.copyWith(color: c.text)),
               const SizedBox(height: Space.x1),
-              Text(
-                keepAll(text),
+              KeepText(
+                text,
                 textAlign: TextAlign.center,
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
@@ -568,8 +568,8 @@ class _Problem extends StatelessWidget {
             Icon(Icons.error, size: 16, color: c.danger),
             const SizedBox(width: Space.x2),
             Expanded(
-              child: Text(
-                keepAll(note == null ? text : '$text $note'),
+              child: KeepText(
+                note == null ? text : '$text $note',
                 style: AppText.body.copyWith(color: c.danger),
               ),
             ),
@@ -868,8 +868,8 @@ class _SessionState extends State<_Session> {
                       if (v['question'] != null)
                         Semantics(
                           header: true,
-                          child: Text(
-                            keepAll(v['question'] as String),
+                          child: KeepText(
+                            v['question'] as String,
                             style: AppText.question.copyWith(color: c.text),
                           ),
                         ),
@@ -881,8 +881,8 @@ class _SessionState extends State<_Session> {
                             color: c.accentSoft,
                             borderRadius: BorderRadius.circular(Radii.control),
                           ),
-                          child: Text(
-                            keepAll('힌트 · ${v['hint']}'),
+                          child: KeepText(
+                            '힌트 · ${v['hint']}',
                             style: AppText.body.copyWith(color: c.text),
                           ),
                         ),
@@ -907,12 +907,10 @@ class _SessionState extends State<_Session> {
                             color: c.surface2,
                             borderRadius: BorderRadius.circular(Radii.control),
                           ),
-                          child: Text(
-                            keepAll(
-                              sent['skipped'] == true
-                                  ? '모르겠습니다'
-                                  : sent['answer'] as String? ?? '',
-                            ),
+                          child: KeepText(
+                            sent['skipped'] == true
+                                ? '모르겠습니다'
+                                : sent['answer'] as String? ?? '',
                             style: AppText.reading.copyWith(color: c.text),
                           ),
                         ),
@@ -1003,17 +1001,15 @@ class _SessionState extends State<_Session> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  keepAll('${i + 1}. ${h['question']}'),
+                                KeepText(
+                                  '${i + 1}. ${h['question']}',
                                   style: AppText.label.copyWith(color: c.text),
                                 ),
                                 const SizedBox(height: Space.x1),
-                                Text(
-                                  keepAll(
-                                    h['skipped'] == true
-                                        ? '모르겠습니다'
-                                        : h['answer'] as String? ?? '',
-                                  ),
+                                KeepText(
+                                  h['skipped'] == true
+                                      ? '모르겠습니다'
+                                      : h['answer'] as String? ?? '',
                                   style: AppText.body.copyWith(
                                     color: c.textMuted,
                                   ),

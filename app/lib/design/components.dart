@@ -82,6 +82,34 @@ class _RingPainter extends CustomPainter {
       old.color != color || old.radius != radius;
 }
 
+/// 어절 단위로 줄을 바꾸는 글([keepAll]). 줄바꿈용으로 넣은 단어 결합 문자는 읽어 주는 글에 넣지 않는다.
+class KeepText extends StatelessWidget {
+  const KeepText(
+    this.data, {
+    super.key,
+    this.style,
+    this.maxLines,
+    this.overflow,
+    this.textAlign,
+  });
+
+  final String data;
+  final TextStyle? style;
+  final int? maxLines;
+  final TextOverflow? overflow;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    keepAll(data),
+    style: style,
+    maxLines: maxLines,
+    overflow: overflow,
+    textAlign: textAlign,
+    semanticsLabel: data,
+  );
+}
+
 /// 단추의 종류. [danger]는 되돌릴 수 없는 일을 확인하는 단추에만 쓴다.
 enum ButtonKind { primary, secondary, quiet, danger }
 
@@ -100,7 +128,8 @@ class AppButton extends StatelessWidget {
 
   final String label;
 
-  /// 글 없이 아이콘만 있는 단추의 읽어 주는 이름.
+  /// 읽어 주는 이름. 글 없이 아이콘만 있는 단추의 이름이고, 글이 있으면 글 대신 읽는다(줄마다 같은 단추가
+  /// 있을 때 대상을 붙인다: 보이는 글 "키 넣기", 읽는 글 "Claude 키 넣기").
   final String? semanticLabel;
   final VoidCallback? onPressed;
   final ButtonKind kind;
@@ -195,7 +224,7 @@ class AppButton extends StatelessWidget {
               ),
               if (label.isNotEmpty) const SizedBox(width: 6),
             ],
-            if (label.isNotEmpty) Text(label),
+            if (label.isNotEmpty) Text(label, semanticsLabel: semanticLabel),
             if (shortcut != null) ...[
               const SizedBox(width: Space.x2),
               Opacity(
@@ -324,10 +353,19 @@ class MoreMenu extends StatelessWidget {
       }),
       overlayColor: const WidgetStatePropertyAll(Colors.transparent),
     );
+    // 켜진 항목은 고른 것으로도 알린다(확인 표시의 "켜짐"과 함께).
     Widget? mark(String label) => checked.isEmpty
         ? null
         : checked.contains(label)
-        ? Icon(Icons.check, size: 16, color: c.text, semanticLabel: '켜짐')
+        ? Semantics(
+            selected: true,
+            child: Icon(
+              Icons.check,
+              size: 16,
+              color: c.text,
+              semanticLabel: '켜짐',
+            ),
+          )
         : const SizedBox(width: 16);
     return MenuAnchor(
       controller: controller,
@@ -554,6 +592,8 @@ class _FoldState extends State<Fold> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final summary = widget.summary;
+    // 줄바꿈용 결합 문자([keepAll])는 읽어 주는 글에서 뺀다.
+    final title = widget.title.replaceAll('\u2060', '');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -562,7 +602,7 @@ class _FoldState extends State<Fold> {
             button: true,
             onTap: _toggle,
             expanded: _open,
-            label: summary == null ? widget.title : '${widget.title} $summary',
+            label: summary == null ? title : '$title $summary',
             child: ExcludeSemantics(
               child: Material(
                 color: Colors.transparent,
@@ -969,8 +1009,8 @@ class SwitchRow extends StatelessWidget {
             children: [
               Text(label, style: AppText.label.copyWith(color: c.text)),
               const SizedBox(height: 2),
-              Text(
-                keepAll(caption),
+              KeepText(
+                caption,
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ],

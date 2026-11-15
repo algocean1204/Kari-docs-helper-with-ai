@@ -298,8 +298,8 @@ class _Report extends StatelessWidget {
                 const SizedBox(height: Space.x1),
                 Semantics(
                   header: true,
-                  child: Text(
-                    keepAll('${first['name']} · ${first['faceName']}'),
+                  child: KeepText(
+                    '${first['name']} · ${first['faceName']}',
                     style: AppText.display.copyWith(color: c.text),
                   ),
                 ),
@@ -360,11 +360,9 @@ class _Report extends StatelessWidget {
                     ),
                     const SizedBox(width: Space.x2),
                     Expanded(
-                      child: Text(
-                        keepAll(
-                          '${x['name']} · ${x['faceName']}'
-                          '${x['quote'] == null ? '' : ' — “${x['quote']}”'}',
-                        ),
+                      child: KeepText(
+                        '${x['name']} · ${x['faceName']}'
+                        '${x['quote'] == null ? '' : ' — “${x['quote']}”'}',
                         style: AppText.body.copyWith(color: c.text),
                       ),
                     ),
@@ -532,10 +530,7 @@ class _Part extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              keepAll(text),
-              style: AppText.body.copyWith(color: c.text),
-            ),
+            child: KeepText(text, style: AppText.body.copyWith(color: c.text)),
           ),
         ],
       ),

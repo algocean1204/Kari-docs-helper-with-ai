@@ -348,3 +348,48 @@ fn 사용자의_큰_커밋은_5000개를_넘어도_통과하고_되돌려진다(
     assert_eq!(doc.doc().hash(), start);
     assert!(lib.verify_doc(id).unwrap().is_empty());
 }
+
+/// 휴지통 비우기는 기준 시각보다 앞서 버린 것만 한 번에 지운다(기준과 같은 때에 버린 것은 남는다).
+#[test]
+fn 휴지통_비우기는_기준보다_앞서_버린_것만_한_번에_지운다() {
+    let t = Tmp::new("purge-before");
+    let mut lib = Library::open(&t.0).unwrap();
+    let a = lib.create_doc(Kind::Flow, "a").unwrap();
+    let b = lib.create_doc(Kind::Flow, "b").unwrap();
+    let c = lib.create_doc(Kind::Flow, "c").unwrap();
+    let live = lib.create_doc(Kind::Flow, "살아 있음").unwrap();
+    lib.trash_doc(a, 1000).unwrap();
+    lib.trash_doc(b, 1999).unwrap();
+    lib.trash_doc(c, 2000).unwrap();
+    let none = std::collections::BTreeSet::new();
+    let mut gone = lib.purge_trashed_before(2000, &none).unwrap();
+    gone.sort();
+    assert_eq!(gone, [a, b]);
+    let left: Vec<_> = lib.docs(true).unwrap().iter().map(|d| d.id).collect();
+    assert_eq!(left, [c]);
+    assert_eq!(lib.docs(false).unwrap()[0].id, live);
+    assert!(lib.purge_trashed_before(2000, &none).unwrap().is_empty());
+}
+
+/// 한 자료 폴더는 한 번만 열린다. 닫으면 다시 열리고, 남은 잠금 파일은 막지 않는다.
+#[test]
+fn 같은_폴더를_두_번_열면_두_번째는_잠김으로_실패한다() {
+    let t = Tmp::new("lock");
+    let first = Library::open(&t.0).unwrap();
+    match Library::open(&t.0) {
+        Err(Error::Locked(pid)) => assert_eq!(pid, Some(std::process::id())),
+        Err(e) => panic!("잠김이어야 한다: {e}"),
+        Ok(_) => panic!("두 번째 열기가 성공했다"),
+    }
+    // 백업으로 되살리기도 파일을 건드리지 않는다.
+    assert!(matches!(
+        Library::restore_backup(&t.0, t.0.join("없는 백업")),
+        Err(Error::Locked(_))
+    ));
+    drop(first);
+    let again = Library::open(&t.0).unwrap();
+    drop(again);
+    // 잠금 파일이 남아 있고 내용이 엉망이어도 쥔 프로세스가 없으면 열린다.
+    std::fs::write(t.0.join("library.lock"), "엉망").unwrap();
+    Library::open(&t.0).unwrap();
+}

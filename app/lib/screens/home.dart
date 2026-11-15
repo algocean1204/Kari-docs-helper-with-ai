@@ -221,8 +221,8 @@ class LibraryHome extends StatelessWidget {
                 horizontal: Space.x3,
                 vertical: Space.x2,
               ),
-              child: Text(
-                keepAll('지원할 채용공고를 붙여넣으면 질문의 깊이를 맞춥니다.'),
+              child: KeepText(
+                '지원할 채용공고를 붙여넣으면 질문의 깊이를 맞춥니다.',
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
             )
@@ -664,15 +664,15 @@ class _FocusRow extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            keepAll(quote),
+                          KeepText(
+                            quote,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppText.body.copyWith(color: c.text),
                           ),
                           if (reason != null)
-                            Text(
-                              keepAll(reason),
+                            KeepText(
+                              reason,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppText.caption.copyWith(
