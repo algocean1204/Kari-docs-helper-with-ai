@@ -24,6 +24,8 @@ pub(crate) type PLayout = parley::Layout<u32>;
 const TAB_EVERY: f32 = 36.0;
 /// 링크 글의 색(run의 `s.color`가 없을 때).
 const LINK_COLOR: [u8; 4] = [0x0B, 0x57, 0xD0, 0xFF];
+/// 들여쓰기가 남겨 두는 가장 좁은 줄 폭.
+const MIN_LINE: f32 = 36.0;
 
 /// 문서에 없는 글(목록 표지, 채움선)을 모양 잡은 것. 글리프 x는 0에서, y는 기준선 0에서 시작한다.
 #[derive(Clone, Debug)]
@@ -187,12 +189,20 @@ pub(crate) fn build_from(
     cx: Cx,
     runs: &[Value],
     base: &Map<String, Value>,
-    pf: ParaFormat,
+    mut pf: ParaFormat,
     id: &str,
     (body_w, body_h): (f32, f32),
     overlay: Option<&Overlay>,
     gen: u64,
 ) -> ParaBox {
+    // 들여쓰기(깊은 목록 수준)가 글 상자보다 넓으면 글이 상자 밖, 표에서는 옆 칸에 놓인다. 줄의 시작이 상자 오른쪽 끝에서
+    // `MIN_LINE` 안쪽에 들도록 줄인다. 첫 줄은 시작 자리(left + first)를 따로 줄여, 내어쓰기가 줄어든 left보다 더
+    // 왼쪽으로 끌고 나가지 않게 한다. 자료는 그대로 두고, 화면·PDF·인쇄가 모두 이 값으로 놓는다.
+    // 한계: 상자가 표지 폭보다 좁으면 표지가 상자 왼쪽 밖으로 나간다
+    let room = (body_w - MIN_LINE).max(0.0);
+    let start0 = pf.left + pf.first;
+    pf.left = pf.left.min(room);
+    pf.first = start0.min(room) - pf.left;
     let src: String = runs
         .iter()
         .filter_map(|r| r.get("t").and_then(Value::as_str))
