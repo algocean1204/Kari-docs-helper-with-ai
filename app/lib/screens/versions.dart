@@ -247,8 +247,8 @@ class _VersionPanelState extends State<VersionPanel> {
                     const SizedBox(height: Space.x3),
                   ],
                   if (_versions.isEmpty)
-                    Text(
-                      keepAll('아직 버전이 없습니다. 5분 동안 쉬거나 문서를 닫으면 자동으로 남습니다.'),
+                    KeepText(
+                      '아직 버전이 없습니다. 5분 동안 쉬거나 문서를 닫으면 자동으로 남습니다.',
                       style: AppText.caption.copyWith(color: c.textMuted),
                     ),
                   for (final v in _versions) ..._item(context, v),
@@ -358,8 +358,8 @@ class _VersionPanelState extends State<VersionPanel> {
                   if (p.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: Space.x1),
-                      child: Text(
-                        keepAll(p),
+                      child: KeepText(
+                        p,
                         style: AppText.caption.copyWith(color: c.text),
                       ),
                     ),

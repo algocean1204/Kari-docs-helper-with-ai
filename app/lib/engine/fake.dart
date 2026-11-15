@@ -202,6 +202,14 @@ class FakeEngine extends EngineApi {
         }
         docs.remove(a['id']);
         return null;
+      case 'docs.purgeTrashed':
+        final before = a['before'] as int;
+        final gone = [
+          for (final d in docs.values)
+            if (d['trashed'] case final int t when t < before) d['id'],
+        ];
+        docs.removeWhere((id, _) => gone.contains(id));
+        return {'purged': gone.length};
       case 'doc.open':
         final d = doc();
         return {

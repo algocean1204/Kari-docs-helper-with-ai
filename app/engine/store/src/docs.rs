@@ -205,15 +205,34 @@ impl Library {
     /// 휴지통에 넣은 지 `keep_ms`가 지난 문서를 지운다. 지운 수를 돌려준다.
     pub fn purge_trashed(&mut self, now: u64, keep_ms: u64) -> Result<u32> {
         let until = now.saturating_sub(keep_ms);
-        let refs = self.assets_of(&format!(
-            "SELECT id FROM docs WHERE trashed IS NOT NULL AND trashed <= {until}"
-        ))?;
-        let n = self.conn.execute(
-            "DELETE FROM docs WHERE trashed IS NOT NULL AND trashed <= ?1",
-            [until],
+        let ids = self.purge_trashed_before(until.saturating_add(1), &BTreeSet::new())?;
+        Ok(ids.len() as u32)
+    }
+
+    /// 휴지통에 넣은 때가 `before`(유닉스 ms)보다 앞선 문서를 한 번에 지운다. 지운 문서의 id를 돌려준다.
+    /// 에셋 정리는 끝에 한 번만 한다(문서마다 하면 남은 문서 전체를 그 수만큼 훑는다). `keep`은 `purge_doc_keeping`과 같다.
+    pub fn purge_trashed_before(
+        &mut self,
+        before: u64,
+        keep: &BTreeSet<String>,
+    ) -> Result<Vec<DocId>> {
+        let gone = format!("SELECT id FROM docs WHERE trashed IS NOT NULL AND trashed < {before}");
+        let mut refs = self.assets_of(&gone)?;
+        let ids = self
+            .conn
+            .prepare(&gone)?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<DocId>>>()?;
+        if ids.is_empty() {
+            return Ok(ids);
+        }
+        self.conn.execute(
+            "DELETE FROM docs WHERE trashed IS NOT NULL AND trashed < ?1",
+            [before],
         )?;
+        refs.retain(|h| !keep.contains(h));
         self.drop_assets(refs)?;
-        Ok(n as u32)
+        Ok(ids)
     }
 
     /// 현재 내용으로 새 문서(seq 0)를 만든다. 원본(문서, seq)을 기록한다.

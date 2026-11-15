@@ -444,6 +444,21 @@ class MainFlutterWindow: NSWindow {
           return
         }
         result(NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path))
+      case "activate":
+        // 같은 자료 폴더를 쓰는 다른 Kari(엔진이 알려 준 프로세스)를 앞으로 가져온다. 이 앱과 번들 ID가 같은
+        // 다른 프로세스일 때만. 다른 자료 폴더를 쓰는 시험 빌드끼리는 애초에 막히지 않으므로 여기 오지 않는다.
+        guard let n = (call.arguments as? [String: Any])?["pid"] as? Int,
+          let pid = pid_t(exactly: n), pid != getpid(),
+          let app = NSRunningApplication(processIdentifier: pid),
+          app.bundleIdentifier == Bundle.main.bundleIdentifier
+        else {
+          result(false)
+          return
+        }
+        if #available(macOS 14.0, *) {
+          NSApp.yieldActivation(to: app)
+        }
+        result(app.activate(options: [.activateAllWindows]))
       case "savePath":
         guard let self else {
           result(nil)

@@ -41,9 +41,13 @@ class Rig {
       savePath: (name) => savePath(name),
       openPath: () => openPath(),
       importPath: () => importPath(),
+      showOther: (pid) async => shown.add(pid),
       outDir: outDir,
     );
   }
+
+  /// 앞으로 가져오라고 한 다른 Kari의 프로세스 id.
+  final List<int> shown = [];
 
   /// 열기 대화 상자 대신. 기본은 취소.
   Future<String?> Function() openPath = () async => null;
@@ -264,15 +268,24 @@ void main() {
     final rig = Rig();
     final old = await rig.add('오래됨', today);
     final recent = await rig.add('최근', today);
+    final edge = await rig.add('딱 30일', today);
     rig.fake.docs[old]!['trashed'] = ms(
       today.subtract(const Duration(days: 31)),
     );
     rig.fake.docs[recent]!['trashed'] = ms(
       today.subtract(const Duration(days: 29)),
     );
+    rig.fake.docs[edge]!['trashed'] = ms(
+      today.subtract(const Duration(days: 30)),
+    );
+    rig.fake.sent.clear();
     await rig.library.open();
-    expect(rig.fake.docs.keys, [recent]);
-    expect(rig.library.trashed.map((d) => d.name), ['최근']);
+    expect(rig.fake.docs.keys, [recent, edge]);
+    expect(rig.library.trashed.map((d) => d.name).toSet(), {'최근', '딱 30일'});
+    // 문서마다 따로 지우지 않고 엔진에 한 번 맡긴다.
+    expect(rig.fake.sent.where((m) => m.startsWith('docs.purge')), [
+      'docs.purgeTrashed',
+    ]);
   });
 
   test('동작은 됐는데 목록 읽기가 실패하면 다시 시도는 읽기만 한다', () async {
@@ -614,6 +627,30 @@ void main() {
       expect(find.text('백업에서 되살리기'), findsNothing);
       // 할 일 줄은 오류 코드마다 정해진 안내를 보인다.
       expect(find.text(openAdvice('too_new')), findsOneWidget);
+    });
+
+    testWidgets('다른 Kari가 자료를 쓰고 있으면 그 창을 앞으로 가져오고 까닭을 보이며, 다시 시도로 연다', (
+      tester,
+    ) async {
+      final rig = Rig();
+      rig.fake.failures['lib.open'] = const EngineError(
+        'in_use',
+        '다른 Kari가 이 자료를 쓰고 있습니다.',
+        {'pid': 4321},
+      );
+      rig.fake.backups = [ms(today)];
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      expect(rig.shown, [4321]);
+      expect(find.text('다른 Kari가 이 자료를 쓰고 있습니다.'), findsOneWidget);
+      expect(find.text('in_use'), findsOneWidget);
+      expect(find.text(openAdvice('in_use')), findsOneWidget);
+      expect(find.text('백업에서 되살리기'), findsNothing);
+      // 앞의 Kari를 끈 뒤
+      rig.fake.failures.clear();
+      await tester.tap(find.text('다시 시도'));
+      await tester.pumpAndSettle();
+      expect(find.text('AI 연결'), findsOneWidget);
+      expect(rig.shown, [4321]);
     });
 
     testWidgets('여는 동안은 빈 바탕이고 200ms가 넘으면 불러오는 중이라고 알린다', (tester) async {

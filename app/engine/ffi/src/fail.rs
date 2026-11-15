@@ -41,6 +41,7 @@ impl From<Error> for Fail {
             Error::Corrupt(_) => ("corrupt", Value::Null),
             Error::Sql(_) | Error::Io(_) => ("io", Value::Null),
             Error::TooNew(v) => ("too_new", json!(v)),
+            Error::Locked(pid) => ("in_use", json!({"pid": pid})),
             Error::Stale => ("stale", Value::Null),
             Error::Blocked { by } => (
                 "blocked",

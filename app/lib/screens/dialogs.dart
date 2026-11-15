@@ -52,8 +52,8 @@ class Sheet extends StatelessWidget {
                       ),
                     ),
                     if (subtitle != null)
-                      Text(
-                        keepAll(subtitle!),
+                      KeepText(
+                        subtitle!,
                         style: AppText.body.copyWith(color: c.textMuted),
                       ),
                     if (children.isNotEmpty) const SizedBox(height: Space.x4),
@@ -171,8 +171,8 @@ class _AddPostingDialogState extends State<AddPostingDialog> {
         Row(
           children: [
             Expanded(
-              child: Text(
-                keepAll('채용 사이트에서 자동으로 가져오지 않습니다. 붙여넣은 글만 씁니다.'),
+              child: KeepText(
+                '채용 사이트에서 자동으로 가져오지 않습니다. 붙여넣은 글만 씁니다.',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ),
@@ -281,10 +281,8 @@ class _PreviewDialogState extends State<PreviewDialog> {
               )
             else ...[
               if (!ready) ...[
-                Text(
-                  keepAll(
-                    '키가 없는 제공사가 있어 시작할 수 없습니다. 설정의 AI 연결에서 키를 넣거나 그 일의 모델을 바꿉니다.',
-                  ),
+                KeepText(
+                  '키가 없는 제공사가 있어 시작할 수 없습니다. 설정의 AI 연결에서 키를 넣거나 그 일의 모델을 바꿉니다.',
                   style: AppText.label.copyWith(color: c.text),
                 ),
                 const SizedBox(height: Space.x1),

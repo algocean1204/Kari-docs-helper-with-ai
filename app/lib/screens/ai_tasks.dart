@@ -270,10 +270,8 @@ class _TaskDialogState extends State<TaskDialog> {
                   Icon(Icons.error, size: 16, color: c.warning),
                   const SizedBox(width: Space.x2),
                   Expanded(
-                    child: Text(
-                      keepAll(
-                        '${providerLabels[provider]} 키가 없습니다. 키를 넣어야 이 일로 면접을 시작할 수 있습니다.',
-                      ),
+                    child: KeepText(
+                      '${providerLabels[provider]} 키가 없습니다. 키를 넣어야 이 일로 면접을 시작할 수 있습니다.',
                       style: AppText.body.copyWith(color: c.warning),
                     ),
                   ),

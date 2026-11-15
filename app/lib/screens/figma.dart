@@ -41,8 +41,8 @@ class _Row extends StatelessWidget {
             children: [
               Text(label, style: AppText.label.copyWith(color: c.text)),
               const SizedBox(height: 2),
-              Text(
-                keepAll(caption),
+              KeepText(
+                caption,
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ],
@@ -219,8 +219,8 @@ class _ChannelRowState extends State<ChannelRow> {
       children: [
         Text('채널', style: AppText.label.copyWith(color: c.text)),
         const SizedBox(height: 2),
-        Text(
-          keepAll('Figma에서 플러그인을 실행하면 보이는 채널 ID를 넣고 연결합니다.'),
+        KeepText(
+          'Figma에서 플러그인을 실행하면 보이는 채널 ID를 넣고 연결합니다.',
           style: AppText.caption.copyWith(color: c.textMuted),
         ),
         const SizedBox(height: Space.x2),
@@ -365,8 +365,8 @@ class _FigmaSendDialogState extends State<FigmaSendDialog> {
         : pages?.where((p) => p.id == _page).firstOrNull?.name ?? '';
     Widget line(String text, {Color? color}) => Padding(
       padding: const EdgeInsets.only(bottom: Space.x2),
-      child: Text(
-        keepAll(text),
+      child: KeepText(
+        text,
         style: AppText.body.copyWith(color: color ?? c.text),
       ),
     );

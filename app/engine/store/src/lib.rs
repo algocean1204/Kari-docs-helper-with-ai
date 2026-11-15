@@ -34,6 +34,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Library {
     pub(crate) dir: PathBuf,
     pub(crate) conn: Connection,
+    /// 폴더의 `library.lock`을 쥔 파일. 연결보다 뒤에 둬 연결을 닫은 다음에 풀린다.
+    pub(crate) _lock: std::fs::File,
 }
 
 /// 측정용 내구성. 앱은 `Full`(`Library::open`)만 쓴다.
@@ -187,6 +189,8 @@ pub enum Error {
     Io(std::io::Error),
     /// 지원하는 것보다 새 형식의 DB
     TooNew(u32),
+    /// 다른 프로세스가 이 폴더를 열어 쓰고 있다. 그 프로세스의 id를 알면 함께 준다
+    Locked(Option<u32>),
     /// DB나 문서가 손상됐다
     Corrupt(String),
     /// 메모리의 문서가 DB보다 뒤처졌다(다른 곳에서 먼저 커밋)
@@ -209,6 +213,7 @@ impl fmt::Display for Error {
             Error::Sql(e) => write!(f, "DB: {e}"),
             Error::Io(e) => write!(f, "파일: {e}"),
             Error::TooNew(v) => write!(f, "더 새 형식의 라이브러리입니다({v}판)."),
+            Error::Locked(_) => write!(f, "다른 Kari가 이 자료를 쓰고 있습니다."),
             Error::Corrupt(m) => write!(f, "손상: {m}"),
             Error::Stale => write!(f, "다른 곳에서 먼저 바뀌었습니다. 다시 읽었습니다."),
             Error::Blocked { by: Some(u) } => {

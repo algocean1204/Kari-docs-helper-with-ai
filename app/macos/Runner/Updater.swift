@@ -62,9 +62,19 @@ final class AppUpdater: NSObject, SPUUserDriver {
     return d.count == 32
   }
 
+  /// 빌드 번호(CFBundleVersion)가 숫자인가. 소스에서 만든 개발 빌드는 판 글("0.2.2")이 빌드 번호가 되는데,
+  /// Sparkle이 그것을 피드의 빌드 번호와 견주면 앞뒤가 뒤바뀔 수 있다(새 빌드를 옛 판으로 덮는다).
+  static var numericBuild: Bool {
+    guard let b = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+      !b.isEmpty
+    else { return false }
+    return b.unicodeScalars.allSatisfy { CharacterSet.decimalDigits.contains($0) && $0.isASCII }
+  }
+
   /// Sparkle을 시작한다. 자동 확인이 켜져 있으면 Sparkle이 마지막 확인에서 24시간이 지날 때마다 확인한다.
+  /// 빌드 번호가 숫자가 아니면 시작하지 않는다(설정의 업데이트 줄이 그 까닭을 알린다).
   private func start() -> [String: Any] {
-    if updater == nil, Self.hasKey {
+    if updater == nil, Self.hasKey, Self.numericBuild {
       let u = SPUUpdater(
         hostBundle: .main, applicationBundle: .main, userDriver: self, delegate: nil)
       do {

@@ -201,10 +201,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: Space.x2),
           Semantics(
             liveRegion: true,
-            child: Text(
-              keepAll(
-                '기본 브라우저에 ChatGPT 로그인 창을 열었습니다. 로그인과 허락을 마치면 이 화면이 바뀝니다.',
-              ),
+            child: KeepText(
+              '기본 브라우저에 ChatGPT 로그인 창을 열었습니다. 로그인과 허락을 마치면 이 화면이 바뀝니다.',
               style: AppText.caption.copyWith(color: c.textMuted),
             ),
           ),
@@ -220,8 +218,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
         if (_planNote != null) ...[
           const SizedBox(height: Space.x2),
-          Text(
-            keepAll(_planNote!),
+          KeepText(
+            _planNote!,
             style: AppText.caption.copyWith(color: c.textMuted),
           ),
         ],
@@ -231,12 +229,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  keepAll(
-                    inUse
-                        ? 'OpenAI 요청은 ChatGPT 플랜으로 보냅니다. API 키는 쓰지 않습니다.'
-                        : 'OpenAI 요청은 API 키로 보냅니다. ChatGPT 플랜은 쓰지 않습니다.',
-                  ),
+                child: KeepText(
+                  inUse
+                      ? 'OpenAI 요청은 ChatGPT 플랜으로 보냅니다. API 키는 쓰지 않습니다.'
+                      : 'OpenAI 요청은 API 키로 보냅니다. ChatGPT 플랜은 쓰지 않습니다.',
                   style: AppText.caption.copyWith(color: c.textMuted),
                 ),
               ),
@@ -321,7 +317,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (has(p)) ...[
                           AppButton(
                             _rechecking.contains(p) ? '확인 중…' : '다시 확인',
-                            semanticLabel: '${providerNames[p]!.$1} 키 다시 확인',
+                            semanticLabel:
+                                '${providerNames[p]!.$1} 키 ${_rechecking.contains(p) ? '확인 중' : '다시 확인'}',
                             kind: ButtonKind.quiet,
                             onPressed: sample || _rechecking.contains(p)
                                 ? (sample ? () {} : null)
@@ -367,12 +364,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            keepAll(
-                              lib.postings.isEmpty
-                                  ? '키를 저장했습니다. 이제 채용공고를 붙여넣거나 면접 연습을 시작할 수 있습니다.'
-                                  : '키를 저장했습니다. 이제 면접 연습을 시작할 수 있습니다.',
-                            ),
+                          child: KeepText(
+                            lib.postings.isEmpty
+                                ? '키를 저장했습니다. 이제 채용공고를 붙여넣거나 면접 연습을 시작할 수 있습니다.'
+                                : '키를 저장했습니다. 이제 면접 연습을 시작할 수 있습니다.',
                             style: AppText.body.copyWith(color: c.text),
                           ),
                         ),
@@ -457,8 +452,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: AppText.label.copyWith(color: c.text),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        keepAll(maskNote),
+                      KeepText(
+                        maskNote,
                         style: AppText.caption.copyWith(color: c.textMuted),
                       ),
                     ],
@@ -502,10 +497,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 _VersionRow(updates: updates, button: false),
                                 const SizedBox(height: Space.x2),
                               ],
-                              Text(
-                                keepAll(
-                                  '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.',
-                                ),
+                              KeepText(
+                                updates.unavailableNote,
                                 style: AppText.caption.copyWith(
                                   color: c.textMuted,
                                 ),
@@ -601,12 +594,10 @@ class _NewStyles extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(
-                keepAll(
-                  saved
-                      ? '문서의 스타일 메뉴에서 저장한 스타일이 있습니다.'
-                      : '문서의 스타일 메뉴에서 "이 문서의 스타일을 새 문서의 기본으로"를 고르면 저장됩니다.',
-                ),
+              child: KeepText(
+                saved
+                    ? '문서의 스타일 메뉴에서 저장한 스타일이 있습니다.'
+                    : '문서의 스타일 메뉴에서 "이 문서의 스타일을 새 문서의 기본으로"를 고르면 저장됩니다.',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ),
@@ -645,8 +636,8 @@ class _Section extends StatelessWidget {
             Text(title!, style: AppText.title.copyWith(color: c.text)),
           if (caption != null) ...[
             if (title != null) const SizedBox(height: Space.x1),
-            Text(
-              keepAll(caption!),
+            KeepText(
+              caption!,
               style: AppText.body.copyWith(color: c.textMuted),
             ),
           ],
