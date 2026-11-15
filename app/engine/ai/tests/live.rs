@@ -53,6 +53,7 @@ fn live_openai_models_and_short_request() {
         effort: Effort::Low,
         max_tokens: Some(1024),
         format: None,
+        long_cache: false,
     };
     let never = AtomicBool::new(false);
     let reply = api.send(&key, &req, &info, &never).unwrap();
@@ -121,6 +122,7 @@ fn live_models_and_short_request() {
         effort: Effort::Low,
         max_tokens: Some(1024),
         format: None,
+        long_cache: false,
     };
     let never = AtomicBool::new(false);
     let reply = api.send(&key, &req, &info, &never).unwrap();

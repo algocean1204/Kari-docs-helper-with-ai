@@ -57,6 +57,9 @@ pub struct Request {
     pub max_tokens: Option<u32>,
     /// JSON 스키마. 있으면 구조화된 출력.
     pub format: Option<Value>,
+    /// 시스템 글의 캐시를 1시간 둔다(Anthropic, 쓰기 값 2배). 아니면 5분(1.25배). 같은 앞부분을 다시 부르는 간격이
+    /// 5분을 넘기 쉬울 때만 켠다. OpenAI는 기본 수명(30분)이 이미 그만큼이라 보지 않는다.
+    pub long_cache: bool,
 }
 
 /// 도구 호출 하나. 입력 JSON이 깨졌으면 `Err(원문)`.
@@ -89,6 +92,8 @@ pub struct Usage {
     /// 캐시에서 읽은 입력, 캐시에 쓴 입력. 제공사가 주지 않으면 0
     pub cache_read: u64,
     pub cache_write: u64,
+    /// 캐시 쓰기 가운데 1시간 수명으로 쓴 것(값이 2배). 제공사가 주지 않으면 0
+    pub cache_write_1h: u64,
     /// 출력 가운데 생각. 제공사가 주지 않으면 0
     pub thinking: u64,
 }

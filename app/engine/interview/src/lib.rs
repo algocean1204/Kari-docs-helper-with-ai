@@ -52,6 +52,8 @@ pub struct Got {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
+    /// 캐시 쓰기 가운데 1시간 수명
+    pub cache_write_1h: u64,
     /// 출력 가운데 생각
     pub thinking: u64,
 }
@@ -102,6 +104,9 @@ pub struct CallLog {
     pub cache_read: u64,
     #[serde(default)]
     pub cache_write: u64,
+    /// 캐시 쓰기 가운데 1시간 수명(값이 2배). 앞서 저장한 세션에는 없다
+    #[serde(default)]
+    pub cache_write_1h: u64,
     #[serde(default)]
     pub thinking: u64,
     #[serde(default)]
@@ -116,6 +121,7 @@ impl CallLog {
             output: self.output,
             cache_read: self.cache_read,
             cache_write: self.cache_write,
+            cache_write_1h: self.cache_write_1h,
             thinking: self.thinking,
         }
         .cost(&self.model)
@@ -137,6 +143,13 @@ pub fn task_of(what: &str) -> &str {
         "hint" => "ask",
         w => w,
     }
+}
+
+/// 시스템 글의 캐시를 1시간 둘 호출인가. 질문(힌트 포함)과 채점은 턴마다 같은 시스템 글로 다시 부르고, 그 사이에
+/// 사람이 답을 쓴다(보통 몇 분, 5분을 넘기도 한다). 5분 캐시는 그때 다시 쓰기 값을 내고, 1시간 캐시는 한 세션과 이어 하는
+/// 연습까지 덮는다. 주장 뽑기와 공고 분해는 세션마다 한 번이라 기본 5분이다(다시 묻기만 그 안에 온다).
+pub fn long_cache(what: &str) -> bool {
+    matches!(task_of(what), "ask" | "grade")
 }
 
 /// 세션이 쓰는 일: 주장 뽑기, 공고 분해, 질문 만들기, 채점.
@@ -172,6 +185,7 @@ pub(crate) fn call_json<T: DeserializeOwned>(
             output: got.output,
             cache_read: got.cache_read,
             cache_write: got.cache_write,
+            cache_write_1h: got.cache_write_1h,
             thinking: got.thinking,
             model: got.model,
         });

@@ -156,6 +156,7 @@ impl Live {
             effort,
             max_tokens: None,
             format: info.structured.then(|| c.schema.clone()),
+            long_cache: kari_interview::long_cache(c.what),
         };
         let r = self
             .api
@@ -168,6 +169,7 @@ impl Live {
             output: r.usage.output,
             cache_read: r.usage.cache_read,
             cache_write: r.usage.cache_write,
+            cache_write_1h: r.usage.cache_write_1h,
             thinking: r.usage.thinking,
         };
         let cost = r.usage.cost(&r.model).unwrap_or(0.0);
@@ -176,7 +178,7 @@ impl Live {
             "provider": self.provider, "tag": self.tag, "what": c.what, "model": r.model,
             "effort": r.effort_sent.map(Effort::as_str),
             "input": got.input, "output": got.output, "cacheRead": got.cache_read,
-            "cacheWrite": got.cache_write, "thinking": got.thinking, "ms": got.ms,
+            "cacheWrite": got.cache_write, "cacheWrite1h": got.cache_write_1h, "thinking": got.thinking, "ms": got.ms,
             "cost": cost, "jsonOk": json_ok, "stop": format!("{:?}", r.stop),
         });
         let mut f = std::fs::OpenOptions::new()
