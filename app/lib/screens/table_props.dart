@@ -208,6 +208,7 @@ class _Chip extends StatelessWidget {
     return FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         selected: on,
         label: label,
         child: ExcludeSemantics(

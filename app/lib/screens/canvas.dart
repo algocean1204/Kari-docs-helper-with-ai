@@ -86,6 +86,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
     );
     s.addListener(_onSession);
     widget.library.editing = s;
+    s.fitOnFirstView = widget.library.newCanvases.remove(widget.docId);
     s.open();
     s.showLayers(_layers);
   }
@@ -143,7 +144,14 @@ class _CanvasScreenState extends State<CanvasScreen> {
     String? message;
     var failed = true;
     try {
-      final path = await widget.library.savePath('${doc.name}.pdf');
+      // 엔진은 숨긴 대지를 빼므로, 보이는 대지가 없으면 저장 위치를 묻기 전에 알린다.
+      final rows = (await widget.library.engine.canvasLayers(doc.id)).rows;
+      if (!rows.any((r) => r.type == 'page' && r.visible)) {
+        message = 'PDF로 내보내지 못했습니다 · 보이는 대지가 없습니다. 숨긴 대지는 PDF에 들어가지 않습니다';
+      }
+      final path = message != null
+          ? null
+          : await widget.library.savePath('${doc.name}.pdf');
       if (path != null) {
         final r = await widget.library.engine.docExportPdf(doc.id, path);
         message = [
@@ -580,6 +588,7 @@ class _ToolButton extends StatelessWidget {
         child: FocusRing(
           child: Semantics(
             button: true,
+            onTap: onPressed,
             selected: selected,
             enabled: onPressed != null,
             label: label,

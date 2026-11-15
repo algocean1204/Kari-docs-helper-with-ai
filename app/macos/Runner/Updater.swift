@@ -4,7 +4,7 @@ import Sparkle
 /// 앱 업데이트(채널 `kari/update`). 새 판 확인, 내려받기, 서명 확인, 설치, 다시 켜기는 Sparkle이 하고
 /// 화면은 Dart(app/lib/update.dart)가 그린다. 이 파일은 Sparkle의 사용자 화면 자리(SPUUserDriver)를 채널로 잇기만 한다.
 ///
-/// Dart → Swift: `start` → `{available, auto}`, `setAuto(bool)`, `check`, `answer(bool)`(새 판 알림에서 고른 것),
+/// Dart → Swift: `start` → `{available, auto, version, build}`, `setAuto(bool)`, `check`, `answer(bool)`(새 판 알림에서 고른 것),
 /// `retry`(설치하려고 앱을 끄는 요청을 다시 보낸다).
 /// Swift → Dart: `found {version, build, notes}`, `status {kind, code?, message?}`.
 /// `kind`: `latest`(새 판 없음), `downloading`, `installing`, `waiting`(설치를 기다리는데 앱이 아직 꺼지지 않음),
@@ -74,7 +74,12 @@ final class AppUpdater: NSObject, SPUUserDriver {
         NSLog("Kari 업데이트를 시작하지 못함: %@", error.localizedDescription)
       }
     }
-    return ["available": updater != nil, "auto": updater?.automaticallyChecksForUpdates ?? false]
+    let info = Bundle.main.infoDictionary
+    return [
+      "available": updater != nil, "auto": updater?.automaticallyChecksForUpdates ?? false,
+      "version": info?["CFBundleShortVersionString"] as? String ?? "",
+      "build": info?["CFBundleVersion"] as? String ?? "",
+    ]
   }
 
   private func status(_ kind: String, _ error: Error? = nil) {

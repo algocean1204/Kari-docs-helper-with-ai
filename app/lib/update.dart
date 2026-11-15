@@ -19,6 +19,9 @@ class Updates extends ChangeNotifier {
   /// 이 판이 업데이트를 받을 수 있는지(공개 키가 들어 있고 Sparkle이 시작됐는지).
   bool available = false;
 
+  /// 지금 쓰는 판과 빌드 번호. macOS 쪽이 번들에서 읽어 준다(없으면 빈 글).
+  String version = '', build = '';
+
   /// 자동으로 새 판을 확인하는지(24시간에 한 번까지). 값은 Sparkle이 저장한다.
   bool auto = false;
 
@@ -40,6 +43,8 @@ class Updates extends ChangeNotifier {
       final r = await _channel.invokeMapMethod<String, Object?>('start');
       available = r?['available'] == true;
       auto = r?['auto'] == true;
+      version = '${r?['version'] ?? ''}';
+      build = '${r?['build'] ?? ''}';
     } on MissingPluginException {
       // 채널이 없는 곳(위젯 시험)에서는 업데이트를 받지 않는다.
     } on PlatformException {

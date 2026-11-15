@@ -210,6 +210,27 @@ class AppButton extends StatelessWidget {
   }
 }
 
+/// 이름 대신 안내 글(hintText)만 있는 칸. 안내 글은 칸이 비었을 때만 보이고 읽히므로,
+/// 글이 들어가면 같은 글을 칸의 이름으로 단다. 비었을 때 붙이면 같은 글을 두 번 읽는다.
+class HintNamed extends StatelessWidget {
+  const HintNamed(this.field, {super.key});
+
+  final TextField field;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: field.controller!,
+    builder: (context, v, child) => Semantics(
+      label: v.text.isEmpty ? null : field.decoration?.hintText,
+      child: child,
+    ),
+    child: field,
+  );
+}
+
+/// 메뉴를 펴고 접는다. 단추를 누를 때와 손쉬운 사용의 누르기가 같은 일을 하게 한 곳에 둔다.
+void toggleMenu(MenuController m) => m.isOpen ? m.close() : m.open();
+
 /// 더 보기(⋯) 단추와 그 메뉴. 열면 첫 항목에 초점이 가서 화살표와 Enter로 고르고, Esc로 닫는다.
 /// [label]을 주면 글이 있는 고르기 단추가 되고 메뉴는 단추의 왼쪽 끝에 맞춘다(문단 스타일).
 class MoreMenu extends StatelessWidget {
@@ -343,10 +364,9 @@ class MoreMenu extends StatelessWidget {
           label,
           icon: icon ?? (label.isEmpty ? Icons.more_horiz : Icons.unfold_more),
           kind: ButtonKind.quiet,
-          onPressed: items.isEmpty
-              ? null
-              : () =>
-                    controller.isOpen ? controller.close() : controller.open(),
+          // 글 없는 단추는 도구 설명이 이름이다. 도구 설명은 단추의 접근성 노드에 붙지 않는다.
+          semanticLabel: label.isEmpty ? tooltip : null,
+          onPressed: items.isEmpty ? null : () => toggleMenu(controller),
         ),
       ),
     );
@@ -528,6 +548,8 @@ class Fold extends StatefulWidget {
 class _FoldState extends State<Fold> {
   late bool _open = widget.open;
 
+  void _toggle() => setState(() => _open = !_open);
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
@@ -538,6 +560,7 @@ class _FoldState extends State<Fold> {
         FocusRing(
           child: Semantics(
             button: true,
+            onTap: _toggle,
             expanded: _open,
             label: summary == null ? widget.title : '${widget.title} $summary',
             child: ExcludeSemantics(
@@ -545,7 +568,7 @@ class _FoldState extends State<Fold> {
                 color: Colors.transparent,
                 borderRadius: BorderRadius.circular(Radii.control),
                 child: InkWell(
-                  onTap: () => setState(() => _open = !_open),
+                  onTap: _toggle,
                   borderRadius: BorderRadius.circular(Radii.control),
                   hoverColor: c.text.withValues(alpha: 0.06),
                   focusColor: Colors.transparent,
@@ -842,6 +865,7 @@ class Segmented<T> extends StatelessWidget {
             FocusRing(
               child: Semantics(
                 button: true,
+                onTap: () => onChanged(v),
                 selected: v == value,
                 label: label,
                 child: ExcludeSemantics(

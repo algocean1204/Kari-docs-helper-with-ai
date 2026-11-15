@@ -372,6 +372,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.fake.docs.values.single['kind'], 'canvas');
       expect(find.byType(CanvasSurface), findsOneWidget);
+      // 새 캔버스는 대지 전체가 보이게 열린다.
+      expect(
+        rig.fake.canvasCallsOf('canvas.view').map((c) => c['op']),
+        contains('fitAll'),
+      );
+    });
+
+    testWidgets('이미 있는 캔버스 문서를 열 때는 저장된 보기를 그대로 둔다', (tester) async {
+      final o = await openCanvas(tester);
+      expect(
+        o.calls('canvas.view').map((c) => c['op']),
+        isNot(contains('fitAll')),
+      );
+    });
+
+    test('캔버스를 거듭 만들면 이름에 번호가 붙는다', () async {
+      final rig = Rig();
+      await rig.library.open();
+      await rig.library.createCanvas();
+      await rig.library.createCanvas();
+      expect(
+        [for (final d in rig.fake.docs.values) d['name']],
+        ['제목 없는 캔버스', '제목 없는 캔버스 2'],
+      );
     });
 
     testWidgets('목록의 캔버스 문서를 누르면 캔버스 화면이 열리고 보이는 영역을 알린다', (tester) async {
@@ -1020,6 +1044,9 @@ void main() {
           return '/kari-없는-폴더/포트폴리오.pdf';
         },
       );
+      o.fake.canvas(o.id)['layers'] = [
+        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+      ];
       await tester.tap(find.text('PDF로 내보내기'));
       await tester.pumpAndSettle();
       expect(asked, ['포트폴리오.pdf']);
@@ -1030,6 +1057,9 @@ void main() {
     testWidgets('저장 위치를 고르지 않으면 아무 일도 없고, 엔진 오류는 알린다', (tester) async {
       var path = null as String?;
       final o = await openCanvas(tester, savePath: (_) async => path);
+      o.fake.canvas(o.id)['layers'] = [
+        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+      ];
       await tester.tap(find.text('PDF로 내보내기'));
       await tester.pumpAndSettle();
       expect(o.fake.exported, isEmpty);
@@ -1042,6 +1072,29 @@ void main() {
       await tester.tap(find.text('PDF로 내보내기'));
       await tester.pumpAndSettle();
       expect(find.textContaining('PDF로 내보내지 못했습니다'), findsOneWidget);
+    });
+
+    testWidgets('보이는 대지가 없으면 저장 위치를 묻기 전에 알린다', (tester) async {
+      final asked = <String>[];
+      final o = await openCanvas(
+        tester,
+        savePath: (name) async {
+          asked.add(name);
+          return '/kari-없는-폴더/a.pdf';
+        },
+      );
+      o.fake.canvas(o.id)['layers'] = [
+        {
+          ...{'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+          'visible': false,
+        },
+      ];
+      await tester.tap(find.text('PDF로 내보내기'));
+      await tester.pumpAndSettle();
+      expect(asked, isEmpty);
+      expect(o.fake.exported, isEmpty);
+      expect(find.textContaining('보이는 대지가 없습니다'), findsOneWidget);
+      expect(find.textContaining('bad_request'), findsNothing);
     });
 
     testWidgets('저장하지 못한 편집이 있으면 화면을 떠나기 전에 다시 보내고, 그래도 안 되면 묻는다', (
