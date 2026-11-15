@@ -30,8 +30,8 @@ class Updates extends ChangeNotifier {
 
   /// 앱 안에서 업데이트할 수 없을 때 설정과 메뉴가 보이는 글.
   String get unavailableNote => devBuild
-      ? '이 빌드는 빌드 번호($build)가 숫자가 아닌 개발용 빌드라 앱 안 업데이트를 껐습니다. 새 판은 GitHub의 Releases에서 받아 주세요.'
-      : '이 판은 앱 안에서 업데이트할 수 없습니다. 새 판은 GitHub의 Releases에서 받아 주세요.';
+      ? '이 빌드는 빌드 번호($build)가 숫자가 아닌 개발용 빌드라 앱 안 업데이트를 껐습니다. 새 버전은 GitHub의 Releases에서 받아 주세요.'
+      : '이 버전은 앱 안에서 업데이트할 수 없습니다. 새 버전은 GitHub의 Releases에서 받아 주세요.';
 
   /// 자동으로 새 판을 확인하는지(24시간에 한 번까지). 값은 Sparkle이 저장한다.
   bool auto = false;
@@ -76,13 +76,13 @@ class Updates extends ChangeNotifier {
       _notice(unavailableNote);
       return;
     }
-    _notice('새 판이 있는지 확인하는 중입니다');
+    _notice('새 버전이 있는지 확인하는 중입니다');
     await _channel.invokeMethod<bool>('check');
   }
 
   /// 새 판 알림에서 고른 것. true면 받아서 설치한다, false면 나중에.
   Future<void> answer(bool install) async {
-    if (install) _notice('새 판을 받는 중입니다. 다 받으면 설치하려고 Kari를 닫습니다.');
+    if (install) _notice('새 버전을 받는 중입니다. 다 받으면 설치하려고 Kari를 닫습니다.');
     await _channel.invokeMethod<void>('answer', install);
   }
 
@@ -107,9 +107,9 @@ class Updates extends ChangeNotifier {
       case 'status':
         switch (a['kind']) {
           case 'latest':
-            _notice('지금 쓰는 판이 최신입니다');
+            _notice('지금 쓰는 버전이 최신입니다');
           case 'installing':
-            _notice('새 판을 설치하려고 Kari를 닫습니다');
+            _notice('새 버전을 설치하려고 Kari를 닫습니다');
           case 'waiting':
             _notice('Kari를 끄면 업데이트가 설치됩니다', retry: true);
           case 'error':
@@ -203,9 +203,9 @@ class UpdateDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     return Sheet(
-      title: '새 판이 있습니다',
+      title: '새 버전이 있습니다',
       subtitle:
-          'Kari ${offer.version} (빌드 ${offer.build}). 지금 업데이트하면 새 판을 받아 설치합니다. '
+          'Kari ${offer.version} (빌드 ${offer.build}). 지금 업데이트하면 새 버전을 받아 설치합니다. '
           '설치하려면 Kari를 닫습니다.',
       maxWidth: 480,
       actions: [

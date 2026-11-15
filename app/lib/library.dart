@@ -459,7 +459,7 @@ class Library extends ChangeNotifier {
     await _loadAi();
   });
 
-  /// 일 하나의 제공사, 계열, 추론 강도. 실패는 [EngineError]로 던진다.
+  /// 일 하나의 제공사, 계열, 생각 깊이. 실패는 [EngineError]로 던진다.
   Future<void> setTask(
     String task, {
     required String provider,
@@ -565,7 +565,7 @@ enum Setting {
   final Object fallback;
 }
 
-/// 추론 강도의 단계와 화면 이름. 엔진이 일마다 저장하고 그 판이 받는 값으로 맞춘다.
+/// 생각 깊이(엔진의 effort)의 단계와 화면 이름. 엔진이 일마다 저장하고 그 버전이 받는 값으로 맞춘다.
 const efforts = {
   'low': '낮음',
   'medium': '보통',

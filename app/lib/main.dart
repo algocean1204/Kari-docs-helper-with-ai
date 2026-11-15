@@ -249,7 +249,7 @@ class _LoadingState extends State<_Loading> {
 
 /// 자료 폴더를 열지 못했을 때 사람이 다음에 할 일.
 String openAdvice(String code) => switch (code) {
-  'too_new' => '이 자료는 더 새 판의 Kari가 만들었습니다. Kari를 새 판으로 바꾼 뒤 다시 열어 주세요.',
+  'too_new' => '이 자료는 더 새 버전의 Kari가 만들었습니다. Kari를 새 버전으로 바꾼 뒤 다시 열어 주세요.',
   'in_use' => '이미 열려 있는 Kari 창을 쓰세요. 그 Kari를 끈 뒤 다시 시도하면 여기서 열립니다.',
   'corrupt' ||
   'integrity' => '자료 폴더를 다른 곳에 복사해 두세요. 그 안의 backups 폴더에 지난 사본이 있을 수 있습니다.',

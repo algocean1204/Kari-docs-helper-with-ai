@@ -441,7 +441,7 @@ class _FigmaSendDialogState extends State<FigmaSendDialog> {
             ),
           ),
           const SizedBox(height: Space.x2),
-          line('Figma로 가는 것: 문서 내용(대지, 도형, 글, 그림)', color: c.textMuted),
+          line('Figma로 가는 것: 문서 내용(페이지, 도형, 글, 그림)', color: c.textMuted),
           line(
             widget.hasKey
                 ? 'AI로 가는 것: 크기·개수 요약, Figma 페이지 이름과 지시 글(문서 본문 없음). 지시가 비면 AI에 보내지 않고 빈 자리에 놓습니다.'

@@ -280,7 +280,7 @@ class _SidePanel extends StatelessWidget {
                 ),
                 const SizedBox(width: Space.x1),
                 _Tab(
-                  label: '주장 ${claims.length}',
+                  label: '물을 문장 ${claims.length}',
                   selected: showClaims,
                   onTap: () => onToggle(true),
                 ),

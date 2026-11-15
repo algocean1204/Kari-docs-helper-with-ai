@@ -259,10 +259,10 @@ class FigmaLink extends ChangeNotifier {
       scale: plan.scale,
       frameName: plan.frameName.isEmpty ? docName : plan.frameName,
     );
-    if (conv.made.isEmpty) throw const FigmaError('보낼 것이 없습니다(보이는 대지가 없습니다)');
+    if (conv.made.isEmpty) throw const FigmaError('보낼 것이 없습니다(보이는 페이지가 없습니다)');
     if (conv.made.length > maxNodes) {
       throw FigmaError(
-        '노드가 ${conv.made.length}개라 보내지 않았습니다. 한 번에 $maxNodes개까지 보냅니다',
+        '요소가 ${conv.made.length}개라 보내지 않았습니다. 한 번에 $maxNodes개까지 보냅니다',
       );
     }
     final pageId = plan.newPage
@@ -280,7 +280,7 @@ class FigmaLink extends ChangeNotifier {
           }),
         );
       } on FigmaError catch (e) {
-        throw FigmaError('노드 $i개를 만든 뒤 멈췄습니다 · ${e.message}');
+        throw FigmaError('요소 $i개를 만든 뒤 멈췄습니다 · ${e.message}');
       }
       ids[m.key] = id;
       for (final step in m.then) {
@@ -291,7 +291,7 @@ class FigmaLink extends ChangeNotifier {
           await c.send(step.command, {...params, 'nodeId': id});
         } on FigmaError catch (e) {
           if (!step.soft) {
-            throw FigmaError('노드 ${i + 1}개를 만든 뒤 멈췄습니다 · ${e.message}');
+            throw FigmaError('요소 ${i + 1}개를 만든 뒤 멈췄습니다 · ${e.message}');
           }
           soft++;
         }
@@ -326,7 +326,7 @@ class FigmaLink extends ChangeNotifier {
 
   static String _id(Object? r) {
     final id = r is Map ? r['id'] : null;
-    if (id is! String) throw const FigmaError('Figma가 만든 노드의 id를 주지 않았습니다');
+    if (id is! String) throw const FigmaError('Figma가 만든 요소의 id를 주지 않았습니다');
     return id;
   }
 }

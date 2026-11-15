@@ -45,7 +45,7 @@ impl CanvasClip {
     pub fn image(asset: &str, w: u32, h: u32) -> CanvasClip {
         let (w, h) = (f64::from(w), f64::from(h));
         let props = json!({
-            "x": 0, "y": 0, "w": w, "h": h, "name": "이미지",
+            "x": 0, "y": 0, "w": w, "h": h, "name": "그림",
             "fills": [{"type": "IMAGE", "asset": asset, "mode": "FILL"}],
         });
         CanvasClip {
@@ -206,7 +206,7 @@ impl CanvasEditor {
             let by_view = picked.is_none();
             let target = picked
                 .or_else(|| nearest_board(doc, anchor))
-                .ok_or("붙여넣을 대지가 없습니다.")?;
+                .ok_or("붙여넣을 페이지가 없습니다.")?;
             let g = lay
                 .node_geo(doc, &target)
                 .ok_or("붙여넣을 곳이 없습니다.")?;

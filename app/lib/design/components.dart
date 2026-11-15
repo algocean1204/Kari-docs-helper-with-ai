@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'tokens.dart';
 
@@ -139,8 +142,12 @@ class AppButton extends StatelessWidget {
   final String? shortcut;
   final bool loading;
 
-  /// 꺼진 채운 단추는 채움을 이만큼 낮춘다. 회색으로 바꾸지 않아 화면의 주 동작이 어디인지 남는다.
-  static const disabledFill = 0.7;
+  /// 꺼진 채운 단추의 채움과 글: 제 색의 연한 바탕에 제 색 글. 회색으로 바꾸지 않아 화면의 주 동작이 어디인지
+  /// 남고, 채움이 진한 켜진 단추와는 한눈에 갈린다.
+  static (Color, Color) disabledFilled(AppColors c, ButtonKind kind) =>
+      kind == ButtonKind.danger
+      ? (c.dangerSoft, c.danger)
+      : (c.accentSoft, c.accentText);
 
   /// 꺼진 그 밖의 단추는 보조 글 색을 이만큼 낮춘다. 켜진 단추와 글 색만으로도 갈린다.
   static const disabledText = 0.75;
@@ -154,8 +161,9 @@ class AppButton extends StatelessWidget {
       ButtonKind.danger => (c.danger, c.surface),
       _ => (null, c.text),
     };
+    final (offFill, offFilledFg) = disabledFilled(c, kind);
     final offFg = fill != null
-        ? fg
+        ? offFilledFg
         : c.textMuted.withValues(alpha: disabledText);
     final style = ButtonStyle(
       minimumSize: const WidgetStatePropertyAll(Size(0, 32)),
@@ -176,7 +184,7 @@ class AppButton extends StatelessWidget {
       backgroundColor: WidgetStateProperty.resolveWith((s) {
         final off = s.contains(WidgetState.disabled);
         if (fill != null) {
-          return off ? fill.withValues(alpha: disabledFill) : fill;
+          return off ? offFill : fill;
         }
         if (kind == ButtonKind.secondary) return off ? c.surface2 : c.surface;
         // 단추는 쉬는 상태에서도 누를 수 있어 보여야 한다. 어느 바탕 위에서나 보이게 글자색을 옅게 깐다.
@@ -533,11 +541,12 @@ class Panel extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: padding,
-      // 테두리 없이 바탕만으로 구분한다. 밝은 화면에서는 옅은 그림자를 더하고,
+      // 옅은 구분선으로 바탕과 가른다. 밝은 화면에서는 옅은 그림자를 더하고,
       // 어두운 화면에서는 더 밝은 바탕이 깊이를 만든다.
       decoration: BoxDecoration(
         color: c.surface,
         borderRadius: BorderRadius.circular(Radii.card),
+        border: Border.all(color: c.divider),
         boxShadow: dark
             ? null
             : [
@@ -673,7 +682,7 @@ class ClaimMark extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = onPaper ? AppColors.light : AppColors.of(context);
     return Semantics(
-      label: '주장 $number',
+      label: '문장 $number',
       child: ExcludeSemantics(
         child: Container(
           width: 20,
@@ -698,6 +707,14 @@ class ClaimMark extends StatelessWidget {
     );
   }
 }
+
+/// 문장 상태(설명함, 일부 설명, 설명 못 함)의 ⓘ 설명. 판정은 엔진의 interview/src/dashboard.rs `judge`가 한다.
+const claimStatusInfo =
+    '설명함은 물은 주제가 모두 목표 깊이에 닿은 것, 일부 설명은 일부만, 설명 못 함은 하나도 닿지 못한 것입니다.';
+
+/// 깊이 단계의 ⓘ 설명. 깊이는 interview/src/score.rs `reach`, 목표는 interview/src/plan.rs `target`이 정한다.
+const depthInfo =
+    '낮은 단계(원리)부터 이어서 설명한 가장 높은 단계가 깊이입니다. 목표는 연차, 공고, 이력서로 1~5단계 중에 정합니다.';
 
 enum Tone { neutral, success, warning, danger }
 
@@ -876,12 +893,15 @@ class DiffText extends StatelessWidget {
 }
 
 /// 여러 개 가운데 하나를 고르는 줄. 고른 것은 테두리와 바탕, 굵기로 함께 표시한다.
+/// [notes]를 주면 선택지마다 한 줄 설명이 붙는다: 올리면 도구 설명으로, 화면 읽기 프로그램에는 힌트로 알리고,
+/// 지금 고른 것의 설명은 줄 아래에 늘 보인다.
 class Segmented<T> extends StatelessWidget {
   const Segmented({
     super.key,
     required this.options,
     required this.value,
     required this.onChanged,
+    this.notes,
   });
 
   /// 값과 화면에 보일 이름.
@@ -889,9 +909,80 @@ class Segmented<T> extends StatelessWidget {
   final T value;
   final ValueChanged<T> onChanged;
 
+  /// 값 → 한 줄 설명.
+  final Map<T, String>? notes;
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    final row = _row(c);
+    final note = notes?[value];
+    if (notes == null) return row;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        row,
+        if (note != null) ...[
+          const SizedBox(height: Space.x1),
+          KeepText(
+            note,
+            key: const Key('segmented-note'),
+            style: AppText.caption.copyWith(color: c.textMuted),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _option(AppColors c, T v, String label) {
+    final note = notes?[v];
+    final cell = FocusRing(
+      child: Semantics(
+        button: true,
+        onTap: () => onChanged(v),
+        selected: v == value,
+        label: label,
+        hint: note,
+        child: ExcludeSemantics(
+          child: Material(
+            color: v == value ? c.surface : Colors.transparent,
+            shape: segmentShape(c, selected: v == value),
+            child: InkWell(
+              onTap: () => onChanged(v),
+              borderRadius: BorderRadius.circular(Radii.control),
+              hoverColor: c.text.withValues(alpha: 0.06),
+              focusColor: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Space.x3,
+                  vertical: 6,
+                ),
+                child: Text(
+                  label,
+                  style: (v == value ? AppText.label : AppText.body).copyWith(
+                    color: v == value ? c.text : c.textMuted,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return note == null
+        ? cell
+        : Tooltip(message: note, excludeFromSemantics: true, child: cell);
+  }
+
+  // 좁은 패널(캔버스 속성)에서 줄이 폭을 조금 넘으면 넘치지 않게 그만큼만 줄여 그린다.
+  Widget _row(AppColors c) => FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerLeft,
+    child: _box(c),
+  );
+
+  Widget _box(AppColors c) {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
@@ -900,42 +991,7 @@ class Segmented<T> extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final (v, label) in options)
-            FocusRing(
-              child: Semantics(
-                button: true,
-                onTap: () => onChanged(v),
-                selected: v == value,
-                label: label,
-                child: ExcludeSemantics(
-                  child: Material(
-                    color: v == value ? c.surface : Colors.transparent,
-                    shape: segmentShape(c, selected: v == value),
-                    child: InkWell(
-                      onTap: () => onChanged(v),
-                      borderRadius: BorderRadius.circular(Radii.control),
-                      hoverColor: c.text.withValues(alpha: 0.06),
-                      focusColor: Colors.transparent,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Space.x3,
-                          vertical: 6,
-                        ),
-                        child: Text(
-                          label,
-                          style: (v == value ? AppText.label : AppText.body)
-                              .copyWith(
-                                color: v == value ? c.text : c.textMuted,
-                              ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
+        children: [for (final (v, label) in options) _option(c, v, label)],
       ),
     );
   }
@@ -947,6 +1003,191 @@ ShapeBorder segmentShape(AppColors c, {required bool selected}) =>
       borderRadius: BorderRadius.circular(Radii.control),
       side: selected ? BorderSide(color: c.border) : BorderSide.none,
     );
+
+/// ⓘ 설명. 마우스를 올리거나 키보드 초점이 가면 뜨고, 누르면 고정되며, Esc나 바깥을 누르면 닫힌다.
+/// 화면 읽기 프로그램은 단추의 이름으로 설명까지 읽는다(뜨는 말풍선은 읽지 않는다).
+class InfoTip extends StatefulWidget {
+  const InfoTip(this.message, {super.key, required this.name});
+
+  /// 무엇의 설명인지. 읽어 주는 이름은 "{name} 설명"으로 시작한다.
+  final String name;
+  final String message;
+
+  @override
+  State<InfoTip> createState() => _InfoTipState();
+}
+
+class _InfoTipState extends State<InfoTip> {
+  final _portal = OverlayPortalController();
+  final _node = FocusNode(debugLabel: 'InfoTip');
+  final _group = Object();
+  bool _hoverIcon = false;
+  bool _hoverTip = false;
+  bool _pinned = false;
+
+  /// Esc나 바깥 누르기로 닫았다. 마우스와 초점이 모두 떠날 때까지 다시 뜨지 않는다.
+  bool _closed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(_sync);
+  }
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  void _sync() {
+    final hover = _hoverIcon || _hoverTip;
+    if (!hover && !_node.hasFocus) _closed = false;
+    final show = !_closed && (hover || _node.hasFocus || _pinned);
+    if (show == _portal.isShowing) return;
+    show ? _portal.show() : _portal.hide();
+  }
+
+  void _update(VoidCallback f) {
+    f();
+    _sync();
+  }
+
+  void _close() => _update(() {
+    _pinned = false;
+    _closed = true;
+  });
+
+  void _tap() {
+    if (_portal.isShowing && _pinned) return _close();
+    // 초점을 가져와야 고정한 뒤에 Esc를 받는다.
+    _node.requestFocus();
+    _update(() {
+      _pinned = true;
+      _closed = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return TapRegion(
+      groupId: _group,
+      onTapOutside: (_) {
+        if (_portal.isShowing) _close();
+      },
+      child: OverlayPortal(
+        controller: _portal,
+        overlayChildBuilder: _bubble,
+        child: MouseRegion(
+          onEnter: (_) => _update(() => _hoverIcon = true),
+          onExit: (_) => _update(() => _hoverIcon = false),
+          child: Focus(
+            focusNode: _node,
+            onKeyEvent: (_, e) {
+              if (e is KeyDownEvent &&
+                  e.logicalKey == LogicalKeyboardKey.escape &&
+                  _portal.isShowing) {
+                _close();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: FocusRing(
+              radius: 12,
+              child: Semantics(
+                button: true,
+                label: '${widget.name} 설명: ${widget.message}',
+                onTap: _tap,
+                child: ExcludeSemantics(
+                  child: InkWell(
+                    onTap: _tap,
+                    canRequestFocus: false,
+                    customBorder: const CircleBorder(),
+                    hoverColor: c.text.withValues(alpha: 0.06),
+                    child: SizedBox.square(
+                      dimension: 24,
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: c.textMuted,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bubble(BuildContext overlayContext) {
+    final c = AppColors.of(context);
+    final box = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final at = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+    // 한계: 고정한 채 화면을 굴리면 말풍선은 연 자리에 남는다. 다시 누르거나 Esc로 닫는다.
+    return CustomSingleChildLayout(
+      delegate: _TipLayout(at),
+      child: TapRegion(
+        groupId: _group,
+        child: MouseRegion(
+          onEnter: (_) => _update(() => _hoverTip = true),
+          onExit: (_) => _update(() => _hoverTip = false),
+          child: ExcludeSemantics(
+            child: Container(
+              key: const Key('info-tip'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.x3,
+                vertical: Space.x2,
+              ),
+              decoration: BoxDecoration(
+                color: c.text,
+                borderRadius: BorderRadius.circular(Radii.control),
+              ),
+              child: KeepText(
+                widget.message,
+                style: AppText.caption.copyWith(color: c.surface),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 말풍선은 ⓘ 아래(넘치면 위)에 두고 창 밖으로 나가지 않게 좌우를 당긴다.
+class _TipLayout extends SingleChildLayoutDelegate {
+  const _TipLayout(this.target);
+
+  final Rect target;
+  static const double _gap = Space.x1;
+  static const double _edge = Space.x2;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints(maxWidth: math.min(280, constraints.maxWidth - 2 * _edge));
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    var y = target.bottom + _gap;
+    if (y + childSize.height > size.height - _edge) {
+      y = target.top - _gap - childSize.height;
+    }
+    final x = target.left.clamp(
+      _edge,
+      math.max<double>(_edge, size.width - childSize.width - _edge),
+    );
+    return Offset(x, y);
+  }
+
+  @override
+  bool shouldRelayout(_TipLayout oldDelegate) => oldDelegate.target != target;
+}
 
 /// 단추가 붙은 알림 띠가 떠 있는 시간. 글을 읽고 단추를 누를 틈을 주려고 단추 없는 것(4초)보다 길다.
 /// 단추가 있으면 Flutter는 기본으로 닫지 않으므로, 이 시간과 `persist: false`를 함께 준다.
@@ -990,12 +1231,16 @@ class SwitchRow extends StatelessWidget {
     required this.caption,
     required this.value,
     required this.onChanged,
+    this.info,
   });
 
   final String label;
   final String caption;
   final bool value;
   final ValueChanged<bool> onChanged;
+
+  /// 이름 옆 ⓘ의 설명.
+  final String? info;
 
   @override
   Widget build(BuildContext context) {
@@ -1007,7 +1252,15 @@ class SwitchRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: AppText.label.copyWith(color: c.text)),
+              Row(
+                children: [
+                  Text(label, style: AppText.label.copyWith(color: c.text)),
+                  if (info != null) ...[
+                    const SizedBox(width: Space.x1),
+                    InfoTip(info!, name: label),
+                  ],
+                ],
+              ),
               const SizedBox(height: 2),
               KeepText(
                 caption,

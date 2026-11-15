@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
@@ -94,13 +95,13 @@ final List<HomeState> homeStates = [
     true,
     true,
     doneSession,
-    '이력서의 주장을 방어했습니다',
+    '면접에서 물을 문장을 설명했습니다',
     '면접 연습 시작',
     '보내는 내용 보기',
   ),
   ('ready', true, true, null, '이 이력서로 면접을 연습할 수 있습니다', '면접 연습 시작', '보내는 내용 보기'),
   ('recent', false, true, null, '최근에 고친 문서', '이어서 쓰기', '글 문서'),
-  ('empty', false, false, null, '이력서부터 씁니다', '새 글 문서', '제목 없는 문서'),
+  ('empty', false, false, null, '이력서부터 씁니다', '새 문서', '제목 없는 문서'),
 ];
 
 Future<Rig> pumpHome(
@@ -135,15 +136,22 @@ void main() {
       });
     }
 
-    testWidgets('진행 카드: n / m, 먼저 준비할 주장 둘(방어 못 함 먼저), 줄은 리포트로, 글 단추는 이력서로', (
+    testWidgets('진행 카드: n / m, 먼저 준비할 문장 둘(설명 못 함 먼저), 줄은 리포트로, 글 단추는 이력서로', (
       tester,
     ) async {
       final rig = await pumpHome(tester, homeStates[1]);
       expect(find.text('예시페이 백엔드 엔지니어 · 이력서'), findsOneWidget);
-      expect(find.bySemanticsLabel('이력서의 주장 3개 중 1개를 방어했습니다'), findsOneWidget);
-      expect(find.text('먼저 준비할 주장'), findsOneWidget);
-      final failed = find.text('방어 못 함');
-      final partial = find.text('일부 방어');
+      expect(
+        find.bySemanticsLabel('면접에서 물을 문장 3개 중 1개를 설명했습니다'),
+        findsOneWidget,
+      );
+      expect(find.text('먼저 준비할 문장'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate((w) => w is InfoTip && w.name == '문장 상태'),
+        findsOneWidget,
+      );
+      final failed = find.text('설명 못 함');
+      final partial = find.text('일부 설명');
       expect(failed, findsOneWidget);
       expect(partial, findsOneWidget);
       expect(
@@ -397,6 +405,10 @@ void main() {
       for (final t in ['바로잡을 것', '잘한 점', '주제별 깊이']) {
         await tap(tester, find.text(t));
       }
+      expect(
+        find.byWidgetPredicate((w) => w is InfoTip && w.name == '깊이 단계'),
+        findsOneWidget,
+      );
       final seen = await tabCycle(tester);
       expect(seen.length, focusableCount(tester));
     });

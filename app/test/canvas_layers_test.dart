@@ -475,7 +475,7 @@ void main() {
 
     testWidgets('대지 더하기 메뉴는 고른 크기로 addBoard를 보내고 그 대지로 간다', (tester) async {
       final o = await openLayers(tester);
-      await tester.tap(find.byTooltip('대지 더하기'));
+      await tester.tap(find.byTooltip('페이지 더하기'));
       await tester.pumpAndSettle();
       for (final s in boardSizes) {
         expect(find.text(boardSizeLabel(s)), findsWidgets);

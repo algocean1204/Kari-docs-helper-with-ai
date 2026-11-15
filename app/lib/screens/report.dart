@@ -372,7 +372,7 @@ class _Report extends StatelessWidget {
           ]),
         // 주장 방어: 근거 요구·본인 기여·반박 질문마다 축(입장, 수치, 측정 방법, 한계, 본인 몫)의 판정과 인용.
         if (defense.isNotEmpty)
-          fold('주장 방어', defense.length, [
+          fold('문장 설명', defense.length, [
             for (final x in defense)
               Padding(
                 padding: const EdgeInsets.only(bottom: Space.x3),
@@ -406,9 +406,15 @@ class _Report extends StatelessWidget {
           fold('주제별 깊이', table.length, [
             Padding(
               padding: const EdgeInsets.only(bottom: Space.x2),
-              child: Text(
-                '단계가 높을수록 깊이 물었습니다.',
-                style: AppText.caption.copyWith(color: c.textMuted),
+              child: Row(
+                children: [
+                  Text(
+                    '단계가 높을수록 깊이 물었습니다.',
+                    style: AppText.caption.copyWith(color: c.textMuted),
+                  ),
+                  const SizedBox(width: Space.x1),
+                  const InfoTip(depthInfo, name: '깊이 단계'),
+                ],
               ),
             ),
             for (final row in table) _DepthRow(row: row),
@@ -418,7 +424,7 @@ class _Report extends StatelessWidget {
               runSpacing: Space.x1,
               children: [
                 _legend(context, Icons.check, c.success, '설명함'),
-                _legend(context, Icons.close, c.danger, '설명하지 못함'),
+                _legend(context, Icons.close, c.danger, '설명 못 함'),
                 _legend(context, Icons.remove, c.textMuted, '묻지 않음'),
               ],
             ),

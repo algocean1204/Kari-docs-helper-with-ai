@@ -76,7 +76,7 @@ pub(super) fn align_ops(
             let parent = up
                 .as_deref()
                 .and_then(|p| lay.node_geo(doc, p))
-                .ok_or("대지 하나는 맞출 곳이 없습니다.")?;
+                .ok_or("페이지 하나는 맞출 곳이 없습니다.")?;
             [-off.0, -off.1, parent.w - off.0, parent.h - off.1]
         }
         many => union_rect(many.iter().flat_map(|s| {
@@ -163,6 +163,6 @@ pub(super) fn flip_ops(
     if any {
         Ok(ops)
     } else {
-        Err("대지는 뒤집을 수 없습니다.")
+        Err("페이지는 뒤집을 수 없습니다.")
     }
 }

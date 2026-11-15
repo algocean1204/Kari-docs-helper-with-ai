@@ -148,7 +148,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
       // 엔진은 숨긴 대지를 빼므로, 보이는 대지가 없으면 저장 위치를 묻기 전에 알린다.
       final rows = (await widget.library.engine.canvasLayers(doc.id)).rows;
       if (!rows.any((r) => r.type == 'page' && r.visible)) {
-        message = 'PDF로 내보내지 못했습니다 · 보이는 대지가 없습니다. 숨긴 대지는 PDF에 들어가지 않습니다';
+        message = 'PDF로 내보내지 못했습니다 · 보이는 페이지가 없습니다. 숨긴 페이지는 PDF에 들어가지 않습니다';
       }
       final path = message != null
           ? null

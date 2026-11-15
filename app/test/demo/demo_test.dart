@@ -187,7 +187,7 @@ void main() {
     await s.click(find.text('되돌리기'));
     await s.until(() => find.byType(SnackBar).evaluate().isEmpty, '알림 닫힘');
     await s.hold(400);
-    await s.click(find.text('새 글 문서').first);
+    await s.click(find.text('새 문서').first);
     await s.wait(
       () =>
           find.byType(PaperView).evaluate().isNotEmpty &&
@@ -458,7 +458,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await s.key(LogicalKeyboardKey.keyG, meta: true);
     await s.hold(400);
-    await s.click(find.byTooltip('대지 더하기'), after: 100);
+    await s.click(find.byTooltip('페이지 더하기'), after: 100);
     await s.click(find.text('iPhone 16 · 393×852').last, after: 100);
     await s.hold(200);
     await s.click(find.byKey(const Key('board-size')), after: 100);

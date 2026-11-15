@@ -134,7 +134,7 @@ pub(crate) fn parent_for(
 ) -> Result<Option<String>, &'static str> {
     match (container_at(doc, lay, at.0, at.1), tool) {
         (None, Tool::Frame) => Ok(None),
-        (None, _) => Err("대지 안에 놓아야 합니다."),
+        (None, _) => Err("페이지 안에 놓아야 합니다."),
         (p, _) => Ok(p),
     }
 }
@@ -259,7 +259,7 @@ pub(crate) fn create(
             "fills",
             json!([{"type": "IMAGE", "asset": asset, "mode": "FILL"}]),
         ));
-        extra.push(("name", json!("이미지")));
+        extra.push(("name", json!("그림")));
     }
     for (k, v) in extra {
         props.insert(k.into(), v);
@@ -301,7 +301,7 @@ pub(crate) fn delete(doc: &Document, ids: &[String]) -> Result<Vec<Value>, &'sta
                 .filter(|n| n.kind == "page")
                 .count()
     {
-        return Err("마지막 대지는 지울 수 없습니다.");
+        return Err("마지막 페이지는 지울 수 없습니다.");
     }
     Ok(roots
         .iter()
@@ -325,7 +325,7 @@ pub(crate) fn duplicate(
     let mut ops = Vec::with_capacity(total);
     let mut out = Vec::new();
     for root in &roots {
-        let node = doc.node(root).ok_or("복제할 노드가 없습니다.")?;
+        let node = doc.node(root).ok_or("복제할 요소가 없습니다.")?;
         let siblings = doc.children(node.parent.as_deref());
         let next = siblings
             .iter()

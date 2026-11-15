@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/editing/canvas_keys.dart';
 import 'package:kari/editing/canvas_session.dart';
@@ -803,6 +804,16 @@ void main() {
           'stroke': {'weight': 3.0},
         },
       );
+      // 선 위치와 불투명도에는 ⓘ 설명이 있다.
+      for (final name in ['선 위치', '불투명도']) {
+        expect(
+          find.byWidgetPredicate((w) => w is InfoTip && w.name == name),
+          findsOneWidget,
+        );
+      }
+      // 글이 커져 패널이 길어졌다. 패널은 굴려서 본다.
+      await tester.ensureVisible(find.text('바깥'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('바깥'));
       await tester.pumpAndSettle();
       expect(
@@ -1093,7 +1104,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(asked, isEmpty);
       expect(o.fake.exported, isEmpty);
-      expect(find.textContaining('보이는 대지가 없습니다'), findsOneWidget);
+      expect(find.textContaining('보이는 페이지가 없습니다'), findsOneWidget);
       expect(find.textContaining('bad_request'), findsNothing);
     });
 
@@ -1292,8 +1303,8 @@ void main() {
           '실제 크기',
           '모두 보기',
           '고른 것에 맞추기',
-          '다음 대지',
-          '앞 대지',
+          '다음 페이지',
+          '앞 페이지',
           '레이어 패널',
           '[toggleFullScreen]',
         ],
@@ -1482,10 +1493,10 @@ void main() {
       item('개체', '묶음 풀기').onSelected!();
       await tester.pumpAndSettle();
       expect(o.calls('canvas.cmd').last['name'], 'ungroup');
-      item('보기', '다음 대지').onSelected!();
+      item('보기', '다음 페이지').onSelected!();
       await tester.pumpAndSettle();
       expect(o.calls('canvas.view').last, containsPair('to', 'next'));
-      item('보기', '앞 대지').onSelected!();
+      item('보기', '앞 페이지').onSelected!();
       await tester.pumpAndSettle();
       expect(
         o.calls('canvas.view').last,

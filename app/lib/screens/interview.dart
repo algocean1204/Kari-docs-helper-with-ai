@@ -11,7 +11,7 @@ import 'dialogs.dart';
 import 'gaze.dart';
 import 'report.dart' show openSource;
 
-/// 연차, 시간, 압박 단계의 값과 화면 이름.
+/// 연차, 시간, 면접 분위기 단계의 값과 화면 이름.
 const _yearOptions = [('new', '신입'), ('junior', '1~3년'), ('senior', '4년 이상')];
 const _minuteOptions = [(10, '10분'), (12, '12분'), (15, '15분')];
 const _pressureOptions = [
@@ -19,13 +19,15 @@ const _pressureOptions = [
   ('standard', '표준'),
   ('real', '실전'),
 ];
+
+/// 단계마다 한 줄 설명. 힌트 수는 엔진의 `hints_left`(interview/src/state.rs)와 같다.
 const _pressureNotes = {
   'coaching': '부드럽게 묻고, 막히면 질문마다 힌트를 한 번 씁니다. 답 뒤에 짚은 핵심 수를 보여 줍니다.',
-  'standard': '꼬리질문과 반박을 합니다. 힌트는 주제마다 한 번입니다.',
+  'standard': '꼬리질문과 반박을 합니다. 힌트는 주제마다 한 번입니다. 기본값입니다.',
   'real': '짧고 건조하게 묻고 반박을 먼저 합니다. 힌트가 없습니다.',
 };
 
-/// 압박마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
+/// 면접 분위기마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
 const _hintRules = {
   'coaching': '코칭은 질문마다 힌트를 한 번 씁니다.',
   'standard': '표준은 주제마다 힌트를 한 번 씁니다.',
@@ -233,36 +235,50 @@ class _InterviewTabState extends State<InterviewTab> {
     final gazeBlocked =
         _lib.get<bool>(Setting.gaze) &&
         const {'denied', 'none'}.contains(_lib.gaze.permission);
-    Widget row(String name, Widget child, {String? note}) => Padding(
-      padding: const EdgeInsets.only(bottom: Space.x4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 88,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 7),
-              child: Text(name, style: AppText.label.copyWith(color: c.text)),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                child,
-                if (note != null) ...[
-                  const SizedBox(height: Space.x1),
-                  KeepText(
-                    note,
-                    style: AppText.caption.copyWith(color: c.textMuted),
+    Widget row(String name, Widget child, {String? note, String? info}) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: Space.x4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 120,
+                child: Padding(
+                  padding: EdgeInsets.only(top: info == null ? 7 : 3),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          style: AppText.label.copyWith(color: c.text),
+                        ),
+                      ),
+                      if (info != null) ...[
+                        const SizedBox(width: Space.x1),
+                        InfoTip(info, name: name),
+                      ],
+                    ],
                   ),
-                ],
-              ],
-            ),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    child,
+                    if (note != null) ...[
+                      const SizedBox(height: Space.x1),
+                      KeepText(
+                        note,
+                        style: AppText.caption.copyWith(color: c.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
+        );
     return SingleChildScrollView(
       padding: const EdgeInsets.all(Space.x8),
       child: Center(
@@ -353,7 +369,7 @@ class _InterviewTabState extends State<InterviewTab> {
                                   ),
                                 ),
                                 AppButton(
-                                  '새 글 문서',
+                                  '새 문서',
                                   onPressed: widget.onCreateDoc,
                                 ),
                               ],
@@ -415,7 +431,7 @@ class _InterviewTabState extends State<InterviewTab> {
                         },
                       ),
                     ),
-                    // 시간, 압박, 시선 기록은 기본값이 보이는 접힌 묶음이다.
+                    // 시간, 면접 분위기, 시선 기록은 기본값이 보이는 접힌 묶음이다.
                     // 켜 둔 시선 기록을 할 수 없으면(권한 없음, 카메라 없음) 그 안내가 보이게 펼쳐 둔다.
                     Fold(
                       key: ValueKey(gazeBlocked),
@@ -424,7 +440,7 @@ class _InterviewTabState extends State<InterviewTab> {
                       style: AppText.label,
                       summary: [
                         _minuteOptions.firstWhere((o) => o.$1 == _minutes).$2,
-                        '압박 ${_pressureOptions.firstWhere((o) => o.$1 == _pressure).$2}',
+                        '면접 분위기 ${_pressureOptions.firstWhere((o) => o.$1 == _pressure).$2}',
                         '시선 기록 ${_lib.get<bool>(Setting.gaze) ? '켬' : '끔'}',
                       ].join(' · '),
                       child: Column(
@@ -442,7 +458,7 @@ class _InterviewTabState extends State<InterviewTab> {
                             ),
                           ),
                           row(
-                            '압박',
+                            '면접 분위기',
                             Segmented<String>(
                               options: _pressureOptions,
                               value: _pressure,
@@ -450,10 +466,15 @@ class _InterviewTabState extends State<InterviewTab> {
                                 setState(() => _pressure = v);
                                 _lib.keep(Setting.ivPressure, v);
                               },
+                              notes: _pressureNotes,
                             ),
-                            note: _pressureNotes[_pressure],
+                            info: '면접관의 말투, 반박, 힌트 수를 정합니다. 기본값은 표준입니다.',
                           ),
-                          row('시선 기록', GazeChoice(library: _lib)),
+                          row(
+                            '시선 기록',
+                            GazeChoice(library: _lib),
+                            info: gazeInfo,
+                          ),
                         ],
                       ),
                     ),
@@ -729,14 +750,14 @@ class _SessionState extends State<_Session> {
     final sent = answering || done
         ? null
         : history.where((h) => h['question'] == v['question']).lastOrNull;
-    // 위 줄의 맥락: 어느 이력서로, 어느 압박으로 하는 연습인지.
+    // 위 줄의 맥락: 어느 이력서로, 어느 면접 분위기로 하는 연습인지.
     final lib = _run.library;
     final info = lib.sessions.where((s) => s['id'] == v['id']).firstOrNull;
     final pressure = info?['pressure'];
     final about = [
       ?lib.docs.where((d) => d.id == info?['doc']).firstOrNull?.name,
       for (final o in _pressureOptions)
-        if (o.$1 == pressure) '압박 ${o.$2}',
+        if (o.$1 == pressure) '면접 분위기 ${o.$2}',
     ].join(' · ');
     // 시간은 1분 아래에서 경고, 다 되면 위험으로 알린다(색과 아이콘을 함께).
     final timeColor = left <= 0

@@ -18,7 +18,7 @@ use crate::fail::{bad, Args, Fail, Res};
 
 /// 일과 화면 이름. 면접의 네 가지(AI 편집의 일은 뒤에 더한다).
 pub(crate) const TASKS: [(&str, &str); 4] = [
-    ("claims", "이력서 주장 뽑기"),
+    ("claims", "면접에서 물을 문장 뽑기"),
     ("posting", "채용공고 나누기"),
     ("ask", "질문 만들기"),
     ("grade", "답변 채점"),

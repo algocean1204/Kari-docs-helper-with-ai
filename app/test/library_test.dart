@@ -310,10 +310,10 @@ void main() {
       await pumpReal(tester, seed: false);
       expect(find.text('이력서부터 씁니다'), findsOneWidget);
       expect(find.text('준비 0/4'), findsOneWidget);
-      // 채운 단추는 새 글 문서 하나, 그 옆에 조용한 가져오기와 새 캔버스. 준비 줄의 넷과 공고 추가.
+      // 채운 단추는 새 문서 하나, 그 옆에 조용한 가져오기와 새 캔버스. 준비 줄의 넷과 공고 추가.
       // 문서가 없으면 문서 구역을 두지 않는다.
       expect(find.byType(TextButton), findsNWidgets(8));
-      expect(button(tester, '새 글 문서').onPressed, isNotNull);
+      expect(button(tester, '새 문서').onPressed, isNotNull);
       expect(button(tester, '가져오기…').onPressed, isNotNull);
       expect(button(tester, '새 캔버스').onPressed, isNotNull);
       for (final step in ['이력서', 'AI 연결', '채용공고', '첫 연습']) {
@@ -346,7 +346,7 @@ void main() {
 
     testWidgets('새 문서를 누르면 "제목 없는 문서"를 만들고 문서 화면으로 간다', (tester) async {
       final rig = await pumpReal(tester, seed: false);
-      await tester.tap(find.text('새 글 문서'));
+      await tester.tap(find.text('새 문서'));
       await tester.pumpAndSettle();
       expect(find.text('제목 없는 문서'), findsOneWidget);
       expect(find.text('글 문서'), findsOneWidget);

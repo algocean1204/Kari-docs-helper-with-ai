@@ -365,7 +365,7 @@ List<MenuEntry> appMenus({
         run: st?.table != null ? null : dialog((s) => TableDialog(session: s)),
       ),
       MenuEntry(
-        '이미지…',
+        '그림…',
         run: d?.openImage == null
             ? null
             : on(() async {
@@ -632,9 +632,9 @@ List<MenuEntry> canvasMenus({
         run: on(() => s.viewOp('fitSelection'), when: has),
       ),
       MenuEntry.divider,
-      // 대지 사이 이동의 N, ⇧N은 한 글자 키라 메뉴에 걸지 않는다(판이 받는다).
-      MenuEntry('다음 대지', run: on(() => s.viewOp('board', {'to': 'next'}))),
-      MenuEntry('앞 대지', run: on(() => s.viewOp('board', {'to': 'prev'}))),
+      // 페이지 사이 이동의 N, ⇧N은 한 글자 키라 메뉴에 걸지 않는다(판이 받는다).
+      MenuEntry('다음 페이지', run: on(() => s.viewOp('board', {'to': 'next'}))),
+      MenuEntry('앞 페이지', run: on(() => s.viewOp('board', {'to': 'prev'}))),
       MenuEntry(
         '레이어 패널',
         run: canvas.toggleLayers == null ? null : on(canvas.toggleLayers!),

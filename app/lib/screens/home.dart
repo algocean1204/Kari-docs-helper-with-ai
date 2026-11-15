@@ -173,11 +173,7 @@ class LibraryHome extends StatelessWidget {
             onPressed: onImport,
           ),
           const SizedBox(width: Space.x2),
-          AppButton(
-            '새 글 문서',
-            icon: Icons.note_add_outlined,
-            onPressed: onCreate,
-          ),
+          AppButton('새 문서', icon: Icons.note_add_outlined, onPressed: onCreate),
         ],
       ),
       child: Column(
@@ -394,7 +390,7 @@ class LibraryHome extends StatelessWidget {
         ],
       ),
       action: AppButton(
-        '새 글 문서',
+        '새 문서',
         kind: ButtonKind.primary,
         icon: Icons.note_add_outlined,
         onPressed: onCreate,
@@ -552,7 +548,7 @@ class _Progress extends StatelessWidget {
           ] else ...[
             // 이 화면에서 크게 보여 주는 숫자는 이것 하나다.
             Semantics(
-              label: '이력서의 주장 $total개 중 $defended개를 방어했습니다',
+              label: '면접에서 물을 문장 $total개 중 $defended개를 설명했습니다',
               child: ExcludeSemantics(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -575,7 +571,7 @@ class _Progress extends StatelessWidget {
                     const SizedBox(width: Space.x3),
                     Flexible(
                       child: Text(
-                        '이력서의 주장을 방어했습니다',
+                        '면접에서 물을 문장을 설명했습니다',
                         style: AppText.body.copyWith(color: c.text),
                       ),
                     ),
@@ -589,18 +585,24 @@ class _Progress extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: defended / total,
                 minHeight: 6,
-                // 막대는 "방어함"과 같은 색이다. 강조색은 채운 단추에만 쓴다.
+                // 막대는 "설명함"과 같은 색이다. 강조색은 채운 단추에만 쓴다.
                 color: c.success,
                 backgroundColor: c.surface2,
-                semanticsLabel: '방어한 주장',
+                semanticsLabel: '설명한 문장',
                 semanticsValue: '$defended/$total',
               ),
             ),
             if (focus.isNotEmpty) ...[
               const SizedBox(height: Space.x6),
-              Text(
-                '먼저 준비할 주장',
-                style: AppText.caption.copyWith(color: c.textMuted),
+              Row(
+                children: [
+                  Text(
+                    '먼저 준비할 문장',
+                    style: AppText.caption.copyWith(color: c.textMuted),
+                  ),
+                  const SizedBox(width: Space.x1),
+                  const InfoTip(claimStatusInfo, name: '문장 상태'),
+                ],
               ),
               const SizedBox(height: Space.x1),
               for (final f in focus)
@@ -640,7 +642,7 @@ class _FocusRow extends StatelessWidget {
         button: true,
         onTap: onTap,
         label:
-            '주장 ${focus['claim']} $quote, ${failed ? '방어 못 함' : '일부 방어'}, 리포트 보기',
+            '문장 ${focus['claim']} $quote, ${failed ? '설명 못 함' : '일부 설명'}, 리포트 보기',
         child: ExcludeSemantics(
           child: Material(
             color: Colors.transparent,
@@ -684,7 +686,7 @@ class _FocusRow extends StatelessWidget {
                     ),
                     const SizedBox(width: Space.x3),
                     StatusPill(
-                      failed ? '방어 못 함' : '일부 방어',
+                      failed ? '설명 못 함' : '일부 설명',
                       tone: failed ? Tone.danger : Tone.warning,
                     ),
                     // 쉬는 상태에서도 줄을 누를 수 있다는 것이 보이게 한다. 상태 표시의 가운데 높이에 맞춘다.

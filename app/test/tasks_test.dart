@@ -1,9 +1,11 @@
-// 일마다 쓰는 모델: 설정에서 일마다 제공사, 계열, 추론 강도를 고르고 지금 정해진 판을 본다. FakeEngine으로 돈다.
+// 일마다 쓰는 모델: 설정에서 일마다 제공사, 계열, 생각 깊이를 고르고 지금 정해진 판을 본다. FakeEngine으로 돈다.
 // 보내는 내용 창의 일마다의 판은 interview_test의 첫 전송 전 보여 주기에서 본다.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
+import 'package:kari/screens/ai_tasks.dart';
 
 import 'ai_test.dart' show inDialog, openModels, pumpAi, tap;
 import 'design_test.dart'
@@ -20,28 +22,39 @@ void main() {
     final rig = await pumpAi(tester, connected: true);
     expect(find.text('기본값 사용 중'), findsOneWidget);
     await openModels(tester);
-    for (final name in ['이력서 주장 뽑기', '채용공고 나누기', '질문 만들기', '답변 채점']) {
+    for (final name in ['면접에서 물을 문장 뽑기', '채용공고 나누기', '질문 만들기', '답변 채점']) {
       expect(find.text(name), findsOneWidget);
     }
     expect(
-      find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
+      find.text('Haiku · 생각 깊이 보통 · 지금 Claude Haiku 5.5'),
       findsNWidgets(3),
     );
-    expect(find.text('Haiku · 추론 강도 높음 · 지금 Claude Haiku 5.5'), findsOneWidget);
+    expect(find.text('Haiku · 생각 깊이 높음 · 지금 Claude Haiku 5.5'), findsOneWidget);
 
     // 채점을 Opus 계열, 최대로: 그 계열의 가장 새 판이 정해진다.
     expect(find.text('바꾸기'), findsNWidgets(4));
     await tap(tester, change(3));
     expect(find.text('답변 채점의 모델'), findsOneWidget);
     expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
+    // 모델과 생각 깊이에는 ⓘ 설명이 있고, 고른 선택지의 설명 한 줄이 줄 아래에 보인다.
+    for (final name in ['모델', '생각 깊이']) {
+      expect(
+        inDialog(find.byWidgetPredicate((w) => w is InfoTip && w.name == name)),
+        findsOneWidget,
+      );
+    }
+    expect(inDialog(find.text(keepAll(familyNotes['haiku']!))), findsOneWidget);
+    expect(inDialog(find.text(keepAll(effortNotes['high']!))), findsOneWidget);
     await tap(tester, inDialog(find.text('Opus')));
     await tap(tester, inDialog(find.text('최대')));
+    expect(inDialog(find.text(keepAll(familyNotes['opus']!))), findsOneWidget);
+    expect(inDialog(find.text(keepAll(effortNotes['max']!))), findsOneWidget);
     expect(
-      inDialog(find.text('Opus · 추론 강도 최대 · 지금 Claude Opus 5.5')),
+      inDialog(find.text('Opus · 생각 깊이 최대 · 지금 Claude Opus 5.5')),
       findsOneWidget,
     );
     await tap(tester, inDialog(find.text('닫기')));
-    expect(find.text('Opus · 추론 강도 최대 · 지금 Claude Opus 5.5'), findsOneWidget);
+    expect(find.text('Opus · 생각 깊이 최대 · 지금 Claude Opus 5.5'), findsOneWidget);
     expect(rig.fake.settings['ai.task.grade'], {
       'provider': 'anthropic',
       'family': 'opus',
@@ -60,7 +73,7 @@ void main() {
     );
     await tap(tester, inDialog(find.text('Terra')));
     await tap(tester, inDialog(find.text('닫기')));
-    expect(find.text('Terra · 추론 강도 보통 · 지금 gpt-6.1-terra'), findsOneWidget);
+    expect(find.text('Terra · 생각 깊이 보통 · 지금 gpt-6.1-terra'), findsOneWidget);
     expect(
       find.text('키 없음'),
       findsNWidgets(2),
@@ -73,7 +86,7 @@ void main() {
     expect(find.text('기본값 사용 중'), findsOneWidget);
     expect(rig.fake.settings.containsKey('ai.task.grade'), isFalse);
     expect(
-      find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
+      find.text('Haiku · 생각 깊이 보통 · 지금 Claude Haiku 5.5'),
       findsNWidgets(3),
     );
   });

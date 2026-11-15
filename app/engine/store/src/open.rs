@@ -225,7 +225,7 @@ impl Library {
             let v: u32 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
             // 옛 판의 백업은 되살린 뒤 열 때 올린다.
             if v == 0 || v > VERSION {
-                return Err(Error::Invalid(format!("백업의 형식이 {v}판입니다.")));
+                return Err(Error::Invalid(format!("백업의 형식이 {v}버전입니다.")));
             }
             drop(c);
             File::open(&tmp)?.sync_all()?;

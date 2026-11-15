@@ -175,8 +175,8 @@ pub(crate) fn set_ops(
                 }
                 // 대지 크기 고르기: 이름의 크기로 바꾸고 그 방향을 적는다.
                 "preset" if kind == "page" => {
-                    let name = v.as_str().ok_or("대지 크기 이름이 아닙니다.")?;
-                    let (w, h) = board_size(doc, name).ok_or("모르는 대지 크기입니다.")?;
+                    let name = v.as_str().ok_or("페이지 크기 이름이 아닙니다.")?;
+                    let (w, h) = board_size(doc, name).ok_or("모르는 페이지 크기입니다.")?;
                     ch.insert("preset".into(), json!(name));
                     ch.insert("w".into(), json!(r3(w)));
                     ch.insert("h".into(), json!(r3(h)));
@@ -375,7 +375,7 @@ pub(crate) fn set_ops(
     if taken {
         Ok(ops)
     } else {
-        Err("고른 노드에 쓸 수 없는 속성입니다.")
+        Err("고른 요소에 쓸 수 없는 속성입니다.")
     }
 }
 

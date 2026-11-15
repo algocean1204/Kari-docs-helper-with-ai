@@ -245,22 +245,23 @@ void main() {
           ('바탕', c.bg),
           ('표면2', c.surface2),
         ]) {
-          // 채운 단추: 낮춘 채움 위의 글.
-          for (final (kind, fill, fg) in [
-            ('주 동작', c.accent, c.onAccent),
-            ('위험', c.danger, c.surface),
+          // 채운 단추: 꺼지면 제 색의 연한 바탕에 제 색 글.
+          for (final (kind, k, fill) in [
+            ('주 동작', ButtonKind.primary, c.accent),
+            ('위험', ButtonKind.danger, c.danger),
           ]) {
-            final off = over(
-              fill.withValues(alpha: AppButton.disabledFill),
-              under,
-            );
+            final (off, fg) = AppButton.disabledFilled(c, k);
             expect(
-              contrast(fg, off),
+              contrast(fg, over(off, under)),
               greaterThanOrEqualTo(3),
               reason: '$name 꺼진 $kind 단추/$where',
             );
-            // 켜진 것과는 채움이 달라 보인다.
-            expect(off, isNot(fill), reason: '$name $kind/$where');
+            // 켜진 것과는 채움이 한눈에 갈린다(부품 경계와 같은 3:1).
+            expect(
+              contrast(fill, off),
+              greaterThanOrEqualTo(3),
+              reason: '$name $kind 켬/끔',
+            );
           }
           // 조용한 단추: 옅은 바탕 위의 낮춘 글.
           final quiet = over(c.text.withValues(alpha: 0.04), under);
@@ -341,7 +342,7 @@ void main() {
       ('밝게', Brightness.light, AppColors.light),
       ('어둡게', Brightness.dark, AppColors.dark),
     ]) {
-      testWidgets('$name 단추: 위험 단추는 위험 색 채움이고, 꺼진 채운 단추는 제 색을 낮춰 자리를 지킨다', (
+      testWidgets('$name 단추: 위험 단추는 위험 색 채움이고, 꺼진 채운 단추는 제 색의 연한 바탕으로 갈린다', (
         tester,
       ) async {
         Widget row(String tag, VoidCallback? on) => Padding(
@@ -371,16 +372,11 @@ void main() {
         expect(fillOf(tester, '위험 켬', on), c.danger);
         expect(inkOf(tester, '위험 켬', on), c.surface);
         expect(fillOf(tester, '주 켬', on), c.accent);
-        // 꺼진 채운 단추: 회색이 아니라 낮춘 제 색, 글은 그대로.
-        expect(
-          fillOf(tester, '주 끔', off),
-          c.accent.withValues(alpha: AppButton.disabledFill),
-        );
-        expect(inkOf(tester, '주 끔', off), c.onAccent);
-        expect(
-          fillOf(tester, '위험 끔', off),
-          c.danger.withValues(alpha: AppButton.disabledFill),
-        );
+        // 꺼진 채운 단추: 회색이 아니라 제 색의 연한 바탕과 제 색 글.
+        expect(fillOf(tester, '주 끔', off), c.accentSoft);
+        expect(inkOf(tester, '주 끔', off), c.accentText);
+        expect(fillOf(tester, '위험 끔', off), c.dangerSoft);
+        expect(inkOf(tester, '위험 끔', off), c.danger);
         // 꺼진 조용한 단추와 보통 단추: 보조 글보다 더 낮춘 글.
         final low = c.textMuted.withValues(alpha: AppButton.disabledText);
         expect(inkOf(tester, '조용 끔', off), low);
@@ -418,6 +414,26 @@ void main() {
         expect(side('둘').color, c.border);
         expect(side('둘').width, 1);
         expect(side('하나'), BorderSide.none);
+      });
+
+      testWidgets('$name 카드: 옅은 구분선으로 바탕과 갈린다', (tester) async {
+        await pumpIn(
+          tester,
+          const Panel(child: Text('카드')),
+          brightness: brightness,
+        );
+        final box =
+            tester
+                    .widget<Container>(
+                      find.ancestor(
+                        of: find.text('카드'),
+                        matching: find.byType(Container),
+                      ),
+                    )
+                    .decoration!
+                as BoxDecoration;
+        expect(box.color, c.surface);
+        expect(box.border, Border.all(color: c.divider));
       });
     }
 
@@ -540,12 +556,12 @@ void main() {
       });
     }
 
-    testWidgets('문서 화면의 주장 탭으로 바꿔도 넘침이 없다', (tester) async {
+    testWidgets('문서 화면의 물을 문장 탭으로 바꿔도 넘침이 없다', (tester) async {
       await pumpApp(tester, AppRoute.editor, sizes[0]);
-      await tester.tap(find.text('주장 5'));
+      await tester.tap(find.text('물을 문장 5'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('방어 못 함'), findsOneWidget);
+      expect(find.text('설명 못 함'), findsOneWidget);
       await saveShot(tester, 'editor-1024-light-claims');
     });
 

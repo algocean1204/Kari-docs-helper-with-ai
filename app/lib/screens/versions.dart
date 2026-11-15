@@ -114,7 +114,7 @@ class _VersionPanelState extends State<VersionPanel> {
       final boards = nodes.where((n) => n['type'] == 'page').length;
       final paras = [
         // 캔버스 문서는 대지와 노드의 수를 먼저 보인다(도형만 있어도 빈 문서로 보이지 않게).
-        if (boards > 0) '대지 $boards개 · 노드 ${nodes.length - boards}개',
+        if (boards > 0) '페이지 $boards개 · 요소 ${nodes.length - boards}개',
         ...paragraphs(nodes),
       ];
       if (mounted && _selected == id) {

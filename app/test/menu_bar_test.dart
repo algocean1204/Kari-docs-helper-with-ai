@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip, SwitchRow;
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/editing/keys.dart';
 import 'package:kari/editing/session.dart';
@@ -213,7 +214,7 @@ void main() {
       ]);
       expect(_shown(d, '넣기'), [
         '표…',
-        '이미지…',
+        '그림…',
         '링크… ⌘K',
         '탭 정지…',
         '쪽 나누기 ⌘↩',
@@ -721,10 +722,19 @@ void main() {
       await _pick(tester, d, ['Kari', '설정…']);
       final row = find.ancestor(
         of: find.text('입력하면서 자동 서식'),
-        matching: find.byType(Row),
+        matching: find.byType(SwitchRow),
       );
-      final sw = find.descendant(of: row.first, matching: find.byType(Switch));
+      final sw = find.descendant(of: row, matching: find.byType(Switch));
       expect(tester.widget<Switch>(sw).value, isTrue);
+      // 이름 옆의 ⓘ가 무엇을 바꾸는지와 기본값을 알린다.
+      expect(
+        tester
+            .widget<InfoTip>(
+              find.descendant(of: row, matching: find.byType(InfoTip)),
+            )
+            .message,
+        contains('기본값 켬'),
+      );
       await tester.ensureVisible(sw);
       await tester.tap(sw);
       await tester.pumpAndSettle();

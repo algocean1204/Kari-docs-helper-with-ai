@@ -1219,7 +1219,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Page 1'), findsOneWidget);
       expect(
-        find.text(keepAll('Figma로 가는 것: 문서 내용(대지, 도형, 글, 그림)')),
+        find.text(keepAll('Figma로 가는 것: 문서 내용(페이지, 도형, 글, 그림)')),
         findsOneWidget,
       );
       expect(
