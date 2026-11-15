@@ -98,6 +98,8 @@ jobs:
           cargo fmt --all --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
+          # 시험용 고리(test-hooks)를 켜야만 도는 엔진 시험(AI 연결의 실패 경로 등).
+          cargo test -p kari-ffi --features test-hooks
           df -h . | tail -1
       - name: 지식 팩과 그 문서의 표
         run: |
