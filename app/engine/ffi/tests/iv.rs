@@ -44,6 +44,10 @@ fn posting_text_reads_back_and_goes_with_remove() {
 }
 
 #[cfg(feature = "test-hooks")]
+#[path = "../../ai/tests/common/mod.rs"]
+mod fake;
+
+#[cfg(feature = "test-hooks")]
 mod hooked {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -75,6 +79,10 @@ mod hooked {
         url: String,
         /// (경로, 본문)
         log: Arc<Mutex<Vec<(String, String)>>>,
+        /// 모델 호출(`/v1/responses`, `/v1/messages`)의 인증 머리.
+        auths: Arc<Mutex<Vec<String>>>,
+        /// ChatGPT 인증 서버의 토큰 끝점이 차례로 낼 응답 본문.
+        tokens: Arc<Mutex<Vec<String>>>,
         handler: Arc<Mutex<Handler>>,
     }
 
@@ -103,14 +111,14 @@ mod hooked {
         }
     }
 
-    /// (경로, 본문, OpenAI의 인증 머리인가)
-    fn read_request(stream: &TcpStream) -> Option<(String, String, bool)> {
+    /// (경로, 본문, 인증 머리)
+    fn read_request(stream: &TcpStream) -> Option<(String, String, String)> {
         let mut r = BufReader::new(stream.try_clone().ok()?);
         let mut line = String::new();
         r.read_line(&mut line).ok()?;
         let path = line.split_whitespace().nth(1)?.to_string();
         let mut len = 0;
-        let mut bearer = false;
+        let mut auth = String::new();
         loop {
             line.clear();
             r.read_line(&mut line).ok()?;
@@ -123,13 +131,13 @@ mod hooked {
                     len = v.trim().parse().ok()?;
                 }
                 if k.eq_ignore_ascii_case("authorization") {
-                    bearer = v.trim().starts_with("Bearer ");
+                    auth = v.trim().to_string();
                 }
             }
         }
         let mut body = vec![0; len];
         r.read_exact(&mut body).ok()?;
-        Some((path, String::from_utf8(body).ok()?, bearer))
+        Some((path, String::from_utf8(body).ok()?, auth))
     }
 
     /// OpenAI Responses의 SSE 응답: 조각 하나와 끝 이벤트.
@@ -227,18 +235,50 @@ mod hooked {
         let url = format!("http://{}", listener.local_addr().unwrap());
         let log = Arc::new(Mutex::new(Vec::new()));
         let handler: Arc<Mutex<Handler>> = Arc::new(Mutex::new(Box::new(|b: &Value| brain(b))));
-        let (l2, h2) = (log.clone(), handler.clone());
+        let auths = Arc::new(Mutex::new(Vec::new()));
+        let tokens = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (l2, h2, a2, t2, u2) = (
+            log.clone(),
+            handler.clone(),
+            auths.clone(),
+            tokens.clone(),
+            url.clone(),
+        );
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
-                let (log, handler) = (l2.clone(), h2.clone());
+                let (log, handler, auths, tokens, url) =
+                    (l2.clone(), h2.clone(), a2.clone(), t2.clone(), u2.clone());
                 thread::spawn(move || {
-                    let Some((path, body, bearer)) = read_request(&stream) else {
+                    let Some((path, body, auth)) = read_request(&stream) else {
                         return;
                     };
                     log.lock().unwrap().push((path.clone(), body.clone()));
                     let openai = path == "/v1/responses";
-                    let out = if path.starts_with("/v1/models") {
+                    let bearer = auth.starts_with("Bearer ");
+                    // ChatGPT 플랜의 접근 토큰(`at-`)인가.
+                    let plan = auth.starts_with("Bearer at-");
+                    if openai || path == "/v1/messages" {
+                        auths.lock().unwrap().push(auth.clone());
+                    }
+                    let out = if path == "/api/accounts/oauth/token" {
+                        // OAuth 오류 본문(`{"error": ...}`)은 400으로.
+                        let t = tokens.lock().unwrap().remove(0);
+                        json_resp(if t.contains("\"error\"") { 400 } else { 200 }, &t)
+                    } else if path == "/.well-known/openid-configuration" {
+                        json_resp(200, &super::fake::oauth::discovery(&url))
+                    } else if path == "/.well-known/jwks.json" {
+                        json_resp(200, &super::fake::oauth::jwks())
+                    } else if path.starts_with("/v1/models") && plan {
+                        json_resp(
+                            200,
+                            &json!({"models": [
+                                {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1 Sol", "visibility": "list"},
+                                {"slug": "gpt-6-luna", "display_name": "GPT-6 Luna", "visibility": "list"},
+                            ]})
+                            .to_string(),
+                        )
+                    } else if path.starts_with("/v1/models") {
                         if bearer {
                             models_openai()
                         } else {
@@ -278,7 +318,13 @@ mod hooked {
                 });
             }
         });
-        Srv { url, log, handler }
+        Srv {
+            url,
+            log,
+            auths,
+            tokens,
+            handler,
+        }
     }
 
     /// 자료 구역의 JSON.
@@ -912,6 +958,108 @@ mod hooked {
         assert!(!ok("iv.sessions", json!({}))
             .to_string()
             .contains("sk-proj-test-KEY-2"));
+    }
+
+    /// ChatGPT 플랜: 로그인(접근 토큰이 곧 끝나 처음 호출 전에 갱신함) → 면접 한 번이 모두 플랜의 접근 토큰으로
+    /// Responses API에 나간다. 미리보기의 제약(스트림, store: false, 출력 한도 없음)을 지키고, 리포트에 API 추정 비용을
+    /// 내지 않는다. 갱신 토큰을 쓸 수 없게 되면 연결이 끊기고 `signed_out`으로 멈춘다.
+    #[test]
+    fn chatgpt_plan_runs_the_interview() {
+        use super::fake::oauth;
+        let srv = serve();
+        let _case = Case::new("iv-plan");
+        ok("ai.deleteKey", json!({"provider": "anthropic"}));
+        ok("ai.deleteKey", json!({"provider": "openai"}));
+        ok("ai.chatgptSignOut", json!({}));
+        ok("ai.testBase", json!({"url": srv.url}));
+        let url = ok("ai.chatgptBegin", json!({}))["url"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let claims = oauth::claims(&srv.url, &oauth::param(&url, "nonce").unwrap());
+        let mut first: Value =
+            serde_json::from_str(&oauth::token_body(&oauth::id_token(&claims), oauth::SCOPES))
+                .unwrap();
+        first["expires_in"] = json!(60);
+        srv.tokens.lock().unwrap().extend([
+            first.to_string(),
+            json!({"access_token": "at-SECRET-access-2", "refresh_token": "rt-SECRET-refresh-2",
+                "expires_in": 3600, "token_type": "Bearer"})
+            .to_string(),
+            r#"{"error":"invalid_grant"}"#.to_string(),
+        ]);
+        let back = oauth::callback(
+            &url,
+            &format!(
+                "code=c&state={}&client_id={}",
+                oauth::param(&url, "state").unwrap(),
+                oauth::CLIENT
+            ),
+        );
+        let b = thread::spawn(move || oauth::browse(&back));
+        ok("ai.chatgptWait", json!({"timeoutMs": 10_000}));
+        b.join().unwrap();
+
+        let doc = resume_doc(&[("p1", "결제 서버의 인덱스를 고쳤습니다.")]);
+        let pv = ok("iv.preview", json!({"doc": doc}));
+        assert_eq!(pv["ready"], true, "{pv}");
+        let id = ok("iv.start", start_args(&doc))["id"].clone();
+        ok("iv.answer", json!({"id": id, "text": "답 [전부]"}));
+        ok("iv.end", json!({"id": id}));
+        let posts = srv.posts();
+        assert!(posts.len() >= 3);
+        for b in &posts {
+            assert!(b.get("input").is_some(), "{b}");
+            assert_eq!(b["stream"], true);
+            assert_eq!(b["store"], false);
+            assert!(b.get("max_output_tokens").is_none(), "{b}");
+            assert_eq!(b["model"], "gpt-6-luna");
+            assert_eq!(b["input"][0]["role"], "developer");
+        }
+        let auths = srv.auths.lock().unwrap().clone();
+        assert_eq!(auths.len(), posts.len());
+        for a in &auths {
+            assert_eq!(a, "Bearer at-SECRET-access-2", "갱신한 토큰으로");
+        }
+        let log = srv.log.lock().unwrap().clone();
+        let token_forms: Vec<&String> = log
+            .iter()
+            .filter(|(p, _)| p == "/api/accounts/oauth/token")
+            .map(|(_, b)| b)
+            .collect();
+        assert_eq!(token_forms.len(), 2, "교환 한 번, 갱신 한 번");
+        assert_eq!(
+            oauth::param(token_forms[1], "grant_type").unwrap(),
+            "refresh_token"
+        );
+        assert_eq!(
+            oauth::param(token_forms[1], "refresh_token").unwrap(),
+            oauth::REFRESH
+        );
+        let r = ok("iv.report", json!({"id": id}));
+        assert_eq!(r["session"]["models"]["grade"]["provider"], "openai");
+        assert_eq!(
+            r["session"]["cost"],
+            json!(null),
+            "플랜은 API 요금이 아니다"
+        );
+        assert!(!r.to_string().contains("at-SECRET"));
+
+        // 서버가 401: 한 번 갱신하고 다시 부르려는데 갱신 토큰을 쓸 수 없다(invalid_grant) → 연결이 끊기고 멈춘다.
+        srv.set(|_| Resp::Error(401, "authentication_error"));
+        let e = err("iv.start", start_args(&doc));
+        assert_eq!(e["code"], "signed_out", "{e}");
+        assert!(!e.to_string().contains("at-SECRET"));
+        let p = ok("ai.providers", json!({}));
+        assert_eq!(p[1]["plan"]["connected"], false, "{p}");
+        assert_eq!(err("iv.start", start_args(&doc))["code"], "no_key");
+        // 갱신 토큰만 못 쓰게 됐으니 ID 토큰은 남아, 다시 로그인할 때 힌트로 간다.
+        let again = ok("ai.chatgptBegin", json!({}))["url"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(oauth::param(&again, "id_token_hint").is_some(), "{again}");
+        ok("ai.chatgptCancel", json!({}));
     }
 
     fn super_data(b: &Value) -> Value {

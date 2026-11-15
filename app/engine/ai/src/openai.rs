@@ -13,7 +13,7 @@ use ureq::http::Response;
 use ureq::{Agent, Body, RequestBuilder};
 
 use crate::body::ordered;
-use crate::http::{agent, body_reader, read_failed, read_json, with_retry};
+use crate::http::{agent, body_reader, plan_error, read_failed, read_json, with_retry};
 use crate::reply::str_of;
 use crate::{clamp, AiError, Effort, Message, ModelInfo, Part, Reply, Request, Stop, Usage};
 
@@ -35,6 +35,9 @@ pub struct OpenAi {
     pub retry_delays: Vec<Duration>,
     /// 모델 목록 요청 하나의 전체 한도(기본 30초). 답하지 않는 서버에서 키 확인과 목록 받기가 끝나지 않는 일이 없게. 시험에서 줄인다.
     pub list_timeout: Duration,
+    /// ChatGPT 플랜 사용(`plan`). 키 대신 ChatGPT 로그인의 접근 토큰을 받고, 미리보기의 제약을 따른다:
+    /// 늘 스트림, 출력 한도(`max_output_tokens`)를 보내지 않음, 모델 목록은 `models[]`(`visibility: list`만).
+    pub plan: bool,
     agent: Agent,
     stream_agent: Agent,
 }
@@ -57,7 +60,14 @@ impl OpenAi {
             agent: agent(None, None),
             stream_agent: agent(Some(STREAM_IDLE), None),
             list_timeout: LIST_TIMEOUT,
+            plan: false,
         }
+    }
+
+    /// ChatGPT 플랜 사용의 어댑터. 키 자리에는 ChatGPT 로그인의 접근 토큰을 준다.
+    pub fn plan(mut self) -> OpenAi {
+        self.plan = true;
+        self
     }
 
     /// 쓸 수 있는 모델 전부. 키 확인도 이것으로 한다(401 → `Unauthorized`).
@@ -69,6 +79,23 @@ impl OpenAi {
             auth(a.get(&url), &k).call()
         })?;
         let page = read_json(resp)?;
+        if self.plan {
+            // ChatGPT 계정의 목록: 보이라고 둔 것(`visibility: list`)만, 서버의 순서대로. 고를 이름은 slug다.
+            let list = page["models"]
+                .as_array()
+                .ok_or_else(|| AiError::Protocol("모델 목록에 models가 없다".into()))?;
+            return Ok(list
+                .iter()
+                .filter(|m| m["visibility"] == "list")
+                .map(|m| {
+                    let mut info = model_info(&json!({"id": m["slug"]}));
+                    if let Some(n) = m["display_name"].as_str() {
+                        info.name = n.to_string();
+                    }
+                    info
+                })
+                .collect());
+        }
         let data = page["data"]
             .as_array()
             .ok_or_else(|| AiError::Protocol("모델 목록에 data가 없다".into()))?;
@@ -83,7 +110,11 @@ impl OpenAi {
         info: &ModelInfo,
         cancel: &AtomicBool,
     ) -> Result<Reply, AiError> {
-        let (body, effort) = build(req, info, false)?;
+        // ChatGPT 플랜은 스트림만 받는다. 받은 조각은 버리고 끝 이벤트의 답을 돌려준다.
+        if self.plan {
+            return self.stream(key, req, info, cancel, &mut |_| {});
+        }
+        let (body, effort) = build(req, info, false, false)?;
         let resp = self.post(&self.agent, key, &body, cancel)?;
         parse(&read_json(resp)?, effort)
     }
@@ -97,7 +128,7 @@ impl OpenAi {
         cancel: &AtomicBool,
         on_text: &mut dyn FnMut(&str),
     ) -> Result<Reply, AiError> {
-        let (body, effort) = build(req, info, true)?;
+        let (body, effort) = build(req, info, true, self.plan)?;
         let resp = self.post(&self.stream_agent, key, &body, cancel)?;
         read_stream(body_reader(resp, cancel), cancel, on_text, effort)
     }
@@ -154,10 +185,14 @@ fn auth<B>(req: RequestBuilder<B>, key: &str) -> RequestBuilder<B> {
 }
 
 /// 요청 본문과 실제로 보낸 추론 강도. 보내기 전에 거절할 것은 여기서 거절한다.
+/// `plan`이면 ChatGPT 플랜 사용의 미리보기 제약을 따른다: 받지 않는 필드(`max_output_tokens` 등)를 넣지 않는다.
+/// 나머지(`store: false`, `developer` 메시지, 온도·`top_p`·`user`·`truncation`·`previous_response_id`를 쓰지 않음)는
+/// 두 길이 같다.
 fn build(
     req: &Request,
     info: &ModelInfo,
     stream: bool,
+    plan: bool,
 ) -> Result<(String, Option<Effort>), AiError> {
     if !matches!(req.messages.last(), Some(Message::User(_))) {
         return Err(AiError::BadRequest(
@@ -177,10 +212,13 @@ fn build(
 
     let mut input = Vec::new();
     // 시스템 글은 developer 메시지로 앞에 두고 끝에 캐시 표시를 둔다(최상위 instructions에는 표시를 둘 수 없다).
+    // ChatGPT 플랜은 문서가 받는다고 밝힌 것만 보낸다: 캐시 표시(`prompt_cache_breakpoint`, `prompt_cache_options`)는 뺀다.
     if let Some(system) = &req.system {
-        input.push(json!({"role": "developer", "content": [
-            {"type": "input_text", "text": system, "prompt_cache_breakpoint": {"mode": "explicit"}}
-        ]}));
+        let mut text = json!({"type": "input_text", "text": system});
+        if !plan {
+            text["prompt_cache_breakpoint"] = json!({"mode": "explicit"});
+        }
+        input.push(json!({"role": "developer", "content": [text]}));
     }
     for m in &req.messages {
         match m {
@@ -212,14 +250,16 @@ fn build(
     let mut body = Map::new();
     body.insert("model".into(), json!(req.model));
     body.insert("input".into(), Value::Array(input));
-    body.insert(
-        "max_output_tokens".into(),
-        json!(req.max_tokens.unwrap_or(default_max)),
-    );
+    if !plan {
+        body.insert(
+            "max_output_tokens".into(),
+            json!(req.max_tokens.unwrap_or(default_max)),
+        );
+    }
     // 응답을 OpenAI 쪽에 남기지 않는다(기본은 30일 보관).
     body.insert("store".into(), json!(false));
     // 표시한 곳까지만 캐시에 쓴다. 기본(implicit)은 마지막 사용자 메시지까지 써서, 턴마다 바뀌는 글에도 쓰기 값을 낸다.
-    if req.system.is_some() {
+    if req.system.is_some() && !plan {
         body.insert("prompt_cache_options".into(), json!({"mode": "explicit"}));
     }
     let effort = clamp(req.effort, &info.efforts);
@@ -312,6 +352,9 @@ fn usage(u: &Value) -> Usage {
 /// 응답 안의 오류(`response.failed`의 error, 스트림의 `error` 이벤트). 상태 코드의 오류와 같은 뜻으로 맞춘다.
 fn failure(code: &Value, message: &Value) -> AiError {
     let message = str_of(message);
+    if let Some(e) = code.as_str().and_then(plan_error) {
+        return e;
+    }
     match code.as_str().unwrap_or("") {
         "server_error" => AiError::Server(500),
         "rate_limit_exceeded" => AiError::RateLimited {

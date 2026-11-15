@@ -16,6 +16,7 @@ import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
+import 'package:kari/screens/ai.dart' show PlanBadge;
 
 import 'design_test.dart'
     show
@@ -27,6 +28,7 @@ import 'design_test.dart'
         sizes,
         tabCycle;
 import 'library_test.dart' show Rig, button;
+import 'semantics_test.dart' show audit;
 
 const key = 'sk-ant-api03-SECRET-test-key';
 const openaiKey = 'sk-proj-SECRET-openai-key';
@@ -79,6 +81,14 @@ Future<void> tap(WidgetTester tester, Finder f) async {
 /// 설정의 접힌 묶음 "면접에 쓰는 모델"을 펼친다.
 Future<void> openModels(WidgetTester tester) =>
     tap(tester, find.text('면접에 쓰는 모델'));
+
+/// 설정의 ChatGPT 플랜 줄 안의 글(Figma 구역에도 "연결 안 됨"이 있어 줄로 좁힌다).
+Finder planText(String s) => find.descendant(
+  of: find
+      .ancestor(of: find.text('ChatGPT 플랜'), matching: find.byType(Row))
+      .first,
+  matching: find.text(s),
+);
 
 /// 설정의 제공사 줄에 있는 단추. [label]은 "Claude 키 넣기" 꼴(제공사 이름과 단추 글).
 Finder providerButton(String label) {
@@ -430,6 +440,187 @@ void main() {
       await tap(tester, find.text('다시 시도'));
       expect(find.text('확인 실패'), findsNothing);
       expect(find.text('연결됨'), findsOneWidget);
+    });
+  });
+
+  // ChatGPT로 계속하기: 기본 브라우저(채널 kari/files의 openUrl)는 가짜 처리기가 받는다. 창을 띄우지 않는다.
+  group('ChatGPT로 계속하기', () {
+    late List<MethodCall> opened;
+    setUp(() => opened = []);
+    void mockFiles(WidgetTester tester) {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('kari/files'),
+        (c) async {
+          opened.add(c);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('kari/files'),
+          null,
+        ),
+      );
+    }
+
+    Future<void> connect(Rig rig) async {
+      await rig.fake.aiChatgptBegin();
+      await rig.fake.aiChatgptWait();
+    }
+
+    testWidgets('연결 전: OpenAI 줄 아래에 ChatGPT 플랜 줄과 "ChatGPT로 계속하기"', (
+      tester,
+    ) async {
+      final h = tester.ensureSemantics();
+      await pumpAi(tester);
+      expect(find.text('ChatGPT 플랜'), findsOneWidget);
+      expect(planText('연결 안 됨'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'), findsOneWidget);
+      expect(audit(), isEmpty);
+      h.dispose();
+    });
+
+    testWidgets('누르면 승인 주소를 기본 브라우저로 열고 기다린다. 마치면 처음 한 번 안내', (tester) async {
+      mockFiles(tester);
+      final h = tester.ensureSemantics();
+      final rig = await pumpAi(tester);
+      final gate = Completer<void>();
+      rig.fake.waits['ai.chatgptWait'] = gate.future;
+      await tester.tap(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
+      await tester.pump();
+      await tester.pump();
+      expect(opened.single.method, 'openUrl');
+      expect(
+        ((opened.single.arguments as Map)['url'] as String).startsWith(
+          'https://auth.openai.com/api/accounts/authorize?',
+        ),
+        isTrue,
+      );
+      expect(find.text('브라우저에서 로그인을 마치세요'), findsOneWidget);
+      expect(find.text('로그인 중'), findsOneWidget);
+      expect(labeled('ChatGPT 로그인 취소'), findsOneWidget);
+      expect(audit(), isEmpty);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('ChatGPT 플랜을 씁니다'), findsOneWidget);
+      expect(
+        find.textContaining(keepAll('대화나 다른 정보에 닿지 않습니다')),
+        findsOneWidget,
+      );
+      expect(
+        inDialog(find.textContaining(keepAll('ChatGPT 플랜의 사용량'))),
+        findsOneWidget,
+      );
+      expect(audit(), isEmpty);
+      await tap(tester, inDialog(find.text('사용량 관리')));
+      expect(
+        (opened.last.arguments as Map)['url'],
+        'https://chatgpt.com/settings/usage',
+      );
+      await tap(tester, inDialog(find.text('확인')));
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text('ChatGPT 플랜 사용 · user@example.com'), findsOneWidget);
+      expect(labeled('ChatGPT 연결 끊기'), findsOneWidget);
+      // OpenAI만 쓸 수 있으니 일마다의 기본값이 OpenAI이고 면접을 시작할 수 있다.
+      expect(rig.library.connected, isTrue);
+      expect(rig.library.planInUse, isTrue);
+
+      // 연결 끊기는 한 번 더 묻는다. 다시 연결해도 안내는 다시 뜨지 않는다.
+      await tap(tester, labeled('ChatGPT 연결 끊기'));
+      await tap(tester, inDialog(find.text('연결 끊기')));
+      expect(planText('연결 안 됨'), findsOneWidget);
+      expect(rig.library.connected, isFalse);
+      rig.fake.waits.clear();
+      await tap(tester, find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
+      expect(find.text('ChatGPT 플랜을 씁니다'), findsNothing);
+      expect(find.text('연결됨'), findsOneWidget);
+      h.dispose();
+    });
+
+    testWidgets('기다리는 동안 취소하면 아무것도 연결하지 않고 다시 누를 수 있다', (tester) async {
+      mockFiles(tester);
+      final rig = await pumpAi(tester);
+      final gate = Completer<void>();
+      rig.fake.waits['ai.chatgptWait'] = gate.future;
+      await tester.tap(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(labeled('ChatGPT 로그인 취소'));
+      await tester.pump();
+      expect(rig.fake.sent, contains('ai.chatgptCancel'));
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(planText('연결 안 됨'), findsOneWidget);
+      expect(find.byType(ErrorLine), findsNothing, reason: '끊은 것은 실패가 아니다');
+      expect(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'), findsOneWidget);
+      expect(rig.library.planConnected, isFalse);
+    });
+
+    for (final (code, text) in [
+      ('declined', 'ChatGPT 플랜 사용을 허락하지 않았습니다.'),
+      ('signin', 'ChatGPT 로그인을 마치지 못했습니다.'),
+      ('network', 'OpenAI에 연결하지 못했습니다.'),
+    ]) {
+      testWidgets('실패($code)는 줄 아래에 한 줄로 알리고 다시 시도할 수 있다', (tester) async {
+        mockFiles(tester);
+        final rig = await pumpAi(tester);
+        rig.fake.failures['ai.chatgptWait'] = EngineError(code, '시험');
+        await tap(tester, find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
+        expect(find.textContaining(text), findsOneWidget);
+        expect(planText('연결 안 됨'), findsOneWidget);
+        rig.fake.failures.clear();
+        await tap(tester, find.text('다시 시도'));
+        expect(find.text('연결됨'), findsOneWidget);
+        expect(find.byType(ErrorLine), findsNothing);
+      });
+    }
+
+    testWidgets('ID 토큰에 전자우편이 없으면 줄에 넣지 않는다', (tester) async {
+      final rig = Rig();
+      await rig.fake.libOpen('/tmp/kari-test');
+      rig.fake.ai.planEmail = null;
+      await connect(rig);
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+      expect(find.text('ChatGPT 플랜 사용'), findsOneWidget);
+      expect(find.textContaining('@'), findsNothing);
+    });
+
+    testWidgets('키와 플랜이 둘 다 있으면 플랜이 먼저이고, 키로 바꿀 수 있다', (tester) async {
+      final rig = Rig();
+      await rig.fake.libOpen('/tmp/kari-test');
+      await rig.fake.aiSetKey('openai', openaiKey);
+      await connect(rig);
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+      expect(find.textContaining(keepAll('ChatGPT 플랜으로 보냅니다')), findsOneWidget);
+      await tap(tester, find.text('API 키로 바꾸기'));
+      expect(find.textContaining(keepAll('API 키로 보냅니다')), findsOneWidget);
+      expect(rig.library.openaiVia, 'key');
+      await tap(tester, find.text('ChatGPT 플랜으로 바꾸기'));
+      expect(rig.library.openaiVia, 'plan');
+    });
+
+    testWidgets('모델을 고르는 곳에 "ChatGPT 플랜 사용"과 사용량 관리', (tester) async {
+      mockFiles(tester);
+      final rig = Rig();
+      await rig.fake.libOpen('/tmp/kari-test');
+      await connect(rig);
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+      await openModels(tester);
+      expect(find.byType(PlanBadge), findsOneWidget);
+      await tap(tester, labeled('ChatGPT 사용량 관리'));
+      expect(
+        (opened.last.arguments as Map)['url'],
+        'https://chatgpt.com/settings/usage',
+      );
+      // 일 하나의 모델 창에도(OpenAI를 고른 일).
+      await tap(tester, labeled('질문 만들기 모델 바꾸기'));
+      expect(inDialog(find.byType(PlanBadge)), findsOneWidget);
+      expect(inDialog(find.text('OpenAI · 키 없음')), findsNothing);
+      expect(inDialog(find.text('OpenAI')), findsOneWidget);
     });
   });
 

@@ -4,7 +4,7 @@ import '../design/components.dart';
 import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../library.dart';
-import 'ai.dart' show KeyDialog;
+import 'ai.dart' show KeyDialog, PlanBadge;
 import 'dialogs.dart';
 
 /// 제공사마다 고를 수 있는 계열(엔진과 같은 차례)과 화면 이름.
@@ -75,9 +75,14 @@ class TaskModels extends StatelessWidget {
     final c = AppColors.of(context);
     final lib = library;
     final tasks = lib?.tasks ?? sampleTasks;
+    // OpenAI를 고른 일이 ChatGPT 플랜으로 가면 그 사실과 사용량 관리를 모델 목록 위에 둔다.
+    final plan =
+        (lib?.planInUse ?? false) &&
+        tasks.any((t) => t['provider'] == 'openai');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (plan) ...[const PlanBadge(), const SizedBox(height: Space.x3)],
         for (final t in tasks)
           Padding(
             padding: const EdgeInsets.only(bottom: Space.x3),
@@ -213,7 +218,9 @@ class _TaskDialogState extends State<TaskDialog> {
             for (final p in providerFamilies.keys)
               (
                 p,
-                lib == null || lib.hasKey(p)
+                lib == null ||
+                        lib.hasKey(p) ||
+                        (p == 'openai' && lib.planConnected)
                     ? providerLabels[p]!
                     : '${providerLabels[p]} · 키 없음',
               ),
@@ -238,6 +245,10 @@ class _TaskDialogState extends State<TaskDialog> {
           value: _t['effort'] as String,
           onChanged: (e) => _set(effort: e),
         ),
+        if (provider == 'openai' && (lib?.planInUse ?? false)) ...[
+          const SizedBox(height: Space.x4),
+          const PlanBadge(),
+        ],
         const SizedBox(height: Space.x4),
         Text(
           taskSummary(_t),

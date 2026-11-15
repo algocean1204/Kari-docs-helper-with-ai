@@ -330,8 +330,8 @@ class Library extends ChangeNotifier {
   bool hasKey(String provider) =>
       providers.any((p) => p['id'] == provider && p['hasKey'] == true);
 
-  /// 어느 제공사든 키가 있는지.
-  bool get anyKey => providers.any((p) => p['hasKey'] == true);
+  /// 어느 제공사든 키가 있는지(ChatGPT 플랜 연결도 센다).
+  bool get anyKey => providers.any((p) => p['hasKey'] == true) || planConnected;
 
   /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다.
   bool get connected =>
@@ -393,6 +393,56 @@ class Library extends ChangeNotifier {
 
   Future<void> deleteKey(String provider) => _run(() async {
     await engine.aiDeleteKey(provider);
+    await _loadAi();
+  });
+
+  // ChatGPT로 계속하기: OpenAI 줄에서 API 키 대신 사용자의 ChatGPT 플랜을 쓴다. 토큰은 엔진이 보안 저장소에 둔다.
+
+  Json get _openai =>
+      providers.firstWhere((p) => p['id'] == 'openai', orElse: () => const {});
+  Json get _plan => _openai['plan'] as Json? ?? const {};
+
+  /// ChatGPT 플랜이 연결돼 있는지.
+  bool get planConnected => _plan['connected'] == true;
+
+  /// 확인한 ChatGPT 계정의 전자우편. ID 토큰에 없었으면 null.
+  String? get planEmail => _plan['email'] as String?;
+
+  /// 전에 ChatGPT 플랜 사용을 허락하지 않았는지(다음 연결은 동의를 다시 묻는다).
+  bool get planDeclined => _plan['declined'] == true;
+
+  /// OpenAI 호출이 무엇으로 가는지: `plan`, `key`, 둘 다 없으면 null. 둘 다 있으면 플랜이 먼저다(사용자가 키를 고르면 키).
+  String? get openaiVia => _openai['via'] as String?;
+
+  /// OpenAI 호출이 ChatGPT 플랜으로 가는지.
+  bool get planInUse => openaiVia == 'plan';
+
+  /// ChatGPT로 로그인한다: 승인 주소를 [open]으로 기본 브라우저에 열고, 브라우저에서 마치기를 기다린다.
+  /// 처음 연결이면 참(화면이 안내를 한 번 보인다). 실패와 취소는 [EngineError]로 던진다(`canceled`, `declined` 등).
+  Future<bool> connectChatGpt(Future<void> Function(String url) open) async {
+    try {
+      final url = (await engine.aiChatgptBegin())['url'] as String;
+      await open(url);
+      final r = await engine.aiChatgptWait();
+      return r['welcome'] == true;
+    } finally {
+      await _run(_loadAi);
+    }
+  }
+
+  /// 브라우저를 기다리는 로그인을 끊는다.
+  Future<void> cancelChatGpt() => engine.aiChatgptCancel();
+
+  /// ChatGPT 연결을 끊는다. 서버에서 세션을 끝낸 것을 확인했으면 참.
+  Future<bool> disconnectChatGpt() async {
+    final r = await engine.aiChatgptSignOut();
+    await _run(_loadAi);
+    return r['revoked'] == true;
+  }
+
+  /// 키와 플랜이 둘 다 있을 때 OpenAI 호출에 [plan]이면 ChatGPT 플랜, 아니면 API 키를 쓴다.
+  Future<void> useChatGpt(bool plan) => _run(() async {
+    await engine.aiChatgptUse(plan ? 'plan' : 'key');
     await _loadAi();
   });
 

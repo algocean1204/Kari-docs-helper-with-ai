@@ -7,6 +7,7 @@
 
 mod ai;
 mod canvas;
+mod chatgpt;
 mod cmd;
 mod dashboard;
 mod docx;

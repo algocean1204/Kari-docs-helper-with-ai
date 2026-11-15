@@ -9,7 +9,7 @@ use std::sync::atomic::AtomicBool;
 use kari_ai::{Effort, Message, Part, Request, Stop};
 use kari_doc::serde_json::{json, Value};
 
-use crate::ai::{ai_fail, client, secrets, with_lib};
+use crate::ai::{ai_fail, credential, with_lib};
 use crate::fail::{bad, fail, Args, Res};
 use crate::task;
 
@@ -52,13 +52,16 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
     if instruction.is_empty() {
         return Err(bad("지시 글이 비었습니다."));
     }
-    let Some((provider, info)) = with_lib(|lib| task::place_model(lib))? else {
+    // 제공사와 인증을 함께 정한다: OpenAI는 ChatGPT 플랜이 연결돼 있으면 플랜으로 부른다(면접과 같은 길).
+    let picked = with_lib(|lib| {
+        let Some((provider, info)) = task::place_model(lib)? else {
+            return Ok(None);
+        };
+        Ok(credential(lib, &provider)?.map(|(key, api)| (provider, info, key, api)))
+    })?;
+    let Some((provider, info, key, api)) = picked else {
         return Err(fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."));
     };
-    let key = secrets()
-        .get(&provider)
-        .map_err(|e| ai_fail(e, &[]))?
-        .ok_or_else(|| fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."))?;
     let req = Request {
         model: info.id.clone(),
         system: Some(SYSTEM.to_string()),
@@ -72,7 +75,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
         long_cache: false,
     };
     // 명령 잠금은 잡지 않은 채 기다린다(느린 줄).
-    let r = client(&provider)?
+    let r = api
         .send(&key, &req, &info, &AtomicBool::new(false))
         .map_err(|e| ai_fail(e, &[&key]))?;
     match r.stop {

@@ -204,6 +204,10 @@ fn status_error(mut resp: Response<Body>, key: &str) -> AiError {
         .filter(|s| s.is_finite() && *s >= 0.0)
         .map(|s| (s * 1000.0) as u64);
     let body = resp.body_mut().read_to_string().unwrap_or_default();
+    let v: Value = serde_json::from_str(&body).unwrap_or_default();
+    if let Some(e) = v["error"]["code"].as_str().and_then(plan_error) {
+        return e;
+    }
     match code {
         401 => AiError::Unauthorized,
         403 => AiError::Forbidden,
@@ -215,6 +219,23 @@ fn status_error(mut resp: Response<Body>, key: &str) -> AiError {
         400..=499 => AiError::BadRequest(error_message(&body, code, key)),
         _ => AiError::Server(code),
     }
+}
+
+/// ChatGPT 플랜 사용의 오류 코드(상태 코드의 본문과 스트림의 `response.failed`가 같은 코드를 준다).
+/// ChatGPT 플랜 밖의 코드면 `None`.
+pub(crate) fn plan_error(code: &str) -> Option<AiError> {
+    Some(match code {
+        "subscription_sharing_usage_limit_exceeded" => AiError::PlanLimit,
+        // 잠깐 확인하지 못했다: 자격은 그대로 두고 정해진 횟수만 다시 해 본다(503과 같다).
+        "subscription_sharing_usage_unavailable" | "subscription_sharing_user_unavailable" => {
+            AiError::Server(503)
+        }
+        // 자격 없음, 지원하지 않는 기능, 허락되지 않은 주소 등. 같은 요청을 다시 보내지 않는다.
+        c if c.starts_with("subscription_sharing_") || c.starts_with("chatpass_v2_") => {
+            AiError::Plan(c.to_string())
+        }
+        _ => return None,
+    })
 }
 
 fn billing(body: &str) -> bool {
@@ -230,7 +251,13 @@ fn billing(body: &str) -> bool {
 fn error_message(body: &str, code: u16, key: &str) -> String {
     let mut m = serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        // ChatGPT 플랜의 입장 단계는 `{"detail": "..."}`로 답할 수 있다.
+        .and_then(|v| {
+            v["error"]["message"]
+                .as_str()
+                .or(v["detail"].as_str())
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| format!("HTTP {code}"));
     if !key.is_empty() {
         m = m.replace(key, "<가림>");
