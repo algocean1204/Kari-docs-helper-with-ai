@@ -435,3 +435,77 @@ fn 셀_문단의_목록은_셀마다_번호를_센다() {
     assert_eq!(fresh.layout(&d2, None).hash, out.hash);
     let _ = d;
 }
+
+#[test]
+fn 칸보다_깊은_목록_들여쓰기도_글은_칸_안에_놓인다() {
+    let text = "2026년 11월 15일";
+    let d = table_doc(&[160.0, 160.0, 160.0], 1, json!({}), plain, none);
+    // 칸의 글 상자: 왼쪽·오른쪽 안쪽 여백 6. 줄 끝 공백 뒤의 커서는 안쪽 여백에 들 수 있어 칸 상자로 본다.
+    let (x0, x1) = (LEFT + 6.0, LEFT + 160.0 - 6.0);
+    for level in 0..9 {
+        let mut d2 = d.clone();
+        apply(
+            &mut d2,
+            json!([{"op": "set", "id": "p0_0", "props": {"runs": [{"t": text}],
+                "pf": {"list": {"kind": "ORDERED", "level": level}}}}]),
+        );
+        let mut l = layouter();
+        let out = l.layout(&d2, None).clone();
+        for off in positions(&l, "p0_0") {
+            let x = l.caret(&Pos::new("p0_0", off), false).unwrap().x;
+            assert!(
+                x >= x0 - EPS && x <= LEFT + 160.0,
+                "수준 {level}, {off}: 커서 {x}"
+            );
+        }
+        for it in &out.pages[0].items {
+            if let Item::Glyphs { para, glyphs, .. } = it {
+                if para == "p0_0" {
+                    for g in glyphs {
+                        assert!(g.x >= LEFT && g.x < x1, "수준 {level}: 글리프 {}", g.x);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn 칸에서_줄인_들여쓰기도_내어쓴_첫_줄은_글_상자_왼쪽을_넘지_않는다() {
+    let text = CORPUS[0];
+    // (칸 폭, 왼쪽 들여쓰기, 첫 줄, 기대한 첫 줄 처음, 기대한 다음 줄 처음 - 글 상자 왼쪽 기준)
+    // 60pt 칸은 들여쓰기가 줄고(첫 줄은 원래 자리 0 그대로), 160pt 칸은 들어가서 그대로다.
+    for (w, left, first, want0, want1) in [
+        (60.0, 36.0, -36.0, 0.0, 12.0),
+        (160.0, 20.0, -10.0, 10.0, 20.0),
+    ] {
+        let d = table_doc(&[w], 1, json!({}), plain, none);
+        let mut d2 = d.clone();
+        apply(
+            &mut d2,
+            json!([{"op": "set", "id": "p0_0", "props": {"runs": [{"t": text}],
+                "pf": {"indent": {"left": left, "first": first}}}}]),
+        );
+        let mut l = layouter();
+        let out = l.layout(&d2, None).clone();
+        let x0 = LEFT + 6.0;
+        let lines = lines_of(&l, "p0_0", text.len());
+        assert!(lines.len() > 1, "{w}: 줄이 넘어가야 한다");
+        for (i, (s, _)) in lines.iter().enumerate() {
+            let x = l.caret(&Pos::new("p0_0", *s), true).unwrap().x;
+            let want = x0 + if i == 0 { want0 } else { want1 };
+            assert!((x - want).abs() < EPS, "{w} {i}째 줄 처음 {x} != {want}");
+        }
+        for off in positions(&l, "p0_0") {
+            let x = l.caret(&Pos::new("p0_0", off), false).unwrap().x;
+            assert!(x >= x0 - EPS, "{w}, {off}: 커서 {x}");
+        }
+        for it in &out.pages[0].items {
+            if let Item::Glyphs { para, glyphs, .. } = it {
+                if para == "p0_0" {
+                    assert!(glyphs.iter().all(|g| g.x >= x0 - EPS), "{w}: 글리프");
+                }
+            }
+        }
+    }
+}

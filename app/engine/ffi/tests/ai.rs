@@ -242,7 +242,7 @@ mod hooked {
 
     #[test]
     fn failed_check_saves_nothing() {
-        // 401, 그 밖의 실패(403), 연결 실패(닫힌 포트).
+        // 401, 권한 없음(403), 연결 실패(닫힌 포트).
         let closed = {
             let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             format!("http://{}", l.local_addr().unwrap())
@@ -256,7 +256,7 @@ mod hooked {
             (
                 fake::serve(vec![fake::error(403, "permission_error")]).url,
                 ANTHROPIC,
-                "ai",
+                "forbidden",
             ),
             (
                 fake::serve(vec![fake::error(401, "invalid_request_error")]).url,

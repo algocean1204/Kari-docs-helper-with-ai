@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../design/components.dart';
 import '../design/tokens.dart';
@@ -30,9 +33,29 @@ String keyError(EngineError e, String vendor) => switch (e.code) {
   // 키 확인은 됐지만 보안 저장소 단계(쓰기·읽기)에서 실패했다. 키는 저장되지 않는다.
   'secret' => '이 기기의 보안 저장소(키체인)를 쓰지 못했습니다. ${e.message}',
   'billing' => '$vendor 계정의 잔액이나 지출 한도에 걸렸습니다. 결제 설정을 확인해 주세요.',
+  'forbidden' => '이 키로는 모델 목록을 볼 수 없습니다. $vendor 콘솔에서 키의 권한을 확인해 주세요.',
   'rate' || 'server' => '$vendor 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.',
   _ => '확인하지 못했습니다 (${e.code})',
 };
+
+/// 입력한 키의 꼴. 네트워크 없이 글자만 본다.
+enum KeyShape { tooShort, ok, otherProvider }
+
+/// 이만큼은 돼야 확인을 시작한다(제공사의 키는 모두 이보다 길다).
+const minKeyLength = 20;
+
+/// [raw]가 [provider]의 키 꼴인지. 접두사가 달라도 확인은 막지 않는다(제공사가 접두사를 바꿀 수 있다).
+KeyShape keyShape(String provider, String raw) {
+  final k = raw.trim();
+  if (k.length < minKeyLength || k.contains(RegExp(r'\s'))) {
+    return KeyShape.tooShort;
+  }
+  final claude = k.startsWith('sk-ant-');
+  final openai = k.startsWith('sk-') && !claude;
+  return (provider == 'anthropic' ? openai : claude)
+      ? KeyShape.otherProvider
+      : KeyShape.ok;
+}
 
 /// 키 넣기. 넣은 키로 모델 목록을 받아 확인한 뒤에만 저장하고, 성공하면 true를 돌려준다.
 /// 확인하는 동안은 닫을 수 없다(닫아도 확인은 끝까지 가고 키가 저장되기 때문이다).
@@ -59,7 +82,11 @@ class KeyDialog extends StatefulWidget {
 class _KeyDialogState extends State<KeyDialog> {
   final _text = TextEditingController();
   bool _checking = false;
+
+  /// 확인과 저장이 끝나 잠깐 결과를 보여 주는 중.
+  bool _done = false;
   String? _error;
+  Timer? _closeTimer;
 
   /// 붙여넣은 키를 보이게 한다. 기본은 가리고, 창을 닫으면 다시 가린다.
   bool _show = false;
@@ -72,19 +99,40 @@ class _KeyDialogState extends State<KeyDialog> {
 
   @override
   void dispose() {
+    _closeTimer?.cancel();
     _text.dispose();
     super.dispose();
   }
 
+  /// 클립보드의 글을 칸에 넣는다. 키는 어디에도 남기지 않는다.
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final t = data?.text?.trim();
+    if (t == null || t.isEmpty || !mounted) return;
+    _text.text = t;
+  }
+
   Future<void> _save() async {
-    if (_text.text.trim().isEmpty || _checking) return;
+    if (keyShape(widget.provider, _text.text) == KeyShape.tooShort ||
+        _checking ||
+        _done) {
+      return;
+    }
     setState(() {
       _checking = true;
       _error = null;
     });
     try {
       await widget.library.setKey(widget.provider, _text.text);
-      if (mounted) Navigator.of(context).pop(true);
+      if (!mounted) return;
+      setState(() {
+        _checking = false;
+        _done = true;
+      });
+      // 결과를 읽을 틈을 주고 닫는다.
+      _closeTimer = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) Navigator.of(context).pop(true);
+      });
     } on EngineError catch (e) {
       if (mounted) {
         setState(() {
@@ -99,8 +147,34 @@ class _KeyDialogState extends State<KeyDialog> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final (name, vendor, hint, _) = providerNames[widget.provider]!;
+    final busy = _checking || _done;
+    final shape = keyShape(widget.provider, _text.text);
+    final other = widget.provider == 'anthropic' ? 'OpenAI' : 'Claude';
+    OutlineInputBorder border(Color color, double width) => OutlineInputBorder(
+      borderRadius: BorderRadius.circular(Radii.control),
+      borderSide: BorderSide(color: color, width: width),
+    );
+    // 기본 테두리와 초점 테두리는 테마의 것을 쓰고, 결과가 나온 뒤에만 색을 바꾼다.
+    final resultColor = _done
+        ? c.success
+        : _error != null
+        ? c.danger
+        : null;
+    final helper = _checking
+        ? Text('확인 중…', style: AppText.caption.copyWith(color: c.textMuted))
+        : _done
+        ? const StatusPill('확인됨 · 저장됨', tone: Tone.success)
+        : switch (shape) {
+            _ when _error != null => null,
+            KeyShape.tooShort => null,
+            KeyShape.ok => const StatusPill('꼴이 맞습니다'),
+            KeyShape.otherProvider => StatusPill(
+              '$other 키처럼 보입니다',
+              tone: Tone.warning,
+            ),
+          };
     return PopScope(
-      canPop: !_checking,
+      canPop: !busy,
       child: Sheet(
         title: widget.replace ? '$name 키 바꾸기' : '$name 키 넣기',
         subtitle: '키는 이 기기의 보안 저장소에만 둡니다. 확인하려고 $vendor에 모델 목록을 한 번 요청합니다.',
@@ -108,43 +182,76 @@ class _KeyDialogState extends State<KeyDialog> {
         actions: [
           AppButton(
             '취소',
-            onPressed: _checking ? null : () => Navigator.of(context).pop(),
+            onPressed: busy ? null : () => Navigator.of(context).pop(),
           ),
           AppButton(
             '확인하고 저장',
             kind: ButtonKind.primary,
             loading: _checking,
-            onPressed: _text.text.trim().isEmpty ? null : _save,
+            onPressed: shape == KeyShape.tooShort || _done ? null : _save,
           ),
         ],
         children: [
-          TextField(
-            controller: _text,
-            autofocus: true,
-            readOnly: _checking,
-            obscureText: !_show,
-            autocorrect: false,
-            enableSuggestions: false,
-            style: AppText.body.copyWith(color: c.text),
-            decoration: InputDecoration(
-              hintText: hint,
-              // 칸의 높이를 늘리지 않게 단추의 자리를 단추 크기로 둔다.
-              suffixIconConstraints: const BoxConstraints(),
-              suffixIcon: Padding(
-                padding: const EdgeInsets.only(right: Space.x1),
-                child: Tooltip(
-                  message: _show ? '키 가리기' : '키 보기',
-                  child: AppButton(
-                    '',
-                    icon: _show ? Icons.visibility_off : Icons.visibility,
-                    semanticLabel: _show ? '키 가리기' : '키 보기',
-                    kind: ButtonKind.quiet,
-                    onPressed: () => setState(() => _show = !_show),
+          Text('$name API 키', style: AppText.label.copyWith(color: c.text)),
+          const SizedBox(height: Space.x1),
+          HintNamed(
+            TextField(
+              controller: _text,
+              autofocus: true,
+              readOnly: busy,
+              obscureText: !_show,
+              autocorrect: false,
+              enableSuggestions: false,
+              style: AppText.body.copyWith(color: c.text),
+              decoration: InputDecoration(
+                hintText: hint,
+                helper: helper == null
+                    ? null
+                    : Semantics(
+                        liveRegion: true,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: helper,
+                        ),
+                      ),
+                enabledBorder: resultColor == null
+                    ? null
+                    : border(resultColor, 2),
+                focusedBorder: resultColor == null
+                    ? null
+                    : border(resultColor, 2),
+                // 칸의 높이를 늘리지 않게 단추의 자리를 단추 크기로 둔다.
+                suffixIconConstraints: const BoxConstraints(),
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: Space.x1),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AppButton(
+                        '붙여넣기',
+                        icon: Icons.content_paste,
+                        semanticLabel: '클립보드에서 키 붙여넣기',
+                        kind: ButtonKind.quiet,
+                        onPressed: busy ? null : _paste,
+                      ),
+                      Tooltip(
+                        message: _show ? '키 가리기' : '키 보기',
+                        child: AppButton(
+                          '',
+                          icon: _show ? Icons.visibility_off : Icons.visibility,
+                          semanticLabel: _show ? '키 가리기' : '키 보기',
+                          kind: ButtonKind.quiet,
+                          onPressed: busy
+                              ? null
+                              : () => setState(() => _show = !_show),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              onSubmitted: (_) => _save(),
             ),
-            onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: Space.x2),
           Text(
@@ -155,7 +262,7 @@ class _KeyDialogState extends State<KeyDialog> {
           ),
           if (_error != null) ...[
             const SizedBox(height: Space.x3),
-            ErrorLine(_error!, onRetry: null),
+            ErrorLine(_error!, onRetry: _save),
           ],
         ],
       ),

@@ -18,8 +18,8 @@ use super::{apply_follow, back, integrity, state, CFront, CSession};
 use crate::fail::{bad, Args, Fail, Res};
 use crate::library::Engine;
 
-/// 앱 안에서 마지막으로 복사한 노드 조각과 그것이 온 문서(그 문서를 완전히 지우면 `None`: 문서 번호는 다시 쓰이므로
-/// 새 문서가 같은 번호를 받아도 "같은 문서"가 되지 않게 한다). 문서를 넘어 쓴다. 라이브러리를 닫으면 사라진다.
+/// 앱 안에서 마지막으로 복사한 노드 조각과 그것이 온 문서(그 문서를 완전히 지우면 `None`). 문서를 넘어 쓴다.
+/// 라이브러리를 닫으면 사라진다.
 static CLIP: Mutex<Option<(Option<DocId>, CanvasClip)>> = Mutex::new(None);
 
 fn clip() -> MutexGuard<'static, Option<(Option<DocId>, CanvasClip)>> {
@@ -31,7 +31,8 @@ pub(crate) fn clip_assets() -> Vec<String> {
     clip().as_ref().map_or_else(Vec::new, |(_, c)| c.assets())
 }
 
-/// 문서를 완전히 지울 때: 그 문서에서 복사해 둔 조각은 다른 문서에서 온 것으로 친다.
+/// 문서를 완전히 지울 때: 그 문서에서 복사해 둔 조각은 다른 문서에서 온 것으로 친다. 지운 문서의 번호는 다시 쓰지 않지만,
+/// 지운 문서를 가리키는 조각을 남기지 않으려고 둔다.
 pub(crate) fn orphan_clip(id: DocId) {
     if let Some((from, _)) = clip().as_mut().filter(|(from, _)| *from == Some(id)) {
         *from = None;

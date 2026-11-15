@@ -238,25 +238,29 @@ void main() {
     await s.hold(900);
 
     // 그림과 표.
+    // 메뉴를 고르거나 칸을 누른 뒤에는 오래 머물지 않는다(after: 100).
     s.cut('tables');
-    await s.hold(300);
+    await s.hold(150);
     await s.key(LogicalKeyboardKey.arrowDown, meta: true);
     await s.type('\n\n');
-    await s.click(find.byTooltip('넣기'));
-    await s.click(find.text('그림').last);
-    await s.hold(700);
+    await s.click(find.byTooltip('넣기'), after: 100);
+    await s.click(find.text('그림').last, after: 100);
+    await s.hold(400);
     // 그림을 눌러 고르고 모서리 손잡이를 끌어 줄인다. 커서는 넣은 그림 바로 뒤에 있다.
-    await s.clickAt(onPaper(tester, caret(tester) - const Offset(30, 0)));
+    await s.clickAt(
+      onPaper(tester, caret(tester) - const Offset(30, 0)),
+      after: 100,
+    );
     await s.until(() => paper(tester).session.state?.image != null, '그림 고름');
     final img = paper(tester).session.state!.image!.rect!;
     final corner = onPaper(tester, Offset(img.x + img.w, img.y + img.h));
-    await s.drag(corner, corner - const Offset(36, 45), pause: 400);
+    await s.drag(corner, corner - const Offset(36, 45), ms: 400, pause: 250);
     await s.key(LogicalKeyboardKey.arrowRight, show: false);
     await s.type('\n');
-    await s.click(find.byTooltip('넣기'));
-    await s.click(find.text('표').last);
-    await s.hold(400);
-    await s.click(button('넣기').last);
+    await s.click(find.byTooltip('넣기'), after: 100);
+    await s.click(find.text('표').last, after: 100);
+    await s.hold(200);
+    await s.click(button('넣기').last, after: 100);
     await s.wait(() => paper(tester).session.state?.table != null, '표 안');
     final cells = <Offset>[];
     for (final (i, t) in [
@@ -274,10 +278,11 @@ void main() {
     await s.drag(
       onPaper(tester, cells[0]) - const Offset(20, 0),
       onPaper(tester, cells[2]),
+      ms: 400,
     );
-    await s.click(find.byTooltip('셀 바탕색'));
+    await s.click(find.byTooltip('셀 바탕색'), after: 100);
     await s.click(find.byTooltip('하늘').last);
-    await s.hold(900);
+    await s.hold(500);
 
     // 찾아 바꾸기.
     s.cut('find');
@@ -393,41 +398,38 @@ void main() {
     Offset at(double x, double y) =>
         board.topLeft + Offset(board.width * x, board.height * y);
 
+    // 도구를 고르거나 칸을 누른 뒤에는 오래 머물지 않는다(after: 100).
     s.cut('canvas');
-    await s.click(find.byTooltip('사각형 R'));
-    await s.drag(at(0.1, 0.28), at(0.36, 0.78));
-    await s.click(find.byKey(const Key('color-칠 색')));
+    await s.click(find.byTooltip('사각형 R'), after: 100);
+    await s.drag(at(0.1, 0.28), at(0.36, 0.78), ms: 400);
+    await s.click(find.byKey(const Key('color-칠 색')), after: 100);
     await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
     await s.type('#6580DD', speed: 3);
     await s.submit();
-    await s.click(find.byTooltip('타원 O'));
-    await s.drag(at(0.5, 0.3), at(0.66, 0.72));
-    await s.click(find.byTooltip('글 T'));
-    await s.clickAt(at(0.1, 0.1));
-    await s.type('홍길동 포트폴리오', speed: 3);
-    await s.key(LogicalKeyboardKey.escape);
-    await s.click(find.byKey(const Key('num-크기')));
-    await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
-    await s.type('80', speed: 3);
-    await s.submit();
-    await s.clickAt(at(0.58, 0.51));
-    await s.click(find.byKey(const Key('num-각도')));
+    await s.click(find.byTooltip('타원 O'), after: 100);
+    await s.drag(at(0.5, 0.3), at(0.66, 0.72), ms: 400);
+    // 그린 도형은 골라진 채로 남아 바로 돌린다.
+    await s.click(find.byKey(const Key('num-각도')), after: 100);
     await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
     await s.type('15', speed: 3);
     await s.submit();
-    await s.clickAt(at(0.58, 0.51));
+    await s.click(find.byTooltip('글 T'), after: 100);
+    await s.clickAt(at(0.1, 0.1), after: 100);
+    await s.type('홍길동 포트폴리오', speed: 3);
+    await s.key(LogicalKeyboardKey.escape);
+    await s.click(find.byKey(const Key('num-크기')), after: 100);
+    await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
+    await s.type('80', speed: 3);
+    await s.submit();
+    await s.clickAt(at(0.58, 0.51), after: 100);
     await s.key(LogicalKeyboardKey.keyC, meta: true);
     await s.key(LogicalKeyboardKey.keyV, meta: true);
-    await s.drag(at(0.59, 0.52), at(0.8, 0.52));
-    // 도형 셋을 ⇧를 누른 채 눌러 함께 고른다.
-    await s.clickAt(at(0.22, 0.5), after: 100);
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-    await s.clickAt(at(0.56, 0.5), after: 100);
-    await s.clickAt(at(0.8, 0.52), after: 100);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-    await s.click(find.byTooltip('세로 가운데 맞춤 ⌥V'));
-    await s.click(find.byTooltip('가로 간격 고르게'));
-    await s.hold(700);
+    await s.drag(at(0.59, 0.52), at(0.8, 0.52), ms: 300);
+    // 빈 곳에서 도형 셋에 닿게 끌어 함께 고른다(글 상자에는 닿지 않는다).
+    await s.drag(at(0.03, 0.47), at(0.95, 0.55), ms: 300);
+    await s.click(find.byTooltip('세로 가운데 맞춤 ⌥V'), after: 100);
+    await s.click(find.byTooltip('가로 간격 고르게'), after: 100);
+    await s.hold(400);
 
     // 레이어와 대지: 맞춰 붙는 안내선, 이름 바꾸기, 숨기기·잠그기, 묶기, 대지 더하기와 크기.
     s.cut('layers');
@@ -435,33 +437,34 @@ void main() {
     await s.drag(
       at(0.1, 0.1) + const Offset(30, 8),
       at(0.1, 0.1) + const Offset(33, 26),
-      pause: 500,
+      ms: 400,
+      pause: 400,
     );
-    await s.clickAt(tester.getCenter(layerRow('사각형')), count: 2);
+    await s.clickAt(tester.getCenter(layerRow('사각형')), count: 2, after: 100);
     // 이름 칸이 열린다. 판이 키보드를 쥐고 있어 칸을 눌러 글을 받게 한다.
-    await s.click(find.byKey(const Key('layer-rename')));
+    await s.click(find.byKey(const Key('layer-rename')), after: 100);
     await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
     await s.type('배경 카드', speed: 3);
     await s.submit();
     await s.moveTo(tester.getCenter(layerRow('타원')));
-    await s.click(layerFlag('숨기기'));
-    await s.hold(500);
+    await s.click(layerFlag('숨기기'), after: 100);
+    await s.hold(300);
     await s.click(layerFlag('보이기'), after: 100);
     await s.moveTo(tester.getCenter(layerRow('타원', last: true)));
-    await s.click(layerFlag('잠그기'));
-    await s.click(layerRow('배경 카드'));
+    await s.click(layerFlag('잠그기'), after: 150);
+    await s.click(layerRow('배경 카드'), after: 100);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await s.click(layerRow('홍길동 포트폴리오'), after: 100);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await s.key(LogicalKeyboardKey.keyG, meta: true);
-    await s.hold(600);
-    await s.click(find.byTooltip('대지 더하기'));
-    await s.click(find.text('iPhone 16 · 393×852').last);
-    await s.hold(300);
-    await s.click(find.byKey(const Key('board-size')));
-    await s.click(find.text('Android · 412×917').last);
+    await s.hold(400);
+    await s.click(find.byTooltip('대지 더하기'), after: 100);
+    await s.click(find.text('iPhone 16 · 393×852').last, after: 100);
+    await s.hold(200);
+    await s.click(find.byKey(const Key('board-size')), after: 100);
+    await s.click(find.text('Android · 412×917').last, after: 100);
     await fitAll();
-    await s.hold(900);
+    await s.hold(600);
     s.cut(null);
   });
 
@@ -513,42 +516,39 @@ void main() {
     await s.until(() => find.text('연결됨').evaluate().isNotEmpty, '연결됨');
     await s.hold(1500);
 
-    // 면접: 공고 붙여넣기, 준비, 질문에 답하기, 꼬리질문.
+    // 면접: 공고 붙여넣기, 준비, 질문에 답하기, 꼬리질문. 연차와 압박 단계는 기본값(1~3년, 표준)이고,
+    // 시간은 미리 15분으로 둔다. 남은 답은 찍지 않고 넘겨 리포트를 만든다.
+    await s.drive(lib.keep(Setting.ivMinutes, 15));
     s.cut('interview');
-    await s.hold(200);
     await s.click(find.text('공고 추가').first);
-    await s.hold(400);
-    await s.click(find.byType(TextField).last);
+    await s.hold(300);
+    // 글 칸은 열리면서 초점을 받는다.
     await s.key(LogicalKeyboardKey.keyV, meta: true);
-    await s.hold(600);
+    await s.hold(400);
     await s.click(button('추가'));
-    await s.hold(500);
+    await s.hold(300);
     await s.click(find.text('면접 연습으로'));
-    await s.hold(500);
-    await s.click(find.text('1~3년'));
-    await s.click(find.text('옵션'));
-    await s.click(find.text('15분'));
-    await s.click(find.text('표준'));
     await s.hold(300);
     fake.waits['iv.start'] = Future<void>.delayed(
-      const Duration(milliseconds: 1500),
+      const Duration(milliseconds: 900),
     );
     await s.click(button('시작'));
-    await s.hold(1800);
+    await s.hold(1000);
     await s.click(button('시작').last);
     await s.until(() => find.text('질문 1').evaluate().isNotEmpty, '질문 1');
-    await s.hold(1200);
-    Future<void> answer(String text) async {
+    await s.hold(600);
+    Future<void> answer(String text, {int hold = 1800}) async {
       await s.click(find.byType(TextField).last);
       await s.type(text, speed: 3);
       fake.waits['iv.answer'] = Future<void>.delayed(
-        const Duration(milliseconds: 1200),
+        const Duration(milliseconds: 900),
       );
       await s.click(find.text('답변 내기'));
-      await s.hold(1800);
+      await s.hold(hold);
     }
 
-    await answer('회원과 주문 시각으로 거르므로 두 열의 복합 인덱스를 두었습니다.');
+    await answer('회원과 주문 시각으로 거르므로 두 열의 복합 인덱스를 두었습니다.', hold: 1600);
+    s.cut(null);
     await answer('쓸 때마다 인덱스도 고쳐야 해서 쓰기 비용이 늘어납니다.');
     fake.waits['iv.skip'] = Future<void>.delayed(
       const Duration(milliseconds: 900),

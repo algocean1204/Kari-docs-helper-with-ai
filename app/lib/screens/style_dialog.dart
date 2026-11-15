@@ -500,6 +500,7 @@ class _SideToggle extends StatelessWidget {
     return FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         toggled: on,
         label: '$label 선',
         child: ExcludeSemantics(
@@ -584,15 +585,14 @@ class _Pick<T> extends StatelessWidget {
           builder: (context, controller, _) => FocusRing(
             child: Semantics(
               button: true,
+              onTap: () => toggleMenu(controller),
               label: '$label: $shown',
               child: ExcludeSemantics(
                 child: Material(
                   color: c.text.withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(Radii.control),
                   child: InkWell(
-                    onTap: () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
+                    onTap: () => toggleMenu(controller),
                     borderRadius: BorderRadius.circular(Radii.control),
                     focusColor: Colors.transparent,
                     child: Padding(

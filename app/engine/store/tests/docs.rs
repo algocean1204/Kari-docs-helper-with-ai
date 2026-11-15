@@ -84,6 +84,67 @@ fn 휴지통_되살리기_완전_삭제() {
     assert!(lib.docs(true).unwrap().is_empty());
 }
 
+/// 완전히 지운 문서의 id는 다시 나오지 않는다. 문서 id로 묶인 기록(면접 세션, 주장 캐시)이
+/// 새 문서에 붙지 않게 한다. 다시 열어도 같다.
+#[test]
+fn 완전히_지운_문서의_id는_다시_쓰지_않는다() {
+    let t = Tmp::new("reuse");
+    let mut lib = Library::open(&t.0).unwrap();
+    let a = lib.create_doc(Kind::Flow, "a").unwrap();
+    let b = lib.create_doc(Kind::Flow, "b").unwrap();
+    lib.trash_doc(b, 1000).unwrap();
+    lib.purge_doc(b).unwrap();
+    let c = lib.create_doc(Kind::Flow, "c").unwrap();
+    assert!(c > b, "{c}가 지운 문서 {b} 위가 아니다");
+    lib.trash_doc(c, 1000).unwrap();
+    lib.purge_trashed(2000, 0).unwrap();
+    drop(lib);
+    let mut lib = Library::open(&t.0).unwrap();
+    let d = lib.duplicate_doc(a, "d").unwrap();
+    assert!(d > c, "다시 연 뒤 {d}가 지운 문서 {c} 위가 아니다");
+}
+
+/// 표시가 없던 옛 라이브러리: 가장 큰 id의 문서를 이미 지웠고 그 id를 기록이 아직 가리킨다.
+#[test]
+fn 옛_라이브러리도_기록이_가리키는_id를_다시_쓰지_않는다() {
+    let t = Tmp::new("reuse-old");
+    let mut lib = Library::open(&t.0).unwrap();
+    let a = lib.create_doc(Kind::Flow, "a").unwrap();
+    let b = lib.create_doc(Kind::Flow, "b").unwrap();
+    let c = lib.create_doc(Kind::Flow, "c").unwrap();
+    lib.record_put("iv.claims", &b.to_string(), &json!({"claims": []}), 1)
+        .unwrap();
+    lib.record_put("iv.session", "s1", &json!({"id": "s1", "doc": c}), 1)
+        .unwrap();
+    lib.record_put("iv.posting", "p1", &json!("공고"), 1)
+        .unwrap();
+    for id in [b, c] {
+        lib.trash_doc(id, 1000).unwrap();
+        lib.purge_doc(id).unwrap();
+    }
+    db(&t.0)
+        .execute("DELETE FROM settings WHERE key = 'docs.lastId'", [])
+        .unwrap();
+    let n = lib.create_doc(Kind::Flow, "새").unwrap();
+    assert!(n > c, "{n}가 세션이 가리키는 {c} 위가 아니다");
+    drop(lib);
+    db(&t.0)
+        .execute("DELETE FROM settings WHERE key = 'docs.lastId'", [])
+        .unwrap();
+    db(&t.0)
+        .execute("DELETE FROM records WHERE kind = 'iv.session'", [])
+        .unwrap();
+    let mut lib = Library::open(&t.0).unwrap();
+    lib.trash_doc(n, 1000).unwrap();
+    lib.purge_doc(n).unwrap();
+    // 표시도 세션도 없고 주장 캐시만 b를 가리킨다: 남은 문서는 a뿐이다.
+    let m = lib.create_doc(Kind::Flow, "또").unwrap();
+    assert!(
+        m > b && m != a,
+        "{m}가 주장 캐시가 가리키는 {b} 위가 아니다"
+    );
+}
+
 #[test]
 fn 복제는_내용_해시가_같고_원본을_기록한다() {
     let t = Tmp::new("dup");

@@ -616,6 +616,7 @@ class _FocusRow extends StatelessWidget {
     final row = FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         label:
             '주장 ${focus['claim']} $quote, ${failed ? '방어 못 함' : '일부 방어'}, 리포트 보기',
         child: ExcludeSemantics(

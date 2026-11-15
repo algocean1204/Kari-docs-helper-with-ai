@@ -172,7 +172,11 @@ fn number(
             }
         }
     }
-    let x0 = pb.pf.left - MARKER_GAP - sh.width;
+    // 가운데·오른쪽 맞춤이면 첫 줄의 글이 맞춤만큼 밀린다. 표지는 그 글 바로 앞에 붙는다(목록 문단은 첫 줄 들여쓰기가 0이라
+    // 줄의 offset은 맞춤만큼이다).
+    // 한계: 맞춤은 표지를 뺀 글로 잡는다(Word는 표지까지 한 덩어리로 가운데에 둔다), 표지 폭만큼 반쯤 왼쪽으로 치우친다
+    let lead = pb.layout.get(0).map_or(0.0, |l| l.metrics().offset);
+    let x0 = pb.pf.left + lead - MARKER_GAP - sh.width;
     let glyphs = sh
         .glyphs
         .iter()

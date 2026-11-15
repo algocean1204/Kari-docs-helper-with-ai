@@ -105,6 +105,30 @@ fn 목록_수준마다_글_왼쪽_끝_표지_오른쪽_끝_기준선() {
 }
 
 #[test]
+fn 가운데_오른쪽_맞춤_목록의_표지는_첫_줄_글_바로_앞에_붙는다() {
+    for kind in ["BULLET", "ORDERED"] {
+        for align in ["CENTER", "RIGHT"] {
+            let mut pf = list(kind, 0);
+            pf["align"] = json!(align);
+            let d = doc(&[para("2026-11-15", pf)]);
+            let mut l = layouter();
+            l.layout(&d, None);
+            let (gx, _) = first_glyph(&l, "p0");
+            assert!(
+                gx > LEFT + 18.0 + 50.0,
+                "{kind} {align}: 글이 맞춤만큼 밀려야 한다 {gx}"
+            );
+            let (t, it) = markers(&l, "p0")[0];
+            let right = glyphs_of(it)[0].x + width_of(t);
+            assert!(
+                (right - (gx - 4.0)).abs() < EPS,
+                "{kind} {align}: 표지 끝 {right}, 글 처음 {gx}"
+            );
+        }
+    }
+}
+
+#[test]
 fn 빈_목록_문단도_표지를_그리고_표지는_위치_질의에_잡히지_않는다() {
     let d = doc(&[
         para("", list("BULLET", 0)),

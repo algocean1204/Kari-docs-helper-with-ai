@@ -1,6 +1,6 @@
 # 배포: dmg 만들기와 서명
 
-`app/scripts/package_dmg.sh`가 릴리스 빌드부터 dmg 확인까지 한 번에 합니다. 결과는 `.cache/dist/Kari-<판>-beta-arm64.dmg`이고, 판은 `app/pubspec.yaml`의 `version`입니다.
+`app/scripts/package_dmg.sh`가 릴리스 빌드부터 dmg 확인까지 한 번에 한다. 결과는 `.cache/dist/Kari-<판>-beta-arm64.dmg`이고, 판은 `app/pubspec.yaml`의 `version`이다.
 
 ```bash
 app/scripts/package_dmg.sh                      # 지금 커밋(HEAD)의 사본에서 빌드부터
@@ -39,11 +39,11 @@ flowchart LR
 
 ## 릴리스
 
-릴리스는 유지 관리자가 한다. 판 번호는 `0.MINOR.PATCH`이고(1.0.0은 유지 관리자가 정할 때까지 올리지 않는다) 태그는 `v<판>`이다. 큰 업데이트는 MINOR, 작은 이슈 수정은 PATCH를 올린다. 규칙은 [.github/CONTRIBUTING.md](../../.github/CONTRIBUTING.md)의 '판 번호'에 있다.
+릴리스는 유지 관리자가 한다. 판 번호는 `0.MINOR.PATCH`이고(1.0.0은 유지 관리자가 정할 때까지 올리지 않는다) 태그는 `v<판>`이다. 1.0.0 전에는 릴리스마다 PATCH만 올리고, MINOR는 유지 관리자가 정할 때만 올린다. 규칙은 [.github/CONTRIBUTING.md](../../.github/CONTRIBUTING.md)의 '판 번호'에 있다.
 
 흐름은 릴리스 PR → `develop`에서 `main`으로 PR → 태그 → 초안 릴리스 → 게시이다.
 
-1. 다음 판을 계산한다. 지난 `v*` 태그 이후 커밋 제목에 `feat`나 `!`가 있으면 MINOR, 아니면 PATCH를 올린 판이 나온다.
+1. 다음 판을 계산한다. 지난 `v*` 태그의 PATCH를 하나 올린 판이 나온다.
    ```bash
    git fetch origin --tags
    app/scripts/next_version.sh origin/develop        # 예: 0.2.0

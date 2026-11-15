@@ -99,6 +99,7 @@ class App extends StatelessWidget {
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
       themeMode: themeMode,
+      localizationsDelegates: const [_Words.delegate],
       home: lib == null
           ? Shell(
               initialRoute: initialRoute,
@@ -108,6 +109,31 @@ class App extends StatelessWidget {
           : _Start(library: lib, initialRoute: initialRoute, menuBar: menus),
     );
   }
+}
+
+/// 머티리얼 부품이 읽어 주는 글 가운데 한국어로 바꾼 것. 나머지는 기본(영어) 그대로다.
+class _Words extends DefaultMaterialLocalizations {
+  const _Words();
+
+  static const delegate = _WordsDelegate();
+
+  // 대화 상자 바깥 영역의 이름. 기본값은 영어 "Dismiss"다.
+  @override
+  String get modalBarrierDismissLabel => '닫기';
+}
+
+class _WordsDelegate extends LocalizationsDelegate<MaterialLocalizations> {
+  const _WordsDelegate();
+
+  @override
+  bool isSupported(Locale locale) => true;
+
+  @override
+  Future<MaterialLocalizations> load(Locale locale) =>
+      SynchronousFuture(const _Words());
+
+  @override
+  bool shouldReload(_WordsDelegate old) => false;
 }
 
 /// 시작. 라이브러리를 여는 동안 빈 바탕을 두고, 200ms가 넘으면 "불러오는 중입니다"를 보인다.
@@ -709,6 +735,7 @@ class _NavItem extends StatelessWidget {
     final item = FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         selected: selected,
         label: route.label,
         child: ExcludeSemantics(

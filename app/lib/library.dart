@@ -179,25 +179,39 @@ class Library extends ChangeNotifier {
     }
   }
 
+  /// 방금 만들어 아직 열지 않은 캔버스. 화면이 처음 열 때 대지 전체가 보이게 맞춘다.
+  final newCanvases = <int>{};
+
+  /// 이미 쓰는 이름이면 "이름 2", "이름 3"처럼 비어 있는 번호를 붙인다.
+  String _freeName(String base) {
+    final taken = {for (final d in docs) d.name};
+    var name = base;
+    for (var n = 2; taken.contains(name); n++) {
+      name = '$base $n';
+    }
+    return name;
+  }
+
   /// 흐름 문서 "제목 없는 문서"를 만들고 그 id를 돌려준다. 실패하면 null.
   Future<int?> create() async {
     int? id;
+    final name = _freeName('제목 없는 문서');
     // 새 문서의 스타일로 저장한 값을 쓰기로 했으면 그 값으로 시작한다(복제와 버전 복원은 상관없다).
     final styles = newDocStyles;
     if (styles != null) {
-      await _run(
-        () async => id = await engine.docsCreateStyled('제목 없는 문서', styles),
-      );
+      await _run(() async => id = await engine.docsCreateStyled(name, styles));
       return id;
     }
-    await _run(() async => id = await engine.docsCreate('flow', '제목 없는 문서'));
+    await _run(() async => id = await engine.docsCreate('flow', name));
     return id;
   }
 
   /// 캔버스 문서 "제목 없는 캔버스"(대지 하나)를 만들고 그 id를 돌려준다. 실패하면 null.
   Future<int?> createCanvas() async {
     int? id;
-    await _run(() async => id = await engine.docsCreate('canvas', '제목 없는 캔버스'));
+    final name = _freeName('제목 없는 캔버스');
+    await _run(() async => id = await engine.docsCreate('canvas', name));
+    if (id != null) newCanvases.add(id!);
     return id;
   }
 
@@ -322,6 +336,23 @@ class Library extends ChangeNotifier {
   /// 키를 확인하고 저장한다(모델 목록도 받아 둔다). 실패는 [EngineError]로 던진다(대화 상자가 한 줄로 알린다).
   Future<void> setKey(String provider, String key) async {
     await engine.aiSetKey(provider, key);
+    await _run(_loadAi);
+  }
+
+  /// 그 제공사의 키를 마지막으로 확인한 때. 모르면 null.
+  DateTime? keyCheckedAt(String provider) {
+    for (final p in providers) {
+      final at = p['checkedAt'];
+      if (p['id'] == provider && at is int) {
+        return DateTime.fromMillisecondsSinceEpoch(at);
+      }
+    }
+    return null;
+  }
+
+  /// 넣어 둔 키를 다시 확인한다(모델 목록을 다시 받는다). 실패해도 키는 그대로 두고 [EngineError]를 던진다.
+  Future<void> recheckKey(String provider) async {
+    await engine.aiModels(provider, refresh: true);
     await _run(_loadAi);
   }
 

@@ -8,12 +8,48 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use crate::rows::{self, kind_of};
 use crate::{now_ms, DocId, DocInfo, Error, Library, OpenDoc, Result};
 
+/// 지금까지 나눠 준 가장 큰 문서 id(설정). 완전히 지운 문서의 id를 다시 쓰지 않게 한다:
+/// `docs.id`는 AUTOINCREMENT가 아니라 SQLite가 가장 큰 id를 다시 내주는데, 문서 id로 묶인 기록
+/// (`records`의 면접 세션·주장 캐시, 다른 문서의 `origin_doc`)은 문서와 함께 지워지지 않는다.
+const LAST_ID: &str = "docs.lastId";
+
+/// 이 기능 전에 만든 라이브러리(표시가 없음)에서 남은 기록이 가리키는 가장 큰 문서 id.
+// 한계: 문서 id를 담는 기록은 주장 캐시의 id와 본문의 `doc`뿐이다, 다른 꼴로 담는 기록이 생기면 여기에 더한다
+fn referenced_max(c: &Connection) -> Result<DocId> {
+    Ok(c.query_row(
+        "SELECT COALESCE(MAX(x), 0) FROM (
+           SELECT MAX(origin_doc) AS x FROM docs
+           UNION ALL SELECT MAX(CAST(id AS INTEGER)) FROM records WHERE kind = 'iv.claims'
+           UNION ALL SELECT MAX(json_extract(body, '$.doc')) FROM records
+             WHERE json_valid(body) AND json_type(body, '$.doc') = 'integer')",
+        [],
+        |r| r.get(0),
+    )?)
+}
+
 /// 문서 행, 노드 행, seq 0 스냅샷을 넣는다. 트랜잭션은 호출하는 쪽이 연다.
 fn insert_doc(c: &Connection, d: &Document, origin: Option<(DocId, u64)>) -> Result<DocId> {
     let now = now_ms();
+    let last: Option<DocId> = c
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [LAST_ID],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+        .and_then(|v| v.parse().ok());
+    let floor = match last {
+        Some(n) => n,
+        None => referenced_max(c)?,
+    };
+    let id: DocId = c.query_row(
+        "SELECT MAX(COALESCE(MAX(id), 0), ?1) + 1 FROM docs",
+        [floor],
+        |r| r.get(0),
+    )?;
     c.execute(
-        "INSERT INTO docs (kind, name, seq, hash, next_id, origin_doc, origin_seq, created, updated)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        "INSERT INTO docs (id, kind, name, seq, hash, next_id, origin_doc, origin_seq, created, updated)
+         VALUES (?9, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             d.kind().as_str(),
             d.name(),
@@ -22,10 +58,14 @@ fn insert_doc(c: &Connection, d: &Document, origin: Option<(DocId, u64)>) -> Res
             d.next_id(),
             origin.map(|o| o.0),
             origin.map(|o| o.1),
-            now
+            now,
+            id
         ],
     )?;
-    let id = c.last_insert_rowid();
+    c.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![LAST_ID, id.to_string()],
+    )?;
     rows::put_all_nodes(c, id, d)?;
     rows::put_snapshot(c, id, d, now)?;
     Ok(id)
