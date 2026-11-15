@@ -69,6 +69,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
         effort: Effort::Low,
         max_tokens: Some(2_000),
         format: info.structured.then(schema),
+        long_cache: false,
     };
     // 명령 잠금은 잡지 않은 채 기다린다(느린 줄).
     let r = client(&provider)?
