@@ -30,7 +30,7 @@ List<String> audit() => [
         final name = d.label.isNotEmpty ? d.label : d.tooltip;
         return [
           // 줄바꿈용 결합 문자(keepAll)는 화면의 글에만 넣는다.
-          if (d.label.contains('⁠')) '결합 문자가 든 이름 "${d.label}"',
+          if (d.label.contains('\u2060')) '결합 문자가 든 이름 "${d.label}"',
           if (f.isButton && name.isEmpty) '이름 없는 단추 ${n.rect}',
           if (f.isButton &&
               f.isEnabled != Tristate.isFalse &&

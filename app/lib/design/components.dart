@@ -593,7 +593,7 @@ class _FoldState extends State<Fold> {
     final c = AppColors.of(context);
     final summary = widget.summary;
     // 줄바꿈용 결합 문자([keepAll])는 읽어 주는 글에서 뺀다.
-    final title = widget.title.replaceAll('⁠', '');
+    final title = widget.title.replaceAll('\u2060', '');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
