@@ -6,8 +6,10 @@ import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../interview.dart';
 import '../library.dart';
+import 'ai.dart' show usageUrl;
 import 'dialogs.dart';
 import 'gaze.dart';
+import 'report.dart' show openSource;
 
 /// 연차, 시간, 압박 단계의 값과 화면 이름.
 const _yearOptions = [('new', '신입'), ('junior', '1~3년'), ('senior', '4년 이상')];
@@ -65,6 +67,17 @@ Future<void> discardInterview(
   'shape' => ('모델의 답이 중간에 끊겼거나 읽을 수 없는 모양이었습니다. 다시 시도해 주세요.', false),
   'ai' => ('모델을 부르지 못했습니다. 잠시 뒤 다시 시도해 주세요. ${e.message}', false),
   'canceled' => ('진행 중이던 호출을 멈췄습니다.', false),
+  // ChatGPT 플랜. 한도는 사용량 관리가 첫 일이다(_Problem이 단추를 둔다).
+  'plan_limit' => (
+    'ChatGPT 플랜(또는 이 앱)의 사용 한도에 닿았습니다. ChatGPT 설정의 사용량에서 한도를 확인해 주세요.',
+    false,
+  ),
+  'signed_out' => ('ChatGPT 로그인이 끝났습니다. 설정에서 ChatGPT로 다시 계속해 주세요.', true),
+  'declined' => (
+    'ChatGPT 플랜 사용이 허락되지 않았습니다. 설정에서 다시 연결하거나 API 키를 넣어 주세요.',
+    true,
+  ),
+  'plan' => (e.message, true),
   _ => (describe(e), false),
 };
 
@@ -270,6 +283,7 @@ class _InterviewTabState extends State<InterviewTab> {
                   error: error,
                   onOpenSettings: widget.onOpenSettings,
                   onRetry: _run.retry,
+                  library: _lib,
                 ),
                 const SizedBox(height: Space.x4),
               ],
@@ -523,9 +537,13 @@ class _Problem extends StatelessWidget {
     required this.onRetry,
     this.note,
     this.onSkipGrading,
+    this.library,
   });
 
   final EngineError error;
+
+  /// ChatGPT 플랜의 한도에 닿았을 때 API 키로 바꿔 이어 가려고.
+  final Library? library;
   final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
   final VoidCallback? onSkipGrading;
@@ -555,6 +573,26 @@ class _Problem extends StatelessWidget {
                 style: AppText.body.copyWith(color: c.danger),
               ),
             ),
+            // 한도: 사용량 관리가 첫 일, OpenAI API 키가 있으면 키로 바꿔 다시 시도가 다음.
+            if (error.code == 'plan_limit') ...[
+              const SizedBox(width: Space.x2),
+              AppButton(
+                '사용량 관리',
+                semanticLabel: 'ChatGPT 사용량 관리',
+                kind: ButtonKind.primary,
+                onPressed: () => openSource(usageUrl),
+              ),
+              if (library case final lib? when lib.hasKey('openai')) ...[
+                const SizedBox(width: Space.x2),
+                AppButton(
+                  'API 키로 계속',
+                  onPressed: () async {
+                    await lib.useChatGpt(false);
+                    onRetry?.call();
+                  },
+                ),
+              ],
+            ],
             if (onSkipGrading != null) ...[
               const SizedBox(width: Space.x2),
               AppButton(
@@ -816,6 +854,7 @@ class _SessionState extends State<_Session> {
                         onSkipGrading: !done && v['canSkipGrading'] == true
                             ? _run.skip
                             : null,
+                        library: _run.library,
                       ),
                       const SizedBox(height: Space.x4),
                     ],

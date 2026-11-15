@@ -8,6 +8,7 @@ import '../update.dart';
 import 'ai.dart';
 import 'ai_tasks.dart';
 import 'dialogs.dart';
+import 'report.dart' show openSource;
 
 /// 연락처 가리기의 안내. 엔진(mask.rs)이 가리는 것: 전자우편, 국내 전화번호(휴대, 지역, 070, +82, 괄호로 쓴 지역번호),
 /// 주민등록번호 모양. 전각 글자와 여러 붙임표는 접어서 찾는다. 웹 주소, 15xx 대표번호, 외국 번호, 글자로 풀어 쓴 번호는
@@ -79,6 +80,177 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// ChatGPT 로그인: 브라우저에서 마치기를 기다리는 중인지, 마지막 실패의 까닭, 연결 끊기의 알림.
+  bool _planWaiting = false;
+  String? _planError;
+  String? _planNote;
+
+  Future<void> _connectPlan(Library lib) async {
+    if (_planWaiting) return;
+    setState(() {
+      _planWaiting = true;
+      _planError = null;
+      _planNote = null;
+    });
+    try {
+      final welcome = await lib.connectChatGpt(openSource);
+      if (!mounted) return;
+      setState(() => _planWaiting = false);
+      // 처음 연결했을 때만 한 번 알린다.
+      if (welcome) {
+        await showDialog<void>(
+          context: context,
+          builder: (_) => const PlanWelcomeDialog(),
+        );
+      }
+    } on EngineError catch (e) {
+      if (mounted) {
+        setState(() {
+          _planWaiting = false;
+          _planError = planError(e);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    // 화면을 떠나면 브라우저를 기다리던 로그인도 끝낸다.
+    if (_planWaiting) widget.library?.cancelChatGpt();
+    super.dispose();
+  }
+
+  Future<void> _disconnectPlan(Library lib) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => const ConfirmDialog(
+        title: 'ChatGPT 연결을 끊을까요?',
+        message:
+            '이 기기에서 ChatGPT 로그인을 지웁니다. 그 뒤 OpenAI 요청은 API 키가 있으면 키로 보냅니다. 다시 쓰려면 ChatGPT로 계속하기를 다시 누릅니다.',
+        confirm: '연결 끊기',
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final revoked = await lib.disconnectChatGpt();
+      if (mounted) {
+        setState(
+          () => _planNote = revoked
+              ? null
+              : 'ChatGPT 서버에서 로그인을 끝낸 것을 확인하지 못했습니다. 이 기기의 로그인은 지웠습니다. '
+                    'ChatGPT 설정에서 이 앱의 연결을 끊을 수 있습니다.',
+        );
+      }
+    } on EngineError catch (e) {
+      if (mounted) setState(() => _planError = planError(e));
+    }
+  }
+
+  /// OpenAI 줄 아래의 ChatGPT 플랜 줄과, 키도 있을 때 무엇을 쓰는지.
+  Widget _plan(Library? lib) {
+    final c = AppColors.of(context);
+    final connected = lib?.planConnected ?? false;
+    final email = lib?.planEmail;
+    final declined = lib?.planDeclined ?? false;
+    final both = connected && (lib?.hasKey('openai') ?? false);
+    final inUse = lib?.planInUse ?? false;
+    final error =
+        _planError ??
+        (declined && !connected && !_planWaiting
+            ? planError(const EngineError('declined', ''))
+            : null);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Provider(
+          name: 'ChatGPT 플랜',
+          company: 'OpenAI · ChatGPT 계정으로 로그인',
+          note: _planWaiting
+              ? '브라우저에서 로그인을 마치세요'
+              : connected
+              ? ['ChatGPT 플랜 사용', ?email].join(' · ')
+              : null,
+          status: connected
+              ? const StatusPill('연결됨', tone: Tone.success)
+              : _planWaiting
+              ? const StatusPill('로그인 중')
+              : const StatusPill('연결 안 됨'),
+          actions: [
+            if (connected)
+              AppButton(
+                '연결 끊기',
+                semanticLabel: 'ChatGPT 연결 끊기',
+                kind: ButtonKind.quiet,
+                onPressed: lib == null ? () {} : () => _disconnectPlan(lib),
+              )
+            else if (_planWaiting)
+              AppButton(
+                '취소',
+                semanticLabel: 'ChatGPT 로그인 취소',
+                onPressed: lib?.cancelChatGpt,
+              )
+            else
+              AppButton(
+                'ChatGPT로 계속하기',
+                onPressed: lib == null ? () {} : () => _connectPlan(lib),
+              ),
+          ],
+        ),
+        if (_planWaiting) ...[
+          const SizedBox(height: Space.x2),
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              keepAll(
+                '기본 브라우저에 ChatGPT 로그인 창을 열었습니다. 로그인과 허락을 마치면 이 화면이 바뀝니다.',
+              ),
+              style: AppText.caption.copyWith(color: c.textMuted),
+            ),
+          ),
+        ],
+        if (error != null) ...[
+          const SizedBox(height: Space.x2),
+          ErrorLine(
+            error,
+            onRetry: lib == null || _planWaiting
+                ? null
+                : () => _connectPlan(lib),
+          ),
+        ],
+        if (_planNote != null) ...[
+          const SizedBox(height: Space.x2),
+          Text(
+            keepAll(_planNote!),
+            style: AppText.caption.copyWith(color: c.textMuted),
+          ),
+        ],
+        // 키와 플랜이 둘 다 있으면 플랜이 먼저다. 무엇으로 보내는지 보이고 바꿀 수 있다.
+        if (both) ...[
+          const SizedBox(height: Space.x2),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  keepAll(
+                    inUse
+                        ? 'OpenAI 요청은 ChatGPT 플랜으로 보냅니다. API 키는 쓰지 않습니다.'
+                        : 'OpenAI 요청은 API 키로 보냅니다. ChatGPT 플랜은 쓰지 않습니다.',
+                  ),
+                  style: AppText.caption.copyWith(color: c.textMuted),
+                ),
+              ),
+              AppButton(
+                inUse ? 'API 키로 바꾸기' : 'ChatGPT 플랜으로 바꾸기',
+                kind: ButtonKind.quiet,
+                onPressed: () => lib!.useChatGpt(!inUse),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
   /// "11월 15일 14:30" 꼴.
   static String _when(DateTime t) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -129,7 +301,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     '면접 연습은 넣은 API 키로 AI 제공사를 직접 부릅니다. 키는 이 기기의 보안 저장소에만 둡니다.\n'
                     'API 키는 제공사의 개발자 콘솔(Anthropic은 console.anthropic.com, OpenAI는 platform.openai.com)에서 '
                     '가입하고 결제 수단을 등록한 뒤 만듭니다. 둘 중 하나만 있어도 됩니다.\n'
-                    '비용은 쓴 만큼 제공사가 청구합니다. 연습마다의 추정 비용은 리포트의 "이번 연습"에 보입니다.',
+                    '비용은 쓴 만큼 제공사가 청구합니다. 연습마다의 추정 비용은 리포트의 "이번 연습"에 보입니다.\n'
+                    'OpenAI는 API 키 대신 "ChatGPT로 계속하기"로 내 ChatGPT 플랜의 사용량을 쓸 수도 있습니다. 둘 다 있으면 ChatGPT 플랜을 먼저 씁니다.',
                 children: [
                   for (final p in providerNames.keys) ...[
                     _Provider(
@@ -185,6 +358,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? null
                             : () => _recheck(lib!, p),
                       ),
+                    // OpenAI는 API 키 대신 ChatGPT 플랜으로도 부른다.
+                    if (p == 'openai') _plan(lib),
                   ],
                   // 방금 키를 저장했고 면접을 시작할 수 있으면 다음 걸음을 알린다. 채운 단추는 두지 않는다.
                   if (_saved && lib != null && lib.connected)

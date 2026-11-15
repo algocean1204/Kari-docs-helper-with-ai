@@ -53,7 +53,22 @@ class FakeAi {
     ('grade', '답변 채점', ('haiku', 'high'), ('luna', 'medium')),
   ];
 
-  bool hasKey(String p) => _list(p).isNotEmpty;
+  /// 그 제공사를 부를 수 있는지(진짜 엔진의 `has_key`): 키가 있거나, OpenAI는 ChatGPT 플랜이 연결돼 있다.
+  bool hasKey(String p) =>
+      _keyList(p).isNotEmpty || (p == 'openai' && _plan['connected'] == true);
+
+  /// ChatGPT로 계속하기의 기록(진짜 엔진과 같은 설정 키 `ai.chatgpt`). 토큰은 없다.
+  Json get _plan => settings['ai.chatgpt'] as Json? ?? {};
+
+  /// ChatGPT 로그인에서 확인한 계정의 전자우편. 시험이 null로 바꾸면 ID 토큰에 전자우편이 없는 것이다.
+  String? planEmail = 'user@example.com';
+
+  bool _canceled = false;
+
+  /// OpenAI 호출이 ChatGPT 플랜으로 가는지(연결돼 있고, 키도 있는데 키를 고르지 않았다).
+  bool get _usesPlan =>
+      _plan['connected'] == true &&
+      (_plan['use'] != 'key' || _keyList('openai').isEmpty);
 
   /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다(진짜 엔진의 `iv.dashboard`의 `hasKey`).
   bool get ready => tasks.every((t) => hasKey(_choice(t.$1).$1));
@@ -132,9 +147,14 @@ class FakeAi {
 
   Json? _record(String p) => settings['ai.models.$p'] as Json?;
 
-  List<Json> _list(String p) => [
+  List<Json> _keyList(String p) => [
     for (final m in (_record(p)?['models'] as List?) ?? const []) m as Json,
   ];
+
+  /// 호출에 쓰는 목록: OpenAI가 플랜으로 가면 플랜의 목록(흉내는 키의 목록과 같은 판을 받는다).
+  List<Json> _list(String p) => p == 'openai' && _usesPlan
+      ? [for (final m in (_plan['models'] as List?) ?? const []) m as Json]
+      : _keyList(p);
 
   static String? _clamp(String e, List<Object?> supported) {
     if (supported.contains(e)) return e;
@@ -168,8 +188,68 @@ class FakeAi {
               'vendor': vendor,
               'hasKey': _record(id) != null,
               'checkedAt': _record(id)?['checkedAt'],
+              if (id == 'openai') ...{
+                'plan': {
+                  'connected': _plan['connected'] == true,
+                  'email': _plan['email'],
+                  'checkedAt': _plan['checkedAt'],
+                  'declined': _plan['declined'] == true,
+                  'use': _plan['use'] == 'key' ? 'key' : 'plan',
+                },
+                'via': _usesPlan
+                    ? 'plan'
+                    : hasKey('openai')
+                    ? 'key'
+                    : null,
+              },
             },
         ];
+      case 'ai.chatgptBegin':
+        _canceled = false;
+        settings['ai.chatgpt'] = {
+          ..._plan,
+          'hostId':
+              _plan['hostId'] ??
+              'urn:uuid:00000000-0000-4000-8000-000000000000',
+        };
+        return {
+          'url':
+              'https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client',
+        };
+      case 'ai.chatgptWait':
+        if (_canceled) {
+          _canceled = false;
+          throw const EngineError('canceled', '취소했다');
+        }
+        final welcome = _plan['welcomed'] != true;
+        settings['ai.chatgpt'] = {
+          ..._plan,
+          'clientId': 'oaiapp_fake',
+          'email': planEmail,
+          'connected': true,
+          'declined': false,
+          'welcomed': true,
+          'checkedAt': now(),
+          'models': [for (final m in openaiModels) Json.of(m)],
+        };
+        return {'welcome': welcome, 'email': planEmail, 'models': 4};
+      case 'ai.chatgptCancel':
+        _canceled = true;
+        return null;
+      case 'ai.chatgptSignOut':
+        settings['ai.chatgpt'] = {
+          ..._plan,
+          'connected': false,
+          'models': null,
+          'use': null,
+        };
+        return {'revoked': true};
+      case 'ai.chatgptUse':
+        if (a['use'] != 'plan' && a['use'] != 'key') {
+          throw EngineError('bad_request', 'plan이나 key입니다: ${a['use']}');
+        }
+        settings['ai.chatgpt'] = {..._plan, 'use': a['use']};
+        return null;
       case 'ai.setKey':
         final p = known();
         final key = (a['key'] as String? ?? '').trim();
@@ -178,7 +258,7 @@ class FakeAi {
         }
         keys[p] = key;
         _store(p);
-        return {'models': _list(p)};
+        return {'models': _keyList(p)};
       case 'ai.deleteKey':
         final p = known();
         keys.remove(p);

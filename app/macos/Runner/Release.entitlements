@@ -6,6 +6,9 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- ChatGPT로 계속하기: 로그인을 마친 브라우저가 돌아오는 주소(127.0.0.1의 임의 포트, 한 번만 받는다)를 듣는다. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 	<key>com.apple.security.device.camera</key>

@@ -286,6 +286,49 @@ void main() {
       expect(field(), '', reason: '적힌 답은 칸에서 비운다');
     });
 
+    testWidgets('ChatGPT 플랜의 한도: 사용량 관리가 첫 일이고, OpenAI 키가 있으면 키로 이어 간다', (
+      tester,
+    ) async {
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('kari/files'),
+        (c) async {
+          calls.add(c);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('kari/files'),
+          null,
+        ),
+      );
+      final rig = await pumpIv(
+        tester,
+        connected: false,
+        setup: (r) async {
+          await r.fake.aiSetKey('openai', 'sk-proj-test-key-0000000');
+          await r.fake.aiChatgptBegin();
+          await r.fake.aiChatgptWait();
+        },
+      );
+      expect(rig.library.planInUse, isTrue);
+      await startFirst(tester);
+      rig.fake.iv.failNext = const EngineError('plan_limit', '한도');
+      await answer(tester, '한도에 걸릴 답');
+      expect(find.textContaining(keepAll('사용 한도에 닿았습니다')), findsOneWidget);
+      await tap(tester, find.text('사용량 관리'));
+      expect(calls.single.method, 'openUrl');
+      expect(
+        (calls.single.arguments as Map)['url'],
+        'https://chatgpt.com/settings/usage',
+      );
+      await tap(tester, find.text('API 키로 계속'));
+      expect((rig.fake.settings['ai.chatgpt'] as Json)['use'], 'key');
+      expect(rig.library.openaiVia, 'key');
+      expect(find.text('질문 2'), findsOneWidget, reason: '키로 같은 답을 다시 냈다');
+    });
+
     testWidgets('채점하다 멈춘 답은 채점 없이 넘기고 리포트에 센다', (tester) async {
       final rig = await pumpIv(tester);
       await startFirst(tester);

@@ -87,6 +87,7 @@ flowchart BT
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
+| `ai.chatgpt*` | `app/engine/ffi/src/chatgpt.rs` | ChatGPT로 계속하기(OpenAI의 ChatGPT 플랜) → [ai-connection.md](ai-connection.md#chatgpt-플랜-사용) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
 | `iv.*` | `app/engine/ffi/src/iv.rs` | 면접 → [interview-engine.md](interview-engine.md) |
 | `iv.dashboard` | `app/engine/ffi/src/dashboard.rs` | 홈 대시보드 |
@@ -95,12 +96,13 @@ Dart 쪽 함수는 `app/lib/engine/engine.dart`(`EngineApi`)에 이름마다 하
 
 ### 호출의 두 줄
 
-`kari_call`은 디스크나 네트워크를 기다릴 수 있어 화면 스레드에서 부르지 않는다. `app/lib/engine/native.dart`의 `NativeEngine`이 요청을 두 줄로 나눈다. 줄마다 전용 아이솔레이트(Dart의 격리된 실행 단위) 하나가 받은 순서대로 실행한다.
+`kari_call`은 디스크나 네트워크를 기다릴 수 있어 화면 스레드에서 부르지 않는다. `app/lib/engine/native.dart`의 `NativeEngine`이 요청을 세 줄로 나눈다. 줄마다 전용 아이솔레이트(Dart의 격리된 실행 단위) 하나가 받은 순서대로 실행한다.
 
 | 줄 | 아이솔레이트 | 요청 |
 |---|---|---|
-| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
-| 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
+| 목록 줄 | `kari-net` | 모델 목록을 받는 `ai.setKey`와 `refresh`를 준 `ai.models`, ChatGPT 로그인(`ai.chatgptBegin`, 브라우저를 최대 10분 기다리는 `ai.chatgptWait`, `ai.chatgptSignOut`) |
+| 느린 줄 | `kari-slow` | 목록 줄의 것과 `ai.chatgptCancel`을 뺀 `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
+| 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `ai.chatgptCancel`, `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
 
 느린 줄의 요청은 오래 걸리는 동안 명령 잠금을 쥐고 있지 않는다. 그래서 키 확인, PDF 내보내기, 면접 질문을 기다리는 동안에도 편집이 이어진다.
 
@@ -164,7 +166,7 @@ sequenceDiagram
 
 ## 권한
 
-`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`, `network.server`를 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
+`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `network.server`(ChatGPT 로그인이 돌아오는 `127.0.0.1` 주소), `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`을 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
 
 ## 엔진을 앱에 싣기
 

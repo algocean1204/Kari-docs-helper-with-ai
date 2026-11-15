@@ -6,9 +6,9 @@ use std::sync::Mutex;
 
 use crate::AiError;
 
-/// OS 보안 저장소의 서비스 이름. 계정은 제공사 id다.
+/// OS 보안 저장소의 서비스 이름. 계정은 제공사 id다. `openai-chatgpt`는 ChatGPT로 계속하기의 자격(토큰 JSON)이다.
 const SERVICE: &str = "dev.clonamic.kari";
-const PROVIDERS: [&str; 2] = ["anthropic", "openai"];
+const PROVIDERS: [&str; 3] = ["anthropic", "openai", "openai-chatgpt"];
 
 /// 자가 확인(`check`)이 쓰는 버리는 계정 이름의 앞머리. 제공사 id와 겹치지 않는다.
 const CHECK_PREFIX: &str = "kari-keycheck-";

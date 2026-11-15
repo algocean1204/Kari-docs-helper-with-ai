@@ -9,3 +9,9 @@ serde_json = "1"
 # OS의 TLS(macOS Security.framework, Windows SChannel)와 OS 인증서 저장소를 쓴다.
 ureq = { version = "3", default-features = false, features = ["native-tls"] }
 keyring = "4"
+# ChatGPT로 계속하기(chatgpt.rs): PKCE의 SHA-256, JWT의 base64url, state·nonce·PKCE의 OS 난수, ID 토큰 서명(RS256)
+# 확인의 큰 수 거듭제곱. 앞의 셋은 이미 엔진에 들어 있는 판이다.
+sha2 = "0.11"
+base64 = "0.22"
+getrandom = "0.4"
+num-bigint = "0.4"

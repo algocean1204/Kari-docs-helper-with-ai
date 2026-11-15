@@ -919,6 +919,24 @@ abstract class EngineApi {
     for (final t in await call('ai.resetTasks') as List) t as Json,
   ];
 
+  // ChatGPT로 계속하기(OpenAI 줄의 ChatGPT 플랜). 토큰은 엔진이 보안 저장소에 두고 응답에 넣지 않는다.
+
+  /// 로그인을 시작한다. 돌아올 주소를 열고, 기본 브라우저로 열 승인 주소 {url}을 돌려준다.
+  Future<Json> aiChatgptBegin() async => await call('ai.chatgptBegin') as Json;
+
+  /// 브라우저에서 로그인을 마치기를 기다린다. {welcome, email, models}. 끊으면 `canceled`, 거절하면 `declined`.
+  Future<Json> aiChatgptWait() async => await call('ai.chatgptWait') as Json;
+
+  /// 기다림을 끊는다(기본 줄에서 바로 돈다).
+  Future<void> aiChatgptCancel() => call('ai.chatgptCancel');
+
+  /// 연결을 끊는다. {revoked}: 서버에서 세션을 끝낸 것을 확인했는지.
+  Future<Json> aiChatgptSignOut() async =>
+      await call('ai.chatgptSignOut') as Json;
+
+  /// 키와 플랜이 둘 다 있을 때 OpenAI 호출에 쓸 것(`plan`, `key`).
+  Future<void> aiChatgptUse(String use) => call('ai.chatgptUse', {'use': use});
+
   // 편집 세션. 문서를 먼저 연다(doc.open).
   Future<EditState> _edit(String m, Json a) async =>
       EditState.fromJson(await call(m, a) as Json);
