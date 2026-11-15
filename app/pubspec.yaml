@@ -25,6 +25,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Figma 플러그인 파일(MIT, assets/figma-plugin/LICENSE). 설정 → Figma에서 자료 폴더에 써서 Figma가 가져가게 한다.
+  assets:
+    - assets/figma-plugin/
   # 글꼴은 assets/fonts를 Rust 엔진과 같이 쓴다.
   fonts:
     - family: Pretendard

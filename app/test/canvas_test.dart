@@ -1145,8 +1145,8 @@ void main() {
     testWidgets('버전 기록 단추로 버전 목록이 열리고, 여는 동안 속성 패널은 접힌다', (tester) async {
       final o = await openCanvas(tester, selection: [node('n2', 'rect')]);
       await o.fake.versionCreate(o.id, '제출본');
-      // 항목이 하나뿐인 ⋯ 메뉴 대신 단추다.
-      expect(find.byTooltip('문서 메뉴'), findsNothing);
+      // 버전 기록은 ⋯ 메뉴가 아니라 단추다(⋯ 메뉴에는 Figma로 보내기가 있다).
+      expect(find.byTooltip('문서 메뉴'), findsOneWidget);
       expect(find.byType(CanvasProps), findsOneWidget);
       await tester.tap(find.byTooltip('버전 기록'));
       await tester.pumpAndSettle();

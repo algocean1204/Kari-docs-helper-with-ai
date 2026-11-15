@@ -169,7 +169,14 @@ void main() {
       // 다음 걸음은 조용한 단추다. 이 화면에 채운 단추는 없다.
       expect(filledLabels(tester), isEmpty);
       await ai.tap(tester, find.widgetWithText(TextButton, '공고 추가'));
-      await tester.enterText(find.byType(TextField), '예시페이 백엔드');
+      // 설정 화면에도 글 칸(Figma 채널)이 있어 창 안의 칸을 고른다.
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(Dialog),
+          matching: find.byType(TextField),
+        ),
+        '예시페이 백엔드',
+      );
       await tester.pumpAndSettle();
       await tap(tester, inDialog('추가'));
       expect(

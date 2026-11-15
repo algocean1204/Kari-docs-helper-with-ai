@@ -919,6 +919,13 @@ abstract class EngineApi {
     for (final t in await call('ai.resetTasks') as List) t as Json,
   ];
 
+  /// Figma로 보낼 자리를 모델에게 묻는다. [summary]는 크기·개수 요약(JSON 글), [instruction]은 사용자의 지시.
+  /// 모델의 답 글을 그대로 돌려준다(앱이 검사한다). 키가 없으면 `no_key`.
+  Future<String> aiPlace(String summary, String instruction) async =>
+      (await call('ai.place', {'summary': summary, 'instruction': instruction})
+              as Json)['text']
+          as String;
+
   // 편집 세션. 문서를 먼저 연다(doc.open).
   Future<EditState> _edit(String m, Json a) async =>
       EditState.fromJson(await call(m, a) as Json);
