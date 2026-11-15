@@ -170,7 +170,7 @@ mod hooked {
 
     fn sse_stop(text: &str, stop: &str) -> String {
         let events = [
-            r#"{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","content":[],"model":"claude-haiku-5-5","stop_reason":null,"usage":{"input_tokens":30,"output_tokens":1}}}"#.to_string(),
+            r#"{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","content":[],"model":"claude-haiku-5-5","stop_reason":null,"usage":{"input_tokens":30,"output_tokens":1,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":200}}}}"#.to_string(),
             r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#.to_string(),
             json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}).to_string(),
             r#"{"type":"content_block_stop","index":0}"#.to_string(),
@@ -583,6 +583,148 @@ mod hooked {
             )["code"],
             "bad_request"
         );
+    }
+
+    /// 캐시 표시가 붙은 블록까지의 앞부분. 서버가 읽는 차례(tools → system)대로 이어 붙이고 표시는 뗀다
+    /// (표시 자체는 앞부분이 아니다). 판, 생각, 강도와 받을 모양도 앞부분과 함께 캐시를 가르므로 앞에 둔다.
+    fn cached_prefix(b: &Value) -> String {
+        let mut system = b["system"].clone();
+        for block in system.as_array_mut().unwrap() {
+            block.as_object_mut().unwrap().remove("cache_control");
+        }
+        let fixed = json!([b["model"], b["thinking"], b["output_config"]]);
+        format!("{fixed}{}{system}", b["tools"])
+    }
+
+    /// 서버가 읽는 차례(tools → system → messages)대로 본 캐시 표시의 수명들. 표시가 없으면 빈 목록.
+    fn marks(b: &Value) -> Vec<String> {
+        fn walk(v: &Value, out: &mut Vec<String>) {
+            match v {
+                Value::Object(m) => {
+                    if let Some(c) = m.get("cache_control") {
+                        out.push(c["ttl"].as_str().unwrap_or("5m").to_string());
+                    }
+                    m.iter()
+                        .filter(|(k, _)| *k != "cache_control")
+                        .for_each(|(_, x)| walk(x, out));
+                }
+                Value::Array(a) => a.iter().for_each(|x| walk(x, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        if let Some(c) = b.get("cache_control") {
+            out.push(c["ttl"].as_str().unwrap_or("5m").to_string());
+        }
+        for k in ["tools", "system", "messages"] {
+            walk(&b[k], &mut out);
+        }
+        out
+    }
+
+    /// 프롬프트 캐시가 맞는 모양. 같은 시스템 글을 쓰는 잇단 요청(턴 1과 턴 2의 질문, 채점, 힌트, 닫았다 연 뒤도)은
+    /// 표시까지의 앞부분이 바이트까지 같다. 표시는 넷 이하이고 긴 수명이 짧은 수명보다 앞에 온다. 턴마다 부르는
+    /// 질문·채점은 1시간, 준비 단계는 5분이다. 사용자 차례에는 표시가 없다(호출마다 다른 글이라 쓰기 값만 낸다).
+    /// 리포트는 캐시 읽기와 1시간 쓰기(2배)를 값에 넣는다.
+    #[test]
+    fn cache_prefix_is_identical_across_turns() {
+        let srv = serve();
+        let case = begin("cache", &srv);
+        let doc = resume_doc(&[("p1", "결제 서버의 인덱스를 고쳤습니다.")]);
+        let pid = ok(
+            "iv.posting.add",
+            json!({"text": "백엔드 개발자 채용. 필수: 인덱스 설계."}),
+        )["id"]
+            .clone();
+        let id = ok(
+            "iv.start",
+            json!({"doc": doc, "posting": pid, "years": "junior", "minutes": 10, "pressure": "standard"}),
+        )["id"]
+            .clone();
+        ok(
+            "iv.answer",
+            json!({"id": id, "text": "[전부] 정렬해 둡니다"}),
+        );
+        ok("lib.close", json!({}));
+        case.open();
+        ok("iv.hint", json!({"id": id}));
+        ok(
+            "iv.answer",
+            json!({"id": id, "text": "잘 모르지만 찾아봅니다"}),
+        );
+        ok(
+            "iv.answer",
+            json!({"id": id, "text": "[전부] 범위로 찾습니다"}),
+        );
+        ok("iv.end", json!({"id": id}));
+
+        let posts = srv.posts();
+        // 호출의 종류는 시스템 글의 역할 낱말로 가른다(시스템 글 전체로 가르면 바뀐 글이 다른 무리로 숨는다).
+        let kind = |b: &Value| {
+            let system = b["system"][0]["text"].as_str().unwrap();
+            ["면접관", "채점자", "주장을 뽑는", "공고를 나누는"]
+                .into_iter()
+                .find(|w| system.contains(w))
+                .unwrap()
+        };
+        let mut groups: Vec<(&str, Vec<&Value>)> = Vec::new();
+        for b in &posts {
+            let marks = marks(b);
+            assert!(marks.len() <= 4, "표시는 넷까지: {marks:?}");
+            let first_short = marks.iter().position(|t| t == "5m");
+            assert!(
+                first_short.is_none_or(|i| marks[i..].iter().all(|t| t == "5m")),
+                "1시간 표시가 5분 표시 뒤에 있다: {marks:?}"
+            );
+            assert!(
+                !b["messages"].to_string().contains("cache_control"),
+                "사용자 차례에 표시"
+            );
+            let k = kind(b);
+            let want = if matches!(k, "면접관" | "채점자") {
+                "1h"
+            } else {
+                "5m"
+            };
+            assert_eq!(marks, [want], "{k}");
+            match groups.iter_mut().find(|(g, _)| *g == k) {
+                Some((_, list)) => list.push(b),
+                None => groups.push((k, vec![b])),
+            }
+        }
+        // 질문(힌트 포함)과 채점은 턴마다 다시 불렀다.
+        let count = |k: &str| {
+            groups
+                .iter()
+                .find(|(g, _)| *g == k)
+                .map_or(0, |(_, l)| l.len())
+        };
+        assert!(
+            count("면접관") >= 3 && count("채점자") >= 2,
+            "{}",
+            posts.len()
+        );
+        for (k, list) in &groups {
+            for pair in list.windows(2) {
+                let (before, after) = (cached_prefix(pair[0]), cached_prefix(pair[1]));
+                let at = before
+                    .bytes()
+                    .zip(after.bytes())
+                    .position(|(a, b)| a != b)
+                    .unwrap_or(before.len().min(after.len()));
+                assert_eq!(before, after, "{k}: {at}바이트에서 갈린다");
+            }
+        }
+
+        // 리포트: 캐시 읽기를 따로 세고, 비용은 입력 0.10, 읽기 0.01, 1시간 쓰기 0.10 × 2, 출력 0.50(백만 토큰당).
+        let s = &ok("iv.report", json!({"id": id}))["session"];
+        let calls = s["calls"].as_u64().unwrap();
+        assert_eq!(calls as usize, posts.len());
+        assert_eq!(s["tokensCacheRead"].as_u64(), Some(1000 * calls));
+        assert_eq!(s["tokensCached"].as_u64(), Some(1200 * calls));
+        let want = calls as f64 * (30.0 * 0.10 + 12.0 * 0.50 + 1000.0 * 0.01 + 200.0 * 0.20) / 1e6;
+        let cost = s["cost"].as_f64().unwrap();
+        assert!((cost - want).abs() < 1e-12, "{cost} != {want}");
     }
 
     /// 일마다의 설정과 정해진 판, 요청이 그 판과 강도로 나감, 세션 동안 판이 바뀌지 않음,

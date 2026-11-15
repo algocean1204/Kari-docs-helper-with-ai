@@ -15,6 +15,7 @@ import 'engine/native.dart';
 import 'gaze.dart';
 import 'library.dart';
 import 'screens/app_menu.dart';
+import 'screens/import_dialog.dart';
 import 'screens/canvas.dart';
 import 'screens/doc.dart';
 import 'screens/editor.dart';
@@ -525,6 +526,19 @@ class _ShellState extends State<Shell> {
     if (id != null && mounted) _show(id);
   }
 
+  /// 다른 앱의 파일을 골라 미리 본 뒤 새 글 문서로 가져와 연다. 견본 상태에서는 하지 않는다.
+  Future<void> _import() async {
+    final lib = widget.library;
+    if (lib == null || !await _leave()) return;
+    final path = await lib.importPath();
+    if (path == null || !mounted) return;
+    final id = await showDialog<int>(
+      context: context,
+      builder: (_) => ImportDialog(library: lib, path: path),
+    );
+    if (id != null && mounted) _show(id);
+  }
+
   /// 캔버스 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
   Future<void> _createCanvas() async {
     if (widget.library == null) {
@@ -587,6 +601,7 @@ class _ShellState extends State<Shell> {
         : _open(d.id, reveal: reveal),
     onCreate: _create,
     onCreateCanvas: _createCanvas,
+    onImport: _import,
     onOpenSettings: () => _go(AppRoute.settings),
     onAddPosting: _addPosting,
     onStartInterview: _startInterview,
@@ -700,6 +715,7 @@ class _ShellState extends State<Shell> {
       host: _menu,
       app: (
         newDoc: _create,
+        importDoc: _import,
         home: () => _go(AppRoute.home),
         settings: () => _go(AppRoute.settings),
       ),

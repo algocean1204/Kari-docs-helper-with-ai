@@ -1245,7 +1245,7 @@ void main() {
       );
       expect(
         [for (final x in menu(d, '파일')) name(x)],
-        ['새 문서', '홈으로', 'PDF로 내보내기…', '버전 기록'],
+        ['새 문서', '가져오기…', '홈으로', 'PDF로 내보내기…', '버전 기록'],
       );
       expect(
         [for (final x in menu(d, '편집')) name(x)],
@@ -1403,7 +1403,7 @@ void main() {
       expect(d.menus, isNotEmpty);
       final entries = _walk(
         appMenus(
-          app: (newDoc: () {}, home: () {}, settings: () {}),
+          app: (newDoc: () {}, importDoc: () {}, home: () {}, settings: () {}),
           doc: null,
           canvas: CanvasMenu(
             session: CanvasSession(FakeEngine(), 1),
@@ -1500,7 +1500,12 @@ void main() {
       final keys = {
         for (final e in _walk(
           appMenus(
-            app: (newDoc: () {}, home: () {}, settings: () {}),
+            app: (
+              newDoc: () {},
+              importDoc: () {},
+              home: () {},
+              settings: () {},
+            ),
             doc: null,
             canvas: CanvasMenu(
               session: CanvasSession(FakeEngine(), 1),

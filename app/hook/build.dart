@@ -73,6 +73,7 @@ void main(List<String> args) async {
         'render',
         'pdf',
         'docx',
+        'import',
         'store',
         'ai',
         // 지식 팩(interview/pack)의 글도 엔진 라이브러리에 들어간다.

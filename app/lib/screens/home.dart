@@ -22,6 +22,7 @@ class LibraryHome extends StatelessWidget {
     required this.onOpen,
     required this.onCreate,
     required this.onCreateCanvas,
+    required this.onImport,
     required this.onOpenSettings,
     required this.onAddPosting,
     required this.onStartInterview,
@@ -35,6 +36,9 @@ class LibraryHome extends StatelessWidget {
 
   /// 캔버스 문서를 만들고 연다.
   final VoidCallback onCreateCanvas;
+
+  /// 다른 앱의 파일(DOCX, HTML, zip)을 골라 새 글 문서로 가져온다.
+  final VoidCallback onImport;
   final VoidCallback onOpenSettings;
   final VoidCallback onAddPosting;
   final StartInterview onStartInterview;
@@ -161,6 +165,12 @@ class LibraryHome extends StatelessWidget {
             '새 캔버스',
             icon: Icons.dashboard_outlined,
             onPressed: onCreateCanvas,
+          ),
+          const SizedBox(width: Space.x2),
+          AppButton(
+            '가져오기…',
+            icon: Icons.file_open_outlined,
+            onPressed: onImport,
           ),
           const SizedBox(width: Space.x2),
           AppButton(
@@ -364,12 +374,24 @@ class LibraryHome extends StatelessWidget {
     return _Hero(
       title: '이력서부터 씁니다',
       about: '이력서에 쓴 문장이 면접 질문의 출발점이 됩니다.',
-      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스도 여기서 만든다.
-      extra: AppButton(
-        '새 캔버스',
-        kind: ButtonKind.quiet,
-        icon: Icons.dashboard_outlined,
-        onPressed: onCreateCanvas,
+      // 문서가 하나도 없으면 문서 목록 칸이 숨으므로, 캔버스와 가져오기도 여기서 한다.
+      extra: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppButton(
+            '가져오기…',
+            kind: ButtonKind.quiet,
+            icon: Icons.file_open_outlined,
+            onPressed: onImport,
+          ),
+          const SizedBox(width: Space.x2),
+          AppButton(
+            '새 캔버스',
+            kind: ButtonKind.quiet,
+            icon: Icons.dashboard_outlined,
+            onPressed: onCreateCanvas,
+          ),
+        ],
       ),
       action: AppButton(
         '새 글 문서',

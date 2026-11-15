@@ -37,6 +37,7 @@ fn ask(text: &str) -> Request {
         effort: Effort::High,
         max_tokens: None,
         format: None,
+        long_cache: false,
     }
 }
 
@@ -254,6 +255,7 @@ fn reads_text_usage_and_skips_commentary() {
             output: 20,
             cache_read: 60,
             cache_write: 30,
+            cache_write_1h: 0,
             thinking: 12
         }
     );

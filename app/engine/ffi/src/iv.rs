@@ -212,6 +212,7 @@ fn caller<'a>(
             effort: parse_effort(&pin.effort).unwrap_or(Effort::High),
             max_tokens: None,
             format: info.structured.then(|| c.schema.clone()),
+            long_cache: kari_interview::long_cache(c.what),
         };
         let r = api.stream(key, &req, info, cancel, &mut |_| {})?;
         match &r.stop {
@@ -230,6 +231,7 @@ fn caller<'a>(
             output: r.usage.output,
             cache_read: r.usage.cache_read,
             cache_write: r.usage.cache_write,
+            cache_write_1h: r.usage.cache_write_1h,
             thinking: r.usage.thinking,
         })
     }
