@@ -339,6 +339,23 @@ class Library extends ChangeNotifier {
     await _run(_loadAi);
   }
 
+  /// 그 제공사의 키를 마지막으로 확인한 때. 모르면 null.
+  DateTime? keyCheckedAt(String provider) {
+    for (final p in providers) {
+      final at = p['checkedAt'];
+      if (p['id'] == provider && at is int) {
+        return DateTime.fromMillisecondsSinceEpoch(at);
+      }
+    }
+    return null;
+  }
+
+  /// 넣어 둔 키를 다시 확인한다(모델 목록을 다시 받는다). 실패해도 키는 그대로 두고 [EngineError]를 던진다.
+  Future<void> recheckKey(String provider) async {
+    await engine.aiModels(provider, refresh: true);
+    await _run(_loadAi);
+  }
+
   Future<void> deleteKey(String provider) => _run(() async {
     await engine.aiDeleteKey(provider);
     await _loadAi();

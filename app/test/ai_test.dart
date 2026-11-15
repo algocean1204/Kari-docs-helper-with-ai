@@ -10,6 +10,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
@@ -56,6 +57,10 @@ Future<Rig> pumpAi(
   return rig;
 }
 
+/// 그 읽어 주는 이름의 단추.
+Finder labeled(String l) =>
+    find.byWidgetPredicate((w) => w is AppButton && w.semanticLabel == l);
+
 Finder inDialog(Finder f) =>
     find.descendant(of: find.byType(Dialog), matching: f);
 
@@ -66,6 +71,8 @@ Future<void> tap(WidgetTester tester, Finder f) async {
     await tester.pumpAndSettle();
   }
   await tester.tap(f);
+  // 키 확인이 성공하면 결과를 0.8초 보여 주고 닫는다.
+  await tester.pump(const Duration(milliseconds: 900));
   await tester.pumpAndSettle();
 }
 
@@ -172,7 +179,9 @@ void main() {
     for (final (code, message) in [
       ('unauthorized', '키가 올바르지 않습니다. 다시 확인해 주세요.'),
       ('network', 'Anthropic에 연결하지 못했습니다. 네트워크를 확인해 주세요.'),
-      ('rate_limited', '확인하지 못했습니다 (rate_limited)'),
+      ('server', 'Anthropic 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.'),
+      ('forbidden', '이 키로는 모델 목록을 볼 수 없습니다. Anthropic 콘솔에서 키의 권한을 확인해 주세요.'),
+      ('weird', '확인하지 못했습니다 (weird)'),
       ('rate', 'Anthropic 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.'),
       ('billing', 'Anthropic 계정의 잔액이나 지출 한도에 걸렸습니다. 결제 설정을 확인해 주세요.'),
       ('secret', '이 기기의 보안 저장소(키체인)를 쓰지 못했습니다. 시험'),
@@ -220,6 +229,7 @@ void main() {
       await tester.pump();
       expect(find.byType(Dialog), findsOneWidget);
       gate.complete();
+      await tester.pump(const Duration(milliseconds: 900));
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
       expect(find.text('연결됨'), findsOneWidget);
@@ -231,7 +241,7 @@ void main() {
       await typeKey(tester);
       final seen = await tabCycle(tester);
       expect(seen.length, focusableCount(tester, within: find.byType(Dialog)));
-      expect(seen.length, 4); // 입력 칸, 키 보기, 취소, 확인하고 저장
+      expect(seen.length, 5); // 입력 칸, 붙여넣기, 키 보기, 취소, 확인하고 저장
     });
 
     testWidgets('키 지우기는 한 번 더 묻고, 지우면 키와 모델 목록이 사라진다', (tester) async {
@@ -264,6 +274,162 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('키 넣기 반응형', () {
+    const fakeKey = 'sk-ant-test-0000000000000000';
+    const fakeOpenai = 'sk-test-0000000000000000';
+
+    testWidgets('칸 위의 이름표, 안내 글, 붙여넣기 단추', (tester) async {
+      await pumpAi(tester);
+      await tap(tester, providerButton('Claude 키 넣기'));
+      expect(inDialog(find.text('Claude API 키')), findsOneWidget);
+      expect(
+        inDialog(find.text('sk-ant-로 시작하는 API 키를 붙여넣으세요')),
+        findsOneWidget,
+      );
+      expect(labeled('클립보드에서 키 붙여넣기'), findsOneWidget);
+    });
+
+    testWidgets('쓰는 동안 꼴을 알린다: 짧으면 꺼짐, 맞으면 꼴이 맞습니다, 다른 제공사 키면 경고', (
+      tester,
+    ) async {
+      await pumpAi(tester);
+      await tap(tester, providerButton('Claude 키 넣기'));
+      await typeKey(tester, 'sk-ant-');
+      expect(button(tester, '확인하고 저장').onPressed, isNull);
+      expect(find.text('꼴이 맞습니다'), findsNothing);
+      await typeKey(tester, fakeKey);
+      expect(find.text('꼴이 맞습니다'), findsOneWidget);
+      expect(button(tester, '확인하고 저장').onPressed, isNotNull);
+      await typeKey(tester, fakeOpenai);
+      expect(find.text('OpenAI 키처럼 보입니다'), findsOneWidget);
+      // 경고여도 확인은 막지 않는다.
+      expect(button(tester, '확인하고 저장').onPressed, isNotNull);
+      expect(
+        tester.widget<TextField>(inDialog(find.byType(TextField))).obscureText,
+        isTrue,
+      );
+    });
+
+    testWidgets('OpenAI 칸에 Claude 키를 넣으면 경고한다', (tester) async {
+      await pumpAi(tester);
+      await tap(tester, providerButton('OpenAI 키 넣기'));
+      expect(inDialog(find.text('OpenAI API 키')), findsOneWidget);
+      await typeKey(tester, fakeOpenai);
+      expect(find.text('꼴이 맞습니다'), findsOneWidget);
+      await typeKey(tester, fakeKey);
+      expect(find.text('Claude 키처럼 보입니다'), findsOneWidget);
+    });
+
+    testWidgets('붙여넣기 단추는 클립보드의 글을 칸에 넣는다', (tester) async {
+      await pumpAi(tester);
+      await tap(tester, providerButton('Claude 키 넣기'));
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? <String, Object?>{'text': ' $fakeKey\n'}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tap(tester, inDialog(find.text('붙여넣기')));
+      expect(
+        tester
+            .widget<TextField>(inDialog(find.byType(TextField)))
+            .controller!
+            .text,
+        fakeKey,
+      );
+      expect(find.text('꼴이 맞습니다'), findsOneWidget);
+    });
+
+    testWidgets('확인 중에는 확인 중… 이 보이고 칸과 단추가 잠긴다', (tester) async {
+      final rig = await pumpAi(tester);
+      final gate = Completer<void>();
+      rig.fake.waits['ai.setKey'] = gate.future;
+      await tap(tester, providerButton('Claude 키 넣기'));
+      await typeKey(tester, fakeKey);
+      await tester.tap(find.text('확인하고 저장'));
+      await tester.pump();
+      expect(inDialog(find.text('확인 중…')), findsOneWidget);
+      expect(
+        tester.widget<TextField>(inDialog(find.byType(TextField))).readOnly,
+        isTrue,
+      );
+      expect(button(tester, '붙여넣기').onPressed, isNull);
+      gate.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('성공하면 확인됨 · 저장됨을 보여 주고 0.8초 뒤 닫는다', (tester) async {
+      final rig = await pumpAi(tester);
+      await tap(tester, providerButton('Claude 키 넣기'));
+      await typeKey(tester, fakeKey);
+      await tester.tap(find.text('확인하고 저장'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(inDialog(find.text('확인됨 · 저장됨')), findsOneWidget);
+      expect(button(tester, '취소').onPressed, isNull);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(Dialog), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsNothing);
+      expect(rig.fake.ai.keys, {'anthropic': fakeKey});
+    });
+
+    testWidgets('실패하면 까닭과 다시 시도가 보이고, 다시 시도로 저장된다', (tester) async {
+      final rig = await pumpAi(tester);
+      rig.fake.failures['ai.setKey'] = const EngineError('unauthorized', '시험');
+      await tap(tester, providerButton('Claude 키 넣기'));
+      await typeKey(tester, fakeKey);
+      await tap(tester, find.text('확인하고 저장'));
+      expect(inDialog(find.text('키가 올바르지 않습니다. 다시 확인해 주세요.')), findsOneWidget);
+      expect(inDialog(find.text('확인됨 · 저장됨')), findsNothing);
+      rig.fake.failures.clear();
+      await tap(tester, inDialog(find.text('다시 시도')));
+      expect(find.byType(Dialog), findsNothing);
+      expect(rig.fake.ai.keys, {'anthropic': fakeKey});
+    });
+  });
+
+  group('설정의 다시 확인', () {
+    testWidgets('연결됨 줄에 마지막 확인 시각과 다시 확인이 있고, 누르면 시각이 바뀐다', (tester) async {
+      final rig = await pumpAi(tester, connected: true);
+      expect(find.textContaining('마지막 확인 '), findsOneWidget);
+      expect(labeled('Claude 키 다시 확인'), findsOneWidget);
+      final before = rig.fake.settings['ai.models.anthropic'] as Json;
+      before['checkedAt'] = 0;
+      rig.fake.sent.clear();
+      await tap(tester, providerButton('Claude 다시 확인'));
+      expect(rig.fake.sent, contains('ai.models'));
+      expect(
+        (rig.fake.settings['ai.models.anthropic'] as Json)['checkedAt'],
+        greaterThan(0),
+      );
+      expect(find.text('연결됨'), findsOneWidget);
+      expect(find.text('확인 실패'), findsNothing);
+    });
+
+    testWidgets('다시 확인이 실패하면 줄에 실패를 보이고 키는 그대로 둔다', (tester) async {
+      final rig = await pumpAi(tester, connected: true);
+      rig.fake.failures['ai.models'] = const EngineError('unauthorized', '시험');
+      await tap(tester, providerButton('Claude 다시 확인'));
+      expect(find.text('확인 실패'), findsOneWidget);
+      expect(find.text('키가 올바르지 않습니다. 다시 확인해 주세요.'), findsOneWidget);
+      expect(rig.fake.ai.keys, {'anthropic': key});
+      expect(find.text('키 바꾸기'), findsOneWidget);
+      // 다시 시도로 통과하면 실패 표시가 사라진다.
+      rig.fake.failures.clear();
+      await tap(tester, find.text('다시 시도'));
+      expect(find.text('확인 실패'), findsNothing);
+      expect(find.text('연결됨'), findsOneWidget);
     });
   });
 
@@ -364,6 +530,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         await shot('key-checking');
         gate.complete();
+        await tester.pump(const Duration(milliseconds: 300));
+        await shot('key-saved');
+        await tester.pump(const Duration(milliseconds: 900));
         await tester.pumpAndSettle();
         await shot('settings-connected');
         await tap(tester, providerButton('OpenAI 키 넣기'));

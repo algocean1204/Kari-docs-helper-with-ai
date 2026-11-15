@@ -84,6 +84,8 @@ pub(crate) fn ai_fail(e: AiError, keys: &[&str]) -> Fail {
         AiError::Billing(_) => "billing",
         AiError::Overloaded | AiError::Server(_) => "server",
         AiError::NotFound => "model",
+        // 키는 맞지만 이 요청을 할 권한이 없다(화면이 권한 확인을 알린다).
+        AiError::Forbidden => "forbidden",
         _ => "ai",
     };
     fail(code, message)
