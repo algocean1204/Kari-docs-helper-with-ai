@@ -223,6 +223,33 @@ void main() {
       expect(tester.widget<Switch>(toggle).value, isFalse);
     });
 
+    testWidgets('설정의 업데이트 묶음은 지금 판을 보이고 "지금 확인"은 메뉴와 같은 확인을 한다', (
+      tester,
+    ) async {
+      final calls = _native(tester);
+      await updates.start();
+      // 앱 하나에 하나인 객체라 이미 시작됐을 수 있다. 값만 맞춘다.
+      updates
+        ..available = true
+        ..version = '0.2.1'
+        ..build = '7';
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: const Scaffold(body: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Kari 0.2.1 (빌드 7)'), findsOneWidget);
+      await tester.ensureVisible(find.text('지금 확인'));
+      await tester.tap(find.text('지금 확인'));
+      await tester.pumpAndSettle();
+      expect(calls.last.method, 'check');
+    });
+
     test('확인 주기와 서명 설정: 24시간, 묻지 않고 확인, 몰래 설치하지 않음, 풀기 전과 피드의 서명 확인', () {
       final info = File('macos/Runner/Info.plist').readAsStringSync();
       expect(_plist(info, 'SUScheduledCheckInterval'), 86400);

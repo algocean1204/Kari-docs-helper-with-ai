@@ -321,15 +321,23 @@ class CanvasSession extends ChangeNotifier
 
   // 보기
 
+  /// 처음 보이는 영역 크기를 받으면 한 번 "모두 보기"로 맞춘다(새 캔버스. 저장된 보기를 가진 문서는 건드리지 않는다).
+  bool fitOnFirstView = false;
+
   /// 보이는 영역의 크기와 색. 창 크기를 끄는 동안 쌓이지 않게 아직 나가지 않은 것은 마지막 값만 남긴다.
-  Future<void> view(double width, double height, Map<String, String> colors) =>
-      _run(
-        (a) => engine.canvasView(id, a),
-        args: {'width': width, 'height': height, 'colors': colors},
-        merge: 'size',
-        combine: (o, n) => n,
-        view: true,
-      );
+  Future<void> view(double width, double height, Map<String, String> colors) {
+    final sized = _run(
+      (a) => engine.canvasView(id, a),
+      args: {'width': width, 'height': height, 'colors': colors},
+      merge: 'size',
+      combine: (o, n) => n,
+      view: true,
+    );
+    if (!fitOnFirstView) return sized;
+    fitOnFirstView = false;
+    // 맞추려면 크기가 먼저 엔진에 가 있어야 한다. 줄이 순서대로 보낸다.
+    return viewOp('fitAll');
+  }
 
   /// 화면 델타(논리 화소)만큼 내용을 끌어 옮긴다. 아직 나가지 않은 것과 더한다.
   Future<void> pan(double dx, double dy) => _run(
