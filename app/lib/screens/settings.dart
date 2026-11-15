@@ -40,6 +40,7 @@ enum SettingsArea {
 }
 
 /// 찾기에 걸리는 설정 항목 하나. [note]는 항목 이름 아래에 보이는 한 줄 설명과 같다.
+/// 그 줄이 상태에 따라 바뀌는 항목(Figma 데스크톱 앱, 중계, 지금 쓰는 버전)만 찾기용으로 줄인 글이다.
 typedef SettingEntry = ({
   SettingsArea area,
   String id,
@@ -65,6 +66,15 @@ const _autoFormatNote =
 const _autoFormatInfo =
     '문단 맨 앞에서 - , 1. , # 를 치고 공백을 치면 목록과 제목으로 바꾸고, 주소 뒤에 공백이나 Enter를 치면 링크로 만듭니다. 바로 되돌리면 친 글만 남습니다.';
 const _newStylesNote = '새 문서가 시작할 스타일: 앱 기본값이나 문서의 스타일 메뉴에서 저장한 값. 기본값은 앱 기본값.';
+
+/// 저장과 되돌리기는 library.dart의 `saveNewStyles`, `resetNewStyles`가 한다.
+const _newStylesInfo =
+    '앱 기본값은 Kari에 들어 있는 스타일이고, 저장한 값은 문서의 스타일 메뉴에서 "이 문서의 스타일을 새 문서의 기본으로"로 '
+    '저장한 스타일입니다. 앱 기본값으로 되돌리기는 저장한 값을 지웁니다.';
+
+/// 둘 다 있을 때의 차례는 엔진의 chatgpt.rs `uses_plan`(키로 바꾸기는 `ai.chatgptUse`)이 정한다.
+const _planInfo =
+    'API 키 대신 내 ChatGPT 플랜의 사용량을 씁니다. 키와 플랜이 둘 다 있으면 플랜을 먼저 쓰고, 키로 바꿀 수 있습니다.';
 const _maskShort = '전자우편, 국내 전화번호, 주민등록번호는 늘 가려서 보내고 돌아온 결과에서 되돌립니다. 끌 수 없습니다.';
 
 // 기본값 켬은 Info.plist의 SUEnableAutomaticChecks다.
@@ -85,7 +95,11 @@ const _figmaEntries = [
     '중계',
     '플러그인과 Kari를 잇는 중계입니다. 이 맥 안(127.0.0.1:3055)의 연결만 받습니다.',
   ),
-  ('figma-plugin', '플러그인', 'Figma의 manifest에서 플러그인 가져오기에 붙여넣을 경로를 복사합니다.'),
+  (
+    'figma-plugin',
+    '플러그인',
+    'Figma → 플러그인 → 개발 → manifest에서 플러그인 가져오기를 누르고, ⇧⌘G로 복사한 경로를 붙여넣습니다.',
+  ),
   ('figma-channel', '채널', 'Figma에서 플러그인을 실행하면 보이는 채널 ID를 넣고 연결합니다.'),
 ];
 
@@ -135,12 +149,23 @@ final List<SettingEntry> settingEntries = [
   ),
 ];
 
+/// 지금 화면에 있는 항목. 앱 안 업데이트를 할 수 없는 빌드에는 자동 확인 줄이 없고, 버전을 모르면 버전 줄도 없다.
+List<SettingEntry> get shownSettings => [
+  for (final e in settingEntries)
+    if (switch (e.id) {
+      'autoUpdate' => updates.available,
+      'version' => updates.available || updates.version.isNotEmpty,
+      _ => true,
+    })
+      e,
+];
+
 /// 항목 이름, 설명, 구역 이름에 [query]가 든 항목. 대소문자를 가리지 않는다.
 List<SettingEntry> findSettings(String query) {
   final q = query.trim().toLowerCase();
   if (q.isEmpty) return const [];
   return [
-    for (final e in settingEntries)
+    for (final e in shownSettings)
       if ('${e.name}\n${e.note}\n${e.area.label}'.toLowerCase().contains(q)) e,
   ];
 }
@@ -173,9 +198,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _gaze = true;
   bool _autoFormat = true;
 
-  /// 고른 구역. 키가 하나도 없으면 키를 넣으러 온 것이라 AI 연결에서 연다. 견본은 기억하지 않는다.
+  /// 고른 구역. 면접을 시작할 수 없으면(일에 고른 제공사의 키가 없으면) 키를 고치러 온 것이라 AI 연결에서 연다.
+  /// 견본은 기억하지 않는다.
   late SettingsArea _area = switch (widget.library) {
-    final lib? when lib.anyKey => _lastArea[lib] ?? SettingsArea.ai,
+    final lib? when lib.connected => _lastArea[lib] ?? SettingsArea.ai,
     _ => SettingsArea.ai,
   };
 
@@ -383,6 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         _Provider(
           name: 'ChatGPT 플랜',
+          info: _planInfo,
           company: _planLine,
           note: _planWaiting
               ? '브라우저에서 로그인을 마치세요'
@@ -1086,9 +1113,15 @@ class _NewStyles extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(
-                '새 문서의 스타일',
-                style: AppText.label.copyWith(color: c.text),
+              child: Row(
+                children: [
+                  Text(
+                    '새 문서의 스타일',
+                    style: AppText.label.copyWith(color: c.text),
+                  ),
+                  const SizedBox(width: Space.x1),
+                  const InfoTip(_newStylesInfo, name: '새 문서의 스타일'),
+                ],
               ),
             ),
             // 저장한 값이 없으면 고를 것이 없다. 눌러도 아무 일이 없는 고르기 대신 글로 알린다.
@@ -1106,6 +1139,11 @@ class _NewStyles extends StatelessWidget {
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
           ],
+        ),
+        const SizedBox(height: 2),
+        KeepText(
+          _newStylesNote,
+          style: AppText.caption.copyWith(color: c.textMuted),
         ),
         const SizedBox(height: Space.x2),
         Row(
@@ -1176,12 +1214,16 @@ class _Provider extends StatelessWidget {
     required this.company,
     required this.status,
     this.note,
+    this.info,
     this.actions = const [],
   });
 
   final String name;
   final String company;
   final Widget status;
+
+  /// 이름 옆 ⓘ의 설명.
+  final String? info;
 
   /// 회사 이름 아래의 한 줄(마지막으로 확인한 때).
   final String? note;
@@ -1199,7 +1241,16 @@ class _Provider extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(name, style: AppText.label.copyWith(color: c.text)),
+              if (info == null)
+                Text(name, style: AppText.label.copyWith(color: c.text))
+              else
+                Row(
+                  children: [
+                    Text(name, style: AppText.label.copyWith(color: c.text)),
+                    const SizedBox(width: Space.x1),
+                    InfoTip(info!, name: name),
+                  ],
+                ),
               Text(
                 company,
                 style: AppText.caption.copyWith(color: c.textMuted),

@@ -86,10 +86,11 @@ Future<void> openArea(WidgetTester tester, String label) =>
 Future<void> openModels(WidgetTester tester) => openArea(tester, 'AI 모델');
 
 /// 설정의 ChatGPT 플랜 줄 안의 글(Figma 구역에도 "연결 안 됨"이 있어 줄로 좁힌다).
+/// 가장 가까운 줄은 이름과 ⓘ의 줄이고, 그 바깥이 상태와 단추가 있는 줄이다.
 Finder planText(String s) => find.descendant(
   of: find
       .ancestor(of: find.text('ChatGPT 플랜'), matching: find.byType(Row))
-      .first,
+      .at(1),
   matching: find.text(s),
 );
 

@@ -6,11 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart';
+import 'package:kari/main.dart' show AppRoute;
 import 'package:kari/screens/settings.dart';
+import 'package:kari/update.dart' show updates;
 
-import 'ai_test.dart' show openArea, pumpAi, tap;
-import 'design_test.dart' show loadFonts, saveShot, sizes;
+import 'ai_test.dart' show openArea, openaiKey, pumpAi, tap;
+import 'design_test.dart' show loadFonts, pumpApp, saveShot, sizes;
+import 'library_test.dart' show Rig;
 import 'editor_test.dart' show shortcut;
 import 'interview_test.dart' show small;
 
@@ -69,17 +73,24 @@ void main() {
         );
       }
     }
-    // 찾기 목록의 항목은 모두 그 구역에 실제로 있다.
-    for (final e in settingEntries) {
+    // 찾기에 걸리는 항목은 모두 그 구역에 실제로 있고, 이름 아래 한 줄이 찾기의 설명과 같다.
+    for (final e in shownSettings) {
       await openArea(tester, e.area.label);
       expect(
         find.text(e.name).evaluate().isNotEmpty ||
-            find.text(keepAll(e.name)).evaluate().isNotEmpty ||
-            // 업데이트를 할 수 없는 빌드는 자동 확인 줄 대신 그 까닭을 적는다.
-            e.id == 'autoUpdate' ||
-            e.id == 'version',
+            find.text(keepAll(e.name)).evaluate().isNotEmpty,
         isTrue,
         reason: e.name,
+      );
+      // 줄이 상태에 따라 바뀌는 항목은 찾기용으로 줄인 글이다(SettingEntry의 설명).
+      if (const {'figma-app', 'figma-relay', 'version'}.contains(e.id)) {
+        continue;
+      }
+      expect(
+        find.text(keepAll(e.note)).evaluate().isNotEmpty ||
+            find.text(e.note).evaluate().isNotEmpty,
+        isTrue,
+        reason: '${e.name}: ${e.note}',
       );
     }
   });
@@ -114,10 +125,10 @@ void main() {
       for (final name in ['Figma 데스크톱 앱', '중계', '플러그인', '채널']) {
         expect(find.text(name), findsOneWidget, reason: name);
       }
-      // 여러 구역에 걸리는 낱말은 구역마다 묶어 목록 차례로 보인다.
+      // 여러 구역에 걸리는 낱말은 구역마다 묶어 목록 차례로 보인다(시험에서는 앱 안 업데이트가 꺼져 있어 자동 확인 줄이 없다).
       await tester.enterText(findField, '기본값');
       await tester.pumpAndSettle();
-      expect(titles(tester), ['면접 기본값', '문서 편집', '업데이트와 정보']);
+      expect(titles(tester), ['면접 기본값', '문서 편집']);
       expect(find.text('입력하면서 자동 서식'), findsOneWidget);
       expect(find.text('새 문서의 스타일'), findsOneWidget);
 
@@ -230,6 +241,68 @@ void main() {
       );
       h.dispose();
     });
+  });
+
+  /// 이름이 [name]인 ⓘ.
+  Finder info(String name) =>
+      find.byWidgetPredicate((w) => w is InfoTip && w.name == name);
+
+  testWidgets('모드가 있는 새 문서의 스타일과 ChatGPT 플랜에 ⓘ가 있고, 스타일의 첫 줄에 기본값이 있다', (
+    tester,
+  ) async {
+    await pumpAi(tester, connected: true);
+    expect(info('ChatGPT 플랜'), findsOneWidget);
+    expect(
+      tester.widget<InfoTip>(info('ChatGPT 플랜')).message,
+      allOf(contains('ChatGPT 플랜'), contains('둘 다 있으면')),
+    );
+    await openArea(tester, '문서 편집');
+    expect(info('새 문서의 스타일'), findsOneWidget);
+    expect(
+      tester.widget<InfoTip>(info('새 문서의 스타일')).message,
+      allOf(contains('저장한 값'), contains('지웁니다')),
+    );
+    expect(find.textContaining(keepAll('기본값은 앱 기본값')), findsOneWidget);
+  });
+
+  testWidgets('면접을 시작할 수 없으면(일에 고른 제공사의 키가 없음) 다시 열 때 AI 연결에서 연다', (
+    tester,
+  ) async {
+    final rig = Rig();
+    await rig.fake.libOpen('/tmp/kari-test');
+    await rig.fake.aiSetKey('openai', openaiKey);
+    // OpenAI 키만 있는데 채점은 Claude로 둔다.
+    rig.fake.settings['ai.task.grade'] = {
+      'provider': 'anthropic',
+      'family': 'haiku',
+      'effort': 'high',
+    };
+    await tester.pumpWidget(const SizedBox());
+    await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+    expect(rig.library.anyKey, isTrue);
+    expect(rig.library.connected, isFalse);
+    expect(titles(tester), ['AI 연결']);
+    await openArea(tester, 'Figma');
+    await tap(tester, find.byIcon(Icons.home_outlined));
+    await tap(tester, find.byIcon(Icons.settings_outlined));
+    expect(titles(tester), ['AI 연결']);
+  });
+
+  test('앱 안 업데이트를 할 수 없는 빌드는 찾기에 자동 확인이 없다', () {
+    final (available, version) = (updates.available, updates.version);
+    addTearDown(() {
+      updates
+        ..available = available
+        ..version = version;
+    });
+    updates
+      ..available = false
+      ..version = '';
+    expect(findSettings('자동으로 업데이트'), isEmpty);
+    expect(findSettings('지금 쓰는 버전'), isEmpty);
+    updates.available = true;
+    expect(findSettings('자동으로 업데이트').map((e) => e.id), ['autoUpdate']);
+    expect(findSettings('지금 쓰는 버전').map((e) => e.id), ['version']);
   });
 
   testWidgets('마지막에 본 구역을 다시 열 때 보인다', (tester) async {
