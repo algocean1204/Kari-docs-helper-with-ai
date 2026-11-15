@@ -349,7 +349,7 @@ impl CanvasEditor {
                 match layers::add_board(doc, preset.as_deref(), like) {
                     Ok((ops, id)) => {
                         self.sel = vec![id];
-                        CPlan::ops(ops, "대지 더하기")
+                        CPlan::ops(ops, "페이지 더하기")
                     }
                     Err(e) => CPlan::refuse(e),
                 }

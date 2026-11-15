@@ -1,4 +1,4 @@
-// 캔버스 레이어 패널, 묶기·순서·숨기기·잠그기 키, 대지 크기, 색 판, 도구 단추의 시험(흉내 엔진).
+// 캔버스 레이어 패널, 묶기·순서·숨기기·잠그기 키, 페이지 크기, 색 판, 도구 단추의 시험(흉내 엔진).
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -41,7 +41,7 @@ Json row(
   ...extra,
 };
 
-/// 대지 p1 아래 프레임 f1(안에 사각형 r1)과 글 t1. 앞에 놓인 것이 위다.
+/// 페이지 p1 아래 프레임 f1(안에 사각형 r1)과 글 t1. 앞에 놓인 것이 위다.
 final tree = [
   row(
     'p1',
@@ -112,7 +112,7 @@ void main() {
   setUpAll(loadFonts);
 
   group('키 표', () {
-    test('묶기, 풀기, 순서, 숨기기·잠그기, 대지 사이 이동', () {
+    test('묶기, 풀기, 순서, 숨기기·잠그기, 페이지 사이 이동', () {
       Json? k(
         LogicalKeyboardKey key, {
         bool shift = false,
@@ -191,7 +191,7 @@ void main() {
   });
 
   group('레이어 패널', () {
-    testWidgets('나무를 깊이만큼 들여 보이고 접고 편다. 대지는 크기를 보인다', (tester) async {
+    testWidgets('나무를 깊이만큼 들여 보이고 접고 편다. 페이지는 크기를 보인다', (tester) async {
       await openLayers(tester);
       for (final id in ['p1', 'f1', 'r1', 't1']) {
         expect(layer(id), findsOneWidget, reason: id);
@@ -277,7 +277,7 @@ void main() {
       expect(lastCmd(o, 'select')['ids'], ['f1', 't1']);
     });
 
-    testWidgets('대지 줄을 누르면 대지를 고르고 보기를 그 대지로 옮긴다', (tester) async {
+    testWidgets('페이지 줄을 누르면 페이지를 고르고 보기를 그 페이지로 옮긴다', (tester) async {
       final o = await openLayers(tester);
       await tester.tap(layer('p1'));
       await tester.pumpAndSettle();
@@ -411,7 +411,7 @@ void main() {
         'behind': null,
       });
       expect(places(), 3);
-      // 놓을 수 없는 자리: 제 안(f1을 제 자식 r1 위로), 대지 밖(t1을 대지 p1 위로), 대지를 프레임 안으로.
+      // 놓을 수 없는 자리: 제 안(f1을 제 자식 r1 위로), 페이지 밖(t1을 페이지 p1 위로), 페이지를 프레임 안으로.
       await dragRow(tester, layer('f1'), at(tester, layer('r1'), 0.1));
       await dragRow(tester, layer('t1'), at(tester, layer('p1'), 0.1));
       await dragRow(tester, layer('p1'), at(tester, layer('f1'), 0.5));
@@ -429,7 +429,7 @@ void main() {
       expect(p['behind'], isNull, reason: '움직이는 것을 빼면 그 부모에 남는 형제가 없다');
     });
 
-    testWidgets('대지 줄끼리 끌면 문서 차례(쪽 차례)를 바꾼다', (tester) async {
+    testWidgets('페이지 줄끼리 끌면 문서 차례(쪽 차례)를 바꾼다', (tester) async {
       final o = await openLayers(
         tester,
         rows: [
@@ -473,9 +473,9 @@ void main() {
       expect(find.text('사각형 0'), findsOneWidget);
     });
 
-    testWidgets('대지 더하기 메뉴는 고른 크기로 addBoard를 보내고 그 대지로 간다', (tester) async {
+    testWidgets('페이지 더하기 메뉴는 고른 크기로 addBoard를 보내고 그 페이지로 간다', (tester) async {
       final o = await openLayers(tester);
-      await tester.tap(find.byTooltip('대지 더하기'));
+      await tester.tap(find.byTooltip('페이지 더하기'));
       await tester.pumpAndSettle();
       for (final s in boardSizes) {
         expect(find.text(boardSizeLabel(s)), findsWidgets);
@@ -532,7 +532,7 @@ void main() {
   });
 
   group('속성 패널과 도구 단추', () {
-    testWidgets('대지 하나를 고르면 대지 크기와 방향을 고른다', (tester) async {
+    testWidgets('페이지 하나를 고르면 페이지 크기와 방향을 고른다', (tester) async {
       final o = await openLayers(
         tester,
         selection: [
@@ -575,7 +575,7 @@ void main() {
       );
     });
 
-    testWidgets('대지가 아닌 것이나 여럿을 고르면 대지 크기가 없다', (tester) async {
+    testWidgets('페이지가 아닌 것이나 여럿을 고르면 페이지 크기가 없다', (tester) async {
       await openLayers(tester, selection: [node('r1', 'rect')]);
       expect(find.byKey(const Key('board-size')), findsNothing);
     });

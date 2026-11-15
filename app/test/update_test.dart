@@ -87,7 +87,7 @@ void main() {
   setUpAll(loadFonts);
 
   group('업데이트', () {
-    testWidgets('새 판이 오면 판, 빌드, 바뀐 점과 두 단추를 보이고 "지금 업데이트"를 macOS 쪽에 넘긴다', (
+    testWidgets('새 버전이 오면 버전, 빌드, 바뀐 점과 두 단추를 보이고 "지금 업데이트"를 macOS 쪽에 넘긴다', (
       tester,
     ) async {
       final calls = _native(tester);
@@ -100,7 +100,7 @@ void main() {
         'build': '42',
         'notes': '표 붙여넣기를 고침',
       });
-      expect(find.text('새 판이 있습니다'), findsOneWidget);
+      expect(find.text('새 버전이 있습니다'), findsOneWidget);
       expect(
         find.textContaining(keepAll('Kari 0.1.0 (빌드 42)')),
         findsOneWidget,
@@ -110,10 +110,10 @@ void main() {
 
       await tester.tap(find.text('지금 업데이트'));
       await tester.pumpAndSettle();
-      expect(find.text('새 판이 있습니다'), findsNothing);
+      expect(find.text('새 버전이 있습니다'), findsNothing);
       expect(calls.last.method, 'answer');
       expect(calls.last.arguments, isTrue);
-      expect(find.textContaining('새 판을 받는 중입니다'), findsOneWidget);
+      expect(find.textContaining('새 버전을 받는 중입니다'), findsOneWidget);
     });
 
     testWidgets('"나중에"와 바깥 누르기는 설치하지 않는다', (tester) async {
@@ -131,7 +131,7 @@ void main() {
       await _fromNative(tester, 'found', offer);
       await tester.tapAt(const Offset(4, 4));
       await tester.pumpAndSettle();
-      expect(find.text('새 판이 있습니다'), findsNothing);
+      expect(find.text('새 버전이 있습니다'), findsNothing);
       expect(calls.last.method, 'answer');
       expect(calls.last.arguments, isFalse);
       expect(calls.where((c) => c.arguments == true), isEmpty);
@@ -152,7 +152,7 @@ void main() {
       expect(find.byIcon(Icons.error), findsOneWidget);
 
       await _fromNative(tester, 'status', {'kind': 'latest'});
-      expect(find.text('지금 쓰는 판이 최신입니다'), findsOneWidget);
+      expect(find.text('지금 쓰는 버전이 최신입니다'), findsOneWidget);
     });
 
     testWidgets('설치하려고 끄는 요청을 앱이 취소하면 "Kari를 끄면 업데이트가 설치됩니다"와 "다시 시도"를 보인다', (
@@ -172,18 +172,18 @@ void main() {
 
       // 이미 꺼진 경우(installing)에는 다시 시도를 두지 않는다.
       await _fromNative(tester, 'status', {'kind': 'installing'});
-      expect(find.text('새 판을 설치하려고 Kari를 닫습니다'), findsOneWidget);
+      expect(find.text('새 버전을 설치하려고 Kari를 닫습니다'), findsOneWidget);
       expect(find.text('다시 시도'), findsNothing);
     });
 
-    testWidgets('공개 키가 없는 판은 확인을 macOS 쪽에 보내지 않고 받을 곳을 알린다', (tester) async {
+    testWidgets('공개 키가 없는 버전은 확인을 macOS 쪽에 보내지 않고 받을 곳을 알린다', (tester) async {
       final calls = _native(tester, start: {'available': false, 'auto': false});
       final u = await _host(tester);
       expect(u.available, isFalse);
       await u.check();
       await tester.pumpAndSettle();
       expect(calls.map((c) => c.method), ['start']);
-      expect(find.textContaining('이 판은 앱 안에서 업데이트할 수 없습니다'), findsOneWidget);
+      expect(find.textContaining('이 버전은 앱 안에서 업데이트할 수 없습니다'), findsOneWidget);
     });
 
     testWidgets('빌드 번호가 숫자가 아닌 개발 빌드는 앱 안 업데이트를 끄고 설정에서 그 까닭을 알린다', (
@@ -283,7 +283,7 @@ void main() {
       await u.check();
       await tester.pumpAndSettle();
       expect(calls.last.method, 'check');
-      expect(find.text('새 판이 있는지 확인하는 중입니다'), findsOneWidget);
+      expect(find.text('새 버전이 있는지 확인하는 중입니다'), findsOneWidget);
     });
 
     testWidgets('설정의 "자동으로 업데이트 확인"은 기본 켬이고 끄면 macOS 쪽에 저장한다', (tester) async {
@@ -315,7 +315,7 @@ void main() {
       expect(tester.widget<Switch>(toggle).value, isFalse);
     });
 
-    testWidgets('설정의 업데이트 묶음은 지금 판을 보이고 "지금 확인"은 메뉴와 같은 확인을 한다', (
+    testWidgets('설정의 업데이트 묶음은 지금 버전을 보이고 "지금 확인"은 메뉴와 같은 확인을 한다', (
       tester,
     ) async {
       final calls = _native(tester);

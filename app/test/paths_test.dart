@@ -123,7 +123,7 @@ void main() {
       expect(find.widgetWithText(TextButton, '이력서'), findsOneWidget);
       expect(find.widgetWithText(TextButton, '모아커머스 백엔드'), findsOneWidget);
       expect(years(tester), 'new');
-      expect(find.text('15분 · 압박 실전 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 실전 · 시선 기록 켬'), findsOneWidget);
     });
 
     testWidgets('홈의 "면접 연습 시작"도 마친 연습을 닫고 준비 화면으로 간다', (tester) async {
@@ -219,7 +219,7 @@ void main() {
       expect(rig.fake.iv.postings[posting]!['text'], startsWith('모아커머스'));
     });
 
-    testWidgets('연차·시간·압박은 지난번에 고른 값으로 시작한다', (tester) async {
+    testWidgets('연차·시간·면접 분위기는 지난번에 고른 값으로 시작한다', (tester) async {
       final rig = await pumpIv(tester);
       expect(years(tester), 'junior');
       await tap(tester, find.text('신입'));
@@ -230,7 +230,7 @@ void main() {
       await tap(tester, find.text('설정'));
       await tap(tester, find.text('면접'));
       expect(years(tester), 'new');
-      expect(find.text('15분 · 압박 코칭 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 켬'), findsOneWidget);
       expect(
         (
           rig.fake.settings['interview.years'],
@@ -248,7 +248,7 @@ void main() {
         library: Library(rig.fake, dir, now: () => today),
       );
       expect(years(tester), 'new');
-      expect(find.text('15분 · 압박 코칭 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 켬'), findsOneWidget);
     });
 
     testWidgets('저장된 값이 고를 수 없는 것이면 기본값으로 시작한다', (tester) async {
@@ -261,7 +261,7 @@ void main() {
         },
       );
       expect(years(tester), 'junior');
-      expect(find.text('10분 · 압박 표준 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 켬'), findsOneWidget);
     });
   });
 
@@ -519,7 +519,7 @@ void main() {
       expect(find.textContaining('준비 '), findsNothing);
     });
 
-    testWidgets('먼저 준비할 주장 줄은 쉬는 상태에서도 누를 수 있어 보인다', (tester) async {
+    testWidgets('먼저 준비할 문장 줄은 쉬는 상태에서도 누를 수 있어 보인다', (tester) async {
       await pumpHome(tester, homeStates[1], size: small);
       expect(find.byIcon(Icons.chevron_right), findsNWidgets(2));
       expect(find.byTooltip('리포트 보기'), findsNWidgets(2));
@@ -603,10 +603,12 @@ void main() {
       expect(find.textContaining('키 없음'), findsNothing);
     });
 
-    testWidgets('면접 진행의 위 줄이 이력서와 압박을 말하고, 모르겠습니다는 조용한 단추다', (tester) async {
+    testWidgets('면접 진행의 위 줄이 이력서와 면접 분위기를 말하고, 모르겠습니다는 조용한 단추다', (
+      tester,
+    ) async {
       await pumpIv(tester, size: small);
       await startFirst(tester);
-      expect(find.text('이력서 · 압박 표준'), findsOneWidget);
+      expect(find.text('이력서 · 면접 분위기 표준'), findsOneWidget);
       expect(
         tester.widget<AppButton>(find.widgetWithText(AppButton, '모르겠습니다')).kind,
         ButtonKind.quiet,
@@ -721,7 +723,7 @@ void main() {
     });
 
     test('자료 폴더를 열지 못한 까닭마다 할 일이 다르다', () {
-      expect(openAdvice('too_new'), contains('새 판으로 바꾼 뒤'));
+      expect(openAdvice('too_new'), contains('새 버전으로 바꾼 뒤'));
       expect(openAdvice('corrupt'), startsWith('자료 폴더를 다른 곳에 복사해'));
       expect(openAdvice('integrity'), openAdvice('corrupt'));
       expect(openAdvice('io'), startsWith('다시 시도해도 같으면'));

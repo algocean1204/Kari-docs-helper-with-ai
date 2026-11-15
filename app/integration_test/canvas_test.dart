@@ -132,9 +132,9 @@ void main() {
             as Json;
     await until(tester, () async => CanvasSurface.debugDrawnGen > 0, '첫 그림');
 
-    // 새 캔버스는 대지 전체가 보이는 배율로 열린다. 아래 단계의 화면 좌표는 100%에서 대지(1920×1080)의
-    // 왼쪽 위가 판의 왼쪽 위에 오는 보기를 전제로 하므로 그 보기로 옮긴다(맞춘 보기는 대지가 가운데에 온다).
-    await until(tester, () async => (s.state?.zoom ?? 1) < 1, '대지 전체 보기');
+    // 새 캔버스는 페이지 전체가 보이는 배율로 열린다. 아래 단계의 화면 좌표는 100%에서 페이지(1920×1080)의
+    // 왼쪽 위가 판의 왼쪽 위에 오는 보기를 전제로 하므로 그 보기로 옮긴다(맞춘 보기는 페이지가 가운데에 온다).
+    await until(tester, () async => (s.state?.zoom ?? 1) < 1, '페이지 전체 보기');
     final area = tester.getSize(find.byType(CanvasSurface));
     await s.viewOp('actual');
     await s.pan(1920 / 2 - area.width / 2, 1080 / 2 - area.height / 2);
@@ -237,7 +237,7 @@ void main() {
     expect([r['x'], r['y'], r['w'], r['h']], [x0, y0, 160, 100]);
     expect(s.state!.selection.single.rotation, closeTo(90, 0.01));
 
-    // 8. 맞춤: 속성 패널 맨 위의 단추. 하나만 골랐으니 대지의 왼쪽에 맞는다(돌아간 상자의 너비는 100).
+    // 8. 맞춤: 속성 패널 맨 위의 단추. 하나만 골랐으니 페이지의 왼쪽에 맞는다(돌아간 상자의 너비는 100).
     await tester.tap(find.byTooltip('왼쪽 맞춤 ⌥A'));
     await settle(tester);
     r = await rect();
@@ -248,7 +248,7 @@ void main() {
       '단추를 누른 뒤 판의 초점',
     );
 
-    // 9. 복사(⌘C)와 붙여넣기(⌘V): 같은 대지에 비켜서 하나 더. 되돌리기 한 번에 사라진다.
+    // 9. 복사(⌘C)와 붙여넣기(⌘V): 같은 페이지에 비켜서 하나 더. 되돌리기 한 번에 사라진다.
     await shortcut(tester, LogicalKeyboardKey.keyC);
     await until(tester, () async => clip == '', '글 상자가 없는 노드는 빈 글을 쓴다');
     await shortcut(tester, LogicalKeyboardKey.keyV);
@@ -275,7 +275,7 @@ void main() {
     await shortcut(tester, LogicalKeyboardKey.keyZ);
     await until(tester, () async => (await rects()).length == 1, '복제 되돌리기');
 
-    // 11. 모든 대지 PDF 한 번.
+    // 11. 모든 페이지 PDF 한 번.
     await tester.tap(find.text('PDF로 내보내기'));
     await until(tester, () async => File(pdf).existsSync(), 'PDF 파일');
     expect(File(pdf).readAsBytesSync().take(5), '%PDF-'.codeUnits);

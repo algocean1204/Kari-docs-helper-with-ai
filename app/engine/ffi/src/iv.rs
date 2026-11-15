@@ -195,7 +195,7 @@ fn caller<'a>(
         let pin = ai
             .pins
             .get(kari_interview::task_of(c.what))
-            .ok_or_else(|| AiError::Unsupported(format!("정한 판이 없는 일: {}", c.what)))?;
+            .ok_or_else(|| AiError::Unsupported(format!("정한 버전이 없는 일: {}", c.what)))?;
         let info = &ai.infos[&pin.model];
         let key = ai.keys.get(&pin.provider).ok_or(AiError::NoKey)?;
         let api = ai.apis.get(&pin.provider).ok_or(AiError::NoKey)?;

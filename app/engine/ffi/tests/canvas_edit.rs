@@ -137,7 +137,7 @@ fn 만들기_명령은_결과와_선택을_내고_되돌리기와_다시_하기�
     // 대지 밖의 사각형은 거절하고 문서를 바꾸지 않는다
     let before = (units(id), node_count(id));
     let r = cmd(id, "create", json!({"tool": "rect", "x": -500, "y": -500}));
-    assert_eq!(r["refused"], "대지 안에 놓아야 합니다.");
+    assert_eq!(r["refused"], "페이지 안에 놓아야 합니다.");
     assert_eq!(r["changed"], false);
     assert_eq!((units(id), node_count(id)), before);
     // 판의 빈 곳의 프레임은 새 대지
@@ -194,7 +194,7 @@ fn 도구로_끌어_만들면_끌기_중에는_커밋이_없고_뗄_때_한_번�
     cmd(id, "tool", json!({"tool": "ellipse"}));
     let u = units(id);
     let d = pointer(id, "down", -400.0, -400.0);
-    assert_eq!(d["refused"], "대지 안에 놓아야 합니다.");
+    assert_eq!(d["refused"], "페이지 안에 놓아야 합니다.");
     pointer(id, "up", -400.0, -400.0);
     assert_eq!(units(id), u);
     assert_eq!(ok("canvas.state", json!({"id": id}))["tool"], "ellipse");
@@ -260,7 +260,7 @@ fn 지우기_복제_방향키_모두_고르기() {
     // 마지막 대지는 지울 수 없다
     cmd(id, "select", json!({"ids": ["n1"]}));
     let r = cmd(id, "delete", json!({}));
-    assert_eq!(r["refused"], "마지막 대지는 지울 수 없습니다.");
+    assert_eq!(r["refused"], "마지막 페이지는 지울 수 없습니다.");
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn 속성_바꾸기와_수치_끌기는_미리_본_뒤_한_번_커밋한다() {
     let r = cmd(id, "set", json!({"props": {"opacity": 3}}));
     assert_eq!(r["refused"], "불투명도는 0부터 1까지입니다.");
     let r = cmd(id, "set", json!({"props": {"fontSize": 20}}));
-    assert_eq!(r["refused"], "고른 노드에 쓸 수 없는 속성입니다.");
+    assert_eq!(r["refused"], "고른 요소에 쓸 수 없는 속성입니다.");
     assert!(units(id) > n0);
 }
 

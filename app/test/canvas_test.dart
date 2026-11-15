@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/editing/canvas_keys.dart';
 import 'package:kari/editing/canvas_session.dart';
@@ -372,7 +373,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.fake.docs.values.single['kind'], 'canvas');
       expect(find.byType(CanvasSurface), findsOneWidget);
-      // 새 캔버스는 대지 전체가 보이게 열린다.
+      // 새 캔버스는 페이지 전체가 보이게 열린다.
       expect(
         rig.fake.canvasCallsOf('canvas.view').map((c) => c['op']),
         contains('fitAll'),
@@ -739,11 +740,8 @@ void main() {
             props: {
               'radius': 8,
               'opacity': 0.5,
-              'stroke': {
-                'weight': 2,
-                'align': 'INSIDE',
-                'paintColor': '#FF0000FF',
-              },
+              // 선 위치(align)는 일부러 뺐다: 문서에 없으면 엔진의 기본값을 보인다.
+              'stroke': {'weight': 2, 'paintColor': '#FF0000FF'},
             },
           ),
         ],
@@ -803,6 +801,21 @@ void main() {
           'stroke': {'weight': 3.0},
         },
       );
+      // 선 위치와 불투명도에는 ⓘ 설명이 있다.
+      for (final name in ['선 위치', '불투명도']) {
+        expect(
+          find.byWidgetPredicate((w) => w is InfoTip && w.name == name),
+          findsOneWidget,
+        );
+      }
+      // 선 위치가 문서에 없으면 엔진의 기본값(안쪽)이 골라져 있고 그 설명이 보인다.
+      expect(
+        find.text(keepAll('선이 테두리 안쪽에 그려져 모양의 크기가 그대로 보입니다.')),
+        findsOneWidget,
+      );
+      // 글이 커져 패널이 길어졌다. 패널은 굴려서 본다.
+      await tester.ensureVisible(find.text('바깥'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('바깥'));
       await tester.pumpAndSettle();
       expect(
@@ -1015,24 +1028,24 @@ void main() {
   group('알림, 내보내기, 되돌리기, 버전', () {
     testWidgets('엔진이 거절하면 화면 아래에 알린다', (tester) async {
       final o = await openCanvas(tester);
-      o.fake.canvasRefuse = '대지 밖에는 도형을 놓을 수 없습니다.';
+      o.fake.canvasRefuse = '페이지 안에 놓아야 합니다.';
       final g = await tester.startGesture(
         surfaceTopLeft(tester) + const Offset(100, 100),
       );
       await g.up();
       await tester.pumpAndSettle();
-      expect(find.text('대지 밖에는 도형을 놓을 수 없습니다.'), findsOneWidget);
+      expect(find.text('페이지 안에 놓아야 합니다.'), findsOneWidget);
       expect(find.byType(SnackBar), findsOneWidget);
       // 같은 말이 다시 거절돼도 다시 알린다.
       await tester.pump(const Duration(seconds: 10));
       await tester.pumpAndSettle();
-      o.fake.canvasRefuse = '대지 밖에는 도형을 놓을 수 없습니다.';
+      o.fake.canvasRefuse = '페이지 안에 놓아야 합니다.';
       final g2 = await tester.startGesture(
         surfaceTopLeft(tester) + const Offset(100, 100),
       );
       await g2.up();
       await tester.pumpAndSettle();
-      expect(find.text('대지 밖에는 도형을 놓을 수 없습니다.'), findsOneWidget);
+      expect(find.text('페이지 안에 놓아야 합니다.'), findsOneWidget);
     });
 
     testWidgets('PDF로 내보내기는 저장 위치를 고르고 doc.exportPdf를 부른다', (tester) async {
@@ -1045,7 +1058,7 @@ void main() {
         },
       );
       o.fake.canvas(o.id)['layers'] = [
-        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '페이지 1'},
       ];
       await tester.tap(find.text('PDF로 내보내기'));
       await tester.pumpAndSettle();
@@ -1058,7 +1071,7 @@ void main() {
       var path = null as String?;
       final o = await openCanvas(tester, savePath: (_) async => path);
       o.fake.canvas(o.id)['layers'] = [
-        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+        {'id': 'p1', 'type': 'page', 'depth': 0, 'label': '페이지 1'},
       ];
       await tester.tap(find.text('PDF로 내보내기'));
       await tester.pumpAndSettle();
@@ -1074,7 +1087,7 @@ void main() {
       expect(find.textContaining('PDF로 내보내지 못했습니다'), findsOneWidget);
     });
 
-    testWidgets('보이는 대지가 없으면 저장 위치를 묻기 전에 알린다', (tester) async {
+    testWidgets('보이는 페이지가 없으면 저장 위치를 묻기 전에 알린다', (tester) async {
       final asked = <String>[];
       final o = await openCanvas(
         tester,
@@ -1085,7 +1098,7 @@ void main() {
       );
       o.fake.canvas(o.id)['layers'] = [
         {
-          ...{'id': 'p1', 'type': 'page', 'depth': 0, 'label': '대지 1'},
+          ...{'id': 'p1', 'type': 'page', 'depth': 0, 'label': '페이지 1'},
           'visible': false,
         },
       ];
@@ -1093,7 +1106,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(asked, isEmpty);
       expect(o.fake.exported, isEmpty);
-      expect(find.textContaining('보이는 대지가 없습니다'), findsOneWidget);
+      expect(find.textContaining('보이는 페이지가 없습니다'), findsOneWidget);
       expect(find.textContaining('bad_request'), findsNothing);
     });
 
@@ -1292,8 +1305,8 @@ void main() {
           '실제 크기',
           '모두 보기',
           '고른 것에 맞추기',
-          '다음 대지',
-          '앞 대지',
+          '다음 페이지',
+          '앞 페이지',
           '레이어 패널',
           '[toggleFullScreen]',
         ],
@@ -1439,7 +1452,7 @@ void main() {
       expect(owners.keys.where((k) => !k.contains('⌘')), isEmpty);
     });
 
-    testWidgets('개체의 묶기·순서·숨기기·잠그기와 보기의 대지 이동·레이어 패널', (tester) async {
+    testWidgets('개체의 묶기·순서·숨기기·잠그기와 보기의 페이지 이동·레이어 패널', (tester) async {
       final (d, o) = await openWithMenu(tester);
       PlatformMenuItem item(String m, String n) =>
           menu(d, m).firstWhere((x) => name(x) == n);
@@ -1482,10 +1495,10 @@ void main() {
       item('개체', '묶음 풀기').onSelected!();
       await tester.pumpAndSettle();
       expect(o.calls('canvas.cmd').last['name'], 'ungroup');
-      item('보기', '다음 대지').onSelected!();
+      item('보기', '다음 페이지').onSelected!();
       await tester.pumpAndSettle();
       expect(o.calls('canvas.view').last, containsPair('to', 'next'));
-      item('보기', '앞 대지').onSelected!();
+      item('보기', '앞 페이지').onSelected!();
       await tester.pumpAndSettle();
       expect(
         o.calls('canvas.view').last,
@@ -1665,7 +1678,7 @@ void main() {
       expect(find.bySemanticsLabel('왼쪽 맞춤 ⌥A'), findsWidgets);
     });
 
-    testWidgets('간격 단추는 셋 이상에서만, 맞춤은 대지 하나에서는 꺼진다', (tester) async {
+    testWidgets('간격 단추는 셋 이상에서만, 맞춤은 페이지 하나에서는 꺼진다', (tester) async {
       final o = await openCanvas(
         tester,
         selection: [node('a', 'rect'), node('b', 'rect')],
@@ -1680,7 +1693,7 @@ void main() {
       await tester.tap(find.byTooltip('위 맞춤 ⌥W'));
       await tester.pumpAndSettle();
       expect(p.cmds('align'), isEmpty);
-      // 대지에는 각도 칸과 뒤집기 단추가 없다.
+      // 페이지에는 각도 칸과 뒤집기 단추가 없다.
       expect(find.byKey(const Key('num-각도')), findsNothing);
       expect(find.byTooltip('가로로 뒤집기 ⇧H'), findsNothing);
     });

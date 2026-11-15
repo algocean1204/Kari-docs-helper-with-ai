@@ -166,7 +166,7 @@ void main() {
       expect(find.text('연결됨'), findsOneWidget);
       expectKeyOnlyInSecrets(rig, {'openai': openaiKey});
       await openModels(tester);
-      expect(find.text('Luna · 추론 강도 낮음 · 지금 GPT-6 Luna'), findsNWidgets(3));
+      expect(find.text('Luna · 생각 깊이 낮음 · 지금 GPT-6 Luna'), findsNWidgets(3));
       expect(find.text('키 없음'), findsOneWidget, reason: 'Claude 줄만');
 
       // Claude 키를 더하면 기본은 Claude로 돌아간다.
@@ -175,7 +175,7 @@ void main() {
       await tap(tester, find.text('확인하고 저장'));
       expect(find.text('연결됨'), findsNWidgets(2));
       expect(
-        find.text('Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5'),
+        find.text('Haiku · 생각 깊이 보통 · 지금 Claude Haiku 5.5'),
         findsNWidgets(3),
       );
 
@@ -270,7 +270,7 @@ void main() {
       expectKeyOnlyInSecrets(rig, {});
     });
 
-    testWidgets('옛 모델 구역(모델 하나와 추론 강도)은 없다', (tester) async {
+    testWidgets('옛 모델 구역(모델 하나와 생각 깊이)은 없다', (tester) async {
       await pumpAi(tester, connected: true);
       await openModels(tester);
       expect(find.text('모델 바꾸기'), findsNothing);
@@ -681,7 +681,7 @@ void main() {
         expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
         // 이력서가 아직 없어 면접은 시작할 수 없다.
         expect(find.text('면접 연습 시작'), findsNothing);
-        expect(button(tester, '새 글 문서').onPressed, isNotNull);
+        expect(button(tester, '새 문서').onPressed, isNotNull);
       });
     }
   });

@@ -196,7 +196,7 @@ class _AddPostingDialogState extends State<AddPostingDialog> {
 }
 
 /// 보내는 내용 보기. 제공사로 나갈 글(연락처를 가린 이력서와 공고), 가린 개수,
-/// 모델과 추론 강도를 보여 준다. 모델을 부르지 않는다. [startable]이면 "시작"을 누르면 true를 돌려준다.
+/// 모델과 생각 깊이를 보여 준다. 모델을 부르지 않는다. [startable]이면 "시작"을 누르면 true를 돌려준다.
 class PreviewDialog extends StatefulWidget {
   const PreviewDialog({
     super.key,
@@ -287,11 +287,11 @@ class _PreviewDialogState extends State<PreviewDialog> {
                 ),
                 const SizedBox(height: Space.x1),
               ],
-              // 일마다 나가는 곳: 일 이름, 판, 실제로 보낼 추론 강도. 키가 없는 제공사면 그렇다고 붙인다.
+              // 일마다 나가는 곳: 일 이름, 판, 실제로 보낼 생각 깊이. 키가 없는 제공사면 그렇다고 붙인다.
               for (final m in models)
                 Text(
                   '${m['name']}: ${m['modelName'] ?? m['model']} · '
-                  '추론 강도 ${efforts[m['effort']] ?? '보내지 않음'}'
+                  '생각 깊이 ${efforts[m['effort']] ?? '보내지 않음'}'
                   '${m['hasKey'] == false ? ' · 키 없음' : ''}',
                   style: AppText.label.copyWith(color: c.text),
                 ),

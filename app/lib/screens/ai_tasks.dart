@@ -13,6 +13,27 @@ const providerFamilies = {
   'openai': ['luna', 'terra', 'sol'],
 };
 const providerLabels = {'anthropic': 'Claude', 'openai': 'OpenAI'};
+
+/// 계열마다 한 줄 설명. 차례와 상대 비용은 엔진의 가격 표(anthropic.rs·openai.rs의 `cost`)에서 왔다.
+const familyNotes = {
+  'haiku': '가장 쌉니다. Claude의 기본값입니다.',
+  'sonnet': '중간 비용입니다.',
+  'opus': '가장 비쌉니다.',
+  'luna': '가장 쌉니다. OpenAI의 기본값입니다.',
+  'terra': '중간 비용입니다.',
+  'sol': '가장 비쌉니다.',
+};
+
+/// 생각 깊이 단계마다 한 줄 설명. 엔진은 같은 이름을 Claude에는 `output_config.effort`로, OpenAI에는
+/// `reasoning.effort`로 보낸다(모델이 받지 않는 단계면 그 아래 단계).
+const effortNotes = {
+  'low': '가장 적게 생각합니다. 제공사에 effort low로 보냅니다.',
+  'medium': '보통으로 생각합니다. 제공사에 effort medium으로 보냅니다.',
+  'high': '더 깊이 생각합니다. 제공사에 effort high로 보냅니다.',
+  'xhigh': '아주 깊이 생각합니다. 제공사에 effort xhigh로 보냅니다.',
+  'max': '가장 깊이 생각해 가장 비쌉니다. 제공사에 effort max로 보냅니다.',
+};
+
 const familyNames = {
   'haiku': 'Haiku',
   'sonnet': 'Sonnet',
@@ -22,9 +43,9 @@ const familyNames = {
   'sol': 'Sol',
 };
 
-/// 일 한 줄의 요약: "Haiku · 추론 강도 보통 · 지금 Claude Haiku 5.5".
+/// 일 한 줄의 요약: "Haiku · 생각 깊이 보통 · 지금 Claude Haiku 5.5".
 String taskSummary(Json t) =>
-    '${familyNames[t['family']] ?? t['family']} · 추론 강도 ${efforts[t['sent']] ?? '없음'} · '
+    '${familyNames[t['family']] ?? t['family']} · 생각 깊이 ${efforts[t['sent']] ?? '없음'} · '
     '지금 ${t['modelName'] ?? t['model']}';
 
 /// 접힌 묶음 "면접에 쓰는 모델"의 한 줄 요약.
@@ -37,7 +58,7 @@ String tasksSummary(List<Json> tasks, {required bool anyKey}) {
 /// 견본(라이브러리 없음)의 일 목록: Claude 기본값.
 final List<Json> sampleTasks = [
   for (final (t, name, effort) in [
-    ('claims', '이력서 주장 뽑기', 'medium'),
+    ('claims', '면접에서 물을 문장 뽑기', 'medium'),
     ('posting', '채용공고 나누기', 'medium'),
     ('ask', '질문 만들기', 'medium'),
     ('grade', '답변 채점', 'high'),
@@ -57,7 +78,7 @@ final List<Json> sampleTasks = [
     },
 ];
 
-/// 일마다 쓰는 모델: 일마다 한 줄에 모델(계열), 실제로 보낼 추론 강도, 지금 쓰는 버전을 보이고, `바꾸기`로 제공사·모델·강도를
+/// 일마다 쓰는 모델: 일마다 한 줄에 모델(계열), 실제로 보낼 생각 깊이, 지금 쓰는 버전을 보이고, `바꾸기`로 제공사·모델·강도를
 /// 고른다. 버전은 고르지 않는다(그 모델의 가장 새 버전을 엔진이 정한다). 키가 없는 제공사를 고른 줄에는 `키 없음`이 붙는다.
 /// 맨 아래 `기본값으로 되돌리기`. [library]가 없으면 견본(기본값)으로 그린다.
 class TaskModels extends StatelessWidget {
@@ -136,7 +157,7 @@ class TaskModels extends StatelessWidget {
   }
 }
 
-/// 일 하나의 제공사, 계열, 추론 강도. 고르면 바로 저장한다.
+/// 일 하나의 제공사, 계열, 생각 깊이. 고르면 바로 저장한다.
 class TaskDialog extends StatefulWidget {
   const TaskDialog({super.key, required this.task, this.library});
 
@@ -202,9 +223,17 @@ class _TaskDialogState extends State<TaskDialog> {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     final lib = widget.library;
-    Widget label(String t) => Padding(
-      padding: const EdgeInsets.only(bottom: Space.x2),
-      child: Text(t, style: AppText.label.copyWith(color: c.text)),
+    Widget label(String t, [String? info]) => Padding(
+      padding: EdgeInsets.only(bottom: info == null ? Space.x2 : Space.x1),
+      child: Row(
+        children: [
+          Text(t, style: AppText.label.copyWith(color: c.text)),
+          if (info != null) ...[
+            const SizedBox(width: Space.x1),
+            InfoTip(info, name: t),
+          ],
+        ],
+      ),
     );
     final provider = _t['provider'] as String;
     return Sheet(
@@ -229,7 +258,7 @@ class _TaskDialogState extends State<TaskDialog> {
           onChanged: (p) => _set(provider: p),
         ),
         const SizedBox(height: Space.x4),
-        label('모델'),
+        label('모델', '계열마다 가장 새 버전을 씁니다. 왼쪽일수록 싸고, 오른쪽일수록 비쌉니다.'),
         Segmented<String>(
           options: [
             for (final f in providerFamilies[provider]!)
@@ -237,13 +266,18 @@ class _TaskDialogState extends State<TaskDialog> {
           ],
           value: _t['family'] as String,
           onChanged: (f) => _set(family: f),
+          notes: familyNotes,
         ),
         const SizedBox(height: Space.x4),
-        label('추론 강도'),
+        label(
+          '생각 깊이',
+          '모델이 답하기 전에 생각하는 양입니다. 깊을수록 생각에 쓰는 글이 늘어 비쌉니다. 못 받는 단계는 아래로 보냅니다. 기본값은 일마다 다릅니다.',
+        ),
         Segmented<String>(
           options: [for (final e in efforts.entries) (e.key, e.value)],
           value: _t['effort'] as String,
           onChanged: (e) => _set(effort: e),
+          notes: effortNotes,
         ),
         if (provider == 'openai' && (lib?.planInUse ?? false)) ...[
           const SizedBox(height: Space.x4),

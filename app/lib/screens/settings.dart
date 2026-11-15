@@ -9,6 +9,7 @@ import 'ai.dart';
 import 'ai_tasks.dart';
 import 'dialogs.dart';
 import 'figma.dart';
+import 'gaze.dart' show gazeInfo;
 import 'report.dart' show openSource;
 
 /// 연락처 가리기의 안내. 엔진(mask.rs)이 가리는 것: 전자우편, 국내 전화번호(휴대, 지역, 070, +82, 괄호로 쓴 지역번호),
@@ -404,7 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   indent: 0,
                   child: _Section(
                     caption:
-                        '면접의 일마다 제공사, 모델, 추론 강도를 고릅니다. 모델마다 가장 새 버전을 씁니다. 하던 연습은 시작할 때의 버전으로 끝까지 갑니다.',
+                        '면접의 일마다 제공사, 모델, 생각 깊이를 고릅니다. 모델마다 가장 새 버전을 씁니다. 하던 연습은 시작할 때의 버전으로 끝까지 갑니다.',
                     children: [TaskModels(library: lib)],
                   ),
                 ),
@@ -415,6 +416,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // 엔진이 편집 세션을 열 때 읽는다. 편집 화면은 설정 화면과 함께 떠 있지 않다.
                   SwitchRow(
                     label: '입력하면서 자동 서식',
+                    info:
+                        '문단 맨 앞의 - , 1. , # 와 공백을 목록과 제목으로, 주소를 링크로 바꿉니다. 기본값 켬.',
                     caption:
                         '문단 맨 앞에서 - , 1. , # 를 치고 공백을 치면 목록과 제목으로 바꾸고, 주소 뒤에 공백이나 Enter를 치면 링크로 만듭니다. 바로 되돌리면 친 글만 남습니다.',
                     value: sample
@@ -460,6 +463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   SwitchRow(
                     label: '시선 기록',
+                    info: gazeInfo,
                     caption:
                         '카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다.',
                     value: gaze,
@@ -484,7 +488,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               SwitchRow(
                                 label: '자동으로 업데이트 확인',
                                 caption:
-                                    '24시간에 한 번까지 새 판이 있는지 확인하고, 있으면 알립니다. 받아서 설치하는 것은 "지금 업데이트"를 누를 때만 합니다. 메뉴의 Kari > 업데이트 확인…으로 언제든 확인할 수 있습니다.',
+                                    '24시간에 한 번까지 새 버전이 있는지 확인하고, 있으면 알립니다. 받아서 설치하는 것은 "지금 업데이트"를 누를 때만 합니다. 메뉴의 Kari > 업데이트 확인…으로 언제든 확인할 수 있습니다.',
                                 value: updates.auto,
                                 onChanged: updates.setAuto,
                               ),
@@ -516,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// 지금 쓰는 판과 "지금 확인". 단추는 메뉴의 "업데이트 확인…"과 같은 확인을 한다.
+/// 지금 쓰는 버전과 "지금 확인". 단추는 메뉴의 "업데이트 확인…"과 같은 확인을 한다.
 class _VersionRow extends StatelessWidget {
   const _VersionRow({required this.updates, this.button = true});
 
@@ -533,7 +537,7 @@ class _VersionRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('지금 쓰는 판', style: AppText.label.copyWith(color: c.text)),
+              Text('지금 쓰는 버전', style: AppText.label.copyWith(color: c.text)),
               const SizedBox(height: 2),
               Text(
                 'Kari ${updates.version}$build',

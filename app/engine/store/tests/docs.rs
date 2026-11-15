@@ -327,7 +327,12 @@ fn 새_형식이면_열지_않는다() {
     let t = Tmp::new("toonew");
     drop(Library::open(&t.0).unwrap());
     db(&t.0).execute_batch("PRAGMA user_version = 3;").unwrap();
-    assert!(matches!(Library::open(&t.0), Err(Error::TooNew(3))));
+    let err = Library::open(&t.0).err().unwrap();
+    assert!(matches!(err, Error::TooNew(3)));
+    assert_eq!(
+        err.to_string(),
+        "더 새 형식의 라이브러리입니다(형식 버전 3)."
+    );
 }
 
 /// 사용자 커밋에는 op 5,000개 제한이 없다(큰 선택 지우기). 되돌리기도 된다.

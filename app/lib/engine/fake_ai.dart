@@ -47,7 +47,7 @@ class FakeAi {
 
   /// 일마다의 모델: 진짜 엔진과 같은 일, 이름, 제공사마다의 기본값(Claude 계열·강도, OpenAI 계열·강도).
   static const tasks = [
-    ('claims', '이력서 주장 뽑기', ('haiku', 'medium'), ('luna', 'low')),
+    ('claims', '면접에서 물을 문장 뽑기', ('haiku', 'medium'), ('luna', 'low')),
     ('posting', '채용공고 나누기', ('haiku', 'medium'), ('luna', 'low')),
     ('ask', '질문 만들기', ('haiku', 'medium'), ('luna', 'low')),
     ('grade', '답변 채점', ('haiku', 'high'), ('luna', 'medium')),

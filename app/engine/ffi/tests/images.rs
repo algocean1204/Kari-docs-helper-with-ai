@@ -319,7 +319,7 @@ fn 그림을_고르면_상자와_손잡이_한도가_오고_크기는_폭과_높
     assert_eq!(objects(id)[0]["h"], 20.0);
     let hist = ok("doc.history", json!({"id": id, "limit": 50}));
     assert_eq!(hist.as_array().unwrap().len(), n + 1);
-    assert_eq!(hist[0]["label"], "이미지 크기");
+    assert_eq!(hist[0]["label"], "그림 크기");
     let s = ok("edit.undo", json!({"id": id}));
     assert_eq!(s["image"]["h"], 22.5);
     // 최소 크기와 본문 상자로 자른다.
@@ -381,7 +381,7 @@ fn 끄는_동안_놓일_자리를_묻고_놓으면_옮기기_한_묶음이고_�
     assert_eq!(texts(id), ["가나다라\u{FFFC}"]);
     assert!(s["image"].is_object(), "옮긴 그림이 선택으로 남는다");
     let hist = ok("doc.history", json!({"id": id, "limit": 1}));
-    assert_eq!(hist[0]["label"], "이미지 옮기기");
+    assert_eq!(hist[0]["label"], "그림 옮기기");
     ok("edit.undo", json!({"id": id}));
     assert_eq!(texts(id), ["가나\u{FFFC}다라"]);
     // ⌥ 끌기는 복사.
@@ -394,7 +394,7 @@ fn 끄는_동안_놓일_자리를_묻고_놓으면_옮기기_한_묶음이고_�
     assert_eq!(texts(id), ["가나\u{FFFC}다라\u{FFFC}"]);
     assert_eq!(objects(id).len(), 2);
     let hist = ok("doc.history", json!({"id": id, "limit": 1}));
-    assert_eq!(hist[0]["label"], "이미지 복사");
+    assert_eq!(hist[0]["label"], "그림 복사");
 }
 
 #[test]

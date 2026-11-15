@@ -11,6 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
@@ -96,16 +97,16 @@ void main() {
       expect(find.text('키 넣기'), findsNWidgets(2)); // Claude, OpenAI
     });
 
-    testWidgets('글 문서가 없으면 시작할 수 없고 새 글 문서를 만들 수 있다', (tester) async {
+    testWidgets('글 문서가 없으면 시작할 수 없고 새 문서를 만들 수 있다', (tester) async {
       await pumpIv(tester, docs: false);
       expect(find.text('이력서로 쓸 글 문서가 없습니다.'), findsOneWidget);
       expect(button(tester, '시작').onPressed, isNull);
       expect(button(tester, '보내는 내용 보기').onPressed, isNull);
-      await tap(tester, find.text('새 글 문서'));
+      await tap(tester, find.text('새 문서'));
       expect(find.text('제목 없는 문서'), findsOneWidget);
     });
 
-    testWidgets('이력서, 공고, 연차, 시간, 압박을 고른다', (tester) async {
+    testWidgets('이력서, 공고, 연차, 시간, 면접 분위기를 고른다', (tester) async {
       final rig = await pumpIv(
         tester,
         setup: (r) async => r.fake.iv.addPosting('예시페이 백엔드 엔지니어\n필수: MySQL'),
@@ -124,12 +125,21 @@ void main() {
       await tap(tester, find.text('예시페이 백엔드 엔지니어').last);
       await tap(tester, find.text('4년 이상'));
       // 옵션은 기본값을 한 줄로 보이는 접힌 묶음이다.
-      expect(find.text('10분 · 압박 표준 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 켬'), findsOneWidget);
       expect(find.text('15분'), findsNothing);
       await openOptions(tester);
+      // 면접 분위기와 시선 기록에는 ⓘ 설명이 있고, 고른 분위기의 설명 한 줄이 아래에 보인다.
+      for (final name in ['면접 분위기', '시선 기록']) {
+        expect(
+          find.byWidgetPredicate((w) => w is InfoTip && w.name == name),
+          findsOneWidget,
+        );
+      }
+      expect(find.textContaining(keepAll('기본값입니다')), findsOneWidget);
       await tap(tester, find.text('15분'));
       await tap(tester, find.text('실전'));
       expect(find.textContaining(keepAll('반박을 먼저')), findsOneWidget);
+      expect(find.textContaining(keepAll('기본값입니다')), findsNothing);
       await startFirst(tester);
       final s = rig.fake.iv.sessions.values.single;
       expect(
@@ -150,12 +160,12 @@ void main() {
       final rig = await pumpIv(tester);
       await tap(tester, find.widgetWithText(TextButton, '시작'));
       expect(find.text('보내는 내용'), findsOneWidget);
-      // 연락처는 가려서 보낸다. 모델과 추론 강도를 밝힌다.
+      // 연락처는 가려서 보낸다. 모델과 생각 깊이를 밝힌다.
       expect(find.textContaining('seoyeon@example.com'), findsNothing);
       expect(find.textContaining('〔연락처1〕'), findsOneWidget);
-      // 일마다 나가는 판과 추론 강도.
-      expect(find.text('질문 만들기: Claude Haiku 5.5 · 추론 강도 보통'), findsOneWidget);
-      expect(find.text('답변 채점: Claude Haiku 5.5 · 추론 강도 높음'), findsOneWidget);
+      // 일마다 나가는 판과 생각 깊이.
+      expect(find.text('질문 만들기: Claude Haiku 5.5 · 생각 깊이 보통'), findsOneWidget);
+      expect(find.text('답변 채점: Claude Haiku 5.5 · 생각 깊이 높음'), findsOneWidget);
       // 닫으면 시작하지 않는다.
       await tap(tester, inDialog('닫기'));
       expect(rig.fake.iv.sessions, isEmpty);
@@ -512,9 +522,9 @@ void main() {
       expect(find.text('틀린 생각'), findsNothing);
       await tap(tester, find.text('바로잡을 것'));
       expect(find.text('틀린 생각'), findsOneWidget);
-      // 주장 방어: 근거를 묻는 질문의 축마다 판정과 인용.
-      expect(find.text('주장 방어'), findsOneWidget);
-      await tap(tester, find.text('주장 방어'));
+      // 문장 설명: 근거를 묻는 질문의 축마다 판정과 인용.
+      expect(find.text('문장 설명'), findsOneWidget);
+      await tap(tester, find.text('문장 설명'));
       expect(find.text(keepAll('수치나 구체적인 사례를 댄다 — “1번 답”')), findsOneWidget);
       expect(find.text('빠짐'), findsNWidgets(2));
       expect(find.text('주제별 깊이'), findsOneWidget);
@@ -522,7 +532,7 @@ void main() {
       await tap(tester, find.text('주제별 깊이'));
       expect(find.text('깊이 3단계 / 목표 3단계'), findsOneWidget);
       expect(find.text('단계가 높을수록 깊이 물었습니다.'), findsOneWidget);
-      for (final legend in ['설명함', '설명하지 못함', '묻지 않음']) {
+      for (final legend in ['설명함', '설명 못 함', '묻지 않음']) {
         expect(find.text(legend), findsOneWidget, reason: legend);
       }
       expect(find.textContaining('첫 통과'), findsNothing);
@@ -626,7 +636,7 @@ void main() {
       expect(find.text('준비 2/4'), findsOneWidget);
       expect(find.bySemanticsLabel('채용공고 끝남'), findsOneWidget);
       // 이력서를 만든 뒤 홈의 주인공 카드에서 면접 탭으로 간다.
-      await tap(tester, find.widgetWithText(TextButton, '새 글 문서'));
+      await tap(tester, find.widgetWithText(TextButton, '새 문서'));
       await tap(tester, find.text('홈'));
       expect(find.text('이 이력서로 면접을 연습할 수 있습니다'), findsOneWidget);
       await tap(tester, find.widgetWithText(TextButton, '면접 연습 시작'));

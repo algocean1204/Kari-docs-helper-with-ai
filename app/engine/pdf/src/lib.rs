@@ -87,7 +87,7 @@ pub fn export_canvas(
     assets: &dyn Fn(&str) -> Option<Vec<u8>>,
 ) -> Result<Vec<u8>, Error> {
     if scene.boards.is_empty() {
-        return Err(Error::Pdf("대지가 없습니다.".into()));
+        return Err(Error::Pdf("페이지가 없습니다.".into()));
     }
     let mut pdf = new_pdf(meta);
     let mut draw = Draw::new(doc, fonts, assets);

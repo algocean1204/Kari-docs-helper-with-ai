@@ -348,7 +348,7 @@ class _CanvasLayersState extends State<CanvasLayers> {
                       ),
                     ),
                     MoreMenu(
-                      tooltip: '대지 더하기',
+                      tooltip: '페이지 더하기',
                       icon: Icons.add,
                       items: [
                         for (final s in boardSizes)
