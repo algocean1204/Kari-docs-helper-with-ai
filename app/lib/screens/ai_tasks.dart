@@ -16,12 +16,12 @@ const providerLabels = {'anthropic': 'Claude', 'openai': 'OpenAI'};
 
 /// 계열마다 한 줄 설명. 차례와 상대 비용은 엔진의 가격 표(anthropic.rs·openai.rs의 `cost`)에서 왔다.
 const familyNotes = {
-  'haiku': '가장 싸고 빠릅니다. Claude의 기본값입니다.',
-  'sonnet': '중간 크기, 중간 비용입니다.',
-  'opus': '가장 깊지만 가장 비쌉니다.',
-  'luna': '가장 싸고 빠릅니다. OpenAI의 기본값입니다.',
-  'terra': '중간 크기, 중간 비용입니다.',
-  'sol': '가장 깊지만 가장 비쌉니다.',
+  'haiku': '가장 쌉니다. Claude의 기본값입니다.',
+  'sonnet': '중간 비용입니다.',
+  'opus': '가장 비쌉니다.',
+  'luna': '가장 쌉니다. OpenAI의 기본값입니다.',
+  'terra': '중간 비용입니다.',
+  'sol': '가장 비쌉니다.',
 };
 
 /// 생각 깊이 단계마다 한 줄 설명. 엔진은 같은 이름을 Claude에는 `output_config.effort`로, OpenAI에는
@@ -31,7 +31,7 @@ const effortNotes = {
   'medium': '보통으로 생각합니다. 제공사에 effort medium으로 보냅니다.',
   'high': '더 깊이 생각합니다. 제공사에 effort high로 보냅니다.',
   'xhigh': '아주 깊이 생각합니다. 제공사에 effort xhigh로 보냅니다.',
-  'max': '가장 깊이 생각해 가장 느리고 비쌉니다. 제공사에 effort max로 보냅니다.',
+  'max': '가장 깊이 생각해 가장 비쌉니다. 제공사에 effort max로 보냅니다.',
 };
 
 const familyNames = {
@@ -258,7 +258,7 @@ class _TaskDialogState extends State<TaskDialog> {
           onChanged: (p) => _set(provider: p),
         ),
         const SizedBox(height: Space.x4),
-        label('모델', '계열마다 가장 새 버전을 씁니다. 왼쪽일수록 싸고 빠르며, 오른쪽일수록 깊지만 비쌉니다.'),
+        label('모델', '계열마다 가장 새 버전을 씁니다. 왼쪽일수록 싸고, 오른쪽일수록 비쌉니다.'),
         Segmented<String>(
           options: [
             for (final f in providerFamilies[provider]!)
@@ -271,7 +271,7 @@ class _TaskDialogState extends State<TaskDialog> {
         const SizedBox(height: Space.x4),
         label(
           '생각 깊이',
-          '모델이 답하기 전에 생각하는 양입니다. 깊을수록 느리고 비쌉니다. 받지 않는 단계는 그 아래로 보냅니다. 기본값은 일마다 다릅니다.',
+          '모델이 답하기 전에 생각하는 양입니다. 깊을수록 생각에 쓰는 글이 늘어 비쌉니다. 못 받는 단계는 아래로 보냅니다. 기본값은 일마다 다릅니다.',
         ),
         Segmented<String>(
           options: [for (final e in efforts.entries) (e.key, e.value)],

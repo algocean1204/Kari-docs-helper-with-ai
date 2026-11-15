@@ -151,7 +151,10 @@ class _Fields extends StatelessWidget {
     final strokeHex = commonOf(strokes.map((s) => hexOf(s?['paintColor'])));
     final align = commonOf(sel.map((n) => n.text?['align'] as String?));
     final weight = commonOf(sel.map((n) => _num(n.text?['weight'])));
-    final strokeAlign = commonOf(strokes.map((s) => s?['align'] as String?));
+    // 선 위치가 문서에 없으면 엔진이 그리는 기본값(layout/src/scene.rs의 INSIDE)이다.
+    final strokeAlign = commonOf(
+      strokes.map((s) => s?['align'] as String? ?? 'INSIDE'),
+    );
     Widget gap() => const SizedBox(height: Space.x2);
     Widget row(List<Widget> kids) => Row(
       children: [

@@ -3,7 +3,7 @@
 //
 // - 중계: 채널에 들기, 같은 채널의 다른 연결에만 넘기기, 웹 페이지의 Origin 거절, 메시지 크기 한도, 들기 전 메시지.
 // - 연결 쪽: id로 답 짝짓기(순서가 바뀌어도), 되돌아온 명령 건너뛰기, 시간 한도, 허용하지 않은 명령, ping 실패.
-// - 옮기기: 종류마다(대지, 프레임, 사각형, 타원, 선, 글, 그림, 그룹), 돌리기, 숨긴 것과 못 옮기는 종류, 배율.
+// - 옮기기: 종류마다(페이지, 프레임, 사각형, 타원, 선, 글, 그림, 그룹), 돌리기, 숨긴 것과 못 옮기는 종류, 배율.
 // - 자리: AI 답의 검사(범위, 모르는 칸, 지우기 명령, 없는 페이지), 빈 자리, 요약에 문서 글이 없음.
 // - 이어서: 앱이 켠 중계와 이미 켜진 중계, 보내기의 명령 차례, AI 자리.
 // - 위젯: 설정의 Figma 구역(상태마다), 보내기 창.
@@ -475,7 +475,7 @@ void main() {
   });
 
   group('옮기기', () {
-    test('사각형: 칠, 선, 모서리, 불투명도, 대지 안의 자리', () {
+    test('사각형: 칠, 선, 모서리, 불투명도, 페이지 안의 자리', () {
       final c = toFigma(
         [
           board(),
@@ -747,7 +747,7 @@ void main() {
       expect(cy, closeTo(125, 0.02));
     });
 
-    test('숨긴 것, 숨긴 대지, 옮기지 못하는 종류는 빼고 센다', () {
+    test('숨긴 것, 숨긴 페이지, 옮기지 못하는 종류는 빼고 센다', () {
       final c = toFigma(
         [
           board(),
@@ -762,7 +762,7 @@ void main() {
       expect(c.skipped, {'star': 1});
     });
 
-    test('대지 여럿은 서로의 거리를 지키고, 배율은 모든 길이에 곱한다', () {
+    test('페이지 여럿은 서로의 거리를 지키고, 배율은 모든 길이에 곱한다', () {
       final c = toFigma(
         [
           board(),
@@ -788,7 +788,7 @@ void main() {
       expect((b2.params['x'], b2.params['y']), (550.0, 60.0));
       expect(b2.params['width'], 50.0);
       expect(createOf(c, 'r').params['width'], 10.0);
-      // 대지가 여럿이면 frameName은 쓰지 않는다.
+      // 페이지가 여럿이면 frameName은 쓰지 않는다.
       expect(b.params['name'], 'Frame');
     });
   });
@@ -891,7 +891,7 @@ void main() {
       final s = jsonEncode(
         summary(
           [
-            board({'name': '비밀 대지'}),
+            board({'name': '비밀 페이지'}),
             n(
               't',
               'text',
@@ -977,64 +977,67 @@ void main() {
       expect(await portBusy(port), isFalse);
     });
 
-    test('이미 켜진 중계를 쓰고, 연결 뒤 보내기는 페이지 → 대지 → 자식 차례로 만들며 지우지 않는다', () async {
-      final relay = await FigmaRelay.start(port: 0);
-      final plugin = await FakePlugin.join(relay.port, 'abc12345');
-      final link = FigmaLink(lib, port: relay.port);
-      await link.connect('abc12345');
-      expect(link.relay, RelayKind.external);
-      expect(link.status, LinkStatus.connected, reason: link.error);
-      expect(link.pageName, 'Page 1');
-      expect(lib.get<String>(Setting.figmaChannel), 'abc12345');
-      final pages = await link.pages();
-      expect(pages.map((p) => p.name), ['Page 1', '디자인']);
-      final progress = <int>[];
-      final r = await link.send(
-        docId: doc,
-        docName: '포트폴리오',
-        target: (pageId: '5:1', newPage: null),
-        onProgress: (a, _) => progress.add(a),
-      );
-      expect(r, startsWith('Figma로 보냈습니다 · 디자인 페이지에 3개'));
-      expect(progress, [1, 2, 3]);
-      expect(
-        plugin.names,
-        [
-          'ping',
-          'get_document_info',
-          'get_pages',
-          'get_pages',
-          'get_node_info',
-          'create_frame',
-          'set_corner_radius',
-          'create_text',
-          'set_font_name',
-        ].toList()..insert(6, 'create_rectangle'),
-      );
-      expect(plugin.names.where((c) => c.contains('delete')), isEmpty);
-      final frame = plugin.commands.firstWhere(
-        (c) => c['command'] == 'create_frame',
-      );
-      // 빈 자리: 흉내 페이지의 노드(0~300) 오른쪽 200.
-      expect(
-        (frame['x'], frame['y'], frame['parentId'], frame['name']),
-        (500, 40, '5:1', '포트폴리오'),
-      );
-      final rect = plugin.commands.firstWhere(
-        (c) => c['command'] == 'create_rectangle',
-      );
-      expect(rect['parentId'], 'f1');
-      expect(
-        plugin.commands.firstWhere(
-          (c) => c['command'] == 'set_corner_radius',
-        )['nodeId'],
-        'f2',
-      );
-      expect(fake.ai.placeCalls, isEmpty);
-      await link.stop();
-      await plugin.close();
-      await relay.stop();
-    });
+    test(
+      '이미 켜진 중계를 쓰고, 연결 뒤 보내기는 Figma 페이지 → Kari 페이지의 프레임 → 자식 차례로 만들며 지우지 않는다',
+      () async {
+        final relay = await FigmaRelay.start(port: 0);
+        final plugin = await FakePlugin.join(relay.port, 'abc12345');
+        final link = FigmaLink(lib, port: relay.port);
+        await link.connect('abc12345');
+        expect(link.relay, RelayKind.external);
+        expect(link.status, LinkStatus.connected, reason: link.error);
+        expect(link.pageName, 'Page 1');
+        expect(lib.get<String>(Setting.figmaChannel), 'abc12345');
+        final pages = await link.pages();
+        expect(pages.map((p) => p.name), ['Page 1', '디자인']);
+        final progress = <int>[];
+        final r = await link.send(
+          docId: doc,
+          docName: '포트폴리오',
+          target: (pageId: '5:1', newPage: null),
+          onProgress: (a, _) => progress.add(a),
+        );
+        expect(r, startsWith('Figma로 보냈습니다 · 디자인 페이지에 3개'));
+        expect(progress, [1, 2, 3]);
+        expect(
+          plugin.names,
+          [
+            'ping',
+            'get_document_info',
+            'get_pages',
+            'get_pages',
+            'get_node_info',
+            'create_frame',
+            'set_corner_radius',
+            'create_text',
+            'set_font_name',
+          ].toList()..insert(6, 'create_rectangle'),
+        );
+        expect(plugin.names.where((c) => c.contains('delete')), isEmpty);
+        final frame = plugin.commands.firstWhere(
+          (c) => c['command'] == 'create_frame',
+        );
+        // 빈 자리: 흉내 페이지의 노드(0~300) 오른쪽 200.
+        expect(
+          (frame['x'], frame['y'], frame['parentId'], frame['name']),
+          (500, 40, '5:1', '포트폴리오'),
+        );
+        final rect = plugin.commands.firstWhere(
+          (c) => c['command'] == 'create_rectangle',
+        );
+        expect(rect['parentId'], 'f1');
+        expect(
+          plugin.commands.firstWhere(
+            (c) => c['command'] == 'set_corner_radius',
+          )['nodeId'],
+          'f2',
+        );
+        expect(fake.ai.placeCalls, isEmpty);
+        await link.stop();
+        await plugin.close();
+        await relay.stop();
+      },
+    );
 
     test('지시와 키가 있으면 AI가 준 자리에 새 페이지를 만들어 놓고, 틀린 답이면 아무것도 만들지 않는다', () async {
       await fake.aiSetKey('anthropic', 'sk-test');
@@ -1219,7 +1222,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Page 1'), findsOneWidget);
       expect(
-        find.text(keepAll('Figma로 가는 것: 문서 내용(페이지, 도형, 글, 그림)')),
+        find.text(keepAll('Figma로 가는 것: 문서 내용(Kari의 페이지는 프레임으로, 도형, 글, 그림)')),
         findsOneWidget,
       );
       expect(

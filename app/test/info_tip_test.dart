@@ -124,6 +124,29 @@ void main() {
       expect(_bubble, findsNothing, reason: '다시 누르기');
     });
 
+    testWidgets('말풍선 위에서 Esc로 닫아도 다음에 올리면 다시 뜬다', (tester) async {
+      await _pump(tester, _row());
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      final icon = tester.getCenter(find.byType(InfoTip));
+      await mouse.moveTo(icon);
+      await mouse.down(icon);
+      await mouse.up();
+      await tester.pump();
+      await mouse.moveTo(tester.getCenter(_bubble));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(_bubble, findsNothing);
+      // 닫힌 말풍선에서는 마우스가 떠났다는 알림이 오지 않는다.
+      await mouse.moveTo(const Offset(600, 380));
+      await tester.pump();
+      await mouse.moveTo(icon);
+      await tester.pump();
+      expect(_bubble, findsOneWidget);
+    });
+
     testWidgets('창의 오른쪽 끝에 있어도 말풍선은 창 안에 든다', (tester) async {
       await _pump(
         tester,
@@ -144,7 +167,7 @@ void main() {
   });
 
   group('고르기 줄의 선택지 설명', () {
-    const notes = {'a': '가장 싸고 빠릅니다.', 'b': '가장 깊지만 가장 비쌉니다.'};
+    const notes = {'a': '가장 쌉니다.', 'b': '가장 비쌉니다.'};
 
     testWidgets('고른 것의 설명이 줄 아래에 늘 보이고, 고르면 바뀐다', (tester) async {
       var value = 'a';
@@ -184,6 +207,20 @@ void main() {
       );
       expect(tester.getSemantics(find.bySemanticsLabel('크게')).hint, notes['b']);
       handle.dispose();
+    });
+
+    testWidgets('고른 칸은 안 고른 칸과 글 크기가 같고 굵기만 다르다', (tester) async {
+      await _pump(
+        tester,
+        Segmented<String>(
+          options: const [('a', '작게'), ('b', '크게')],
+          value: 'a',
+          onChanged: (_) {},
+        ),
+      );
+      TextStyle style(String t) => tester.widget<Text>(find.text(t)).style!;
+      expect(style('작게').fontSize, style('크게').fontSize);
+      expect(style('작게').fontWeight, isNot(style('크게').fontWeight));
     });
 
     testWidgets('설명이 없으면 줄만 있다', (tester) async {

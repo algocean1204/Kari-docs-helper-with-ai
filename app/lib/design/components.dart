@@ -710,7 +710,7 @@ class ClaimMark extends StatelessWidget {
 
 /// 문장 상태(설명함, 일부 설명, 설명 못 함)의 ⓘ 설명. 판정은 엔진의 interview/src/dashboard.rs `judge`가 한다.
 const claimStatusInfo =
-    '설명함은 물은 주제가 모두 목표 깊이에 닿은 것, 일부 설명은 일부만, 설명 못 함은 하나도 닿지 못한 것입니다.';
+    '설명함은 물은 주제가 모두 목표 깊이에 닿은 것, 일부 설명은 일부만 닿았거나 첫 질문은 통과한 것, 설명 못 함은 그 밖입니다.';
 
 /// 깊이 단계의 ⓘ 설명. 깊이는 interview/src/score.rs `reach`, 목표는 interview/src/plan.rs `target`이 정한다.
 const depthInfo =
@@ -960,8 +960,10 @@ class Segmented<T> extends StatelessWidget {
                 ),
                 child: Text(
                   label,
-                  style: (v == value ? AppText.label : AppText.body).copyWith(
+                  // 고른 칸도 같은 크기로 두고 굵기만 바꿔, 고를 때 글이 줄어 보이지 않게 한다.
+                  style: AppText.body.copyWith(
                     color: v == value ? c.text : c.textMuted,
+                    fontWeight: v == value ? AppText.label.fontWeight : null,
                   ),
                 ),
               ),
@@ -1053,9 +1055,11 @@ class _InfoTipState extends State<InfoTip> {
     _sync();
   }
 
+  // 닫힌 말풍선은 마우스가 떠났다는 알림을 보내지 않으므로 여기서 지운다.
   void _close() => _update(() {
     _pinned = false;
     _closed = true;
+    _hoverTip = false;
   });
 
   void _tap() {
@@ -1080,7 +1084,11 @@ class _InfoTipState extends State<InfoTip> {
         controller: _portal,
         overlayChildBuilder: _bubble,
         child: MouseRegion(
-          onEnter: (_) => _update(() => _hoverIcon = true),
+          // 닫은 뒤 다시 올리면 새로 여는 것으로 본다(초점이 남아 있어도).
+          onEnter: (_) => _update(() {
+            _hoverIcon = true;
+            _closed = false;
+          }),
           onExit: (_) => _update(() => _hoverIcon = false),
           child: Focus(
             focusNode: _node,

@@ -618,7 +618,7 @@ void main() {
       expect(find.text('백업에서 되살리기'), findsNothing);
       rig.fake.failures['lib.open'] = const EngineError(
         'too_new',
-        '더 새 형식의 라이브러리입니다(3판).',
+        '더 새 형식의 라이브러리입니다(형식 버전 3).',
       );
       rig.fake.backups = [ms(today)];
       await tester.tap(find.text('다시 시도'));

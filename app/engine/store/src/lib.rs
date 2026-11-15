@@ -212,7 +212,7 @@ impl fmt::Display for Error {
             Error::Doc(e) => write!(f, "{e}"),
             Error::Sql(e) => write!(f, "DB: {e}"),
             Error::Io(e) => write!(f, "파일: {e}"),
-            Error::TooNew(v) => write!(f, "더 새 형식의 라이브러리입니다({v}버전)."),
+            Error::TooNew(v) => write!(f, "더 새 형식의 라이브러리입니다(형식 버전 {v})."),
             Error::Locked(_) => write!(f, "다른 Kari가 이 자료를 쓰고 있습니다."),
             Error::Corrupt(m) => write!(f, "손상: {m}"),
             Error::Stale => write!(f, "다른 곳에서 먼저 바뀌었습니다. 다시 읽었습니다."),
