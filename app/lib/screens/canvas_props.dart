@@ -611,7 +611,6 @@ class _NumFieldState extends State<NumField> {
         Expanded(
           child: Semantics(
             label: widget.semanticLabel ?? widget.label,
-            textField: true,
             child: TextField(
               key: Key('num-${widget.label}'),
               controller: _text,
@@ -711,7 +710,6 @@ class _StrFieldState extends State<_StrField> {
     final c = AppColors.of(context);
     return Semantics(
       label: widget.label,
-      textField: true,
       child: TextField(
         key: Key('str-${widget.label}'),
         controller: _text,
@@ -828,11 +826,12 @@ class _ColorFieldState extends State<_ColorField> {
         child: FocusRing(
           child: Semantics(
             button: true,
+            onTap: () => toggleMenu(menu),
             label: '${widget.label} 고르기',
             child: ExcludeSemantics(
               child: InkWell(
                 key: Key('swatch-${widget.label}'),
-                onTap: () => menu.isOpen ? menu.close() : menu.open(),
+                onTap: () => toggleMenu(menu),
                 borderRadius: BorderRadius.circular(Radii.control),
                 focusColor: Colors.transparent,
                 child: Container(
@@ -860,7 +859,6 @@ class _ColorFieldState extends State<_ColorField> {
         Expanded(
           child: Semantics(
             label: widget.label,
-            textField: true,
             child: TextField(
               key: Key('color-${widget.label}'),
               controller: _text,

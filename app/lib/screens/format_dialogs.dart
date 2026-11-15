@@ -346,10 +346,11 @@ class _ColorFieldState extends State<ColorField> {
           radius: 4,
           child: Semantics(
             button: true,
+            onTap: () => toggleMenu(menu),
             label: name,
             child: ExcludeSemantics(
               child: InkWell(
-                onTap: () => menu.isOpen ? menu.close() : menu.open(),
+                onTap: () => toggleMenu(menu),
                 borderRadius: BorderRadius.circular(4),
                 focusColor: Colors.transparent,
                 // 색 둘레에 종이색을 두른다. 문서의 색은 종이 위에 놓이고, 어두운 화면에서도 어두운 색이 보인다.

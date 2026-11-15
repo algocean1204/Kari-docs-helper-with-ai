@@ -192,6 +192,7 @@ class _VersionPanelState extends State<VersionPanel> {
                   child: AppButton(
                     '',
                     icon: Icons.close,
+                    semanticLabel: '버전 기록 닫기',
                     kind: ButtonKind.quiet,
                     onPressed: widget.onClose,
                   ),
@@ -214,14 +215,16 @@ class _VersionPanelState extends State<VersionPanel> {
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _name,
-                          style: AppText.body.copyWith(color: c.text),
-                          decoration: const InputDecoration(
-                            hintText: '버전 이름',
-                            isDense: true,
+                        child: HintNamed(
+                          TextField(
+                            controller: _name,
+                            style: AppText.body.copyWith(color: c.text),
+                            decoration: const InputDecoration(
+                              hintText: '버전 이름',
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) => _create(),
                           ),
-                          onSubmitted: (_) => _create(),
                         ),
                       ),
                       const SizedBox(width: Space.x2),
@@ -268,6 +271,7 @@ class _VersionPanelState extends State<VersionPanel> {
       FocusRing(
         child: Semantics(
           button: true,
+          onTap: () => _select(v),
           selected: selected,
           label: '$title, $when',
           child: ExcludeSemantics(

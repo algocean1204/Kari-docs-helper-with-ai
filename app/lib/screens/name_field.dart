@@ -79,20 +79,23 @@ class _NameFieldState extends State<NameField> {
         width: 320,
         child: CallbackShortcuts(
           bindings: {const SingleActivator(LogicalKeyboardKey.escape): _cancel},
-          child: TextField(
-            controller: _text,
-            focusNode: _focus,
-            style: AppText.label.copyWith(color: c.text),
-            decoration: const InputDecoration(
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: Space.x2,
-                vertical: 6,
+          child: Semantics(
+            label: '문서 이름',
+            child: TextField(
+              controller: _text,
+              focusNode: _focus,
+              style: AppText.label.copyWith(color: c.text),
+              decoration: const InputDecoration(
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: Space.x2,
+                  vertical: 6,
+                ),
               ),
+              onSubmitted: (_) {
+                _save();
+                widget.onDone?.call();
+              },
             ),
-            onSubmitted: (_) {
-              _save();
-              widget.onDone?.call();
-            },
           ),
         ),
       );

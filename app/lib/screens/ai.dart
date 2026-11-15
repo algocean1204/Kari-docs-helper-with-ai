@@ -118,33 +118,35 @@ class _KeyDialogState extends State<KeyDialog> {
           ),
         ],
         children: [
-          TextField(
-            controller: _text,
-            autofocus: true,
-            readOnly: _checking,
-            obscureText: !_show,
-            autocorrect: false,
-            enableSuggestions: false,
-            style: AppText.body.copyWith(color: c.text),
-            decoration: InputDecoration(
-              hintText: hint,
-              // 칸의 높이를 늘리지 않게 단추의 자리를 단추 크기로 둔다.
-              suffixIconConstraints: const BoxConstraints(),
-              suffixIcon: Padding(
-                padding: const EdgeInsets.only(right: Space.x1),
-                child: Tooltip(
-                  message: _show ? '키 가리기' : '키 보기',
-                  child: AppButton(
-                    '',
-                    icon: _show ? Icons.visibility_off : Icons.visibility,
-                    semanticLabel: _show ? '키 가리기' : '키 보기',
-                    kind: ButtonKind.quiet,
-                    onPressed: () => setState(() => _show = !_show),
+          HintNamed(
+            TextField(
+              controller: _text,
+              autofocus: true,
+              readOnly: _checking,
+              obscureText: !_show,
+              autocorrect: false,
+              enableSuggestions: false,
+              style: AppText.body.copyWith(color: c.text),
+              decoration: InputDecoration(
+                hintText: hint,
+                // 칸의 높이를 늘리지 않게 단추의 자리를 단추 크기로 둔다.
+                suffixIconConstraints: const BoxConstraints(),
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: Space.x1),
+                  child: Tooltip(
+                    message: _show ? '키 가리기' : '키 보기',
+                    child: AppButton(
+                      '',
+                      icon: _show ? Icons.visibility_off : Icons.visibility,
+                      semanticLabel: _show ? '키 가리기' : '키 보기',
+                      kind: ButtonKind.quiet,
+                      onPressed: () => setState(() => _show = !_show),
+                    ),
                   ),
                 ),
               ),
+              onSubmitted: (_) => _save(),
             ),
-            onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: Space.x2),
           Text(
