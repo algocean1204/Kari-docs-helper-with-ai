@@ -26,7 +26,7 @@ poster_at() {
     home) echo $(($2 * 25 / 100)) ;;      # 휴지통 창
     find) echo $(($2 - 45)) ;;            # 바꾼 뒤, 찾기 막대를 닫기 전
     versions) echo $(($2 - 30)) ;;        # 되돌린 뒤, 버전 패널을 닫기 전
-    interview) echo $(($2 * 62 / 100)) ;; # 꼬리질문에 답을 치는 중
+    interview) echo $(($2 * 79 / 100)) ;; # 첫 질문에 답을 거의 다 친 때
     report) echo 40 ;;                    # 리포트 첫 화면
     *) echo $(($2 - 1)) ;;
   esac
