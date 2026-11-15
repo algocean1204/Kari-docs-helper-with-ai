@@ -238,25 +238,29 @@ void main() {
     await s.hold(900);
 
     // 그림과 표.
+    // 메뉴를 고르거나 칸을 누른 뒤에는 오래 머물지 않는다(after: 100).
     s.cut('tables');
-    await s.hold(300);
+    await s.hold(150);
     await s.key(LogicalKeyboardKey.arrowDown, meta: true);
     await s.type('\n\n');
-    await s.click(find.byTooltip('넣기'));
-    await s.click(find.text('그림').last);
-    await s.hold(700);
+    await s.click(find.byTooltip('넣기'), after: 100);
+    await s.click(find.text('그림').last, after: 100);
+    await s.hold(400);
     // 그림을 눌러 고르고 모서리 손잡이를 끌어 줄인다. 커서는 넣은 그림 바로 뒤에 있다.
-    await s.clickAt(onPaper(tester, caret(tester) - const Offset(30, 0)));
+    await s.clickAt(
+      onPaper(tester, caret(tester) - const Offset(30, 0)),
+      after: 100,
+    );
     await s.until(() => paper(tester).session.state?.image != null, '그림 고름');
     final img = paper(tester).session.state!.image!.rect!;
     final corner = onPaper(tester, Offset(img.x + img.w, img.y + img.h));
-    await s.drag(corner, corner - const Offset(36, 45), pause: 400);
+    await s.drag(corner, corner - const Offset(36, 45), ms: 400, pause: 250);
     await s.key(LogicalKeyboardKey.arrowRight, show: false);
     await s.type('\n');
-    await s.click(find.byTooltip('넣기'));
-    await s.click(find.text('표').last);
-    await s.hold(400);
-    await s.click(button('넣기').last);
+    await s.click(find.byTooltip('넣기'), after: 100);
+    await s.click(find.text('표').last, after: 100);
+    await s.hold(200);
+    await s.click(button('넣기').last, after: 100);
     await s.wait(() => paper(tester).session.state?.table != null, '표 안');
     final cells = <Offset>[];
     for (final (i, t) in [
@@ -274,10 +278,11 @@ void main() {
     await s.drag(
       onPaper(tester, cells[0]) - const Offset(20, 0),
       onPaper(tester, cells[2]),
+      ms: 400,
     );
-    await s.click(find.byTooltip('셀 바탕색'));
+    await s.click(find.byTooltip('셀 바탕색'), after: 100);
     await s.click(find.byTooltip('하늘').last);
-    await s.hold(900);
+    await s.hold(500);
 
     // 찾아 바꾸기.
     s.cut('find');
@@ -432,33 +437,34 @@ void main() {
     await s.drag(
       at(0.1, 0.1) + const Offset(30, 8),
       at(0.1, 0.1) + const Offset(33, 26),
-      pause: 500,
+      ms: 400,
+      pause: 400,
     );
-    await s.clickAt(tester.getCenter(layerRow('사각형')), count: 2);
+    await s.clickAt(tester.getCenter(layerRow('사각형')), count: 2, after: 100);
     // 이름 칸이 열린다. 판이 키보드를 쥐고 있어 칸을 눌러 글을 받게 한다.
-    await s.click(find.byKey(const Key('layer-rename')));
+    await s.click(find.byKey(const Key('layer-rename')), after: 100);
     await s.key(LogicalKeyboardKey.keyA, meta: true, show: false);
     await s.type('배경 카드', speed: 3);
     await s.submit();
     await s.moveTo(tester.getCenter(layerRow('타원')));
-    await s.click(layerFlag('숨기기'));
-    await s.hold(500);
+    await s.click(layerFlag('숨기기'), after: 100);
+    await s.hold(300);
     await s.click(layerFlag('보이기'), after: 100);
     await s.moveTo(tester.getCenter(layerRow('타원', last: true)));
-    await s.click(layerFlag('잠그기'));
-    await s.click(layerRow('배경 카드'));
+    await s.click(layerFlag('잠그기'), after: 150);
+    await s.click(layerRow('배경 카드'), after: 100);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await s.click(layerRow('홍길동 포트폴리오'), after: 100);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await s.key(LogicalKeyboardKey.keyG, meta: true);
-    await s.hold(600);
-    await s.click(find.byTooltip('대지 더하기'));
-    await s.click(find.text('iPhone 16 · 393×852').last);
-    await s.hold(300);
-    await s.click(find.byKey(const Key('board-size')));
-    await s.click(find.text('Android · 412×917').last);
+    await s.hold(400);
+    await s.click(find.byTooltip('대지 더하기'), after: 100);
+    await s.click(find.text('iPhone 16 · 393×852').last, after: 100);
+    await s.hold(200);
+    await s.click(find.byKey(const Key('board-size')), after: 100);
+    await s.click(find.text('Android · 412×917').last, after: 100);
     await fitAll();
-    await s.hold(900);
+    await s.hold(600);
     s.cut(null);
   });
 
