@@ -132,6 +132,14 @@ void main() {
             as Json;
     await until(tester, () async => CanvasSurface.debugDrawnGen > 0, '첫 그림');
 
+    // 새 캔버스는 대지 전체가 보이는 배율로 열린다. 아래 단계의 화면 좌표는 100%에서 대지(1920×1080)의
+    // 왼쪽 위가 판의 왼쪽 위에 오는 보기를 전제로 하므로 그 보기로 옮긴다(맞춘 보기는 대지가 가운데에 온다).
+    await until(tester, () async => (s.state?.zoom ?? 1) < 1, '대지 전체 보기');
+    final area = tester.getSize(find.byType(CanvasSurface));
+    await s.viewOp('actual');
+    await s.pan(1920 / 2 - area.width / 2, 1080 / 2 - area.height / 2);
+    await until(tester, () async => s.state?.zoom == 1, '100% 보기');
+
     // 2. 사각형(R): 판을 끌어 만든다. 만든 것이 골라진다.
     await tester.sendKeyEvent(LogicalKeyboardKey.keyR);
     await until(tester, () async => s.state?.tool == 'rect', '사각형 도구');
