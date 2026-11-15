@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'editing/session.dart' show OpenEdits, docClosing;
 import 'engine/engine.dart';
+import 'figma/link.dart';
 import 'gaze.dart';
 import 'interview.dart';
 
@@ -81,6 +82,9 @@ class Library extends ChangeNotifier {
   /// 시선 기록의 카메라. 앱만 넣는다. 견본 모드와 시험은 넣지 않아 카메라 채널을 부르지 않는다.
   GazeCamera? camera;
   late final gaze = GazeRecorder(this);
+
+  /// Figma 연결(중계 서버, 플러그인 파일, 채널). 설정 화면에서 켜기 전에는 아무것도 열지 않는다.
+  late final figma = FigmaLink(this);
 
   static const keepTrash = Duration(days: 30);
 
@@ -171,6 +175,7 @@ class Library extends ChangeNotifier {
     // 막 떠난 화면의 닫기(줄에 남은 편집과 `doc.close`)가 라이브러리를 닫기 전에 닿게 한다.
     await Future.wait([...docClosing.values]);
     await close();
+    await figma.stop();
     return true;
   }
 
@@ -529,7 +534,10 @@ enum Setting {
   outline('view.outline', false),
 
   /// 입력하면서 자동 서식(목록·제목 표시, 주소를 링크로). 엔진이 편집 세션을 열 때 이 키를 읽는다.
-  autoFormat('edit.autoFormat', true);
+  autoFormat('edit.autoFormat', true),
+
+  /// 마지막으로 연결한 Figma 플러그인의 채널.
+  figmaChannel('figma.channel', '');
 
   const Setting(this.key, this.fallback);
   final String key;

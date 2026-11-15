@@ -8,6 +8,7 @@ import '../update.dart';
 import 'ai.dart';
 import 'ai_tasks.dart';
 import 'dialogs.dart';
+import 'figma.dart';
 import 'report.dart' show openSource;
 
 /// 연락처 가리기의 안내. 엔진(mask.rs)이 가리는 것: 전자우편, 국내 전화번호(휴대, 지역, 070, +82, 괄호로 쓴 지역번호),
@@ -430,6 +431,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   _NewStyles(library: lib),
                 ],
+              ),
+              // 연결과 중계의 상태가 바뀔 때마다 이 구역만 다시 그린다.
+              ListenableBuilder(
+                listenable: lib?.figma ?? Listenable.merge(const []),
+                builder: (context, _) => _Section(
+                  title: 'Figma',
+                  caption:
+                      '캔버스 문서를 Figma 데스크톱 앱의 파일로 보냅니다. Figma 쪽에는 MIT 라이선스의 플러그인 "Claude Talk to Figma"를 씁니다. '
+                      '중계를 켜고, 플러그인을 가져와 실행한 뒤, 플러그인에 보이는 채널 ID로 연결합니다.',
+                  children: figmaRows(lib?.figma),
+                ),
               ),
               _Section(
                 title: '개인정보',

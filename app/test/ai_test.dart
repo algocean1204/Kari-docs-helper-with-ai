@@ -82,6 +82,14 @@ Future<void> tap(WidgetTester tester, Finder f) async {
 Future<void> openModels(WidgetTester tester) =>
     tap(tester, find.text('면접에 쓰는 모델'));
 
+/// 설정의 ChatGPT 플랜 줄 안의 글(Figma 구역에도 "연결 안 됨"이 있어 줄로 좁힌다).
+Finder planText(String s) => find.descendant(
+  of: find
+      .ancestor(of: find.text('ChatGPT 플랜'), matching: find.byType(Row))
+      .first,
+  matching: find.text(s),
+);
+
 /// 설정의 제공사 줄에 있는 단추. [label]은 "Claude 키 넣기" 꼴(제공사 이름과 단추 글).
 Finder providerButton(String label) {
   final (name, action) = (
@@ -466,7 +474,7 @@ void main() {
       final h = tester.ensureSemantics();
       await pumpAi(tester);
       expect(find.text('ChatGPT 플랜'), findsOneWidget);
-      expect(find.text('연결 안 됨'), findsOneWidget);
+      expect(planText('연결 안 됨'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'), findsOneWidget);
       expect(audit(), isEmpty);
       h.dispose();
@@ -521,7 +529,7 @@ void main() {
       // 연결 끊기는 한 번 더 묻는다. 다시 연결해도 안내는 다시 뜨지 않는다.
       await tap(tester, labeled('ChatGPT 연결 끊기'));
       await tap(tester, inDialog(find.text('연결 끊기')));
-      expect(find.text('연결 안 됨'), findsOneWidget);
+      expect(planText('연결 안 됨'), findsOneWidget);
       expect(rig.library.connected, isFalse);
       rig.fake.waits.clear();
       await tap(tester, find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
@@ -543,7 +551,7 @@ void main() {
       expect(rig.fake.sent, contains('ai.chatgptCancel'));
       gate.complete();
       await tester.pumpAndSettle();
-      expect(find.text('연결 안 됨'), findsOneWidget);
+      expect(planText('연결 안 됨'), findsOneWidget);
       expect(find.byType(ErrorLine), findsNothing, reason: '끊은 것은 실패가 아니다');
       expect(find.widgetWithText(TextButton, 'ChatGPT로 계속하기'), findsOneWidget);
       expect(rig.library.planConnected, isFalse);
@@ -560,7 +568,7 @@ void main() {
         rig.fake.failures['ai.chatgptWait'] = EngineError(code, '시험');
         await tap(tester, find.widgetWithText(TextButton, 'ChatGPT로 계속하기'));
         expect(find.textContaining(text), findsOneWidget);
-        expect(find.text('연결 안 됨'), findsOneWidget);
+        expect(planText('연결 안 됨'), findsOneWidget);
         rig.fake.failures.clear();
         await tap(tester, find.text('다시 시도'));
         expect(find.text('연결됨'), findsOneWidget);

@@ -92,6 +92,7 @@ flowchart BT
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
 | `ai.chatgpt*` | `app/engine/ffi/src/chatgpt.rs` | ChatGPT로 계속하기(OpenAI의 ChatGPT 플랜) → [ai-connection.md](ai-connection.md#chatgpt-플랜-사용) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
+| `ai.place` | `app/engine/ffi/src/place.rs` | Figma로 보낼 자리를 모델에게 묻는다(크기·개수 요약과 지시 글만) |
 | `iv.*` | `app/engine/ffi/src/iv.rs` | 면접 → [interview-engine.md](interview-engine.md) |
 | `iv.dashboard` | `app/engine/ffi/src/dashboard.rs` | 홈 대시보드 |
 
@@ -170,7 +171,7 @@ sequenceDiagram
 
 ## 권한
 
-`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `network.server`(ChatGPT 로그인이 돌아오는 `127.0.0.1` 주소), `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`을 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
+`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `network.server`(ChatGPT 로그인이 돌아오는 주소와 Figma 연결의 중계, 둘 다 `127.0.0.1`에만 묶는다), `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`을 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
 
 ## 엔진을 앱에 싣기
 
@@ -182,12 +183,29 @@ sequenceDiagram
 
 앱은 arm64 전용이고 최소 macOS는 13이다.
 
+## Figma 연결
+
+Figma 쪽의 플러그인(`app/assets/figma-plugin/`, MIT)과 앱은 WebSocket 중계로 잇는다. 코드는 `app/lib/figma/`에 있고 Dart의 `dart:io`만 쓴다.
+
+```mermaid
+flowchart LR
+  K["Kari<br/>figma/client.dart"] -- "ws://127.0.0.1:3055" --> R["중계<br/>figma/relay.dart 또는 이미 켜진 것"]
+  P["Figma 플러그인<br/>ui.html, code.js"] -- "ws://localhost:3055" --> R
+```
+
+- **중계**: 3055에 무엇이 이미 듣고 있으면 그것을 쓰고, 없으면 앱이 127.0.0.1에만 켠다. 채널 규칙은 플러그인의 원래 중계와 같다: `{type: join, channel}`이면 그 채널에 들고 `{type: system, message: {id, result}}`로 답한다. `{type: message}`는 같은 채널의 다른 연결에 `{type: broadcast, message, sender, channel}`로, `progress_update`는 그대로 넘긴다. Origin이 하나이고 없거나 `null`인 업그레이드만 받는다(Figma 플러그인 창이 `null`이다. 다른 프로그램도 같은 모양으로 붙을 수 있어 채널 ID를 아는 것이 들어가는 조건이다). 압축(permessage-deflate)은 받지 않고, 한 연결은 채널 하나에만 들며, 연결은 16개까지다. 메시지는 32MB까지이고, dart:io가 프레임을 다 받은 뒤에 크기를 본다. 3055에 이미 있는 중계를 쓸 때는 그 프로그램의 규칙을 따른다. 원래 중계의 채널마다 줄 세우기는 하지 않는다(앱이 명령을 하나씩 기다려 보낸다).
+- **보내는 쪽**: 요청마다 UUID를 만들어 `{id, type: message, channel, message: {id, command, params: {..., commandId}}}`로 보내고, 답의 `message.id`로 짝을 짓는다. 되돌아온 명령(`message.command`가 있음)은 건너뛰고, `queue_position`과 `progress_update`는 시간 한도를 다시 센다. 들 때는 `join` 뒤에 `ping`으로 플러그인이 있는지 본다. 보낼 수 있는 명령은 `client.dart`의 `allowedCommands`(만들기, `set_*`, `move_node`, `resize_node`, `rotate_node`, `create_page`, 읽기)뿐이다.
+- **옮기기**(`convert.dart`): `doc.nodes`의 노드에 스키마의 기본값을 채워 Figma 명령으로 바꾼다. 만드는 명령에는 늘 `parentId`(페이지나 프레임)를 준다(원래 중계가 요구한다). 그룹은 변환을 곱해 풀고, 돌린 것은 Figma의 왼쪽 위 기준·반시계 방향 각도로 바꿔 `rotate_node` 뒤에 `move_node`로 가운데를 맞춘다.
+- **자리**: 지시와 키가 있으면 `ai.place`로 묻고, 답은 `Placement.parse`가 칸과 범위를 엄격히 본다. 없으면 `get_node_info`(페이지)의 `absoluteBoundingBox`로 빈 자리를 셈한다.
+- **끄기**: 앱을 끌 때(`Library.shutdown`) 연결을 닫고 앱이 켠 중계를 끈다.
+
 ## 자료 폴더
 
 | 경로 | 내용 |
 |---|---|
 | `library.db` | SQLite 라이브러리 DB 하나. 문서, 기록, 스냅샷, 버전, 에셋 정보, 설정, 면접 기록 |
 | `assets/<해시 앞 2자>/<해시>` | 그림 파일. 이름은 내용의 SHA-256 |
+| `figma-plugin/` | 설정 → Figma의 `경로 복사`가 쓰는 플러그인 파일(`manifest.json`, `code.js`, `ui.html`, `LICENSE`) |
 | `backups/library-<ms>.db` | 백업. 라이브러리를 열 때, 편집이 쉬거나 문서를 닫을 때 마지막 백업에서 하루가 지났으면 만든다. 최근 10개를 남긴다 |
 
 - 위치: `~/Library/Application Support/dev.clonamic.kari`. 앱은 샌드박스 안에서 돌아 실제로는 `~/Library/Containers/dev.clonamic.kari/` 아래에 놓인다.

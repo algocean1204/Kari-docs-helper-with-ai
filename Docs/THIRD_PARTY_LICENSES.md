@@ -22,8 +22,8 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | MIT OR Apache-2.0 | 81 |
 | Unicode-3.0 | 22 |
 | Apache-2.0 OR MIT | 20 |
+| MIT | 20 |
 | BSD-3-Clause | 19 |
-| MIT | 19 |
 | MIT/Apache-2.0 | 3 |
 | Zlib | 3 |
 | Apache-2.0 | 2 |
@@ -233,7 +233,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | vector_math | 2.2.0 | BSD-3-Clause | https://pub.dev/packages/vector_math |  | [bc8b6422a4](#t-bc8b6422a4) |
 | yaml | 3.1.3 | MIT | https://pub.dev/packages/yaml | 빌드 때만 씀(앱에 들어가지 않음) | [3de2669358](#t-3de2669358) |
 
-## 글꼴, Skia와 그 안의 라이브러리, Sparkle
+## 글꼴, Skia와 그 안의 라이브러리, Sparkle, Figma 플러그인
 
 | 이름 | 판 | 라이선스 | 출처 | 비고 | 전문 |
 |---|---|---|---|---|---|
@@ -245,6 +245,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | zlib(Chromium 판) | skia-bindings에 포함 | Zlib | https://chromium.googlesource.com/chromium/src/third_party/zlib | 엔진 라이브러리에 링크됨 | [5cf19a34d1](#t-5cf19a34d1) |
 | Wuffs | skia-bindings에 포함 | Apache-2.0 | https://github.com/google/wuffs | 엔진 라이브러리에 링크됨 | [1114467852](#t-1114467852) |
 | Sparkle | 2.9.6 | MIT AND BSD-2-Clause AND Zlib | https://github.com/sparkle-project/Sparkle | 앱 업데이트(Kari.app/Contents/Frameworks/Sparkle.framework) | [1a2f7476dd](#t-1a2f7476dd) |
+| Claude Talk to Figma 플러그인 | c7adf24 | MIT | https://github.com/arinspunk/claude-talk-to-figma-mcp | app/assets/figma-plugin의 manifest.json, code.js, ui.html | [144792a906](#t-144792a906) |
 
 ## 면접 지식 팩의 출처
 
@@ -8716,4 +8717,35 @@ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
 STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
 IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+```
+
+<a id="t-144792a906"></a>
+
+### 144792a906
+
+쓰는 곳: Claude Talk to Figma 플러그인 c7adf24 (LICENSE)
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2025 Github User sonnylazuardi
+Copyright (c) 2025 Github User arinspunk (modification: Cursor to Claude)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```

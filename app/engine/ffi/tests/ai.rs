@@ -24,6 +24,22 @@ mod default_build {
             assert_eq!(err(gone, json!({}))["code"], "bad_request", "{gone}");
         }
     }
+
+    /// Figma 자리 정하기: 키가 없으면 보안 저장소를 열기 전에 멈추고, 빈 지시와 너무 긴 글은 받지 않는다.
+    #[test]
+    fn place_needs_key_and_bounded_text() {
+        let _case = Case::new("ai-place-default");
+        let e = err(
+            "ai.place",
+            json!({"summary": "{}", "instruction": "오른쪽에"}),
+        );
+        assert_eq!(e["code"], "no_key", "{e}");
+        let e = err("ai.place", json!({"summary": "{}", "instruction": "  "}));
+        assert_eq!(e["code"], "bad_request", "{e}");
+        let long = "가".repeat(2_001);
+        let e = err("ai.place", json!({"summary": "{}", "instruction": long}));
+        assert_eq!(e["code"], "bad_request", "{e}");
+    }
 }
 
 #[cfg(feature = "test-hooks")]
@@ -334,6 +350,39 @@ mod hooked {
         let r = worker.join().unwrap();
         assert_eq!(r["err"]["code"], "no_key", "{r}");
         assert_nothing_saved(ANTHROPIC);
+    }
+
+    /// Figma 자리 정하기는 Claude의 가장 가벼운 계열을 낮은 강도로 부르고, 받을 모양(스키마)을 함께 보내며, 답의 글을
+    /// 그대로 돌려준다. 보내는 글은 앱이 준 요약과 지시뿐이다.
+    #[test]
+    fn place_sends_summary_and_instruction_only() {
+        let text =
+            r#"{"page":"Page 1","newPage":false,"x":10,"y":20,"scale":1,"frameName":"표지"}"#;
+        let reply = json!({
+            "id": "m", "type": "message", "role": "assistant", "model": "claude-haiku-5-5",
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn", "usage": {"input_tokens": 10, "output_tokens": 5},
+        });
+        let server = fake::serve(vec![page(&[haiku()]), fake::json(200, &reply.to_string())]);
+        let _case = start("place", &server.url);
+        assert!(set_key()["ok"].is_object());
+        let r = ok(
+            "ai.place",
+            json!({"summary": r#"{"boards":[{"w":1920,"h":1080}]}"#, "instruction": "오른쪽 빈 곳에"}),
+        );
+        assert_eq!(r["text"], text, "{r}");
+        assert_eq!(r["provider"], ANTHROPIC);
+        let req = server.requests().pop().unwrap();
+        assert_eq!(req.path, "/v1/messages");
+        let body = req.json();
+        assert_eq!(body["model"], "claude-haiku-5-5");
+        assert_eq!(body["output_config"]["effort"], "low", "{body}");
+        assert!(body["output_config"]["format"].is_object(), "{body}");
+        let sent = body["messages"].to_string();
+        assert!(
+            sent.contains("오른쪽 빈 곳에") && sent.contains("1920"),
+            "{sent}"
+        );
     }
 
     /// 가짜 서버가 응답을 늦게 주는 동안 다른 스레드의 호출이 막히지 않는다.
