@@ -73,7 +73,7 @@ flowchart LR
 
 ### Figma 자리 정하기
 
-`app/engine/ffi/src/place.rs`. `ai.place {summary, instruction}`은 Figma로 보낼 때 놓을 자리만 묻는다. 면접의 일과 따로 고르지 않는다: Claude 키가 있으면 Claude, 없으면 OpenAI의 첫 계열(`haiku`, `luna`)의 가장 새 판을 낮은 강도로 한 번에 받기(`send`)로 부른다(`task.rs`의 `place_model`). 키가 하나도 없으면 `no_key`.
+`app/engine/ffi/src/place.rs`. `ai.place {summary, instruction}`은 Figma로 보낼 때 놓을 자리만 묻는다. 면접의 일과 따로 고르지 않는다: Claude 키가 있으면 Claude, 없으면 OpenAI의 첫 계열(`haiku`, `luna`)의 가장 새 판을 낮은 강도로 한 번에 받기(`send`)로 부른다(`task.rs`의 `place_model`). 인증은 면접과 같은 `credential`이라, OpenAI는 ChatGPT 플랜이 연결돼 있으면 플랜으로 부른다. 키도 플랜도 없으면 `no_key`.
 
 - 보내는 글은 앱이 만든 요약(대지의 크기와 노드 수, 종류마다의 수, Figma 페이지 이름, 빈 자리)과 지시 글뿐이다. 요약은 20,000자, 지시는 2,000자까지 받는다.
 - 받을 모양 `{page, newPage, x, y, scale, frameName}`을 구조화된 출력으로 함께 보낸다. 답 글은 그대로 돌려주고, 칸과 값의 범위는 앱(`app/lib/figma/convert.dart`의 `Placement.parse`)이 본다.

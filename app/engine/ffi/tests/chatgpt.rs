@@ -34,7 +34,7 @@ mod hooked {
 
     use super::common::*;
     use super::fake::oauth::{self, browse, callback, param, CLIENT};
-    use super::fake::{json as reply, serve_later, Server, Step};
+    use super::fake::{json as reply, serve_later, sse, Server, Step};
     use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
     use base64::Engine;
     use kari_doc::serde_json::{json, Value};
@@ -346,6 +346,35 @@ mod hooked {
         assert_eq!(
             err("ai.chatgptUse", json!({"use": "x"}))["code"],
             "bad_request"
+        );
+    }
+
+    /// 플랜만 연결한 사람의 Figma 자리 정하기도 플랜으로 간다(키가 없다고 실패하지 않는다).
+    #[test]
+    fn place_uses_the_plan_without_a_key() {
+        let _case = start("place");
+        let text = r#"{"page":"Page 1","newPage":false,"x":0,"y":0,"scale":1,"frameName":"a"}"#;
+        let done = json!({"type": "response.completed", "response": {
+            "status": "completed", "model": "gpt-6-luna",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}],
+            "usage": {"input_tokens": 5, "output_tokens": 3}}})
+        .to_string();
+        let (r, srv, _) = sign_in(oauth::SCOPES, good, |_| vec![sse(&[&done])]);
+        assert!(r.get("ok").is_some(), "{r}");
+        let r = ok(
+            "ai.place",
+            json!({"summary": "{}", "instruction": "오른쪽 빈 곳에"}),
+        );
+        assert_eq!(
+            (&r["text"], &r["provider"]),
+            (&json!(text), &json!("openai")),
+            "{r}"
+        );
+        let req = srv.requests().pop().unwrap();
+        assert_eq!(req.path, "/v1/responses");
+        assert_eq!(
+            req.header("authorization"),
+            Some(format!("Bearer {}", oauth::ACCESS).as_str())
         );
     }
 }
