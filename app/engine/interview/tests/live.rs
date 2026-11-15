@@ -253,10 +253,13 @@ fn live_ask_reads_cache_on_later_turns() {
             r.model, r.got.input, r.got.cache_read, r.got.cache_write, r.got.cache_write_1h, r.cost
         );
     }
-    assert!(
-        recs[0].got.cache_read + recs[0].got.cache_write_1h > 0,
-        "첫 호출이 캐시를 쓰지도 읽지도 않았다"
-    );
+    // OpenAI는 캐시 쓰기 양을 알리지 않아(늘 0) 첫 호출은 Anthropic에서만 본다.
+    if live.provider == "anthropic" {
+        assert!(
+            recs[0].got.cache_read + recs[0].got.cache_write_1h > 0,
+            "첫 호출이 캐시를 쓰지도 읽지도 않았다"
+        );
+    }
     assert!(
         recs[1].got.cache_read > 0 && recs[2].got.cache_read > 0,
         "뒤의 호출이 캐시를 읽지 않았다"
