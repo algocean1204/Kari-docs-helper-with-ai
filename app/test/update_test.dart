@@ -222,6 +222,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
+      await tester.pumpAndSettle();
       expect(find.text(keepAll(updates.unavailableNote)), findsOneWidget);
       expect(updates.unavailableNote, contains('빌드 번호(0.2.2)'));
       expect(find.text('지금 확인'), findsNothing);
@@ -299,6 +301,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
+      await tester.pumpAndSettle();
       final row = find.ancestor(
         of: find.text('자동으로 업데이트 확인'),
         matching: find.byType(Row),
@@ -334,6 +338,8 @@ void main() {
           home: const Scaffold(body: SettingsScreen()),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
       await tester.pumpAndSettle();
       expect(find.text('Kari 0.2.1 (빌드 7)'), findsOneWidget);
       await tester.ensureVisible(find.text('지금 확인'));

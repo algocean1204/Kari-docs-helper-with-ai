@@ -19,7 +19,7 @@ import 'package:kari/library.dart';
 import 'package:kari/main.dart';
 import 'package:kari/screens/dialogs.dart' show trashedWhen;
 import 'package:kari/screens/name_field.dart';
-import 'package:kari/screens/settings.dart' show maskNote;
+import 'package:kari/screens/settings.dart' show SettingsArea, maskNote;
 
 import 'design_test.dart'
     show focusableCount, loadFonts, pumpApp, saveShot, sizes, tabCycle;
@@ -734,27 +734,30 @@ void main() {
     tester,
   ) async {
     final rig = await pumpReal(tester, route: AppRoute.settings);
-    // 묶음 제목은 겹치지 않는다. 문서 묶음 하나에 자동 서식과 새 문서의 스타일이 차례로 있다.
+    Future<void> area(String label) async {
+      await tester.tap(find.widgetWithText(InkWell, label));
+      await tester.pumpAndSettle();
+    }
+
+    // 구역 목록은 AI 연결, AI 모델, 면접 기본값, 문서 편집, Figma, 개인정보, 업데이트와 정보 차례다.
+    double top(Finder f) => tester.getTopLeft(f).dy;
+    final rows = [
+      for (final a in SettingsArea.values)
+        find.widgetWithText(InkWell, a.label),
+    ];
+    for (var i = 1; i < rows.length; i++) {
+      expect(top(rows[i - 1]), lessThan(top(rows[i])));
+    }
+    // 오른쪽 제목은 고른 구역 하나이고 겹치지 않는다.
     bool isTitle(Widget w) =>
         w is Text &&
         w.style?.fontSize == AppText.title.fontSize &&
         w.style?.fontWeight == AppText.title.fontWeight;
-    final titles = [
+    List<String?> titles() => [
       for (final t in tester.widgetList<Text>(find.byWidgetPredicate(isTitle)))
         t.data,
     ];
-    expect(titles.toSet().length, titles.length, reason: '$titles');
-    expect(titles, containsAllInOrder(['AI 연결', '문서', '개인정보']));
-    double top(String text) => tester.getTopLeft(find.text(text)).dy;
-    final docs = tester
-        .getTopLeft(
-          find.byWidgetPredicate((w) => isTitle(w) && (w as Text).data == '문서'),
-        )
-        .dy;
-    expect(top('면접에 쓰는 모델'), lessThan(docs));
-    expect(docs, lessThan(top('입력하면서 자동 서식')));
-    expect(top('입력하면서 자동 서식'), lessThan(top('새 문서의 스타일')));
-    expect(top('새 문서의 스타일'), lessThan(top('개인정보')));
+    expect(titles(), ['AI 연결']);
     // 제공사는 Claude와 OpenAI 둘이고 둘 다 키를 넣을 수 있다.
     expect(find.text('키 없음'), findsNWidgets(2));
     expect(find.text('준비 중'), findsNothing);
@@ -764,15 +767,21 @@ void main() {
     )) {
       expect(b.onPressed, isNotNull);
     }
-    // 일마다의 모델은 접힌 묶음이고 접혀 있으면 한 줄 요약만 보인다.
-    expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
+    // 일마다의 모델은 따로 된 구역이다. 키가 없으면 그 구역에 한 줄 안내가 붙는다.
     expect(find.text('답변 채점'), findsNothing);
-    await tester.tap(find.text('면접에 쓰는 모델'));
-    await tester.pumpAndSettle();
+    await area('AI 모델');
+    expect(titles(), ['AI 모델']);
+    expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     expect(find.text('답변 채점'), findsOneWidget);
-    await tester.ensureVisible(find.byType(Switch).last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch).last);
+    // 문서 편집 구역에 자동 서식과 새 문서의 스타일이 차례로 있다.
+    await area('문서 편집');
+    expect(titles(), ['문서 편집']);
+    expect(
+      top(find.text('입력하면서 자동 서식')),
+      lessThan(top(find.text('새 문서의 스타일'))),
+    );
+    await area('면접 기본값');
+    await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
     expect(rig.fake.settings, {'interview.gaze': false});
     // 같은 엔진을 새 라이브러리로 다시 연다.
@@ -783,13 +792,23 @@ void main() {
       sizes[1],
       library: Library(rig.fake, dir, now: () => today),
     );
-    // 스위치는 입력하면서 자동 서식(켬)과 시선 기록 둘이다. 연락처 가리기는 끌 수 없고, 엔진이 가리는 것을 그대로 알린다.
-    final switches = tester.widgetList<Switch>(find.byType(Switch)).toList();
-    expect([for (final s in switches) s.value], [isTrue, isFalse]);
-    expect(find.text('시선 기록'), findsOneWidget);
-    expect(find.text('시선 관찰'), findsNothing);
+    // 스위치는 구역 차례로 시선 기록(끈 값)과 입력하면서 자동 서식(켬) 둘이다. 연락처 가리기는 끌 수 없고, 엔진이 가리는 것을 그대로 알린다.
+    final switches = <bool>[];
+    for (final a in SettingsArea.values) {
+      await area(a.label);
+      switches.addAll(
+        tester.widgetList<Switch>(find.byType(Switch)).map((s) => s.value),
+      );
+      if (a == SettingsArea.interview) {
+        expect(find.text('시선 기록'), findsOneWidget);
+        expect(find.text('시선 관찰'), findsNothing);
+      }
+    }
+    // 업데이트의 자동 확인은 macOS 쪽이 있을 때만 보여 이 시험에는 없다.
+    expect(switches, [isFalse, isTrue]);
+    await area('개인정보');
     expect(find.text('연락처 가리기'), findsOneWidget);
-    expect(find.text(keepAll(maskNote)), findsOneWidget);
+    expect(tester.widget<InfoTip>(find.byType(InfoTip)).message, maskNote);
     expect(find.textContaining('주소를 가린'), findsNothing);
   });
 

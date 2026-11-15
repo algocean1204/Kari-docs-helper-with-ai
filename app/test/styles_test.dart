@@ -404,6 +404,8 @@ void main() {
       await rig.seed();
       await tester.pumpWidget(const SizedBox());
       await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+      await tester.tap(find.widgetWithText(InkWell, '문서 편집'));
+      await tester.pumpAndSettle();
       expect(find.text('새 문서의 스타일'), findsOneWidget);
       expect(find.text('저장한 값'), findsNothing);
       expect(find.text('앱 기본값으로 되돌리기'), findsNothing);

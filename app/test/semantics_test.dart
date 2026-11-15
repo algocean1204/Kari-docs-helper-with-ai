@@ -111,7 +111,8 @@ void main() {
       await pumpApp(tester, AppRoute.editor, sizes[1]);
       tester.semantics.tap(find.semantics.byLabel('설정'));
       await tester.pumpAndSettle();
-      expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+      // 설정의 구역 목록.
+      expect(find.text('업데이트와 정보'), findsOneWidget);
       tester.semantics.tap(find.semantics.byLabel('홈'));
       await tester.pumpAndSettle();
       expect(find.text('면접 연습 시작'), findsOneWidget);
@@ -203,7 +204,7 @@ void main() {
       final h = tester.ensureSemantics();
       await pumpApp(tester, AppRoute.settings, sizes[1]);
       showDialog<void>(
-        context: tester.element(find.text('AI 연결')),
+        context: tester.element(find.text('업데이트와 정보')),
         builder: (_) => const Dialog(child: Text('안')),
       );
       await tester.pumpAndSettle();

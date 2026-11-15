@@ -13,6 +13,7 @@ import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
+import 'package:kari/screens/settings.dart' show SettingsArea;
 
 import 'design_test.dart'
     show filledLabels, focusableCount, loadFonts, saveShot, sizes, tabCycle;
@@ -249,8 +250,12 @@ void main() {
       await pumpIv(tester, route: AppRoute.settings, connected: false);
       expect(filledLabels(tester), ['키 넣기']);
       await pumpIv(tester, route: AppRoute.settings);
-      await tap(tester, find.text('면접에 쓰는 모델'));
       expect(filledLabels(tester), isEmpty);
+      // 설정의 다른 구역에도 없다.
+      for (final area in SettingsArea.values.skip(1)) {
+        await tap(tester, find.widgetWithText(InkWell, area.label));
+        expect(filledLabels(tester), isEmpty, reason: area.label);
+      }
     });
 
     testWidgets('대화 상자는 상자 안에서 하나: 보내는 내용, 공고 추가, 키 넣기', (tester) async {
@@ -392,8 +397,8 @@ void main() {
               'settings-${connected ? 'key' : 'nokey'}-$tag',
             );
           }
-          await tap(tester, find.text('면접에 쓰는 모델'));
-          expect(tester.takeException(), isNull, reason: '$tag 모델 펼침');
+          await tap(tester, find.widgetWithText(InkWell, 'AI 모델'));
+          expect(tester.takeException(), isNull, reason: '$tag 모델 구역');
           await saveShot(tester, 'settings-models-$tag');
         }
       }

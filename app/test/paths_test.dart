@@ -731,6 +731,7 @@ void main() {
 
     testWidgets('설정: 저장한 스타일이 없으면 고르기 대신 글로 알린다', (tester) async {
       await ai.pumpAi(tester);
+      await ai.openArea(tester, '문서 편집');
       expect(find.text('앱 기본값을 씁니다'), findsOneWidget);
       expect(find.text('앱 기본값'), findsNothing);
     });
