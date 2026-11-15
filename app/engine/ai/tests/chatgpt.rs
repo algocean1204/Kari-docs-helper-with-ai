@@ -714,6 +714,7 @@ fn ask() -> Request {
         format: Some(
             json!({"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}),
         ),
+        long_cache: false,
     }
 }
 
