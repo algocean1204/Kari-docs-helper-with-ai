@@ -75,7 +75,7 @@ flowchart LR
 
 `app/engine/ai/src/types.rs`의 `Usage::cost`가 판 이름으로 `anthropic.rs`와 `openai.rs`의 `cost` 표를 찾는다. 호출마다 응답의 토큰 수로 미화 비용을 셈한다.
 
-비용 = (입력 × 입력 가격 + 캐시 읽기 × 캐시 읽기 가격 + 캐시 쓰기 × 입력 가격 × 1.25 + 출력 × 출력 가격) / 1,000,000
+비용 = (입력 × 입력 가격 + 캐시 읽기 × 캐시 읽기 가격 + 5분 캐시 쓰기 × 입력 가격 × 1.25 + 1시간 캐시 쓰기 × 입력 가격 × 2 + 출력 × 출력 가격) / 1,000,000
 
 - 가격(백만 토큰당 입력, 캐시 읽기, 출력)은 판마다 `cost`의 표에 있다. 표에 없는 판은 값을 내지 않고, 그런 호출이 하나라도 있는 세션은 리포트에 `추정 비용 알 수 없음`으로 보인다.
 
@@ -126,9 +126,10 @@ flowchart LR
 **요청 본문**
 
 - 추론 강도와 구조화된 출력: `output_config`의 `effort`와 `format`(JSON 스키마).
-- 프롬프트 캐시: 시스템 프롬프트 블록에 `cache_control: {type: ephemeral}`을 붙인다. 캐시 순서는 도구 → 시스템 → 메시지이고, 같은 값은 늘 같은 바이트로 보내 앞부분이 캐시에 맞는다.
+- 프롬프트 캐시: 시스템 프롬프트 블록 하나에만 `cache_control`을 붙인다. 캐시 순서는 도구 → 시스템 → 메시지이고, 같은 값은 늘 같은 바이트로 보내 앞부분이 캐시에 맞는다. 사용자 차례는 호출마다 처음부터 다른 글이라 표시를 두지 않는다.
+- 캐시 수명: 면접에서 턴마다 부르는 질문(힌트 포함)과 채점은 1시간(`ttl: 1h`), 그 밖은 5분(기본). 같은 시스템 글을 다시 부르는 사이에 사람이 답을 쓰므로 5분을 넘기 쉽다. 세션의 판과 추론 강도는 끝까지 같아 캐시가 갈리지 않는다.
 - 출력 한도: `max_tokens`.
-- 사용량: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`를 그대로 입력, 출력, 캐시 읽기, 캐시 쓰기로 센다.
+- 사용량: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`를 그대로 입력, 출력, 캐시 읽기, 캐시 쓰기로 센다. 캐시 쓰기 가운데 1시간 수명은 `cache_creation.ephemeral_1h_input_tokens`로 따로 센다. 리포트의 `tokensCacheRead`는 세션의 캐시 읽기 합이다.
 
 ## OpenAI 어댑터
 

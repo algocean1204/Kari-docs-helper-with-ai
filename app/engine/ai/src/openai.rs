@@ -343,6 +343,8 @@ fn usage(u: &Value) -> Usage {
         output: n(&u["output_tokens"]),
         cache_read: read,
         cache_write: write,
+        // 쓰는 수명은 기본(30분, 1.25배) 하나뿐이다. 12시간(`ttl_12h_tokens`)은 보내지 않는다.
+        cache_write_1h: 0,
         thinking: n(&u["output_tokens_details"]["reasoning_tokens"]),
     }
 }
@@ -640,6 +642,7 @@ mod tests {
             output: 1_000_000,
             cache_read: 1_000_000,
             cache_write: 1_000_000,
+            cache_write_1h: 0,
             thinking: 0,
         };
         let c = cost(&u, "gpt-6-luna").unwrap();

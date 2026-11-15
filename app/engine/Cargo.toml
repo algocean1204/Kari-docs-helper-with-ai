@@ -1,6 +1,6 @@
 # 엔진 Rust 작업 공간.
 [workspace]
-members = ["doc", "store", "ai", "layout", "edit", "render", "pdf", "interview", "ffi", "docx"]
+members = ["doc", "store", "ai", "layout", "edit", "render", "pdf", "interview", "ffi", "docx", "import"]
 resolver = "2"
 
 [workspace.package]

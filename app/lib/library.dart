@@ -20,6 +20,7 @@ class Library extends ChangeNotifier {
     DateTime Function()? now,
     this.savePath = pickSavePath,
     this.openPath = pickOpenPath,
+    this.importPath = pickImportPath,
     String? outDir,
   }) : _now = now ?? DateTime.now,
        outDir = outDir ?? '${Directory.systemTemp.path}/kari-share';
@@ -31,6 +32,9 @@ class Library extends ChangeNotifier {
 
   /// 넣을 그림 파일 고르기(PNG, JPEG). 시험은 바꿔 끼운다.
   final OpenPath openPath;
+
+  /// 가져올 파일 고르기(DOCX, HTML, zip). 시험은 바꿔 끼운다.
+  final OpenPath importPath;
 
   /// 인쇄·공유에 넘길 PDF를 잠깐 두는 폴더. 앱의 임시 폴더 안에 앱이 만든 하위 폴더 하나다.
   /// 공유가 끝났는지 알 수 없는 경우가 있어 앱을 켤 때 비운다. 시험은 바꿔 끼운다.
@@ -204,6 +208,32 @@ class Library extends ChangeNotifier {
     }
     await _run(() async => id = await engine.docsCreate('flow', name));
     return id;
+  }
+
+  /// 가져온 파일의 새 문서 이름: 확장자를 뗀 파일 이름. 이미 쓰는 이름이면 번호를 붙인다.
+  String importName(String path) {
+    var base = path.split('/').last;
+    final dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    base = base.trim();
+    if (base.isEmpty) base = '가져온 문서';
+    // 이름은 200자까지다. 번호 붙일 자리를 남긴다.
+    if (base.runes.length > 190) {
+      base = String.fromCharCodes(base.runes.take(190)).trim();
+    }
+    return _freeName(base);
+  }
+
+  /// 파일을 새 흐름 문서로 가져온다. {id, lost}. 새 문서의 스타일은 [create]와 같다.
+  /// 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
+  Future<Json> importFile(String path) async {
+    final r = await engine.importApply(
+      path,
+      importName(path),
+      styles: newDocStyles,
+    );
+    await _run(() async {});
+    return r;
   }
 
   /// 캔버스 문서 "제목 없는 캔버스"(대지 하나)를 만들고 그 id를 돌려준다. 실패하면 null.
@@ -466,6 +496,10 @@ typedef OpenPath = Future<String?> Function();
 /// macOS의 열기 대화 상자(NSOpenPanel, PNG와 JPEG만). `kari/files`의 `openPath`.
 Future<String?> pickOpenPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('openPath');
+
+/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
+Future<String?> pickImportPath() =>
+    const MethodChannel('kari/files').invokeMethod<String>('importPath');
 
 /// 설정 화면이 저장하는 값. 이름은 엔진의 `settings` 표에 들어가는 키다.
 enum Setting {

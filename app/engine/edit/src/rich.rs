@@ -4,6 +4,9 @@
 //! 글자 색과 크기. 스크립트, 스타일, 주석, 그림, 입력 칸, 숨은 글은 버린다. 파서는 브라우저와 같은 규칙(html5ever)이라
 //! 닫히지 않은 태그와 잘못 겹친 태그도 브라우저가 읽는 대로 고쳐 읽는다.
 //!
+//! 파일 가져오기(`html_import`)는 같은 길에 그림을 더한다: `<img>`의 주소를 부르는 쪽(`ImportSink`)이 에셋으로 바꿔 주면
+//! 그림 개체가 되고, 읽으며 쓰인 글꼴과 버린 개체(svg, 동영상 등)를 부르는 쪽에 알린다.
+//!
 //! 읽는 쪽은 반복으로 돈다(깊은 중첩이 호출 스택을 쓰지 않는다). 입력 크기, 태그 수, 문단 수, 표 크기에 상한이 있다.
 
 use std::cell::{Cell, Ref, RefCell};
@@ -72,8 +75,25 @@ fn overrun() -> ! {
 const COCOA: &str = "Cocoa HTML Writer";
 
 /// 읽는 속성. 이 밖의 속성은 버린다.
-const KEEP: [&str; 8] = [
-    "class", "style", "href", "colspan", "rowspan", "start", "hidden", "align",
+const KEEP: [&str; 12] = [
+    "class", "style", "href", "colspan", "rowspan", "start", "hidden", "align", "src", "width",
+    "height", "alt",
+];
+
+/// 가져오기에서 HTML을 읽는 쪽이 받는 일.
+pub trait ImportSink {
+    /// `<img>`의 주소 → (에셋 해시, 화소 크기). 받지 못하면 `None`(그 그림은 빠진다. 센 것은 부르는 쪽이 알린다).
+    fn image(&mut self, src: &str) -> Option<(String, (u32, u32))>;
+    /// 글이 쓰인 글꼴 이름(CSS의 첫 글꼴).
+    fn font(&mut self, name: &str);
+    /// 읽지 않고 버린 개체(svg, 동영상, 입력 칸 등)의 태그.
+    fn dropped(&mut self, tag: &str);
+}
+
+/// 가져오기에서 버린 것으로 알리는 개체. 머리, 스크립트, 스타일처럼 원래 보이지 않는 것은 알리지 않는다.
+const SHOWN: [&str; 16] = [
+    "iframe", "object", "embed", "applet", "svg", "math", "canvas", "audio", "video", "picture",
+    "input", "button", "select", "textarea", "map", "frame",
 ];
 
 /// 노드를 번호로 이은 트리. 노드가 번호 하나라 깊이가 아무리 깊어도 지울 때 재귀하지 않는다.
@@ -150,9 +170,11 @@ fn detach(v: &mut [Node], n: usize) {
     }
 }
 
-/// 속성 값을 `MAX_ATTR` 바이트까지만.
-fn short(s: &str) -> String {
-    let mut n = s.len().min(MAX_ATTR);
+/// 속성 값을 `MAX_ATTR` 바이트까지만. 그림 주소(`src`)는 data: 주소라 길 수 있어 자르지 않는다(입력 전체가 `MAX_HTML`
+/// 바이트까지다).
+fn short(key: &str, s: &str) -> String {
+    let max = if key == "src" { MAX_HTML } else { MAX_ATTR };
+    let mut n = s.len().min(max);
     while !s.is_char_boundary(n) {
         n -= 1;
     }
@@ -185,7 +207,7 @@ impl TreeSink for Sink {
             .iter()
             .filter_map(|a| {
                 let key = KEEP.iter().find(|k| **k == &*a.name.local)?;
-                Some((*key, short(&a.value)))
+                Some((*key, short(key, &a.value)))
             })
             .collect();
         let template = flags.template.then(|| self.add(Node::default()));
@@ -248,7 +270,7 @@ impl TreeSink for Sink {
                 continue;
             };
             if !v[*target].attrs.iter().any(|(k, _)| k == key) {
-                v[*target].attrs.push((*key, short(&a.value)));
+                v[*target].attrs.push((*key, short(key, &a.value)));
             }
         }
     }
@@ -287,6 +309,8 @@ struct Over {
     ignore: bool,
     /// Word의 목록 문단 `mso-list: l0 level2 lfo1`의 단계(1부터).
     level: Option<usize>,
+    /// 글꼴 목록의 첫 이름(따옴표를 뗀 것).
+    family: Option<String>,
 }
 
 fn token(v: &str) -> impl Iterator<Item = &str> {
@@ -323,6 +347,18 @@ const NAMES: [(&str, [u8; 3]); 16] = [
     ("blue", [0, 0, 255]),
     ("teal", [0, 128, 128]),
 ];
+
+/// CSS 글꼴 목록의 첫 이름. 따옴표를 떼고, 이름이 아닌 값(`inherit` 등)은 버린다.
+fn family(v: &str) -> Option<String> {
+    let first = v
+        .split(',')
+        .next()?
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'');
+    let lower = first.to_ascii_lowercase();
+    (!first.is_empty() && !matches!(lower.as_str(), "inherit" | "initial" | "unset" | "revert"))
+        .then(|| first.chars().take(64).collect())
+}
 
 /// CSS 색 → 우리 색. `None`: 읽지 못함, `Some(None)`: 기본 글자색으로. 종이는 늘 흰색이라 거의 흰색(어두운 쪽 페이지를
 /// 복사한 글)은 보이지 않으므로 버리고, 거의 검정은 기본 글자색과 같으므로 버린다.
@@ -387,6 +423,7 @@ impl Over {
         self.hidden |= o.hidden;
         self.ignore |= o.ignore;
         self.level = o.level.or(self.level);
+        self.family = o.family.clone().or(self.family.take());
     }
 
     /// `이름: 값; …`을 읽는다.
@@ -395,12 +432,8 @@ impl Over {
             let Some((k, v)) = d.split_once(':') else {
                 continue;
             };
-            let v = v
-                .split('!')
-                .next()
-                .unwrap_or("")
-                .trim()
-                .to_ascii_lowercase();
+            let raw = v.split('!').next().unwrap_or("").trim();
+            let v = raw.to_ascii_lowercase();
             match k.trim().to_ascii_lowercase().as_str() {
                 "font-weight" => {
                     self.bold = match v.as_str() {
@@ -427,6 +460,7 @@ impl Over {
                     }
                 }
                 "color" => self.color = color(&v).or(self.color),
+                "font-family" => self.family = family(raw).or(self.family.take()),
                 "font-size" => self.size = length(&v, px).or(self.size),
                 // 줄여 쓴 `font`는 안 적은 굵기와 기울임을 보통으로 되돌린다.
                 "font" => {
@@ -445,6 +479,14 @@ impl Over {
                         }
                     }
                     (self.bold, self.italic) = (Some(bold), Some(italic));
+                    // 글꼴 목록은 크기(`12px/14px`) 뒤에 온다.
+                    let words: Vec<&str> = raw.split_whitespace().collect();
+                    let size_at = words.iter().position(|t| {
+                        length(&t.split('/').next().unwrap_or(t).to_ascii_lowercase(), px).is_some()
+                    });
+                    if let Some(at) = size_at {
+                        self.family = family(&words[at + 1..].join(" ")).or(self.family.take());
+                    }
                 }
                 "display" if v == "none" => self.hidden = true,
                 "visibility" if v == "hidden" || v == "collapse" => self.hidden = true,
@@ -583,11 +625,18 @@ struct St {
     pre: bool,
     /// 이 안의 문단 스타일(제목 1~6, 제목, 부제).
     block: Option<&'static str>,
+    /// 글꼴(가져오기에서만 적는다. 붙여넣기의 run 나눔을 바꾸지 않게).
+    family: Option<String>,
+    /// 그림 개체(`o`). 있으면 이 run은 개체 자리 글자 하나다.
+    obj: Option<Value>,
 }
 
 impl St {
     /// run의 `s`. 제목 안에서는 굵기와 크기를 문단 스타일에 맡긴다(원본이 제목 글에 크기를 직접 적는다).
     fn run(&self, t: &str) -> Value {
+        if let Some(o) = &self.obj {
+            return json!({"t": t, "o": o});
+        }
         let mut s = Map::new();
         if self.bold && self.block.is_none() {
             s.insert("weight".into(), json!(700));
@@ -634,6 +683,8 @@ struct ListFrame {
     ordered: bool,
     start: Option<u64>,
     first: bool,
+    /// 목록 요소가 단계를 적어 둔 것(Google Docs는 겹친 목록을 겹치지 않고 클래스 `lst-kix_…-1`로 적는다).
+    level: Option<usize>,
 }
 
 /// 안 읽고 건너뛰는 요소.
@@ -689,7 +740,7 @@ const BLOCK: [&str; 40] = [
 ];
 
 /// 변환에 쓰는 것들(읽기만 한다).
-struct Conv<'a> {
+struct Conv<'a, 's> {
     dom: &'a [Node],
     css: Css,
     body_w: f64,
@@ -699,9 +750,13 @@ struct Conv<'a> {
     tables: bool,
     /// 더 만들 수 있는 문단 수.
     budget: Cell<usize>,
+    /// 그림이 들어갈 본문 높이(pt).
+    body_h: f64,
+    /// 가져오기에서 그림과 글꼴을 받는 쪽. 붙여넣기에서는 없다(그림을 버린다).
+    sink: Option<RefCell<&'s mut dyn ImportSink>>,
 }
 
-impl Conv<'_> {
+impl Conv<'_, '_> {
     fn tag(&self, i: usize) -> &str {
         self.dom[i].name.as_ref().map_or("", |q| &q.local)
     }
@@ -944,8 +999,8 @@ impl Conv<'_> {
 }
 
 /// 문단을 만들어 가는 걸음.
-struct Walk<'a> {
-    cv: &'a Conv<'a>,
+struct Walk<'a, 's> {
+    cv: &'a Conv<'a, 's>,
     out: Vec<FragPara>,
     /// 요소마다 하나씩 쌓는 글자 모양. 맨 아래는 바탕.
     st: Vec<St>,
@@ -961,7 +1016,7 @@ struct Walk<'a> {
     err: Option<Refusal>,
 }
 
-impl Walk<'_> {
+impl Walk<'_, '_> {
     fn cur(&self) -> &St {
         &self.st[self.st.len() - 1]
     }
@@ -994,6 +1049,11 @@ impl Walk<'_> {
     /// 글 노드. 줄이는 공백(여러 칸, 줄바꿈)은 한 칸으로, 줄 처음의 공백은 버린다. `pre` 안은 그대로다.
     fn text(&mut self, raw: &str) {
         let st = self.cur().clone();
+        if let (Some(sink), Some(f)) = (&self.cv.sink, &st.family) {
+            if !raw.trim().is_empty() {
+                sink.borrow_mut().font(f);
+            }
+        }
         let s = clean(raw, true);
         if st.pre {
             self.pending = None;
@@ -1027,6 +1087,67 @@ impl Walk<'_> {
                 self.push_str(" ", &sp);
             }
         }
+    }
+
+    /// `<img>`: 받는 쪽이 에셋으로 바꿔 주면 그림 개체 하나를 넣는다. 크기는 `width`·`height`(속성이나 인라인 스타일의
+    /// px)를 따르고, 하나만 있으면 비율을 지키고, 없으면 그림의 화소 크기다. 본문 상자보다 크면 비율을 지켜 줄인다.
+    fn image(&mut self, i: usize) {
+        let cv = self.cv;
+        let Some(sink) = &cv.sink else { return };
+        let src = cv.attr(i, "src").unwrap_or("").trim();
+        let Some((asset, (pw, ph))) = sink.borrow_mut().image(src) else {
+            return;
+        };
+        if pw == 0 || ph == 0 {
+            return;
+        }
+        let inline = |k: &str| {
+            cv.attr(i, "style").and_then(|s| {
+                s.split(';').find_map(|d| {
+                    let (n, v) = d.split_once(':')?;
+                    (n.trim().eq_ignore_ascii_case(k))
+                        .then(|| length(&v.trim().to_ascii_lowercase(), 0.75))?
+                })
+            })
+        };
+        let given = |k: &str| {
+            inline(k).or_else(|| {
+                cv.attr(i, k)
+                    .and_then(|v| v.trim().trim_end_matches("px").parse::<f64>().ok())
+                    .filter(|v| v.is_finite() && *v >= 1.0)
+                    .map(|v| v * 0.75)
+            })
+        };
+        let natural = (f64::from(pw) * 0.75, f64::from(ph) * 0.75);
+        let ratio = natural.1 / natural.0;
+        let (w, h) = match (given("width"), given("height")) {
+            (Some(w), Some(h)) => (w, h),
+            (Some(w), None) => (w, w * ratio),
+            (None, Some(h)) => (h / ratio, h),
+            (None, None) => natural,
+        };
+        let k = (cv.body_w / w).min(cv.body_h / h).min(1.0);
+        let round = |v: f64| ((v * k * 100.0).round() / 100.0).max(1.0);
+        let mut o = json!({"type": "image", "asset": asset, "w": round(w), "h": round(h)});
+        let alt: String = cv
+            .attr(i, "alt")
+            .unwrap_or("")
+            .trim()
+            .chars()
+            .take(1000)
+            .collect();
+        if !alt.is_empty() {
+            o["alt"] = json!(alt);
+        }
+        if self.chars >= PARA_CHARS || self.runs.len() >= PARA_RUNS {
+            self.flush();
+        }
+        let mut st = self.cur().clone();
+        let mut buf = String::new();
+        self.settle(&mut buf, &st);
+        st.obj = Some(o);
+        self.runs.push(("\u{FFFC}".into(), st));
+        self.chars += 1;
     }
 
     fn push_table(&mut self, t: FragTable) {
@@ -1101,7 +1222,16 @@ impl Walk<'_> {
     fn enter(&mut self, i: usize) -> bool {
         let cv = self.cv;
         let tag = cv.tag(i);
+        if cv.sink.is_some() && tag == "img" {
+            if cv.attr(i, "hidden").is_none() && !cv.over(i).hidden {
+                self.image(i);
+            }
+            return false;
+        }
         if SKIP.contains(&tag) || cv.attr(i, "hidden").is_some() {
+            if let Some(sink) = cv.sink.as_ref().filter(|_| SHOWN.contains(&tag)) {
+                sink.borrow_mut().dropped(tag);
+            }
             return false;
         }
         let ov = cv.over(i);
@@ -1147,6 +1277,9 @@ impl Walk<'_> {
         st.strike = ov.strike.unwrap_or(st.strike);
         st.color = ov.color.unwrap_or(st.color);
         st.size = ov.size.or(st.size);
+        if cv.sink.is_some() && ov.family.is_some() {
+            st.family = ov.family.clone();
+        }
         match tag {
             "br" => {
                 let st = self.cur().clone();
@@ -1161,13 +1294,14 @@ impl Walk<'_> {
                     .and_then(|s| s.trim().parse::<u64>().ok())
                     .filter(|s| (2..=u32::MAX as u64).contains(s)),
                 first: true,
+                level: cv.attr(i, "class").and_then(kix_level),
             }),
             "li" => {
                 let level = self.frames.len().saturating_sub(1);
                 let meta = match self.frames.last_mut() {
                     Some(f) => ListMeta {
                         ordered: f.ordered,
-                        level,
+                        level: f.level.unwrap_or(level),
                         start: std::mem::take(&mut f.first).then_some(f.start).flatten(),
                         owner: i,
                     },
@@ -1219,9 +1353,55 @@ impl Walk<'_> {
     }
 }
 
+/// Google Docs 목록의 단계: 클래스 `lst-kix_<id>-<단계>`.
+fn kix_level(class: &str) -> Option<usize> {
+    class
+        .split_whitespace()
+        .filter(|c| c.starts_with("lst-kix_"))
+        .find_map(|c| c.rsplit_once('-')?.1.parse::<usize>().ok())
+        .map(|n| n.min(8))
+}
+
+/// `%XX`를 푼다(틀린 것은 그대로).
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let (mut out, mut i) = (Vec::with_capacity(b.len()), 0);
+    while i < b.len() {
+        let pair = b
+            .get(i + 1..i + 3)
+            .filter(|h| h.iter().all(u8::is_ascii_hexdigit))
+            .and_then(|h| u8::from_str_radix(std::str::from_utf8(h).ok()?, 16).ok());
+        match (b[i], pair) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 3;
+            }
+            (b'+', _) => {
+                out.push(b' ');
+                i += 1;
+            }
+            (c, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Google Docs가 링크를 감싸는 넘김 주소(`https://www.google.com/url?q=<주소>&…`)면 안의 주소.
+fn unwrap_redirect(h: &str) -> Option<String> {
+    let rest = h
+        .strip_prefix("https://www.google.com/url?")
+        .or_else(|| h.strip_prefix("http://www.google.com/url?"))?;
+    let q = rest.split('&').find_map(|kv| kv.strip_prefix("q="))?;
+    Some(percent_decode(q))
+}
+
 /// 링크 주소: http, https, mailto, tel만(스킴이 적힌 것만. 상대 주소나 `#`는 링크로 보지 않는다).
 fn link(href: &str) -> Option<String> {
-    let h = href.trim();
+    let inner = unwrap_redirect(href.trim());
+    let h = inner.as_deref().unwrap_or(href).trim();
     let scheme = h.split_once(':')?.0.to_ascii_lowercase();
     ["http", "https", "mailto", "tel"]
         .contains(&scheme.as_str())
@@ -1298,8 +1478,33 @@ fn too_deep(html: &str) -> bool {
 /// HTML → 조각. 읽을 만한 글이 없으면 `Ok(None)`(부르는 쪽이 평문을 붙인다). 문단이 상한을 넘으면 거절.
 /// `body_w`는 표의 열 폭을 나누는 본문 폭(pt), `tables`는 표를 표로 넣는지(표 칸 안에 붙이면 거짓).
 pub fn html_fragment(html: &str, body_w: f64, tables: bool) -> Result<Option<Fragment>, Refusal> {
+    read(html, (body_w, f64::INFINITY), tables, None)
+}
+
+/// 파일 가져오기: HTML → 조각. 붙여넣기와 같은 규칙에 그림(`<img>`)을 더한다. `body`는 본문 상자(pt)로 표의 열 폭과
+/// 그림 크기의 상한이다. 그림 주소, 쓰인 글꼴, 버린 개체는 `sink`가 받는다.
+pub fn html_import(
+    html: &str,
+    body: (f64, f64),
+    sink: &mut dyn ImportSink,
+) -> Result<Option<Fragment>, Refusal> {
+    read(html, body, true, Some(sink))
+}
+
+fn read(
+    html: &str,
+    (body_w, body_h): (f64, f64),
+    tables: bool,
+    sink: Option<&mut dyn ImportSink>,
+) -> Result<Option<Fragment>, Refusal> {
+    // 붙여넣기는 상한을 넘으면 평문으로 물러나고(`Ok(None)`), 가져오기는 그 까닭을 알린다.
+    let over = if sink.is_some() {
+        Err(Refusal::TooComplex)
+    } else {
+        Ok(None)
+    };
     if html.len() > MAX_HTML || html.matches('<').count() > MAX_TAGS || too_deep(html) {
-        return Ok(None);
+        return over;
     }
     // 트리가 노드 수나 단 수의 상한을 넘으면(`Overrun`) 읽기를 그만두고, 파서가 알 수 없는 입력에서 멈춰도 평문으로 물러난다.
     let dom = catch_unwind(AssertUnwindSafe(|| {
@@ -1312,7 +1517,7 @@ pub fn html_fragment(html: &str, body_w: f64, tables: bool) -> Result<Option<Fra
         };
         parse_document(Sink::new(), opts).one(html)
     }));
-    let Ok(dom) = dom else { return Ok(None) };
+    let Ok(dom) = dom else { return over };
     // Cocoa의 HTML 글쓰개는 글자 크기를 pt 값 그대로 px로 적는다.
     let head = html.as_bytes();
     let px = if head[..head.len().min(4096)]
@@ -1330,6 +1535,8 @@ pub fn html_fragment(html: &str, body_w: f64, tables: bool) -> Result<Option<Fra
         body_w,
         tables,
         budget: Cell::new(MAX_PASTE_LINES),
+        body_h,
+        sink: sink.map(RefCell::new),
     };
     // 시트: 모든 <style>의 글.
     let mut css = Css::default();

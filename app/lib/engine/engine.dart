@@ -860,6 +860,20 @@ abstract class EngineApi {
   Future<Json> docExportTxt(int id, String path) async =>
       await call('doc.exportTxt', {'id': id, 'path': path}) as Json;
 
+  /// 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미 zip)을 읽어 본다. 문서를 만들지 않는다.
+  /// {paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
+  Future<Json> importPreview(String path) async =>
+      await call('import.preview', {'path': path}) as Json;
+
+  /// 파일을 [name]의 새 흐름 문서로 가져온다. [styles]를 주면 그 스타일 표로 시작한다. {id, lost}.
+  Future<Json> importApply(String path, String name, {Json? styles}) async =>
+      await call('import.apply', {
+            'path': path,
+            'name': name,
+            'styles': ?styles,
+          })
+          as Json;
+
   /// 저장한 값. 없으면 null.
   Future<Object?> settingsGet(String key) => call('settings.get', {'key': key});
   Future<void> settingsSet(String key, Object? value) =>

@@ -79,6 +79,7 @@ fn text_pieces_in_order_and_ping_ignored() {
             output: 42,
             cache_read: 7,
             cache_write: 3,
+            cache_write_1h: 1,
             thinking: 0
         }
     );

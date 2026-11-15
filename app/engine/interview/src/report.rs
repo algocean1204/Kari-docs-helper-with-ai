@@ -119,6 +119,9 @@ pub struct Summary {
     /// 캐시에서 읽거나 캐시에 쓴 입력
     #[serde(default)]
     pub tokens_cached: u64,
+    /// 그 가운데 캐시에서 읽은 입력. 캐시 적중률 = 이것 / (tokens_in + tokens_cached)
+    #[serde(default)]
+    pub tokens_cache_read: u64,
     /// 추정 비용(미화). 가격을 모르는 모델의 호출이 있으면 없다
     #[serde(default)]
     pub cost: Option<f64>,
@@ -583,6 +586,7 @@ pub fn build(s: &Session, pack: &Pack) -> Report {
             tokens_in: s.calls.iter().map(|c| c.input).sum(),
             tokens_out: s.calls.iter().map(|c| c.output).sum(),
             tokens_cached: s.calls.iter().map(|c| c.cache_read + c.cache_write).sum(),
+            tokens_cache_read: s.calls.iter().map(|c| c.cache_read).sum(),
             cost: s.calls.iter().map(CallLog::cost).sum(),
             calls: s.calls.len() as u32,
             models: s.models.clone(),

@@ -89,6 +89,9 @@ pub(crate) fn add_usage(usage: &mut Usage, v: &Value) {
             *slot = n;
         }
     }
+    if let Some(n) = v["cache_creation"]["ephemeral_1h_input_tokens"].as_u64() {
+        usage.cache_write_1h = n;
+    }
     if let Some(n) = v["output_tokens_details"]["thinking_tokens"].as_u64() {
         usage.thinking = n;
     }

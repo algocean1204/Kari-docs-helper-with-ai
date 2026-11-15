@@ -57,11 +57,17 @@ pub(crate) fn build(
         body.insert("tools".into(), Value::Array(tools.collect()));
     }
 
-    // 캐시 순서는 tools → system → messages. system의 마지막 블록에 표시를 둔다.
+    // 캐시 순서는 tools → system → messages. 표시는 system의 마지막 블록 하나뿐이다. 사용자 차례는 호출마다 처음부터
+    // 다른 글이라(이번 답, 겨냥 등) 표시를 두면 읽히지 않을 쓰기 값만 낸다.
     if let Some(system) = &req.system {
+        let mark = if req.long_cache {
+            json!({"type": "ephemeral", "ttl": "1h"})
+        } else {
+            json!({"type": "ephemeral"})
+        };
         body.insert(
             "system".into(),
-            json!([{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]),
+            json!([{"type": "text", "text": system, "cache_control": mark}]),
         );
     }
 
