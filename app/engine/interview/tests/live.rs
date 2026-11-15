@@ -221,3 +221,47 @@ fn live_shapes_of_claims_and_posting() {
         );
     }
 }
+
+/// 질문 만들기를 같은 시스템 글로 세 번 부른다. 첫 번이 캐시를 쓰면 둘째와 셋째는 그것을 읽어야 한다(턴마다 앞부분이
+/// 같다는 시험이 실제 서버에서도 맞는지). 세 번 다 캐시를 쓰지도 읽지도 않으면 시스템 글이 캐시 최소 길이보다 짧은 것이다.
+#[test]
+#[ignore]
+fn live_ask_reads_cache_on_later_turns() {
+    let Some(live) = Live::new("cache") else {
+        eprintln!("키가 없어 건너뛴다");
+        return;
+    };
+    let info = live.latest(cheap(&live.provider));
+    let cancel = AtomicBool::new(false);
+    for turn in [
+        "주문 API의 응답 시간을 줄였다",
+        "배포를 자동화했다",
+        "장애 알림을 정리했다",
+    ] {
+        let c = kari_interview::Call {
+            what: "ask",
+            system: kari_interview::prompt::ASK,
+            user: serde_json::json!({ "claim": turn, "years": "3년 차" }).to_string(),
+            schema: kari_interview::prompt::ask_schema(),
+        };
+        live.call(&info, Effort::Low, &c, &cancel).expect("호출");
+    }
+    let recs = live.recs.borrow();
+    for r in recs.iter() {
+        eprintln!(
+            "{} 입력 {} 캐시 읽기 {} 쓰기 {}(1시간 {}) 비용 {:.5}",
+            r.model, r.got.input, r.got.cache_read, r.got.cache_write, r.got.cache_write_1h, r.cost
+        );
+    }
+    // OpenAI는 캐시 쓰기 양을 알리지 않아(늘 0) 첫 호출은 Anthropic에서만 본다.
+    if live.provider == "anthropic" {
+        assert!(
+            recs[0].got.cache_read + recs[0].got.cache_write_1h > 0,
+            "첫 호출이 캐시를 쓰지도 읽지도 않았다"
+        );
+    }
+    assert!(
+        recs[1].got.cache_read > 0 && recs[2].got.cache_read > 0,
+        "뒤의 호출이 캐시를 읽지 않았다"
+    );
+}
