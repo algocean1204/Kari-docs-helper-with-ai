@@ -7,7 +7,7 @@ import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/screens/ai_tasks.dart';
 
-import 'ai_test.dart' show inDialog, openModels, pumpAi, tap;
+import 'ai_test.dart' show inDialog, openArea, openModels, pumpAi, tap;
 import 'design_test.dart'
     show filledLabels, focusableCount, loadFonts, saveShot, sizes, tabCycle;
 import 'interview_test.dart' show small;
@@ -20,8 +20,8 @@ void main() {
 
   testWidgets('일마다 계열과 강도, 지금 정해진 판을 보이고 바꾸면 저장한다', (tester) async {
     final rig = await pumpAi(tester, connected: true);
-    expect(find.text('기본값 사용 중'), findsOneWidget);
     await openModels(tester);
+    expect(find.text('기본값 사용 중'), findsOneWidget);
     for (final name in ['면접에서 물을 문장 뽑기', '채용공고 나누기', '질문 만들기', '답변 채점']) {
       expect(find.text(name), findsOneWidget);
     }
@@ -74,12 +74,11 @@ void main() {
     await tap(tester, inDialog(find.text('Terra')));
     await tap(tester, inDialog(find.text('닫기')));
     expect(find.text('Terra · 생각 깊이 보통 · 지금 gpt-6.1-terra'), findsOneWidget);
-    expect(
-      find.text('키 없음'),
-      findsNWidgets(2),
-      reason: 'OpenAI 연결 줄과 질문 만들기 줄',
-    );
+    expect(find.text('키 없음'), findsOneWidget, reason: '질문 만들기 줄');
     expect(find.text('2개 바꿈'), findsOneWidget);
+    await openArea(tester, 'AI 연결');
+    expect(find.text('키 없음'), findsOneWidget, reason: 'OpenAI 연결 줄');
+    await openModels(tester);
 
     // 기본값으로 되돌리기.
     await tap(tester, find.text('기본값으로 되돌리기'));
@@ -120,8 +119,8 @@ void main() {
 
   testWidgets('키가 없어도 기본값과 정해질 판을 보이고 넘치지 않는다', (tester) async {
     await pumpAi(tester, size: sizes[0]);
-    expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     await openModels(tester);
+    expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     expect(find.text('답변 채점'), findsOneWidget);
     expect(find.textContaining('지금 claude-haiku-5-5'), findsNWidgets(4));
     expect(tester.takeException(), isNull);

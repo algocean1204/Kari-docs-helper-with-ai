@@ -78,9 +78,12 @@ Future<void> tap(WidgetTester tester, Finder f) async {
   await tester.pumpAndSettle();
 }
 
-/// 설정의 접힌 묶음 "면접에 쓰는 모델"을 펼친다.
-Future<void> openModels(WidgetTester tester) =>
-    tap(tester, find.text('면접에 쓰는 모델'));
+/// 설정의 구역 목록에서 그 구역을 고른다(오른쪽 제목과 같은 글이라 누르는 줄로 좁힌다).
+Future<void> openArea(WidgetTester tester, String label) =>
+    tap(tester, find.widgetWithText(InkWell, label));
+
+/// 설정의 "AI 모델" 구역(면접에 쓰는 모델)을 연다.
+Future<void> openModels(WidgetTester tester) => openArea(tester, 'AI 모델');
 
 /// 설정의 ChatGPT 플랜 줄 안의 글(Figma 구역에도 "연결 안 됨"이 있어 줄로 좁힌다).
 Finder planText(String s) => find.descendant(
@@ -144,8 +147,9 @@ void main() {
       expect(find.text('연결됨'), findsOneWidget);
       // 키가 하나라도 있으면 채운 단추가 없다. OpenAI 줄의 키 넣기는 테두리 단추다.
       expect(filledLabels(tester), isEmpty);
-      expect(find.text('기본값 사용 중'), findsOneWidget);
       expect(find.text('키 바꾸기'), findsOneWidget);
+      await openModels(tester);
+      expect(find.text('기본값 사용 중'), findsOneWidget);
       expectKeyOnlyInSecrets(rig, {'anthropic': key});
     });
 
@@ -165,20 +169,24 @@ void main() {
       await tap(tester, find.text('확인하고 저장'));
       expect(find.text('연결됨'), findsOneWidget);
       expectKeyOnlyInSecrets(rig, {'openai': openaiKey});
+      expect(find.text('키 없음'), findsOneWidget, reason: 'Claude 줄만');
       await openModels(tester);
       expect(find.text('Luna · 생각 깊이 낮음 · 지금 GPT-6 Luna'), findsNWidgets(3));
-      expect(find.text('키 없음'), findsOneWidget, reason: 'Claude 줄만');
+      expect(find.text('키 없음'), findsNothing, reason: '일마다의 줄에는 없다');
 
       // Claude 키를 더하면 기본은 Claude로 돌아간다.
+      await openArea(tester, 'AI 연결');
       await tap(tester, providerButton('Claude 키 넣기'));
       await typeKey(tester);
       await tap(tester, find.text('확인하고 저장'));
       expect(find.text('연결됨'), findsNWidgets(2));
+      await openModels(tester);
       expect(
         find.text('Haiku · 생각 깊이 보통 · 지금 Claude Haiku 5.5'),
         findsNWidgets(3),
       );
 
+      await openArea(tester, 'AI 연결');
       await tap(tester, providerButton('OpenAI 키 지우기'));
       expect(find.text('OpenAI 키를 지울까요?'), findsOneWidget);
       await tap(tester, inDialog(find.text('키 지우기')));
@@ -265,8 +273,9 @@ void main() {
       expect(tester.widget<AppButton>(confirm).kind, ButtonKind.danger);
       await tap(tester, confirm);
       expect(find.text('연결됨'), findsNothing);
-      expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
       expect(filledLabels(tester), ['키 넣기']);
+      await openModels(tester);
+      expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
       expectKeyOnlyInSecrets(rig, {});
     });
 
@@ -276,6 +285,7 @@ void main() {
       expect(find.text('모델 바꾸기'), findsNothing);
       expect(find.textContaining('문서 수정(AI 편집)'), findsNothing);
       expect(find.textContaining('고치는 문서의 내용'), findsNothing);
+      await openArea(tester, '개인정보');
       expect(
         find.text(
           keepAll(

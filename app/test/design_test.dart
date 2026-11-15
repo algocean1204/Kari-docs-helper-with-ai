@@ -114,9 +114,10 @@ int focusableCount(WidgetTester tester, {Finder? within}) {
   Finder all(Type t) => within == null
       ? find.byType(t)
       : find.descendant(of: within, matching: find.byType(t));
+  // 목록 안에서 화살표로 옮기는 줄(설정의 구역 목록)은 고른 줄 하나만 Tab이 멈춘다.
   final taps = tester
       .widgetList<InkWell>(all(InkWell))
-      .where((w) => w.onTap != null)
+      .where((w) => w.onTap != null && w.focusNode?.skipTraversal != true)
       .length;
   final switches = tester
       .widgetList<Switch>(all(Switch))
@@ -577,7 +578,8 @@ void main() {
       }
       await tester.tap(find.text('AI 연결'));
       await tester.pumpAndSettle();
-      expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+      // 설정의 구역 목록.
+      expect(find.text('업데이트와 정보'), findsOneWidget);
     });
 
     testWidgets('공고 추가: 붙여넣으면 추가할 수 있고, 추가하면 닫힌다', (tester) async {

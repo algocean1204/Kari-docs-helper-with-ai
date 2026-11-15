@@ -266,7 +266,8 @@ void main() {
         if (action == '설정 열기') {
           // 설정에 다녀와도 같은 질문에서 이어진다.
           await tap(tester, find.widgetWithText(TextButton, '설정 열기'));
-          expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+          // 설정의 구역 목록.
+          expect(find.text('업데이트와 정보'), findsOneWidget);
           await tap(tester, find.text('면접'));
           expect(find.textContaining(keepAll('복합 인덱스는')), findsOneWidget);
           expect(find.text(keepAll('실패할 답')), findsOneWidget);
