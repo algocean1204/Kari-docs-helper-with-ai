@@ -1092,6 +1092,7 @@ dependencies = [
  "kari-doc",
  "kari-docx",
  "kari-edit",
+ "kari-import",
  "kari-interview",
  "kari-layout",
  "kari-pdf",
@@ -1099,6 +1100,15 @@ dependencies = [
  "kari-store",
  "rusqlite",
  "serde_json",
+]
+
+[[package]]
+name = "kari-import"
+version = "0.1.0"
+dependencies = [
+ "kari-doc",
+ "kari-edit",
+ "miniz_oxide 0.9.1",
 ]
 
 [[package]]

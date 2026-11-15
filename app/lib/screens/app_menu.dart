@@ -68,6 +68,7 @@ class MenuEntry {
 /// 앱 전체의 일(셸이 준다).
 typedef AppActions = ({
   VoidCallback newDoc,
+  VoidCallback importDoc,
   VoidCallback home,
   VoidCallback settings,
 });
@@ -236,6 +237,7 @@ List<MenuEntry> appMenus({
         keys: _meta(LogicalKeyboardKey.keyN),
         run: nav(app.newDoc),
       ),
+      MenuEntry('가져오기…', run: nav(app.importDoc)),
       MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
       MenuEntry(
@@ -547,6 +549,7 @@ List<MenuEntry> canvasMenus({
         keys: _meta(LogicalKeyboardKey.keyN),
         run: nav(app.newDoc),
       ),
+      MenuEntry('가져오기…', run: nav(app.importDoc)),
       MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
       MenuEntry(

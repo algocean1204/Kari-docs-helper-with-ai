@@ -40,12 +40,16 @@ class Rig {
       now: () => clock,
       savePath: (name) => savePath(name),
       openPath: () => openPath(),
+      importPath: () => importPath(),
       outDir: outDir,
     );
   }
 
   /// 열기 대화 상자 대신. 기본은 취소.
   Future<String?> Function() openPath = () async => null;
+
+  /// 가져올 파일 고르기 대신. 기본은 취소.
+  Future<String?> Function() importPath = () async => null;
 
   DateTime clock = today;
 
@@ -293,10 +297,11 @@ void main() {
       await pumpReal(tester, seed: false);
       expect(find.text('이력서부터 씁니다'), findsOneWidget);
       expect(find.text('준비 0/4'), findsOneWidget);
-      // 채운 단추는 새 글 문서 하나, 그 옆에 조용한 새 캔버스. 준비 줄의 넷과 공고 추가.
+      // 채운 단추는 새 글 문서 하나, 그 옆에 조용한 가져오기와 새 캔버스. 준비 줄의 넷과 공고 추가.
       // 문서가 없으면 문서 구역을 두지 않는다.
-      expect(find.byType(TextButton), findsNWidgets(7));
+      expect(find.byType(TextButton), findsNWidgets(8));
       expect(button(tester, '새 글 문서').onPressed, isNotNull);
+      expect(button(tester, '가져오기…').onPressed, isNotNull);
       expect(button(tester, '새 캔버스').onPressed, isNotNull);
       for (final step in ['이력서', 'AI 연결', '채용공고', '첫 연습']) {
         expect(button(tester, step).onPressed, isNotNull, reason: step);

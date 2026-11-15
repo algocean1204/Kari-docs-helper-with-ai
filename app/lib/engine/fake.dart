@@ -46,6 +46,12 @@ class FakeEngine extends EngineApi {
   /// `doc.exportDocx`가 돌려줄 "옮기지 못한 것". 시험용.
   List<String> docxLost = [];
 
+  /// `import.preview`가 돌려줄 요약(파일 경로 → 요약). 없는 경로는 읽지 못한 파일로 답한다. 시험용.
+  final Map<String, Json> imports = {};
+
+  /// 받은 `import.apply`의 인자(받은 순서). 시험용.
+  final List<Json> importCalls = [];
+
   /// 넣어 두면 다음 `edit.cmd` 하나를 이 사유로 거절한다. 시험용.
   String? refuse;
 
@@ -160,6 +166,16 @@ class FakeEngine extends EngineApi {
           }
         }
         return {'id': id};
+      case 'import.preview':
+        return imports[a['path']] ??
+            (throw const EngineError('import', '파일을 읽지 못했습니다.'));
+      case 'import.apply':
+        final p =
+            imports[a['path']] ??
+            (throw const EngineError('import', '파일을 읽지 못했습니다.'));
+        importCalls.add(a);
+        final id = _add('flow', _name(a), _initial('flow'), null);
+        return {'id': id, 'lost': p['lost'] ?? const []};
       case 'docs.rename':
         final d = doc();
         final name = _name(a);

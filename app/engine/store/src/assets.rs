@@ -159,6 +159,11 @@ impl Library {
         Ok(())
     }
 
+    /// 넣었지만 쓰이지 않게 된 에셋(가져오기가 문서를 만들지 못했을 때)을 지운다. 어느 문서든 쓰는 것은 남는다.
+    pub fn drop_unused_assets(&mut self, hashes: BTreeSet<String>) -> Result<()> {
+        self.drop_assets(hashes)
+    }
+
     /// 파일을 임시 이름으로 쓰고 동기화한 뒤 제자리로 옮기고, 그다음 행을 넣는다.
     // 정리: 문서를 완전히 지울 때 그 문서만 쓰던 에셋을 지운다(`drop_assets`).
     pub fn put_asset(&mut self, bytes: &[u8]) -> Result<AssetInfo> {
