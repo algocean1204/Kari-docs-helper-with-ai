@@ -86,6 +86,7 @@ const _quickIv = {
 };
 
 /// 오래 걸리는 호출인지: AI 호출(`ai.*`, 네트워크를 기다린다), PDF 내보내기(`doc.exportPdf`, 배치와 파일 쓰기),
+/// 가져오기의 미리 보기(`import.preview`, 큰 파일 읽기),
 /// 면접(`iv.*`. 모델을 부르지 않는 읽기와 취소는 뺀다). 다른 줄에서 실행한다. 읽지 못하는 요청은 기본 줄로 보낸다.
 bool slowLane(String request) {
   try {
@@ -96,6 +97,7 @@ bool slowLane(String request) {
         m == 'doc.exportPdf' ||
         m == 'doc.exportDocx' ||
         m == 'doc.exportTxt' ||
+        m == 'import.preview' ||
         m == 'canvas.layers' ||
         (m.startsWith('iv.') && !_quickIv.contains(m));
   } on FormatException {
@@ -159,6 +161,13 @@ class NativeEngine extends EngineApi {
   Future<CanvasState> canvasOpen(int id) async {
     await _ready();
     return super.canvasOpen(id);
+  }
+
+  /// 가져오기는 새 문서에 붙일 자리를 배치로 찾아 글꼴이 있어야 한다. 홈에서 편집 화면을 열기 전에도 부르므로 먼저 넘긴다.
+  @override
+  Future<Json> importApply(String path, String name, {Json? styles}) async {
+    await _ready();
+    return super.importApply(path, name, styles: styles);
   }
 
   Future<void> _ready() async {

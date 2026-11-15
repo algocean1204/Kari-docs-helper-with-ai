@@ -38,7 +38,7 @@ pub use image::MIN_IMAGE;
 pub use kari_layout::{ListKind, Overlay, Pos, Vertical};
 pub use link::normalize_url;
 pub use outline::{outline, Heading, HEADINGS};
-pub use rich::html_fragment;
+pub use rich::{html_fragment, html_import, ImportSink};
 pub use table::{cell_range, AlignV, MIN_COL};
 pub use utf16::{from_utf16, to_utf16};
 
@@ -67,6 +67,8 @@ pub enum Refusal {
     StyleBuiltin,
     /// 스타일이 100개를 넘는다.
     TooManyStyles,
+    /// 가져오는 HTML이 읽는 상한(크기, 태그 수, 겹침, 노드 수)을 넘는다. 붙여넣기는 이때 평문을 붙인다.
+    TooComplex,
 }
 
 impl Refusal {
@@ -87,6 +89,9 @@ impl Refusal {
                 "기본 스타일은 지울 수 없고, 사용자 스타일에는 기본값이 없습니다."
             }
             Refusal::TooManyStyles => "스타일은 100개까지 만들 수 있습니다.",
+            Refusal::TooComplex => {
+                "HTML이 너무 크거나 복잡해(6MB, 태그 20만 개, 겹침 512단까지) 읽지 못했습니다."
+            }
             Refusal::BadLink => {
                 "링크 주소가 올바르지 않습니다. http, https, mailto, tel 주소만 넣을 수 있습니다."
             }

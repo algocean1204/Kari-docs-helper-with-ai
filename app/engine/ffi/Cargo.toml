@@ -16,6 +16,7 @@ kari-edit = { path = "../edit" }
 kari-render = { path = "../render" }
 kari-pdf = { path = "../pdf" }
 kari-docx = { path = "../docx" }
+kari-import = { path = "../import" }
 kari-ai = { path = "../ai" }
 kari-interview = { path = "../interview" }
 

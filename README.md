@@ -138,6 +138,7 @@ PDF에 이어 Word 문서까지 차례로 내보내는 과정이다.
 | --- | --- |
 | 기기 | Apple Silicon 맥(M1 이후), macOS 13(Ventura) 이상 |
 | 내보내기 | PDF, Word 문서(DOCX), 텍스트. 인쇄와 macOS 공유 메뉴 |
+| 가져오기 | Word 문서(DOCX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 새 글 문서로. [가져오기](Docs/guide/writing.md#가져오기) |
 | AI 연결 | Anthropic(Claude) API 키나 OpenAI API 키(선택). 면접 연습에만 쓴다 |
 | 모델 | 주장 뽑기, 공고 나누기, 질문, 채점마다 제공사, 모델 계열, 추론 강도를 고른다 |
 
@@ -201,7 +202,7 @@ cd .. && flutter pub get && flutter test && flutter run -d macos
 - Apple Silicon 맥과 macOS 13 이상에서만 돌아간다.
 - 화면과 문서는 한국어다.
 - 면접 연습은 백엔드 개발 직무를 다루며 글로 진행한다.
-- 다른 앱의 파일(DOCX, PDF 등)을 가져오는 기능은 없다.
+- 다른 앱의 파일은 Word 문서(DOCX), HTML, Google Docs의 웹 페이지 꾸러미(zip)만 가져온다. PDF와 그 밖의 형식은 아직 가져오지 않는다.
 - 글꼴은 앱에 포함된 Pretendard로 쓰고 그린다. 이 글꼴에 없는 글자(한자, 이모지 등)는 빈 네모로 보이며, 문서 화면에 그 글자 수를 알린다.
 - Word 문서로 내보낼 때 글꼴은 포함하지 않는다.
 

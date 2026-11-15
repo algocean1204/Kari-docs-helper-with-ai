@@ -32,6 +32,7 @@
 | `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그리기, 그림 풀기 |
 | `kari-pdf` | `app/engine/pdf` | 표시 목록을 krilla로 PDF로 |
 | `kari-docx` | `app/engine/docx` | 문서 모델을 Word 문서(DOCX)와 텍스트로 |
+| `kari-import` | `app/engine/import` | 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미)을 붙여넣기 조각으로 |
 | `kari-ai` | `app/engine/ai` | 키 보관, 제공사 어댑터(Anthropic, OpenAI) |
 | `kari-interview` | `app/engine/interview` | 면접 엔진과 지식 팩(`pack/backend/`) |
 | `kari-ffi` | `app/engine/ffi` | 앱과의 경계. 동적 라이브러리 `kari` |
@@ -55,6 +56,7 @@
 | 자동 서식 | `app/engine/edit/src/auto.rs`, 따로 된 묶음으로 잇는 것은 `app/engine/ffi/src/edit.rs`의 `run_auto`, 설정은 `app/lib/screens/settings.dart` |
 | 개요, 쪽으로 가기 | `app/engine/edit/src/outline.rs`, `motion.rs`의 `go_to`, 화면은 `app/lib/screens/navigate.dart` |
 | 메뉴 막대 | `app/lib/screens/app_menu.dart`(캔버스 문서의 메뉴는 `canvasMenus`) |
+| 가져오기 | `app/engine/import/src/`(`docx.rs` Word 문서, `html.rs` HTML과 꾸러미, `xml.rs` XML, `zip.rs` 꾸러미 읽기), HTML은 `app/engine/edit/src/rich.rs`의 `html_import`, 호출은 `app/engine/ffi/src/import.rs`, 화면은 `app/lib/screens/import_dialog.dart` |
 | Word 문서, 텍스트 내보내기 | `app/engine/docx/src/`(`body.rs` 본문·표·목록·머리글, `props.rs` 글자·문단 모양과 스타일, `txt.rs` 텍스트, `zip.rs` 꾸러미), 호출은 `app/engine/ffi/src/docx.rs` |
 | 글자·문단 모양, 서식 지우기 | `app/engine/edit/src/format.rs`, 쪽 나누기는 `text.rs`, 번호 시작 값은 `list.rs`, 사용자 지정 용지는 `page.rs` |
 | 첨자, 자간, 형광펜, 줄 간격의 배치 | `app/engine/layout/src/style.rs`, `para.rs`, `lines.rs` |

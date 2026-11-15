@@ -35,6 +35,7 @@ flowchart LR
 | `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그림, 그림 풀기, 보기 배율과 좌표 | layout |
 | `kari-pdf` | `app/engine/pdf` | 표시 목록을 krilla로 PDF 바이트로 | doc, layout |
 | `kari-docx` | `app/engine/docx` | 문서 모델을 Word 문서(DOCX)와 텍스트 바이트로 | doc, layout |
+| `kari-import` | `app/engine/import` | 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미 zip) 바이트를 붙여넣기 조각과 옮기지 못한 것의 목록으로 | doc, edit |
 | `kari-ai` | `app/engine/ai` | 키 보관, 제공사(Anthropic, OpenAI) 어댑터 | — |
 | `kari-interview` | `app/engine/interview` | 지식 팩, 면접 진행, 채점, 리포트, 홈 대시보드, 시선 기록의 구간 | ai |
 | `kari-ffi` | `app/engine/ffi` | 앱과의 경계. 동적 라이브러리 `kari` | 위 전부 |
@@ -49,12 +50,13 @@ flowchart BT
   render[kari-render] --> layout
   pdf[kari-pdf] --> layout
   docx[kari-docx] --> layout
+  import[kari-import] --> edit
   ai[kari-ai]
   interview[kari-interview] --> ai
-  ffi[kari-ffi] --> store & edit & render & pdf & docx & interview
+  ffi[kari-ffi] --> store & edit & render & pdf & docx & import & interview
 ```
 
-`kari-doc`, `kari-layout`, `kari-edit`, `kari-render`, `kari-pdf`, `kari-docx`는 파일, DB, 스레드를 모른다. 저장은 `kari-store`, 잠금과 스레드는 `kari-ffi`만 다룬다.
+`kari-doc`, `kari-layout`, `kari-edit`, `kari-render`, `kari-pdf`, `kari-docx`, `kari-import`는 파일, DB, 스레드를 모른다. 저장은 `kari-store`, 잠금과 스레드는 `kari-ffi`만 다룬다.
 
 ## 앱과 엔진의 경계
 
@@ -86,6 +88,7 @@ flowchart BT
 | `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드), `canvas.layers`(레이어 패널의 줄). `canvas.cmd`는 묶기·풀기·쌓임 순서·레이어 끌어 놓기·숨기기·잠그기·대지 더하기도 받는다 → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
+| `import.preview`, `import.apply` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
 | `iv.*` | `app/engine/ffi/src/iv.rs` | 면접 → [interview-engine.md](interview-engine.md) |
@@ -99,7 +102,7 @@ Dart 쪽 함수는 `app/lib/engine/engine.dart`(`EngineApi`)에 이름마다 하
 
 | 줄 | 아이솔레이트 | 요청 |
 |---|---|---|
-| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
+| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, `import.preview`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
 | 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
 
 느린 줄의 요청은 오래 걸리는 동안 명령 잠금을 쥐고 있지 않는다. 그래서 키 확인, PDF 내보내기, 면접 질문을 기다리는 동안에도 편집이 이어진다.
@@ -152,6 +155,7 @@ sequenceDiagram
 | `kari/texture` | `create`, `dispose` | 텍스처 만들기와 풀기 |
 | `kari/files` | `savePath` | 저장 대화 상자(PDF, Word 문서, 텍스트. 고를 수 있는 형식은 기본 이름의 확장자를 따른다) |
 | `kari/files` | `openPath` | 열기 대화 상자(PNG, JPEG) |
+| `kari/files` | `importPath` | 가져올 파일의 열기 대화 상자(`.docx`, `.html`, `.htm`, `.zip`). 고른 경로를 엔진의 `import.*`에 넘긴다 |
 | `kari/files` | `pasteImage` | 붙여넣기 판의 그림을 `{path, temp}`로 준다(없으면 null). `temp`는 채널이 쓴 임시 파일인가이다. Finder에서 복사한 파일(`public.file-url`)은 파일 하나가 그림 파일일 때 그 경로이고 아니면 null이다(판에 함께 실리는 아이콘은 쓰지 않는다). 그 밖에는 앱 임시 폴더에 `kari-paste-`로 시작하는 파일로 쓴다: PNG와 JPEG는 바이트 그대로, TIFF는 PNG로 바꿔 쓴다. 20MB와 화소 2,500만을 넘거나 바꾸지 못하면 오류로 답한다. 캔버스 문서의 붙여넣기가 부르고, 엔진에 넘긴 뒤 `temp`인 파일만 지운다 |
 | `kari/files` | `openUrl` | 기본 브라우저로 주소 열기(`http`, `https`, `mailto`, `tel`만) |
 | `kari/files` | `print {path, name}` | 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 실제 크기, 자동 회전 없음, 용지는 첫 쪽의 크기와 방향. 창이 닫히면 답한다(`app/macos/Runner/Printing.swift`) |
