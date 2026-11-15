@@ -118,6 +118,7 @@ class _Row extends StatelessWidget {
     return FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         selected: h.current,
         label: '$text, ${h.page}쪽',
         child: ExcludeSemantics(

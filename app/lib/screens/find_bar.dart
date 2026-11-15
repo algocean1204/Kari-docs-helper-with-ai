@@ -218,6 +218,7 @@ class FindBarState extends State<FindBar> {
       child: Semantics(
         label: label,
         button: true,
+        onTap: onPressed,
         toggled: on,
         child: ExcludeSemantics(
           child: Material(
@@ -285,15 +286,17 @@ class FindBarState extends State<FindBar> {
                             ): () =>
                                 s.findNext(back: true),
                           },
-                          child: TextField(
-                            controller: _query,
-                            focusNode: _queryFocus,
-                            style: field,
-                            decoration: const InputDecoration(
-                              hintText: '찾을 글',
-                              isDense: true,
+                          child: HintNamed(
+                            TextField(
+                              controller: _query,
+                              focusNode: _queryFocus,
+                              style: field,
+                              decoration: const InputDecoration(
+                                hintText: '찾을 글',
+                                isDense: true,
+                              ),
+                              onChanged: (q) => s.find(q),
                             ),
-                            onChanged: (q) => s.find(q),
                           ),
                         ),
                       ),
@@ -336,14 +339,16 @@ class FindBarState extends State<FindBar> {
                       children: [
                         const SizedBox(width: 28 + Space.x1),
                         Expanded(
-                          child: TextField(
-                            controller: _with,
-                            style: field,
-                            decoration: const InputDecoration(
-                              hintText: '바꿀 글',
-                              isDense: true,
+                          child: HintNamed(
+                            TextField(
+                              controller: _with,
+                              style: field,
+                              decoration: const InputDecoration(
+                                hintText: '바꿀 글',
+                                isDense: true,
+                              ),
+                              onSubmitted: (_) => s.replaceOne(_with.text),
                             ),
-                            onSubmitted: (_) => s.replaceOne(_with.text),
                           ),
                         ),
                         const SizedBox(width: Space.x2),

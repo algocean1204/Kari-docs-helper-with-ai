@@ -157,13 +157,15 @@ class _AddPostingDialogState extends State<AddPostingDialog> {
         ),
       ],
       children: [
-        TextField(
-          controller: _text,
-          autofocus: true,
-          minLines: 8,
-          maxLines: 8,
-          style: AppText.body.copyWith(color: c.text),
-          decoration: const InputDecoration(hintText: '채용공고 전체를 붙여넣으세요'),
+        HintNamed(
+          TextField(
+            controller: _text,
+            autofocus: true,
+            minLines: 8,
+            maxLines: 8,
+            style: AppText.body.copyWith(color: c.text),
+            decoration: const InputDecoration(hintText: '채용공고 전체를 붙여넣으세요'),
+          ),
         ),
         const SizedBox(height: Space.x2),
         Row(
@@ -361,12 +363,14 @@ class _RenameDialogState extends State<RenameDialog> {
         ),
       ],
       children: [
-        TextField(
-          controller: _text,
-          autofocus: true,
-          style: AppText.body.copyWith(color: c.text),
-          decoration: const InputDecoration(hintText: '문서 이름'),
-          onSubmitted: (_) => _save(),
+        HintNamed(
+          TextField(
+            controller: _text,
+            autofocus: true,
+            style: AppText.body.copyWith(color: c.text),
+            decoration: const InputDecoration(hintText: '문서 이름'),
+            onSubmitted: (_) => _save(),
+          ),
         ),
         if (tooLong) ...[
           const SizedBox(height: Space.x2),

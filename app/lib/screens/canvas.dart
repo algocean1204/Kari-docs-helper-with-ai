@@ -580,6 +580,7 @@ class _ToolButton extends StatelessWidget {
         child: FocusRing(
           child: Semantics(
             button: true,
+            onTap: onPressed,
             selected: selected,
             enabled: onPressed != null,
             label: label,

@@ -470,6 +470,7 @@ class _CanvasLayersState extends State<CanvasLayers> {
           child: FocusRing(
             child: Semantics(
               button: true,
+              onTap: () => _toggle(r, key),
               label: '${r.label} $label',
               child: ExcludeSemantics(
                 child: InkWell(
@@ -655,7 +656,6 @@ class _RenameFieldState extends State<_RenameField> {
       },
       child: Semantics(
         label: '레이어 이름',
-        textField: true,
         child: TextField(
           key: const Key('layer-rename'),
           controller: _text,

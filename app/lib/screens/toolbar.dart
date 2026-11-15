@@ -466,6 +466,7 @@ class _ColorMenuState extends State<_ColorMenu> {
         child: FocusRing(
           child: Semantics(
             button: true,
+            onTap: widget.onPick == null ? null : () => toggleMenu(controller),
             enabled: widget.onPick != null,
             label: '글자색',
             child: ExcludeSemantics(
@@ -475,9 +476,7 @@ class _ColorMenuState extends State<_ColorMenu> {
                 child: InkWell(
                   onTap: widget.onPick == null
                       ? null
-                      : () => controller.isOpen
-                            ? controller.close()
-                            : controller.open(),
+                      : () => toggleMenu(controller),
                   borderRadius: BorderRadius.circular(Radii.control),
                   hoverColor: c.text.withValues(alpha: 0.08),
                   focusColor: Colors.transparent,
@@ -672,6 +671,7 @@ class _Toggle extends StatelessWidget {
       child: FocusRing(
         child: Semantics(
           button: true,
+          onTap: onPressed,
           toggled: this.on,
           enabled: enabled,
           label: label,

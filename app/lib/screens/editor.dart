@@ -317,6 +317,7 @@ class _Tab extends StatelessWidget {
     return FocusRing(
       child: Semantics(
         button: true,
+        onTap: onTap,
         selected: selected,
         label: label,
         child: ExcludeSemantics(
