@@ -49,6 +49,9 @@ class FakeEngine extends EngineApi {
   /// `import.preview`가 돌려줄 요약(파일 경로 → 요약). 없는 경로는 읽지 못한 파일로 답한다. 시험용.
   final Map<String, Json> imports = {};
 
+  /// 있으면 [imports]에 없는 경로도 이 요약으로 읽는다(경로를 미리 알 수 없는 견본 만들기 시험용).
+  Json? importAny;
+
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
 
@@ -172,6 +175,7 @@ class FakeEngine extends EngineApi {
       case 'import.apply':
         final p =
             imports[a['path']] ??
+            importAny ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         importCalls.add(a);
         final id = _add('flow', _name(a), _initial('flow'), null);

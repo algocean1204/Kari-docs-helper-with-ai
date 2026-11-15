@@ -254,23 +254,33 @@ class Library extends ChangeNotifier {
     return r;
   }
 
-  /// 견본 이력서(지어낸 인물)로 새 글 문서를 만들고 그 id를 돌려준다. 실패하면 null.
-  /// 파일 가져오기와 같은 길(HTML)로 넣고, 잠깐 쓴 파일은 바로 지운다.
+  /// 견본 이력서(지어낸 인물)로 새 글 문서를 만들고 그 id를 돌려준다. 실패하면 null([error]에 남는다).
+  /// 파일 가져오기와 같은 길(HTML)로 넣는다. 잠깐 쓰는 파일은 부를 때마다 새 폴더에 두고 폴더째 지운다
+  /// (빠르게 두 번 눌러도 서로의 파일을 지우지 않는다).
   Future<int?> createSample() async {
     int? id;
     await _run(() async {
-      final file = File('$outDir/견본 이력서.html');
+      Directory? tmp;
       try {
-        file.parent.createSync(recursive: true);
-        file.writeAsStringSync(sampleResumeHtml);
+        tmp = (Directory(
+          outDir,
+        )..createSync(recursive: true)).createTempSync('sample-');
+        final file = File('${tmp.path}/견본 이력서.html')
+          ..writeAsStringSync(sampleResumeHtml);
         final r = await engine.importApply(
           file.path,
           _freeName('견본 이력서'),
           styles: newDocStyles,
         );
         id = r['id'] as int;
+      } on FileSystemException catch (e) {
+        throw EngineError('io', '견본 파일을 쓰지 못했습니다: ${e.message}');
       } finally {
-        if (file.existsSync()) file.deleteSync();
+        try {
+          tmp?.deleteSync(recursive: true);
+        } on FileSystemException {
+          // 지우지 못한 폴더는 앱을 다시 켤 때 [clearOut]이 지운다.
+        }
       }
     });
     return id;

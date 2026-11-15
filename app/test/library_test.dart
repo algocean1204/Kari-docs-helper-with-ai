@@ -7,6 +7,7 @@
 // SHOT_DIR을 주면 화면 그림을 real-*.png로 쓴다.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -364,6 +365,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('제목 없는 문서'), findsOneWidget);
       expect(find.text('이어서 쓰기'), findsOneWidget);
+    });
+
+    test('견본 만들기: 두 번 겹쳐 불러도 각자의 파일로 넣고, 잠깐 쓴 폴더를 남기지 않는다', () async {
+      final out = Directory.systemTemp.createTempSync('kari-sample');
+      addTearDown(() => out.deleteSync(recursive: true));
+      final rig = Rig(outDir: out.path);
+      rig.fake.importAny = {'lost': []};
+      await rig.library.open();
+      final ids = await Future.wait([
+        rig.library.createSample(),
+        rig.library.createSample(),
+      ]);
+      expect(rig.library.error, isNull);
+      expect(ids.toSet().length, 2);
+      final paths = [for (final c in rig.fake.importCalls) c['path'] as String];
+      expect(paths.toSet().length, 2, reason: '$paths');
+      expect(out.listSync(), isEmpty);
+    });
+
+    test('견본 만들기: 파일을 쓰지 못하면 오류 한 줄로 알린다', () async {
+      final parent = Directory.systemTemp.createTempSync('kari-sample');
+      addTearDown(() => parent.deleteSync(recursive: true));
+      final blocked = '${parent.path}/out';
+      final rig = Rig(outDir: blocked);
+      rig.fake.importAny = {'lost': []};
+      await rig.library.open();
+      // 열 때 폴더를 비운 뒤, 폴더 자리에 파일이 생겨 폴더를 만들 수 없다.
+      File(blocked).writeAsStringSync('x');
+      expect(await rig.library.createSample(), isNull);
+      expect(rig.library.error?.code, 'io');
+      expect(rig.fake.importCalls, isEmpty);
     });
 
     test('같은 이름이 있으면 "제목 없는 문서 2"처럼 번호를 붙인다', () async {
@@ -892,7 +924,7 @@ void main() {
     expect(find.textContaining('주소를 가린'), findsNothing);
   });
 
-  testWidgets('키를 넣으러 가는 길(홈의 AI 연결하기, 면접의 설정 열기)은 마지막에 본 구역과 상관없이 AI 연결을 연다', (
+  testWidgets('키는 있어도 일에 고른 제공사의 키가 없으면: 홈은 그 사실과 AI 모델 열기, 면접의 설정 열기는 AI 연결', (
     tester,
   ) async {
     final rig = Rig();
@@ -926,13 +958,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('연락처 가리기'), findsNothing);
     expect(aiShown(), isTrue);
-    // 홈의 다음 할 일 "AI 연결하기"는 AI 연결 구역으로 간다.
+    // 홈: 키는 있으므로 체크리스트의 AI 연결은 끝났고, 다음 할 일은 어긋난 일을 고치러 AI 모델 구역으로 간다.
     await tester.tap(find.text('홈'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'AI 연결하기'));
+    expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
+    expect(find.text('면접의 일에 고른 AI의 키가 없습니다'), findsOneWidget);
+    expect(find.text('AI를 연결하면 면접을 연습할 수 있습니다'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'AI 연결하기'), findsNothing);
+    await tester.tap(find.widgetWithText(TextButton, 'AI 모델 열기'));
     await tester.pumpAndSettle();
     expect(find.text('연락처 가리기'), findsNothing);
-    expect(aiShown(), isTrue);
+    expect(find.text('답변 채점'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'OpenAI 키 넣기'), findsNothing);
     // 면접 화면의 "AI 연결이 필요합니다" → 설정 열기도 같다.
     await pickPrivacy();
     await tester.tap(find.text('면접'));

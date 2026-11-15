@@ -631,6 +631,7 @@ class _ShellState extends State<Shell> {
     onCreateCanvas: _createCanvas,
     onImport: _import,
     onOpenSettings: _openAi,
+    onOpenModels: () => _go(AppRoute.settings, area: SettingsArea.models),
     onAddPosting: _addPosting,
     onStartInterview: _startInterview,
     onResume: _resume,

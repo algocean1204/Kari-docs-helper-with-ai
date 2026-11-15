@@ -266,7 +266,7 @@ void main() {
         docs: false,
         setup: (r) async {
           rig = r;
-          r.fake.imports['${r.library.outDir}/견본 이력서.html'] = {'lost': []};
+          r.fake.importAny = {'lost': []};
         },
         outDir: out.path,
       );

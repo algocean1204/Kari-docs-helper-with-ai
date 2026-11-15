@@ -32,6 +32,7 @@ class LibraryHome extends StatelessWidget {
     this.onCreateSample,
     this.onPractice,
     this.onShowAll,
+    this.onOpenModels,
     this.full = false,
   });
 
@@ -62,6 +63,9 @@ class LibraryHome extends StatelessWidget {
 
   /// 문서와 채용공고를 모두 보는 화면(옆 메뉴의 "문서")으로 간다.
   final VoidCallback? onShowAll;
+
+  /// 설정의 AI 모델 구역(일마다 고른 제공사)을 연다. 없으면 [onOpenSettings].
+  final VoidCallback? onOpenModels;
 
   /// 문서와 채용공고만 모두 보인다.
   final bool full;
@@ -308,8 +312,9 @@ class LibraryHome extends StatelessWidget {
                             : ('견본으로 시작', onCreateSample!),
                       ),
                       (
+                        // 키나 플랜이 하나라도 있으면 연결은 끝났다. 일에 고른 제공사가 어긋난 것은 다음 할 일 카드가 알린다.
                         'AI 연결',
-                        library.connected,
+                        library.anyKey,
                         '질문과 채점에 AI를 씁니다. API 키나 ChatGPT 플랜으로 연결합니다.',
                         // 이력서가 있으면 다음 할 일 카드가 이 단계를 맡는다.
                         hasResume ? null : ('AI 연결하기', onOpenSettings),
@@ -432,6 +437,19 @@ class LibraryHome extends StatelessWidget {
       kind: ButtonKind.quiet,
       onPressed: () => onOpen(recent),
     );
+    if (library.anyKey && !library.connected) {
+      return _Hero(
+        title: '면접의 일에 고른 AI의 키가 없습니다',
+        about: '설정의 AI 모델에서 일마다 고른 제공사를 키가 있는 쪽으로 바꾸거나 그 제공사의 키를 넣습니다.',
+        extra: write,
+        action: AppButton(
+          'AI 모델 열기',
+          kind: ButtonKind.primary,
+          icon: Icons.tune,
+          onPressed: onOpenModels ?? onOpenSettings,
+        ),
+      );
+    }
     if (!library.connected) {
       return _Hero(
         title: 'AI를 연결하면 면접을 연습할 수 있습니다',
