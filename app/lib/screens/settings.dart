@@ -59,7 +59,7 @@ const _modelsInfo =
     '모델은 왼쪽일수록 싸고 빠르며 오른쪽일수록 깊지만 비쌉니다. 생각 깊이는 깊을수록 느리고 비쌉니다. '
     '기본값은 Claude Haiku, OpenAI Luna입니다.';
 final _gazeNote =
-    '카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다. '
+    '카메라로 화면을 보는지만 봅니다. 처음 켤 때 macOS가 카메라 권한을 묻습니다. 영상은 저장·전송하지 않습니다. '
     '기본값 ${_onOff(Setting.gaze.fallback as bool)}.';
 const _autoFormatNote =
     '문단 맨 앞의 - , 1. , # 와 공백을 목록과 제목으로, 주소를 링크로 바꿉니다. 기본값 켬.';
@@ -182,9 +182,13 @@ class SettingsScreen extends StatefulWidget {
     this.library,
     this.onInterview,
     this.onAddPosting,
+    this.area,
   });
 
   final Library? library;
+
+  /// 처음 열 구역(키를 넣으러 온 길은 AI 연결). 없으면 마지막으로 본 구역이다.
+  final SettingsArea? area;
 
   /// 키를 저장한 뒤의 다음 걸음: 면접 준비로 가기, 채용공고 추가 창 띄우기.
   final VoidCallback? onInterview;
@@ -195,15 +199,17 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _gaze = true;
+  bool _gaze = Setting.gaze.fallback as bool;
   bool _autoFormat = true;
 
-  /// 고른 구역. 면접을 시작할 수 없으면(일에 고른 제공사의 키가 없으면) 키를 고치러 온 것이라 AI 연결에서 연다.
-  /// 견본은 기억하지 않는다.
-  late SettingsArea _area = switch (widget.library) {
-    final lib? when lib.connected => _lastArea[lib] ?? SettingsArea.ai,
-    _ => SettingsArea.ai,
-  };
+  /// 고른 구역. [SettingsArea]를 받으면 그것을, 아니면 마지막에 본 구역을 연다. 면접을 시작할 수 없으면(일에 고른
+  /// 제공사의 키가 없으면) 키를 고치러 온 것이라 AI 연결에서 연다. 견본은 기억하지 않는다.
+  late SettingsArea _area =
+      widget.area ??
+      switch (widget.library) {
+        final lib? when lib.connected => _lastArea[lib] ?? SettingsArea.ai,
+        _ => SettingsArea.ai,
+      };
 
   final _find = TextEditingController();
   final _findNode = FocusNode(debugLabel: '설정 찾기');

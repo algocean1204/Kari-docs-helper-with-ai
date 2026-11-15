@@ -7,7 +7,7 @@ import '../library.dart';
 /// 시선 기록의 ⓘ 설명. 세는 것과 세지 않는 때는 app/lib/gaze.dart의 [GazeTrack], 영상을 다루는 법은
 /// macos/Runner/GazeMonitor.swift에 있다.
 const gazeInfo =
-    '얼굴이 10초 넘게 화면을 벗어난 구간만 셉니다. 질문 뒤 15초와 입력 중엔 세지 않고, 영상은 저장·전송하지 않습니다. 기본값 켬.';
+    '얼굴이 10초 넘게 화면을 벗어난 구간만 셉니다. 질문 뒤 15초와 입력 중엔 세지 않고, 영상은 저장·전송하지 않습니다. 기본값 끔.';
 
 /// 면접 준비의 시선 기록 켬/끔. 설정 화면의 "시선 관찰"과 같은 값이다.
 /// 권한이 거절돼 있거나 카메라가 없으면 시선 기록 없이 진행한다고 알린다. 권한은 처음 켤 때 macOS가 묻는다.
@@ -45,7 +45,9 @@ class GazeChoice extends StatelessWidget {
         ),
         const SizedBox(height: Space.x1),
         KeepText(
-          '카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다.',
+          on
+              ? '카메라로 화면을 보고 있는지만 봅니다. 영상은 저장하지 않고 기기 밖으로 나가지 않습니다.'
+              : '켜면 카메라로 화면을 보고 있는지만 봅니다. 처음 켤 때 macOS가 카메라 권한을 묻습니다.',
           style: AppText.caption.copyWith(color: c.textMuted),
         ),
         if (blocked != null) ...[

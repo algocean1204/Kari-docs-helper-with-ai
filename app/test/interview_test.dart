@@ -35,8 +35,9 @@ Future<Rig> pumpIv(
   Size? size,
   ThemeMode mode = ThemeMode.light,
   Future<void> Function(Rig)? setup,
+  String? outDir,
 }) async {
-  final rig = Rig();
+  final rig = Rig(outDir: outDir);
   if (docs) await rig.seed();
   await rig.fake.libOpen(dir);
   if (connected) await rig.fake.aiSetKey('anthropic', 'sk-ant-test');
@@ -125,7 +126,7 @@ void main() {
       await tap(tester, find.text('예시페이 백엔드 엔지니어').last);
       await tap(tester, find.text('4년 이상'));
       // 옵션은 기본값을 한 줄로 보이는 접힌 묶음이다.
-      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 끔'), findsOneWidget);
       expect(find.text('15분'), findsNothing);
       await openOptions(tester);
       // 면접 분위기와 시선 기록에는 ⓘ 설명이 있고, 고른 분위기의 설명 한 줄이 아래에 보인다.
@@ -624,20 +625,22 @@ void main() {
       expect(button(tester, '추가').onPressed, isNull);
     });
 
-    // 준비 줄의 채용공고와 첫 연습. 네 단계가 끝나면 줄이 사라진다.
-    testWidgets('홈 준비 줄: 공고 추가와 면접 연습이 동작하고, 다 끝나면 줄이 사라진다', (tester) async {
+    // 체크리스트의 채용공고와 첫 연습. 첫 연습을 마치면 체크리스트가 사라진다.
+    testWidgets('홈 체크리스트: 공고 추가와 면접 연습이 동작하고, 다 끝나면 체크리스트가 사라진다', (
+      tester,
+    ) async {
       final rig = await pumpIv(tester, route: AppRoute.home, docs: false);
       // 이력서가 없으면 면접 연습 시작이 없다.
       expect(find.text('면접 연습 시작'), findsNothing);
       expect(find.text('준비 1/4'), findsOneWidget);
-      await tap(tester, find.widgetWithText(TextButton, '채용공고'));
+      await tap(tester, find.widgetWithText(TextButton, '공고 붙여넣기'));
       await tester.enterText(find.byType(TextField), '예시페이 백엔드');
       await tester.pumpAndSettle();
       await tap(tester, inDialog('추가'));
       expect(find.text('준비 2/4'), findsOneWidget);
-      expect(find.bySemanticsLabel('채용공고 끝남'), findsOneWidget);
-      // 이력서를 만든 뒤 홈의 주인공 카드에서 면접 탭으로 간다.
-      await tap(tester, find.widgetWithText(TextButton, '새 문서'));
+      expect(find.bySemanticsLabel('채용공고(선택) 끝남'), findsOneWidget);
+      // 이력서를 만든 뒤 홈의 다음 할 일 카드에서 면접 탭으로 간다.
+      await tap(tester, find.widgetWithText(TextButton, '이력서 쓰기'));
       await tap(tester, find.text('홈'));
       expect(find.text('이 이력서로 면접을 연습할 수 있습니다'), findsOneWidget);
       await tap(tester, find.widgetWithText(TextButton, '면접 연습 시작'));
@@ -648,8 +651,9 @@ void main() {
       }
       expect(find.text('연습을 마쳤습니다'), findsNWidgets(2));
       await tap(tester, find.text('홈'));
-      // 네 단계가 모두 끝나 준비 줄을 거둔다. 주장이 없는 이력서라 큰 수 대신 지난 면접의 주제가 한 줄 보인다.
+      // 첫 연습을 마쳐 체크리스트를 거둔다. 주장이 없는 이력서라 내 진척에 큰 수 대신 지난 면접의 주제가 한 줄 보인다.
       expect(find.textContaining('준비 '), findsNothing);
+      expect(find.text('처음 시작하기'), findsNothing);
       expect(find.text('이력서에서 연결된 주제를 찾지 못했습니다'), findsOneWidget);
       expect(find.textContaining('B-트리 인덱스 깊이 0/3단계'), findsOneWidget);
       expect(rig.fake.iv.sessions.values.single['status'], 'done');

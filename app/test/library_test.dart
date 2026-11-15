@@ -7,6 +7,7 @@
 // SHOT_DIR을 주면 화면 그림을 real-*.png로 쓴다.
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -155,6 +156,9 @@ Future<void> openMore(WidgetTester tester, String name) async {
       matching: find.byTooltip('더 보기'),
     );
     if (more.evaluate().length == 1) {
+      // 홈이 창보다 길면 그 줄이 보이게 굴린 뒤 누른다.
+      await tester.ensureVisible(more);
+      await tester.pumpAndSettle();
       await tester.tap(more);
       await tester.pumpAndSettle();
       return;
@@ -303,35 +307,40 @@ void main() {
   });
 
   group('홈', () {
-    // 홈: 주인공 카드 하나(채운 단추 하나), 준비 줄, 문서, 공고.
-    testWidgets('문서가 없으면 주인공은 "이력서부터 씁니다"와 새 문서이고, 준비 줄의 단계를 누를 수 있다', (
+    // 홈: 다음 할 일 카드 하나(채운 단추 하나), 첫 실행 체크리스트, 내 진척, 문서, 공고.
+    testWidgets('문서가 없으면 다음 할 일은 "이력서부터 씁니다"와 이력서 쓰기이고, 체크리스트의 단계를 누를 수 있다', (
       tester,
     ) async {
       await pumpReal(tester, seed: false);
       expect(find.text('이력서부터 씁니다'), findsOneWidget);
       expect(find.text('준비 0/4'), findsOneWidget);
-      // 채운 단추는 새 문서 하나, 그 옆에 조용한 가져오기와 새 캔버스. 준비 줄의 넷과 공고 추가.
-      // 문서가 없으면 문서 구역을 두지 않는다.
-      expect(find.byType(TextButton), findsNWidgets(8));
-      expect(button(tester, '새 문서').onPressed, isNotNull);
-      expect(button(tester, '가져오기…').onPressed, isNotNull);
-      expect(button(tester, '새 캔버스').onPressed, isNotNull);
-      for (final step in ['이력서', 'AI 연결', '채용공고', '첫 연습']) {
-        expect(button(tester, step).onPressed, isNotNull, reason: step);
+      // 채운 단추는 이력서 쓰기 하나, 그 옆에 조용한 가져오기와 새 캔버스. 체크리스트의 글 단추 셋과 공고 추가.
+      // 문서가 없으면 문서 구역을 두지 않는다. 다음 할 일 카드가 맡은 단계(이력서 쓰기)는 체크리스트에 단추가 없다.
+      expect(find.byType(TextButton), findsNWidgets(7));
+      for (final label in [
+        '이력서 쓰기',
+        '가져오기…',
+        '새 캔버스',
+        '견본으로 시작',
+        'AI 연결하기',
+        '공고 붙여넣기',
+        '공고 추가',
+      ]) {
+        expect(button(tester, label).onPressed, isNotNull, reason: label);
       }
-      expect(button(tester, '공고 추가').onPressed, isNotNull);
       expect(find.text('면접 연습 시작'), findsNothing);
       expect(find.textContaining('휴지통'), findsNothing);
     });
 
-    testWidgets('키가 없고 문서가 있으면 가장 최근 흐름 문서가 이끌고, 목록에는 모든 문서가 있다', (
+    testWidgets('키가 없고 문서가 있으면 다음 할 일은 AI 연결이고, 목록에는 모든 문서가 있다', (
       tester,
     ) async {
       await pumpReal(tester);
-      expect(find.text('최근에 고친 문서'), findsOneWidget);
-      // 주인공 카드와 목록, 준비 줄(이력서 ✓)
-      expect(find.text('이력서'), findsNWidgets(3));
-      expect(find.text('글 문서 · 오늘 14:20'), findsNWidgets(2));
+      // 다음 할 일은 AI 연결이고, 글 단추 "이어서 쓰기"가 가장 최근 흐름 문서를 연다.
+      expect(find.text('AI를 연결하면 면접을 연습할 수 있습니다'), findsOneWidget);
+      // 목록과 체크리스트(이력서 ✓)
+      expect(find.text('이력서'), findsNWidgets(2));
+      expect(find.text('글 문서 · 오늘 14:20'), findsOneWidget);
       expect(find.text('이어서 쓰기'), findsOneWidget);
       expect(find.text('글 문서 · 어제'), findsOneWidget);
       expect(find.text('캔버스 · 11월 8일'), findsOneWidget);
@@ -344,18 +353,49 @@ void main() {
       expect(find.text('채용공고'), findsWidgets);
     });
 
-    testWidgets('새 문서를 누르면 "제목 없는 문서"를 만들고 문서 화면으로 간다', (tester) async {
+    testWidgets('이력서 쓰기를 누르면 "제목 없는 문서"를 만들고 문서 화면으로 간다', (tester) async {
       final rig = await pumpReal(tester, seed: false);
-      await tester.tap(find.text('새 문서'));
+      await tester.tap(find.text('이력서 쓰기'));
       await tester.pumpAndSettle();
       expect(find.text('제목 없는 문서'), findsOneWidget);
       expect(find.text('글 문서'), findsOneWidget);
       expect(rig.fake.docs.values.single['name'], '제목 없는 문서');
-      // 홈으로 돌아가면 이끄는 카드와 목록에 있다.
+      // 홈으로 돌아가면 목록에 있고, 다음 할 일 카드의 이어서 쓰기가 그 문서를 연다.
       await tester.tap(find.text('홈'));
       await tester.pumpAndSettle();
-      expect(find.text('제목 없는 문서'), findsNWidgets(2));
+      expect(find.text('제목 없는 문서'), findsOneWidget);
       expect(find.text('이어서 쓰기'), findsOneWidget);
+    });
+
+    test('견본 만들기: 두 번 겹쳐 불러도 각자의 파일로 넣고, 잠깐 쓴 폴더를 남기지 않는다', () async {
+      final out = Directory.systemTemp.createTempSync('kari-sample');
+      addTearDown(() => out.deleteSync(recursive: true));
+      final rig = Rig(outDir: out.path);
+      rig.fake.importAny = {'lost': []};
+      await rig.library.open();
+      final ids = await Future.wait([
+        rig.library.createSample(),
+        rig.library.createSample(),
+      ]);
+      expect(rig.library.error, isNull);
+      expect(ids.toSet().length, 2);
+      final paths = [for (final c in rig.fake.importCalls) c['path'] as String];
+      expect(paths.toSet().length, 2, reason: '$paths');
+      expect(out.listSync(), isEmpty);
+    });
+
+    test('견본 만들기: 파일을 쓰지 못하면 오류 한 줄로 알린다', () async {
+      final parent = Directory.systemTemp.createTempSync('kari-sample');
+      addTearDown(() => parent.deleteSync(recursive: true));
+      final blocked = '${parent.path}/out';
+      final rig = Rig(outDir: blocked);
+      rig.fake.importAny = {'lost': []};
+      await rig.library.open();
+      // 열 때 폴더를 비운 뒤, 폴더 자리에 파일이 생겨 폴더를 만들 수 없다.
+      File(blocked).writeAsStringSync('x');
+      expect(await rig.library.createSample(), isNull);
+      expect(rig.library.error?.code, 'io');
+      expect(rig.fake.importCalls, isEmpty);
     });
 
     test('같은 이름이 있으면 "제목 없는 문서 2"처럼 번호를 붙인다', () async {
@@ -388,8 +428,8 @@ void main() {
       await tester.tap(find.text('저장'));
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
-      // 고친 문서가 가장 최근 것이 되어 주인공 카드에도 놓인다.
-      expect(find.text('경력기술서 2026'), findsNWidgets(2));
+      // 고친 문서가 가장 최근 것이 되어 목록의 이름이 바뀐다(키가 없어 다음 할 일 카드는 AI 연결이다).
+      expect(find.text('경력기술서 2026'), findsOneWidget);
       expect(rig.fake.docs.values.where((d) => d['name'] == '경력기술서'), isEmpty);
     });
 
@@ -710,12 +750,83 @@ void main() {
       expect(rig.fake.docs.values.first['name'], '이력서 최종');
     });
 
-    testWidgets('연 문서가 없으면 고르라고 안내하고 새 문서를 만들 수 있다', (tester) async {
+    testWidgets('연 문서가 없으면 문서 목록을 보이고 새 문서를 만들 수 있다', (tester) async {
       await pumpReal(tester, route: AppRoute.editor);
-      expect(find.text('홈에서 문서를 고르거나 새 문서를 만드세요'), findsOneWidget);
+      // 막다른 안내가 아니라 모든 문서와 채용공고의 목록이다. 홈의 다음 할 일 카드는 없다.
+      expect(find.text('홈에서 문서를 고르거나 새 문서를 만드세요'), findsNothing);
+      for (final name in ['이력서', '경력기술서', '포트폴리오']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      expect(find.text('다음 할 일'), findsNothing);
       await tester.tap(find.text('새 문서'));
       await tester.pumpAndSettle();
       expect(find.text('제목 없는 문서'), findsOneWidget);
+    });
+  });
+
+  group('옆 메뉴', () {
+    testWidgets('문서는 연 문서에서도 문서와 채용공고의 목록으로 간다', (tester) async {
+      await pumpReal(tester);
+      await tester.tap(find.text('이어서 쓰기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NameField), findsOneWidget);
+      await tester.tap(find.text('문서'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NameField), findsNothing);
+      for (final name in ['이력서', '경력기술서', '포트폴리오']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      expect(find.text('채용공고'), findsOneWidget);
+      // 목록에서 문서를 고르면 연다.
+      await tester.tap(find.text('경력기술서'));
+      await tester.pumpAndSettle();
+      expect(find.byType(NameField), findsOneWidget);
+    });
+
+    testWidgets('홈은 최근 문서 다섯을 보이고, 나머지는 모두 보기에 있다', (tester) async {
+      final rig = Rig();
+      await rig.seed();
+      for (var i = 1; i <= 4; i++) {
+        await rig.add('메모 $i', DateTime(2026, 10, i));
+      }
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      // 살아 있는 문서는 일곱, 홈에는 최근 다섯.
+      expect(find.text('메모 2'), findsNothing);
+      expect(find.text('메모 1'), findsNothing);
+      final all = find.widgetWithText(TextButton, '문서 모두 보기 (7)');
+      await tester.ensureVisible(all);
+      await tester.pumpAndSettle();
+      await tester.tap(all);
+      await tester.pumpAndSettle();
+      for (final name in ['이력서', '메모 2', '메모 1']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      expect(find.textContaining('모두 보기'), findsNothing);
+      expect(find.text('다음 할 일'), findsNothing);
+    });
+
+    testWidgets('좁은 창에서도 메뉴 이름이 보이고, 툴팁과 읽는 이름도 그대로다', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpReal(tester, size: sizes[0]);
+      expect(sizes[0].width, lessThan(Breakpoints.wideNav));
+      expect(find.text('Kari'), findsOneWidget);
+      for (final r in AppRoute.values) {
+        expect(find.text(r.label), findsWidgets, reason: r.label);
+        expect(find.byTooltip(r.label), findsOneWidget, reason: r.label);
+        expect(find.bySemanticsLabel(r.label), findsWidgets, reason: r.label);
+      }
+      // 이름이 메뉴 칸 안에 들어간다(잘리지 않는다).
+      final nav = tester.getRect(find.byTooltip('리포트'));
+      final label = tester.getRect(
+        find.descendant(of: find.byTooltip('리포트'), matching: find.text('리포트')),
+      );
+      expect(
+        nav.contains(label.topLeft) &&
+            nav.contains(label.bottomRight - const Offset(1, 1)),
+        isTrue,
+      );
+      h.dispose();
     });
   });
 
@@ -783,7 +894,8 @@ void main() {
     await area('면접 기본값');
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
-    expect(rig.fake.settings, {'interview.gaze': false});
+    // 시선 기록은 기본값이 끔이라 한 번 누르면 켬으로 저장된다.
+    expect(rig.fake.settings, {'interview.gaze': true});
     // 같은 엔진을 새 라이브러리로 다시 연다.
     await tester.pumpWidget(const SizedBox());
     await pumpApp(
@@ -792,7 +904,7 @@ void main() {
       sizes[1],
       library: Library(rig.fake, dir, now: () => today),
     );
-    // 스위치는 구역 차례로 시선 기록(끈 값)과 입력하면서 자동 서식(켬) 둘이다. 연락처 가리기는 끌 수 없고, 엔진이 가리는 것을 그대로 알린다.
+    // 스위치는 구역 차례로 시선 기록(켠 값)과 입력하면서 자동 서식(켬) 둘이다. 연락처 가리기는 끌 수 없고, 엔진이 가리는 것을 그대로 알린다.
     final switches = <bool>[];
     for (final a in SettingsArea.values) {
       await area(a.label);
@@ -805,11 +917,90 @@ void main() {
       }
     }
     // 업데이트의 자동 확인은 macOS 쪽이 있을 때만 보여 이 시험에는 없다.
-    expect(switches, [isFalse, isTrue]);
+    expect(switches, [isTrue, isTrue]);
     await area('개인정보');
     expect(find.text('연락처 가리기'), findsOneWidget);
     expect(tester.widget<InfoTip>(find.byType(InfoTip)).message, maskNote);
     expect(find.textContaining('주소를 가린'), findsNothing);
+  });
+
+  testWidgets('키는 있어도 일에 고른 제공사의 키가 없으면: 홈은 그 사실과 AI 모델 열기, 면접의 설정 열기는 AI 연결', (
+    tester,
+  ) async {
+    final rig = Rig();
+    await rig.seed();
+    await rig.fake.libOpen(dir);
+    await rig.fake.aiSetKey('anthropic', 'sk-ant-test');
+    // 키는 있지만 채점이 키 없는 OpenAI를 골라 면접은 시작할 수 없다.
+    await rig.fake.settingsSet('ai.task.grade', {
+      'provider': 'openai',
+      'family': 'luna',
+      'effort': 'medium',
+    });
+    await tester.pumpWidget(const SizedBox());
+    await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+    expect(rig.library.anyKey, isTrue);
+    expect(rig.library.connected, isFalse);
+    bool aiShown() =>
+        find.widgetWithText(TextButton, 'OpenAI 키 넣기').evaluate().isNotEmpty ||
+        find.textContaining('키 없음').evaluate().isNotEmpty;
+    Future<void> pickPrivacy() async {
+      await tester.tap(find.widgetWithText(InkWell, '개인정보'));
+      await tester.pumpAndSettle();
+      expect(find.text('연락처 가리기'), findsOneWidget);
+    }
+
+    // 면접을 시작할 수 없으면 설정을 그냥 열어도 AI 연결이다(마지막에 본 구역은 면접을 할 수 있을 때만).
+    await pickPrivacy();
+    await tester.tap(find.text('홈'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('설정'));
+    await tester.pumpAndSettle();
+    expect(find.text('연락처 가리기'), findsNothing);
+    expect(aiShown(), isTrue);
+    // 홈: 키는 있으므로 체크리스트의 AI 연결은 끝났고, 다음 할 일은 어긋난 일을 고치러 AI 모델 구역으로 간다.
+    await tester.tap(find.text('홈'));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
+    expect(find.text('면접의 일에 고른 AI의 키가 없습니다'), findsOneWidget);
+    expect(find.text('AI를 연결하면 면접을 연습할 수 있습니다'), findsNothing);
+    expect(find.widgetWithText(TextButton, 'AI 연결하기'), findsNothing);
+    await tester.tap(find.widgetWithText(TextButton, 'AI 모델 열기'));
+    await tester.pumpAndSettle();
+    expect(find.text('연락처 가리기'), findsNothing);
+    expect(find.text('답변 채점'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'OpenAI 키 넣기'), findsNothing);
+    // 면접 화면의 "AI 연결이 필요합니다" → 설정 열기도 같다.
+    await pickPrivacy();
+    await tester.tap(find.text('면접'));
+    await tester.pumpAndSettle();
+    expect(find.text('AI 연결이 필요합니다'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '설정 열기'));
+    await tester.pumpAndSettle();
+    expect(find.text('연락처 가리기'), findsNothing);
+    expect(aiShown(), isTrue);
+  });
+
+  testWidgets('설정 견본 상태의 시선 기록도 기본값(끔)이고, 설명은 권한을 묻는 때를 알린다', (tester) async {
+    await pumpApp(tester, AppRoute.settings, sizes[1]);
+    await tester.tap(find.widgetWithText(InkWell, '면접 기본값'));
+    await tester.pumpAndSettle();
+    final row = find.ancestor(
+      of: find.text('시선 기록'),
+      matching: find.byType(SwitchRow),
+    );
+    expect(
+      tester
+          .widget<Switch>(
+            find.descendant(of: row, matching: find.byType(Switch)),
+          )
+          .value,
+      isFalse,
+    );
+    expect(
+      tester.widget<SwitchRow>(row).caption,
+      allOf(contains('처음 켤 때 macOS가 카메라 권한을 묻습니다'), contains('기본값 끔')),
+    );
   });
 
   group('넘침과 키보드', () {
@@ -891,8 +1082,12 @@ void main() {
         );
         await tester.tap(find.byIcon(Icons.home_outlined));
         await tester.pumpAndSettle();
+        // 홈이 창보다 길어 휴지통 단추가 보이게 굴린 뒤 누른다.
+        await tester.ensureVisible(find.text('휴지통 1개'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('휴지통 1개'));
         await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
     });

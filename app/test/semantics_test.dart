@@ -115,7 +115,8 @@ void main() {
       expect(find.text('업데이트와 정보'), findsOneWidget);
       tester.semantics.tap(find.semantics.byLabel('홈'));
       await tester.pumpAndSettle();
-      expect(find.text('면접 연습 시작'), findsOneWidget);
+      // 견본에는 설명하지 못한 문장이 있어 홈의 다음 할 일이 이것이다.
+      expect(find.text('약한 문장 다시 연습'), findsOneWidget);
       h.dispose();
     });
 

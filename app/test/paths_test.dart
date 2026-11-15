@@ -123,17 +123,18 @@ void main() {
       expect(find.widgetWithText(TextButton, '이력서'), findsOneWidget);
       expect(find.widgetWithText(TextButton, '모아커머스 백엔드'), findsOneWidget);
       expect(years(tester), 'new');
-      expect(find.text('15분 · 면접 분위기 실전 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 실전 · 시선 기록 끔'), findsOneWidget);
     });
 
-    testWidgets('홈의 "면접 연습 시작"도 마친 연습을 닫고 준비 화면으로 간다', (tester) async {
+    testWidgets('홈의 다음 할 일(약한 문장 다시 연습)도 마친 연습을 닫고 준비 화면으로 간다', (tester) async {
       await pumpIv(tester);
       await startFirst(tester);
       await answer(tester, '한 번 답합니다');
       await finish(tester);
       expect(find.text('연습을 마쳤습니다'), findsNWidgets(2));
       await tap(tester, find.text('홈'));
-      await tap(tester, find.widgetWithText(TextButton, '면접 연습 시작'));
+      expect(filledLabels(tester), ['약한 문장 다시 연습']);
+      await tap(tester, find.widgetWithText(TextButton, '약한 문장 다시 연습'));
       expect(find.text('연습을 마쳤습니다'), findsNothing);
       expect(find.text('보내는 내용 보기'), findsOneWidget);
     });
@@ -230,7 +231,7 @@ void main() {
       await tap(tester, find.text('설정'));
       await tap(tester, find.text('면접'));
       expect(years(tester), 'new');
-      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 끔'), findsOneWidget);
       expect(
         (
           rig.fake.settings['interview.years'],
@@ -248,7 +249,7 @@ void main() {
         library: Library(rig.fake, dir, now: () => today),
       );
       expect(years(tester), 'new');
-      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('15분 · 면접 분위기 코칭 · 시선 기록 끔'), findsOneWidget);
     });
 
     testWidgets('저장된 값이 고를 수 없는 것이면 기본값으로 시작한다', (tester) async {
@@ -261,7 +262,7 @@ void main() {
         },
       );
       expect(years(tester), 'junior');
-      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 켬'), findsOneWidget);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 끔'), findsOneWidget);
     });
   });
 
@@ -504,20 +505,29 @@ void main() {
       expect(find.text('되돌리기'), findsNothing);
     });
 
-    testWidgets('준비 줄은 면접이 다루는 직무를 알리고, 채용공고 없이 첫 연습을 마치면 사라진다', (
-      tester,
-    ) async {
-      await pumpIv(tester, route: AppRoute.home, size: small);
-      expect(find.text('준비 2/4'), findsOneWidget);
-      expect(find.text('면접 연습은 백엔드 개발 직무용입니다'), findsOneWidget);
-      final rig = await pumpIv(
-        tester,
-        route: AppRoute.home,
-        setup: (r) => practiced(r),
-      );
-      expect(rig.fake.iv.postings, isEmpty);
-      expect(find.textContaining('준비 '), findsNothing);
-    });
+    testWidgets(
+      '홈 맨 위 한 줄이 앱이 하는 일(백엔드 개발 직무)을 알리고, 체크리스트는 채용공고 없이 첫 연습을 마치면 사라진다',
+      (tester) async {
+        await pumpIv(tester, route: AppRoute.home, size: small);
+        expect(find.text('준비 2/4'), findsOneWidget);
+        expect(
+          find.text(
+            keepAll('내 이력서로 백엔드 개발 직무의 기술 면접을 글로 연습하고, 리포트를 보며 이력서를 고칩니다.'),
+          ),
+          findsOneWidget,
+        );
+        final rig = await pumpIv(
+          tester,
+          route: AppRoute.home,
+          setup: (r) => practiced(r),
+        );
+        expect(rig.fake.iv.postings, isEmpty);
+        expect(find.textContaining('준비 '), findsNothing);
+        expect(find.text('처음 시작하기'), findsNothing);
+        // 맨 위 한 줄은 그대로 남는다.
+        expect(find.textContaining(keepAll('백엔드 개발 직무')), findsOneWidget);
+      },
+    );
 
     testWidgets('먼저 준비할 문장 줄은 쉬는 상태에서도 누를 수 있어 보인다', (tester) async {
       await pumpHome(tester, homeStates[1], size: small);

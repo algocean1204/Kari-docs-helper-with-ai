@@ -3,8 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart';
 import 'package:kari/gaze.dart';
+import 'package:kari/library.dart' show Setting;
 import 'package:kari/main.dart';
 
 import 'design_test.dart' show loadFonts, pumpApp, sizes;
@@ -193,10 +195,12 @@ void main() {
   group('화면, 카메라 없이도 진행', () {
     setUpAll(loadFonts);
 
+    /// 카메라를 끼운 앱. [saved]가 있으면 시선 기록을 그 값으로 저장해 둔 사람이다(없으면 처음 쓰는 사람).
     Future<(Rig, FakeCamera)> withCamera(
       WidgetTester tester, {
       String status = 'authorized',
       String start = 'on',
+      bool? saved = true,
     }) async {
       final cam = FakeCamera()
         ..status_ = status
@@ -204,10 +208,45 @@ void main() {
       final rig = await pumpIv(
         tester,
         size: small, // 가장 작은 창에서도 표시와 단추가 넘치지 않는다
-        setup: (r) async => r.library.camera = cam,
+        setup: (r) async {
+          r.library.camera = cam;
+          if (saved != null) await r.fake.settingsSet('interview.gaze', saved);
+        },
       );
       return (rig, cam);
     }
+
+    testWidgets('처음 쓰는 사람은 기본값 끔: 카메라를 열지 않아 권한을 묻지 않는다', (tester) async {
+      final (rig, cam) = await withCamera(tester, saved: null);
+      expect(rig.library.get<bool>(Setting.gaze), isFalse);
+      await openOptions(tester);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 끔'), findsOneWidget);
+      expect(
+        find.textContaining(keepAll('처음 켤 때 macOS가 카메라 권한을 묻습니다')),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is InfoTip && w.message.contains('기본값 끔'),
+        ),
+        findsOneWidget,
+      );
+      await startFirst(tester);
+      expect(find.text('질문 1'), findsOneWidget);
+      expect(cam.calls, isNot(contains('start')), reason: '권한 창을 띄우지 않는다');
+      expect(find.text('시선 기록 중'), findsNothing);
+      expect(rig.fake.settings.containsKey('interview.gaze'), isFalse);
+    });
+
+    testWidgets('켜 둔 값을 저장한 사람은 그대로 켬: 시작하면 카메라를 연다', (tester) async {
+      final (rig, cam) = await withCamera(tester);
+      expect(rig.library.get<bool>(Setting.gaze), isTrue);
+      await openOptions(tester);
+      expect(find.text('10분 · 면접 분위기 표준 · 시선 기록 켬'), findsOneWidget);
+      await startFirst(tester);
+      expect(cam.calls, contains('start'));
+      expect(find.text('시선 기록 중'), findsOneWidget);
+    });
 
     testWidgets('준비 화면의 켬/끔: 끄면 카메라를 열지 않는다', (tester) async {
       final (rig, cam) = await withCamera(tester);

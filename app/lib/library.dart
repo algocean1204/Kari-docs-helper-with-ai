@@ -254,6 +254,38 @@ class Library extends ChangeNotifier {
     return r;
   }
 
+  /// 견본 이력서(지어낸 인물)로 새 글 문서를 만들고 그 id를 돌려준다. 실패하면 null([error]에 남는다).
+  /// 파일 가져오기와 같은 길(HTML)로 넣는다. 잠깐 쓰는 파일은 부를 때마다 새 폴더에 두고 폴더째 지운다
+  /// (빠르게 두 번 눌러도 서로의 파일을 지우지 않는다).
+  Future<int?> createSample() async {
+    int? id;
+    await _run(() async {
+      Directory? tmp;
+      try {
+        tmp = (Directory(
+          outDir,
+        )..createSync(recursive: true)).createTempSync('sample-');
+        final file = File('${tmp.path}/견본 이력서.html')
+          ..writeAsStringSync(sampleResumeHtml);
+        final r = await engine.importApply(
+          file.path,
+          _freeName('견본 이력서'),
+          styles: newDocStyles,
+        );
+        id = r['id'] as int;
+      } on FileSystemException catch (e) {
+        throw EngineError('io', '견본 파일을 쓰지 못했습니다: ${e.message}');
+      } finally {
+        try {
+          tmp?.deleteSync(recursive: true);
+        } on FileSystemException {
+          // 지우지 못한 폴더는 앱을 다시 켤 때 [clearOut]이 지운다.
+        }
+      }
+    });
+    return id;
+  }
+
   /// 캔버스 문서 "제목 없는 캔버스"(대지 하나)를 만들고 그 id를 돌려준다. 실패하면 null.
   Future<int?> createCanvas() async {
     int? id;
@@ -500,6 +532,23 @@ class Library extends ChangeNotifier {
   }
 }
 
+/// 견본 이력서. 인물, 회사, 연락처는 지어낸 것이다. 면접이 물을 문장(쓴 기술, 겪은 문제, 낸 결과)이 들어 있다.
+const sampleResumeHtml = '''<!doctype html>
+<html><head><meta charset="utf-8"><title>견본 이력서</title></head><body>
+<h1>김서연</h1>
+<p>백엔드 개발자 · seoyeon@example.com · 010-0000-0000</p>
+<h2>경력</h2>
+<h3>견본상사 · 서버 개발 (2023~2024)</h3>
+<ul>
+<li>주문 조회 API가 2초 넘게 걸려, 실행 계획을 보고 복합 인덱스를 더해 120ms로 줄였습니다.</li>
+<li>결제 API의 멱등성을 보장하기 위해 요청 키와 상태 머신을 함께 사용했습니다.</li>
+<li>Redis 캐시 무효화 전략을 TTL과 이벤트 기반으로 나누어 적용했습니다.</li>
+</ul>
+<h2>기술</h2>
+<p>Java, Spring, MySQL, Redis</p>
+</body></html>
+''';
+
 /// 저장 위치를 고른다. [name]은 기본 파일 이름이고, 고르면 절대 경로, 취소하면 null.
 typedef SavePath = Future<String?> Function(String name);
 
@@ -529,7 +578,8 @@ Future<String?> pickImportPath() =>
 
 /// 설정 화면이 저장하는 값. 이름은 엔진의 `settings` 표에 들어가는 키다.
 enum Setting {
-  gaze('interview.gaze', true),
+  /// 시선 기록. 처음 쓰는 사람에게 카메라 권한부터 묻지 않게 기본값은 끔이다. 저장한 값이 있으면 그 값을 쓴다.
+  gaze('interview.gaze', false),
 
   /// 처음 면접을 시작할 때 "보내는 내용 보기"를 보고 시작했는지.
   previewSeen('interview.previewSeen', false),
