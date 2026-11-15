@@ -168,7 +168,7 @@ fn headers<B>(req: RequestBuilder<B>, key: &str) -> RequestBuilder<B> {
 pub const FAMILIES: [&str; 3] = ["haiku", "sonnet", "opus"];
 
 /// 추정 비용(미화). 백만 토큰당 (입력, 캐시 읽기, 출력), 2026-11-13에 공식 가격 페이지에서 확인한 값.
-/// 5분 캐시 쓰기는 입력의 1.25배. 판이 표에 없으면 `None`(지어내지 않는다).
+/// 캐시 쓰기는 5분 수명이 입력의 1.25배, 1시간 수명이 2배. 판이 표에 없으면 `None`(지어내지 않는다).
 // 한계: Haiku 5.5는 프롬프트가 10만 토큰을 넘으면 5배 값이다, 면접 호출은 그보다 훨씬 작아 한 값만 둔다
 pub(crate) fn cost(u: &Usage, model: &str) -> Option<f64> {
     let (inp, read, out) = match model {
@@ -180,7 +180,8 @@ pub(crate) fn cost(u: &Usage, model: &str) -> Option<f64> {
     let tokens = u.input as f64 * inp
         + u.output as f64 * out
         + u.cache_read as f64 * read
-        + u.cache_write as f64 * inp * 1.25;
+        + u.cache_write.saturating_sub(u.cache_write_1h) as f64 * inp * 1.25
+        + u.cache_write_1h.min(u.cache_write) as f64 * inp * 2.0;
     Some(tokens / 1_000_000.0)
 }
 
@@ -243,6 +244,7 @@ mod tests {
             output: 1_000_000,
             cache_read: 1_000_000,
             cache_write: 1_000_000,
+            cache_write_1h: 0,
             thinking: 0,
         };
         let near = |m: &str, want: f64| {
@@ -253,6 +255,14 @@ mod tests {
         near("claude-sonnet-5-5", 2.0 + 10.0 + 0.10 + 2.5);
         near("claude-opus-5-5", 4.0 + 20.0 + 0.20 + 5.0);
         assert_eq!(cost(&u, "claude-fable-5-2"), None);
+        // 쓰기의 절반이 1시간 수명이면 그 절반은 입력의 2배다.
+        let u = Usage {
+            cache_write_1h: 500_000,
+            ..u
+        };
+        let c = cost(&u, "claude-haiku-5-5").unwrap();
+        let want = 0.10 + 0.50 + 0.01 + 0.5 * 0.10 * 1.25 + 0.5 * 0.10 * 2.0;
+        assert!((c - want).abs() < 1e-9, "{c}");
     }
 
     fn pick(list: &[ModelInfo], family: &str) -> Option<String> {

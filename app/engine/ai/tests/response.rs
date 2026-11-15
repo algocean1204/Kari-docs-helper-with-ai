@@ -91,6 +91,7 @@ fn text_after_thinking() {
             output: 20,
             cache_read: 5,
             cache_write: 2,
+            cache_write_1h: 0,
             thinking: 0
         }
     );
