@@ -1,6 +1,6 @@
 # 배포: dmg 만들기와 서명
 
-`app/scripts/package_dmg.sh`가 릴리스 빌드부터 dmg 확인까지 한 번에 합니다. 결과는 `.cache/dist/Kari-<판>-beta-arm64.dmg`이고, 판은 `app/pubspec.yaml`의 `version`입니다.
+`app/scripts/package_dmg.sh`가 릴리스 빌드부터 dmg 확인까지 한 번에 한다. 결과는 `.cache/dist/Kari-<판>-beta-arm64.dmg`이고, 판은 `app/pubspec.yaml`의 `version`이다.
 
 ```bash
 app/scripts/package_dmg.sh                      # 지금 커밋(HEAD)의 사본에서 빌드부터
