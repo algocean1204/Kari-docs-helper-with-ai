@@ -19,4 +19,4 @@
 | | [contributing/release.md](contributing/release.md) | dmg 만들기와 서명 |
 | 모두 | [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) | 앱에 함께 배포되는 제3자 코드와 글꼴의 고지 |
 
-판마다 바뀐 것은 [릴리스](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases) 글에 있습니다. 저장소의 다른 글: [README.md](../README.md), [LICENSE](../LICENSE), [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md), [.github/SECURITY.md](../.github/SECURITY.md), [.github/CODE_OF_CONDUCT.md](../.github/CODE_OF_CONDUCT.md).
+판마다 바뀐 것은 [릴리스](https://github.com/algocean1204/Kari-docs-helper-with-ai/releases) 글에 있다. 저장소의 다른 글: [README.md](../README.md), [LICENSE](../LICENSE), [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md), [.github/SECURITY.md](../.github/SECURITY.md), [.github/CODE_OF_CONDUCT.md](../.github/CODE_OF_CONDUCT.md).

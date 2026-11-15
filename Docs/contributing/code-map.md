@@ -1,6 +1,6 @@
 # 코드 지도
 
-무엇을 고치려면 어디를 보는지 정리한 표입니다. 구조의 설명은 [architecture/overview.md](../architecture/overview.md)에 있습니다.
+무엇을 고치려면 어디를 보는지 정리한 표이다. 구조의 설명은 [architecture/overview.md](../architecture/overview.md)에 있다.
 
 ## 저장소 구성
 
