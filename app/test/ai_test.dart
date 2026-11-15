@@ -278,8 +278,8 @@ void main() {
   });
 
   group('키 넣기 반응형', () {
-    const fakeKey = 'sk-ant-test-0000000000000000';
-    const fakeOpenai = 'sk-test-0000000000000000';
+    final fakeKey = 'sk-ant-test-${'0' * 16}';
+    final fakeOpenai = 'sk-test-${'0' * 16}';
 
     testWidgets('칸 위의 이름표, 안내 글, 붙여넣기 단추', (tester) async {
       await pumpAi(tester);
