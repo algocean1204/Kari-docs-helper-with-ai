@@ -16,6 +16,7 @@ mod import;
 mod iv;
 mod library;
 mod pdf;
+mod place;
 mod session;
 mod state;
 mod styles;
@@ -49,6 +50,9 @@ fn handle(request: Option<&str>) -> Res {
     }
     if matches!(m, "ai.tasks" | "ai.setTask" | "ai.resetTasks") {
         return task::dispatch(m, &Args(a));
+    }
+    if m == "ai.place" {
+        return place::dispatch(m, &Args(a));
     }
     if m.starts_with("ai.") {
         return ai::dispatch(m, &Args(a));

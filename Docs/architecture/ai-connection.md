@@ -71,6 +71,13 @@ flowchart LR
 - **고정**: 세션을 시작할 때 일마다의 (제공사, 판, 강도)를 세션 상태의 `models`에 적고, 이어 가기를 포함해 세션이 끝날 때까지 그 값으로 부른다. 한 세션 안에서 일마다 다른 제공사를 쓸 수 있다. 리포트의 `이번 연습`에 이 판들이 실린다.
 - **키 확인**: 모델을 부르는 `iv.*`(`iv.start`, `iv.answer`, `iv.resume` 등)는 세션이 쓰는 제공사마다 확인된 키가 있는지 보고, 없으면 `no_key`로 멈춘다. 다른 제공사로 넘어가지 않는다. `iv.preview`는 일마다의 제공사, 판, 실제로 보낼 강도, 키가 있는지와 모두 갖춰졌는지(`ready`)를 돌려준다.
 
+### Figma 자리 정하기
+
+`app/engine/ffi/src/place.rs`. `ai.place {summary, instruction}`은 Figma로 보낼 때 놓을 자리만 묻는다. 면접의 일과 따로 고르지 않는다: Claude 키가 있으면 Claude, 없으면 OpenAI의 첫 계열(`haiku`, `luna`)의 가장 새 판을 낮은 강도로 한 번에 받기(`send`)로 부른다(`task.rs`의 `place_model`). 키가 하나도 없으면 `no_key`.
+
+- 보내는 글은 앱이 만든 요약(대지의 크기와 노드 수, 종류마다의 수, Figma 페이지 이름, 빈 자리)과 지시 글뿐이다. 요약은 20,000자, 지시는 2,000자까지 받는다.
+- 받을 모양 `{page, newPage, x, y, scale, frameName}`을 구조화된 출력으로 함께 보낸다. 답 글은 그대로 돌려주고, 칸과 값의 범위는 앱(`app/lib/figma/convert.dart`의 `Placement.parse`)이 본다.
+
 ### 추정 비용
 
 `app/engine/ai/src/types.rs`의 `Usage::cost`가 판 이름으로 `anthropic.rs`와 `openai.rs`의 `cost` 표를 찾는다. 호출마다 응답의 토큰 수로 미화 비용을 셈한다.

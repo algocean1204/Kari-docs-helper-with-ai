@@ -12,6 +12,7 @@ import 'canvas_layers.dart';
 import 'canvas_props.dart';
 import 'canvas_surface.dart';
 import 'doc.dart' show salvageAction, savedWhen;
+import 'figma.dart' show FigmaSendDialog;
 import 'name_field.dart';
 import 'paper.dart' show drawsPaper;
 import 'versions.dart';
@@ -174,6 +175,19 @@ class _CanvasScreenState extends State<CanvasScreen> {
     }
   }
 
+  /// 캔버스를 Figma로 보내는 창. 연결은 설정 → Figma에서 한다.
+  Future<void> _sendToFigma(DocInfo doc) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => FigmaSendDialog(
+        link: widget.library.figma,
+        doc: doc,
+        hasKey: widget.library.anyKey,
+      ),
+    );
+    _focus.requestFocus();
+  }
+
   /// 그림 파일을 고르고 만들기 도구로 건다. 다음에 판을 누르면 그 자리에 놓인다.
   Future<void> _pickImage() async {
     try {
@@ -217,6 +231,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
               versionsOpen: _versions,
               onExport: () => _export(doc),
               onVersions: () => setState(() => _versions = !_versions),
+              onFigma: () => _sendToFigma(doc),
               onNameDone: _focus.requestFocus,
             ),
             _ToolBar(
@@ -301,6 +316,7 @@ class _TopBar extends StatelessWidget {
     required this.versionsOpen,
     required this.onExport,
     required this.onVersions,
+    required this.onFigma,
     required this.onNameDone,
   });
 
@@ -311,6 +327,7 @@ class _TopBar extends StatelessWidget {
   final bool versionsOpen;
   final VoidCallback onExport;
   final VoidCallback onVersions;
+  final VoidCallback onFigma;
 
   /// 이름을 Enter나 Esc로 마쳤을 때 초점을 돌려줄 곳(판).
   final VoidCallback onNameDone;
@@ -379,7 +396,7 @@ class _TopBar extends StatelessWidget {
             onPressed: st == null ? null : onExport,
           ),
           const SizedBox(width: Space.x2),
-          // 문서 메뉴의 항목이 하나뿐이라 그 항목을 단추로 둔다.
+          // 버전 기록은 자주 여는 것이라 단추로 두고, 나머지는 문서 메뉴에 둔다.
           Tooltip(
             message: versionsOpen ? '버전 기록 닫기' : '버전 기록',
             child: AppButton(
@@ -389,6 +406,12 @@ class _TopBar extends StatelessWidget {
               kind: ButtonKind.quiet,
               onPressed: onVersions,
             ),
+          ),
+          const SizedBox(width: Space.x1),
+          MoreMenu(
+            key: const Key('canvas-more'),
+            tooltip: '문서 메뉴',
+            items: [('Figma로 보내기…', st == null ? null : onFigma)],
           ),
         ],
       ),

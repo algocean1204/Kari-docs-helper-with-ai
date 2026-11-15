@@ -55,6 +55,10 @@ class FakeAi {
 
   bool hasKey(String p) => _list(p).isNotEmpty;
 
+  /// `ai.place`가 돌려줄 모델의 답 글과 받은 인자(받은 순서). 시험용.
+  String placeReply = '';
+  final List<Json> placeCalls = [];
+
   /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다(진짜 엔진의 `iv.dashboard`의 `hasKey`).
   bool get ready => tasks.every((t) => hasKey(_choice(t.$1).$1));
 
@@ -214,6 +218,12 @@ class FakeAi {
           'effort': a['effort'],
         };
         return task(id as String);
+      case 'ai.place':
+        if (!hasKey('anthropic') && !hasKey('openai')) {
+          throw const EngineError('no_key', '키가 없습니다. 먼저 키를 넣습니다.');
+        }
+        placeCalls.add(a);
+        return {'text': placeReply};
       case 'ai.resetTasks':
         for (final t in tasks) {
           settings.remove('ai.task.${t.$1}');
