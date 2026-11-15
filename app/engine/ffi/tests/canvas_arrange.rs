@@ -367,16 +367,16 @@ fn 복사한_노드를_같은_문서와_다른_문서에_붙이고_그림_에셋
 }
 
 #[test]
-fn 복사한_문서를_완전히_지운_뒤_같은_번호의_새_문서는_다른_문서로_친다() {
+fn 복사한_문서를_완전히_지운_뒤의_새_문서는_다른_번호이고_다른_문서로_친다() {
     let _c = Case::new("canvas-clip-reuse");
     let a = new_canvas();
     square(a);
     copy(a);
     ok("docs.trash", json!({"id": a}));
     ok("docs.purge", json!({"id": a}));
-    // 문서 번호는 다시 쓰인다(마지막 번호를 지우면 다음 문서가 같은 번호를 받는다).
+    // 마지막 번호를 지워도 다음 문서는 그 번호를 받지 않는다.
     let b = new_canvas();
-    assert_eq!(b, a, "시험의 전제: 같은 번호");
+    assert_ne!(b, a);
     // 새 문서의 대지를 고르고 붙이면 "같은 대지 안에서 비켜 놓기"가 아니라 다른 문서에서 온 것이라 좌표 그대로다.
     let page = ids(b).into_iter().next().unwrap();
     cmd(b, "select", json!({"ids": [page]}));
