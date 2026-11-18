@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kari/design/components.dart' show InfoTip;
+import 'package:kari/design/components.dart' show InfoTip, Segmented;
+import 'package:kari/library.dart' show Setting;
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/main.dart' show AppRoute;
@@ -17,7 +18,7 @@ import 'ai_test.dart' show openArea, openaiKey, pumpAi, tap;
 import 'design_test.dart' show loadFonts, pumpApp, saveShot, sizes;
 import 'library_test.dart' show Rig;
 import 'editor_test.dart' show shortcut;
-import 'interview_test.dart' show small;
+import 'interview_test.dart' show openOptions, small;
 
 /// 오른쪽 구역의 제목(구역 제목 글꼴의 글).
 List<String?> titles(WidgetTester tester) => [
@@ -100,7 +101,14 @@ void main() {
     for (final e in settingEntries) {
       expect(e.note.length, lessThanOrEqualTo(80), reason: e.name);
     }
-    for (final id in ['gaze', 'autoFormat', 'autoUpdate']) {
+    for (final id in [
+      'years',
+      'minutes',
+      'pressure',
+      'gaze',
+      'autoFormat',
+      'autoUpdate',
+    ]) {
       final e = settingEntries.firstWhere((e) => e.id == id);
       expect(e.note, contains('기본값'), reason: id);
     }
@@ -113,7 +121,15 @@ void main() {
       expect(findSettings('figma').map((e) => e.area).toSet(), {
         SettingsArea.figma,
       });
-      expect(findSettings('면접 기본값').map((e) => e.id), ['gaze']);
+      expect(findSettings('면접 기본값').map((e) => e.id), [
+        'years',
+        'minutes',
+        'pressure',
+        'gaze',
+      ]);
+      expect(findSettings('연차').map((e) => e.id), ['years']);
+      expect(findSettings('면접 시간').map((e) => e.id), ['minutes']);
+      expect(findSettings('분위기').map((e) => e.id), ['pressure']);
       expect(findSettings('  '), isEmpty);
       expect(findSettings('없는설정'), isEmpty);
     });
@@ -304,6 +320,81 @@ void main() {
     updates.available = true;
     expect(findSettings('자동으로 업데이트').map((e) => e.id), ['autoUpdate']);
     expect(findSettings('지금 쓰는 버전').map((e) => e.id), ['version']);
+  });
+
+  group('면접 기본값', () {
+    // 면접 준비의 연차(처음 화면에 있다)와 설정의 연차는 둘 다 문자열 선택이라 첫 번째가 연차다.
+    String years(WidgetTester t) => t
+        .widgetList<Segmented<String>>(find.byType(Segmented<String>))
+        .first
+        .value;
+
+    testWidgets('설정에서 바꾸면 면접 준비가 그 값으로 열리고, 면접 준비에서 바꾸면 설정에 그 값이 보인다', (
+      tester,
+    ) async {
+      final rig = await pumpAi(tester, connected: true, seed: true);
+      await openArea(tester, '면접 기본값');
+      expect(years(tester), 'junior');
+      await tap(tester, find.text('4년 이상'));
+      await tap(tester, find.text('15분'));
+      await tap(tester, find.text('실전'));
+      expect(rig.library.get<String>(Setting.ivYears), 'senior');
+      expect(rig.library.get<int>(Setting.ivMinutes), 15);
+      expect(rig.library.get<String>(Setting.ivPressure), 'real');
+
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.interview, sizes[1], library: rig.library);
+      expect(years(tester), 'senior');
+      expect(find.text('15분 · 면접 분위기 실전 · 시선 기록 끔'), findsOneWidget);
+
+      await tap(tester, find.text('1~3년'));
+      await openOptions(tester);
+      await tap(tester, find.text('10분'));
+      await tap(tester, find.text('코칭'));
+      await tester.pumpWidget(const SizedBox());
+      await pumpApp(tester, AppRoute.settings, sizes[1], library: rig.library);
+      await openArea(tester, '면접 기본값');
+      expect(years(tester), 'junior');
+      expect(
+        tester.widget<Segmented<int>>(find.byType(Segmented<int>)).value,
+        10,
+      );
+      expect(
+        tester
+            .widgetList<Segmented<String>>(find.byType(Segmented<String>))
+            .last
+            .value,
+        'coaching',
+      );
+    });
+
+    testWidgets('라이브러리가 없는 견본에서도 고르면 바뀐다', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: const Scaffold(
+            body: SettingsScreen(area: SettingsArea.interview),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tap(tester, find.text('12분'));
+      expect(
+        tester.widget<Segmented<int>>(find.byType(Segmented<int>)).value,
+        12,
+      );
+    });
+
+    testWidgets('좁은 창과 넓은 창, 두 테마에서 가장 긴 설명을 골라도 넘치지 않는다', (tester) async {
+      for (final mode in [ThemeMode.light, ThemeMode.dark]) {
+        for (final size in [small, sizes[2]]) {
+          await pumpAi(tester, connected: true, size: size, mode: mode);
+          await openArea(tester, '면접 기본값');
+          await tap(tester, find.text('코칭'));
+          expect(tester.takeException(), isNull, reason: '${size.width} $mode');
+        }
+      }
+    });
   });
 
   testWidgets('마지막에 본 구역을 다시 열 때 보인다', (tester) async {
