@@ -105,19 +105,28 @@ fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
 /// 파일을 읽는다. 쪽 나무가 읽히지 않으면 상호 참조를 처음부터 다시 찾아 한 번 더 읽는다(거르는 함수를 쓰면
 /// lopdf가 스스로 다시 찾지 않는다). (문서, 남은 예산).
 fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> {
-    // 암호가 걸린 파일은 거르는 함수를 거치지 않고 객체 스트림을 푼다. 그 수를 미리 묶는다.
-    // 한계: 객체 스트림이 많은 암호 PDF는 내용이 작아도 받지 않는다.
-    let has = |pat: &[u8]| bytes.windows(pat.len()).filter(|w| *w == pat).count();
-    if has(b"/Encrypt") > 0 && has(b"/ObjStm") > budget / MAX_OBJSTM {
-        return Err(TOO_BIG);
-    }
+    // 암호가 걸린 파일은 lopdf가 거르는 함수를 거치지 않고, 상호 참조가 가리키는 객체 묶음을 `/Type`을 보지 않고
+    // 푼다. 그래서 묶음 하나를 푸는 크기를 예산 ÷ 파일 안 스트림 수로 묶는다(묶음도 스트림이고, `endstream`은
+    // 이름처럼 탈출해 쓸 수 없다). 암호 표시(`/Encrypt`)는 `#hh`를 풀어 찾는다.
+    // 한계: 스트림이 아주 많은 암호 PDF는 내용이 작아도 받지 않을 수 있다.
+    let encrypted = has_name(bytes, b"Encrypt");
+    let streams = bytes
+        .windows(9)
+        .filter(|w| w == b"endstream")
+        .count()
+        .max(1);
+    let objstm = if encrypted {
+        MAX_OBJSTM.min(budget / streams)
+    } else {
+        MAX_OBJSTM
+    };
     let mut tries = [false, true].into_iter();
     loop {
         let force = tries.next().ok_or(BROKEN)?;
         LOAD.set((budget, false));
         let opts = LoadOptions {
             filter: Some(keep),
-            max_decompressed_size: Some(MAX_OBJSTM),
+            max_decompressed_size: Some(objstm),
             force_reconstruct: force,
             ..LoadOptions::default()
         };
@@ -130,11 +139,49 @@ fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> 
             Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
                 return Err(TOO_BIG)
             }
+            // 암호 표시를 못 찾았는데 암호를 푼 파일이면 묶음 크기를 묶지 못한 채 읽은 것이다(나지 않아야 한다).
+            Ok(doc) if doc.was_encrypted() && !encrypted => return Err(TOO_BIG),
             Ok(doc) if doc.is_encrypted() || !doc.get_pages().is_empty() => return Ok((doc, left)),
             _ if force => return Err(BROKEN),
             _ => {}
         }
     }
+}
+
+/// 파일 안에 이름 `/name`이 있는가. 이름 안의 `#hh`는 풀어서 본다(`/Encr#79pt`도 `/Encrypt`다).
+fn has_name(bytes: &[u8], name: &[u8]) -> bool {
+    let end = |b: u8| b.is_ascii_whitespace() || b == 0 || b"()<>[]{}/%".contains(&b);
+    let hex = |b: &[u8]| {
+        std::str::from_utf8(b)
+            .ok()
+            .and_then(|t| u8::from_str_radix(t, 16).ok())
+    };
+    let mut at = 0;
+    while let Some(p) = bytes[at..].iter().position(|&b| b == b'/') {
+        let mut j = at + p + 1;
+        let mut got = Vec::with_capacity(name.len() + 1);
+        while j < bytes.len() && !end(bytes[j]) && got.len() <= name.len() {
+            match bytes
+                .get(j + 1..j + 3)
+                .filter(|_| bytes[j] == b'#')
+                .and_then(hex)
+            {
+                Some(v) => {
+                    got.push(v);
+                    j += 3;
+                }
+                None => {
+                    got.push(bytes[j]);
+                    j += 1;
+                }
+            }
+        }
+        if got == name && bytes.get(j).is_none_or(|&b| end(b)) {
+            return true;
+        }
+        at = j.max(at + p + 1);
+    }
+    false
 }
 
 /// 읽은 문서: 쪽마다 (조각들, 그림 수).
@@ -952,6 +999,82 @@ mod tests {
     }
 
     const MAX_SPANS_TEST: usize = 200_000;
+
+    /// qpdf로 빈 사용자 암호(AES-128)와 객체 스트림을 건 PDF를 만들고, 객체 스트림 표시(`/Type /ObjStm`)를 같은
+    /// 길이의 공백으로 지운다(거르는 함수가 객체 스트림을 알아보지 못하게). `rename`이면 `/Encrypt`를 이름 탈출로 쓴다.
+    /// qpdf가 없으면 건너뛰지 않고 실패한다(PDF 내보내기 시험과 같다).
+    fn hidden_objstm(name: &str, rename: bool) -> Vec<u8> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/tmp");
+        std::fs::create_dir_all(dir).unwrap();
+        let (src, out) = (format!("{dir}/{name}-src.pdf"), format!("{dir}/{name}.pdf"));
+        // 20KB 글 객체 300개를 카탈로그에서 가리킨다(가리키지 않으면 qpdf가 버린다).
+        let n = 300;
+        let refs: Vec<String> = (0..n).map(|i| format!("{} 0 R", 6 + i)).collect();
+        let mut objs = vec![
+            format!("<< /Type /Catalog /Pages 2 0 R /Junk [{}] >>", refs.join(" ")).into_bytes(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>".to_vec(),
+            plain("", "BT ET"),
+            b"<< >>".to_vec(),
+        ];
+        for i in 0..n {
+            objs.push(format!("({})", format!("{i:05}").repeat(4000)).into_bytes());
+        }
+        std::fs::write(&src, build_bytes(&objs)).unwrap();
+        let args = [
+            "--object-streams=generate",
+            "--encrypt",
+            "",
+            "o1",
+            "128",
+            "--use-aes=y",
+            "--",
+            &src,
+            &out,
+        ];
+        let done = std::process::Command::new("qpdf")
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("qpdf를 실행하지 못했습니다(qpdf가 있어야 합니다): {e}"));
+        assert!(
+            done.status.success(),
+            "{}",
+            String::from_utf8_lossy(&done.stderr)
+        );
+        let mut b = std::fs::read(&out).unwrap();
+        let swap = |b: &mut Vec<u8>, from: &[u8], to: &[u8]| {
+            let mut i = 0;
+            while let Some(p) = b[i..].windows(from.len()).position(|w| w == from) {
+                b.splice(i + p..i + p + from.len(), to.iter().copied());
+                i += p + to.len();
+            }
+        };
+        swap(&mut b, b"/Type /ObjStm", b"             ");
+        swap(&mut b, b"/Type/ObjStm", b"            ");
+        if rename {
+            // 이름 탈출로 길이가 2 늘어도, 이 키는 마지막 상호 참조 스트림의 사전 안이라 앞 객체의 자리는 그대로다.
+            swap(&mut b, b"/Encrypt", b"/Encr#79pt");
+        }
+        b
+    }
+
+    #[test]
+    fn 암호_pdf의_숨긴_객체_스트림도_전체_예산_안에서_푼다() {
+        for (name, rename) in [("objstm-hidden", false), ("objstm-renamed", true)] {
+            let pdf = hidden_objstm(name, rename);
+            // 객체 스트림 셋(풀면 각 2MB)을 예산 1MB로 읽는다.
+            assert_eq!(bounded(&pdf, 1000, 1 << 20).err(), Some(TOO_BIG), "{name}");
+        }
+    }
+
+    #[test]
+    fn 탈출해_쓴_이름도_찾는다() {
+        assert!(has_name(b"<< /Encrypt 5 0 R >>", b"Encrypt"));
+        assert!(has_name(b"<</Encr#79pt 5 0 R>>", b"Encrypt"));
+        assert!(has_name(b"<</#45ncrypt/X>>", b"Encrypt"));
+        assert!(!has_name(b"<< /Encrypted 5 0 R /Encryp >>", b"Encrypt"));
+        assert!(!has_name(b"Encrypt", b"Encrypt"));
+    }
 
     #[test]
     fn 글자_하나를_아주_긴_글로_바꾸는_tounicode는_버린다() {
