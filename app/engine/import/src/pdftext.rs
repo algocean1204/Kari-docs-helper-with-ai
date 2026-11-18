@@ -31,8 +31,9 @@ const MAX_DST: usize = 512;
 pub(crate) const BUDGET: usize = 64 << 20;
 /// 문서 전체에서 읽는 글자 수 상한.
 const MAX_CHARS: usize = 2_000_000;
-/// 객체 스트림 하나를 푼 크기와, 객체 하나(스트림 밖)의 크기 상한.
-const MAX_OBJSTM: usize = 4 << 20;
+/// 객체 스트림 하나를 푼 크기와, 객체 하나(스트림 밖)의 크기 상한. 푼 1MB는 읽으면 객체로 수십 MB가 된다
+/// (`0 ` 두 바이트가 객체 하나).
+const MAX_OBJSTM: usize = 1 << 20;
 const MAX_OBJECT: usize = 1 << 20;
 /// 글꼴 하나를 읽을 때 예산에서 늘 빼는 몫(글꼴 사전이 아주 많은 파일을 묶는다).
 const FONT_COST: usize = 4 << 10;
@@ -42,25 +43,23 @@ thread_local! {
     static LOAD: Cell<(usize, bool)> = const { Cell::new((0, false)) };
 }
 
-/// 객체의 대략의 크기(바이트).
+/// 읽은 객체가 메모리에서 차지하는 대략의 크기(바이트). 숫자 하나도 `Object` 하나만큼 차지한다.
 fn weight(o: &Object, depth: usize) -> usize {
-    match o {
-        Object::String(s, _) => s.len() + 8,
-        Object::Name(n) => n.len() + 8,
-        Object::Array(a) if depth < 64 => {
-            a.iter().map(|x| weight(x, depth + 1)).sum::<usize>() + 16
-        }
+    let one = size_of::<Object>();
+    one + match o {
+        Object::String(s, _) => s.len(),
+        Object::Name(n) => n.len(),
+        Object::Array(a) if depth < 64 => a.iter().map(|x| weight(x, depth + 1)).sum(),
         Object::Dictionary(d) if depth < 64 => {
-            d.iter()
-                .map(|(k, v)| k.len() + weight(v, depth + 1))
-                .sum::<usize>()
-                + 16
+            d.iter().map(|(k, v)| k.len() + weight(v, depth + 1)).sum()
         }
-        Object::Stream(st) => {
-            weight(&Object::Dictionary(st.dict.clone()), depth) + st.content.len()
-        }
-        _ => 16,
+        Object::Stream(st) => d_weight(&st.dict, depth) + st.content.len(),
+        _ => 0,
     }
+}
+
+fn d_weight(d: &Dictionary, depth: usize) -> usize {
+    d.iter().map(|(k, v)| k.len() + weight(v, depth + 1)).sum()
 }
 
 /// 읽는 동안 객체마다 부른다: 객체 스트림은 풀어 본 크기를, 다른 객체는 크기를 예산에서 뺀다. 1MB가 넘는
@@ -79,7 +78,7 @@ fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
                 Err(_) => 0,
             }
         }
-        Object::Stream(st) => weight(&Object::Dictionary(st.dict.clone()), 0),
+        Object::Stream(st) => d_weight(&st.dict, 0),
         other => {
             let w = weight(other, 0);
             if w > MAX_OBJECT {
@@ -107,16 +106,18 @@ fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
 fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> {
     // 암호가 걸린 파일은 lopdf가 거르는 함수를 거치지 않고, 상호 참조가 가리키는 객체 묶음을 `/Type`을 보지 않고
     // 푼다. 그래서 묶음 하나를 푸는 크기를 예산 ÷ 파일 안 스트림 수로 묶는다(묶음도 스트림이고, `endstream`은
-    // 이름처럼 탈출해 쓸 수 없다). 암호 표시(`/Encrypt`)는 `#hh`를 풀어 찾는다.
-    // 한계: 스트림이 아주 많은 암호 PDF는 내용이 작아도 받지 않을 수 있다.
+    // 이름처럼 탈출해 쓸 수 없다). 푼 바이트는 읽으면 객체로 늘어나므로(두 바이트가 `Object` 하나) 예산을 그
+    // 비율로 줄여 쓴다(64MB면 푼 총량 약 1MB). 암호 표시(`/Encrypt`)는 `#hh`를 풀어 찾는다.
+    // 한계: 스트림이 아주 많거나 객체 묶음이 큰 암호 PDF는 내용이 작아도 받지 않을 수 있다.
     let encrypted = has_name(bytes, b"Encrypt");
     let streams = bytes
         .windows(9)
         .filter(|w| w == b"endstream")
         .count()
         .max(1);
+    let parsed = budget / (size_of::<Object>() / 2);
     let objstm = if encrypted {
-        MAX_OBJSTM.min(budget / streams)
+        MAX_OBJSTM.min(parsed / streams)
     } else {
         MAX_OBJSTM
     };
@@ -1004,44 +1005,12 @@ mod tests {
     /// 길이의 공백으로 지운다(거르는 함수가 객체 스트림을 알아보지 못하게). `rename`이면 `/Encrypt`를 이름 탈출로 쓴다.
     /// qpdf가 없으면 건너뛰지 않고 실패한다(PDF 내보내기 시험과 같다).
     fn hidden_objstm(name: &str, rename: bool) -> Vec<u8> {
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/tmp");
-        std::fs::create_dir_all(dir).unwrap();
-        let (src, out) = (format!("{dir}/{name}-src.pdf"), format!("{dir}/{name}.pdf"));
-        // 20KB 글 객체 300개를 카탈로그에서 가리킨다(가리키지 않으면 qpdf가 버린다).
-        let n = 300;
-        let refs: Vec<String> = (0..n).map(|i| format!("{} 0 R", 6 + i)).collect();
-        let mut objs = vec![
-            format!("<< /Type /Catalog /Pages 2 0 R /Junk [{}] >>", refs.join(" ")).into_bytes(),
-            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>".to_vec(),
-            plain("", "BT ET"),
-            b"<< >>".to_vec(),
-        ];
-        for i in 0..n {
-            objs.push(format!("({})", format!("{i:05}").repeat(4000)).into_bytes());
-        }
-        std::fs::write(&src, build_bytes(&objs)).unwrap();
-        let args = [
-            "--object-streams=generate",
-            "--encrypt",
-            "",
-            "o1",
-            "128",
-            "--use-aes=y",
-            "--",
-            &src,
-            &out,
-        ];
-        let done = std::process::Command::new("qpdf")
-            .args(args)
-            .output()
-            .unwrap_or_else(|e| panic!("qpdf를 실행하지 못했습니다(qpdf가 있어야 합니다): {e}"));
-        assert!(
-            done.status.success(),
-            "{}",
-            String::from_utf8_lossy(&done.stderr)
+        // 20KB 글 객체 300개.
+        let mut b = qpdf_objstm(
+            name,
+            |i| format!("({})", format!("{i:05}").repeat(4000)),
+            true,
         );
-        let mut b = std::fs::read(&out).unwrap();
         let swap = |b: &mut Vec<u8>, from: &[u8], to: &[u8]| {
             let mut i = 0;
             while let Some(p) = b[i..].windows(from.len()).position(|w| w == from) {
@@ -1056,6 +1025,51 @@ mod tests {
             swap(&mut b, b"/Encrypt", b"/Encr#79pt");
         }
         b
+    }
+
+    /// 카탈로그가 가리키는 객체 300개(`obj(i)`)를 qpdf로 객체 스트림에 묶는다(가리키지 않으면 qpdf가 버린다).
+    /// `encrypt`면 빈 사용자 암호(AES-128)를 건다. qpdf가 없으면 건너뛰지 않고 실패한다(PDF 내보내기 시험과 같다).
+    fn qpdf_objstm(name: &str, obj: fn(usize) -> String, encrypt: bool) -> Vec<u8> {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../target/tmp");
+        std::fs::create_dir_all(dir).unwrap();
+        let (src, out) = (format!("{dir}/{name}-src.pdf"), format!("{dir}/{name}.pdf"));
+        let n = 300;
+        let refs: Vec<String> = (0..n).map(|i| format!("{} 0 R", 6 + i)).collect();
+        let mut objs = vec![
+            format!("<< /Type /Catalog /Pages 2 0 R /Junk [{}] >>", refs.join(" ")).into_bytes(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>".to_vec(),
+            plain("", "BT ET"),
+            b"<< >>".to_vec(),
+        ];
+        for i in 0..n {
+            objs.push(obj(i).into_bytes());
+        }
+        std::fs::write(&src, build_bytes(&objs)).unwrap();
+        let mut args = vec!["--object-streams=generate"];
+        if encrypt {
+            args.extend(["--encrypt", "", "o1", "128", "--use-aes=y", "--"]);
+        }
+        args.extend([src.as_str(), out.as_str()]);
+        let done = std::process::Command::new("qpdf")
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("qpdf를 실행하지 못했습니다(qpdf가 있어야 합니다): {e}"));
+        assert!(
+            done.status.success(),
+            "{}",
+            String::from_utf8_lossy(&done.stderr)
+        );
+        std::fs::read(&out).unwrap()
+    }
+
+    #[test]
+    fn 정수가_많은_객체_묶음은_읽은_객체의_크기로_센다() {
+        // 4KB("0 " 2천 번)짜리 정수 배열 300개: 푼 크기는 1.2MB지만 읽으면 약 72MB다.
+        for (name, encrypt) in [("ints-enc", true), ("ints-plain", false)] {
+            let pdf = qpdf_objstm(name, |_| format!("[{}]", "0 ".repeat(2000)), encrypt);
+            assert_eq!(bounded(&pdf, 1000, 16 << 20).err(), Some(TOO_BIG), "{name}");
+        }
     }
 
     #[test]
