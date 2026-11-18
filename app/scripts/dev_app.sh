@@ -74,7 +74,7 @@ if [ "$INSTALL" = 0 ]; then
   exit 0
 fi
 if running; then die "Kari Dev가 켜져 있습니다. 끈 뒤 다시 실행해 주세요"; fi
-step "$DEST에 바꿔 깐다"
+step "${DEST}에 바꿔 깐다"
 NEW="$(dirname "$DEST")/.Kari Dev.app.new"
 rm -rf "$NEW"
 ditto "$APP" "$NEW"
