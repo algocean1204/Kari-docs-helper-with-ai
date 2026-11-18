@@ -35,7 +35,18 @@ const skipVector = '벡터',
     skipOutside = '프레임 밖의 요소',
     skipDeep = '너무 깊이 든 요소',
     skipBad = '값이 이상한 요소',
-    skipOther = '그 밖의 종류';
+    skipOther = '그 밖의 종류',
+    skipMask = '마스크',
+    skipAutoLayout = '자동 배치',
+    skipMixed = '글자별 모양',
+    skipDup = '같은 id가 겹친 요소',
+    skipCut = '길어서 자른 글';
+
+/// 대응표(노드마다 지니는 가져올 때의 값) 전체의 한도(JSON 바이트). 넘으면 미리 보기에서 알리고 가져오지 않는다.
+const maxMapBytes = 4 * 1024 * 1024;
+
+/// 글 상자 하나의 글자 수 한도(엔진의 글 조각 한도). 넘으면 잘라 가져오고 센다.
+const maxTextRunes = 100000;
 
 /// 그림으로 받아 올 노드: Figma id와 그 그림을 칠할 Kari 요소의 속성(받은 뒤 `fills`를 채운다).
 typedef FigmaImage = ({String figmaId, Json props});
@@ -100,8 +111,16 @@ class FigmaImport {
 double? _num(Object? v) =>
     v is num && v.isFinite && v.abs() <= maxLength ? v.toDouble() : null;
 
-/// 0~1의 수. 아니면 null.
-double? _unit(Object? v) => v is num && v >= 0 && v <= 1 ? v.toDouble() : null;
+/// 0~1로 자른 수. 수가 아니거나 유한하지 않으면 null.
+double? _unit(Object? v) =>
+    v is num && v.isFinite ? v.toDouble().clamp(0.0, 1.0) : null;
+
+/// 줄바꿈과 탭 밖의 제어 문자와 글 방향을 바꾸는 문자(U+202A~U+202E, U+2066~U+2069)를 지운다.
+final _controls = RegExp(
+  '[\u0000-\u0008\u000B-\u001F\u007F\u202A-\u202E\u2066-\u2069]',
+);
+
+String clean(String s) => s.replaceAll(_controls, '');
 
 double _r3(double v) => (v * 1000).round() / 1000;
 
@@ -287,11 +306,12 @@ Object? _radius(Map n) {
   return r != null && r > 0 ? r : null;
 }
 
-/// 이름(200자까지).
+/// 이름: 제어 문자를 지우고 200자까지.
 String? _name(Object? v) {
-  if (v is! String || v.isEmpty) return null;
-  final runes = v.runes;
-  return runes.length <= 200 ? v : String.fromCharCodes(runes.take(200));
+  if (v is! String) return null;
+  final t = clean(v);
+  if (t.isEmpty) return null;
+  return t.runes.length <= 200 ? t : String.fromCharCodes(t.runes.take(200));
 }
 
 /// Figma의 페이지 노드(`get_node_info`의 JSON_REST_V1, 플러그인이 더한 변환과 크기 포함) → Kari 노드.
@@ -302,6 +322,7 @@ String? _name(Object? v) {
 FigmaImport fromFigma(Object? page) {
   final out = FigmaImport._();
   var read = 0, next = 0;
+  final seen = <String>{};
   String newId() => 'fg${(next++).toRadixString(36)}';
 
   Json add(String type, String? parent, Json props, String figmaId) {
@@ -335,6 +356,8 @@ FigmaImport fromFigma(Object? page) {
     final figmaId = n['id'];
     if (figmaId is! String || figmaId.length > 200) return out._skip(skipBad);
     if (depth > _maxDepth) return out._skip(skipDeep);
+    if (!seen.add(figmaId)) return out._skip(skipDup);
+    if (n['isMask'] == true) return out._skip(skipMask);
     final String kind;
     switch (type) {
       case 'FRAME' || 'COMPONENT' || 'COMPONENT_SET' || 'INSTANCE' || 'SECTION':
@@ -360,6 +383,17 @@ FigmaImport fromFigma(Object? page) {
     }
     final g = _geo(n);
     if (g == null) return out._skip(skipBad);
+    // 크기 0은 이상한 값이다. 선은 길이만 본다(Figma의 선은 높이가 0이고, 곧은 벡터는 한쪽이 0일 수 있다).
+    final flat = switch (type) {
+      'LINE' => g.w <= 0,
+      'VECTOR' => g.w <= 0 && g.h <= 0,
+      _ => g.w <= 0 || g.h <= 0,
+    };
+    if (flat) return out._skip(skipBad);
+    if (kind == 'frame' &&
+        const {'HORIZONTAL', 'VERTICAL', 'GRID'}.contains(n['layoutMode'])) {
+      out._skip(skipAutoLayout);
+    }
     final l = mulAffine(_invert(parentA), g.a);
 
     if (kind == 'line') {
@@ -413,10 +447,19 @@ FigmaImport fromFigma(Object? page) {
       props['clip'] = n['clipsContent'];
     }
     if (kind == 'text') {
-      final chars = n['characters'] is String ? n['characters'] as String : '';
-      final text = chars.runes.length <= 100000
-          ? chars
-          : String.fromCharCodes(chars.runes.take(100000));
+      final chars = clean(
+        n['characters'] is String ? n['characters'] as String : '',
+      );
+      final cut = chars.runes.length > maxTextRunes;
+      if (cut) out._skip(skipCut);
+      final text = cut
+          ? String.fromCharCodes(chars.runes.take(maxTextRunes))
+          : chars;
+      // 글자별 모양은 옮기지 않는다: 글 상자 전체의 모양(첫 모양)을 쓰고 센다.
+      final overrides = n['characterStyleOverrides'];
+      if (overrides is List && overrides.any((o) => o != 0)) {
+        out._skip(skipMixed);
+      }
       final style = n['style'] is Map ? n['style'] as Map : const {};
       if (style['fontFamily'] != 'Pretendard') out.fonts++;
       final auto =
@@ -483,9 +526,20 @@ FigmaImport fromFigma(Object? page) {
     }
     final g = _geo(k);
     final figmaId = k['id'];
-    if (g == null || figmaId is! String || figmaId.length > 200) {
+    if (g == null ||
+        g.w <= 0 ||
+        g.h <= 0 ||
+        figmaId is! String ||
+        figmaId.length > 200) {
       out._skip(skipBad);
       continue;
+    }
+    if (!seen.add(figmaId)) {
+      out._skip(skipDup);
+      continue;
+    }
+    if (const {'HORIZONTAL', 'VERTICAL', 'GRID'}.contains(k['layoutMode'])) {
+      out._skip(skipAutoLayout);
     }
     // 대지는 돌리지 않는다: 돌린 프레임은 그 경계 상자로 놓고, 자식은 그 상자를 기준으로 놓는다.
     var a = g.a, w = g.w, h = g.h;
@@ -528,6 +582,18 @@ FigmaImport fromFigma(Object? page) {
     out.tooBig = 'Figma 페이지의 노드가 $maxReadNodes개를 넘어 가져오지 않습니다';
   } else if (out.count > maxImportNodes) {
     out.tooBig = '요소가 ${out.count}개라 가져오지 않습니다. 한 번에 $maxImportNodes개까지 가져옵니다';
+  } else {
+    var bytes = 0;
+    for (final op in out.ops) {
+      final props = (op['node'] as Json)['props'];
+      final n = utf8.encode(jsonEncode(props)).length;
+      if (n <= maxBaseBytes) bytes += n;
+    }
+    if (bytes > maxMapBytes) {
+      out.tooBig =
+          '가져올 때의 값이 ${(bytes / 1024 / 1024).toStringAsFixed(1)}MB라 가져오지 않습니다. '
+          '한 번에 ${maxMapBytes ~/ 1024 ~/ 1024}MB까지 가져옵니다';
+    }
   }
   return out;
 }

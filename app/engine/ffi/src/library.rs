@@ -436,10 +436,10 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             })
         }
         // 넣었지만 쓰지 않게 된 에셋(Figma에서 가져오기를 멈췄거나 문서를 만들지 못했을 때)을 지운다. 어느 문서나
-        // 복사해 둔 조각이 쓰는 것은 남는다.
+        // 문서 밖(복사해 둔 조각, 골라 둔 그림 도구: `kept_assets`)에서 쓰는 것은 남는다.
         "asset.dropUnused" => {
             let e = on(state)?;
-            let keep = crate::edit::clip_assets();
+            let keep = crate::edit::kept_assets();
             let hashes = a
                 .need("hashes", Value::as_array)?
                 .iter()

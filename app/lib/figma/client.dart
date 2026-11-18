@@ -33,12 +33,20 @@ const allowedCommands = {
   'resize_node',
 };
 
+/// 명령 하나를 기다리는 가장 긴 시간. 진행 알림(`progress_update`)이 시간 한도를 다시 세어도 이것은 넘지 않는다.
+const maxCommandTime = Duration(minutes: 10);
+
 /// 플러그인이 거절했거나, 시간이 다 됐거나, 연결이 끊긴 것.
 class FigmaError implements Exception {
   const FigmaError(this.message);
   final String message;
   @override
   String toString() => message;
+}
+
+/// 시간 한도 안에 답이 오지 않은 것.
+class FigmaTimeout extends FigmaError {
+  const FigmaTimeout() : super('Figma가 제때 답하지 않았습니다');
 }
 
 /// 중계 서버에 붙는 쪽. 플러그인의 MCP 쪽(`websocket.ts`)과 같은 모양으로 보낸다: 요청마다 새 id, `join`은
@@ -90,6 +98,7 @@ class FigmaClient {
     String command,
     Map<String, Object?> params, {
     Duration timeout = const Duration(seconds: 60),
+    Duration total = maxCommandTime,
   }) {
     if (!allowedCommands.contains(command)) {
       return Future.error(FigmaError('보낼 수 없는 명령입니다: $command'));
@@ -111,8 +120,8 @@ class FigmaClient {
         'params': {...params, 'commandId': id},
       },
     };
-    final p = _Pending(timeout, () {
-      _pending.remove(id)?.fail(const FigmaError('Figma가 제때 답하지 않았습니다'));
+    final p = _Pending(timeout, total, () {
+      _pending.remove(id)?.fail(const FigmaTimeout());
     });
     _pending[id] = p;
     _ws.add(jsonEncode(request));
@@ -220,18 +229,22 @@ int utf8Length(String s, int limit) {
 }
 
 class _Pending {
-  _Pending(this._limit, this._onTimeout) {
-    _timer = Timer(_limit, _onTimeout);
+  _Pending(this._limit, this._total, this._onTimeout) {
+    _timer = Timer(_limit < _total ? _limit : _total, _onTimeout);
   }
 
   final Duration _limit;
+  final Duration _total;
   final void Function() _onTimeout;
+  final _since = Stopwatch()..start();
   late Timer _timer;
   final done = Completer<Object?>();
 
+  /// 시간 한도를 다시 센다. 다만 처음 보낸 때부터 [_total]은 넘지 않는다(진행 알림만 끝없이 오는 경우).
   void extend() {
     _timer.cancel();
-    _timer = Timer(_limit, _onTimeout);
+    final left = _total - _since.elapsed;
+    _timer = Timer(left < _limit ? left : _limit, _onTimeout);
   }
 
   void ok(Object? v) {

@@ -687,6 +687,29 @@ fn 고른_그림_도구의_에셋은_놓기_전에_같은_그림의_문서를_�
     assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
 }
 
+/// Figma 가져오기의 정리(`asset.dropUnused`)도 골라 둔 그림 도구의 에셋은 남기고, 도구가 사라지면 지운다.
+#[test]
+fn 쓰지_않는_에셋_지우기는_고른_그림_도구의_에셋을_남긴다() {
+    let c = Case::new("canvas-tool-drop");
+    let id = new_canvas();
+    cmd(
+        id,
+        "tool",
+        json!({"tool": "image", "path": data("photo.jpg")}),
+    );
+    // 같은 바이트라 도구가 넣은 에셋과 같다.
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    ok("asset.dropUnused", json!({"hashes": [hash]}));
+    assert!(file.is_file(), "도구가 쓰는 동안");
+    ok("doc.close", json!({"id": id}));
+    ok("asset.dropUnused", json!({"hashes": [hash]}));
+    assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
+}
+
 #[test]
 fn 글을_치면_화면이_바뀌고_커서와_선택이_덧그려진다() {
     let _c = Case::new("canvas-render");

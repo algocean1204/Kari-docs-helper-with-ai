@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -484,7 +486,7 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
   FigmaImport? _plan;
   bool _reading = false;
   bool _importing = false;
-  bool _cancel = false;
+  Completer<void> _stop = Completer<void>();
   (int, int)? _progress;
   ({int id, String line})? _done;
   String? _error;
@@ -523,10 +525,14 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
     }
   }
 
+  void _halt() {
+    if (!_stop.isCompleted) _stop.complete();
+  }
+
   Future<void> _import() async {
     setState(() {
       _importing = true;
-      _cancel = false;
+      _stop = Completer<void>();
       _error = null;
     });
     try {
@@ -536,7 +542,7 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
         onProgress: (a, b) {
           if (mounted) setState(() => _progress = (a, b));
         },
-        cancelled: () => _cancel,
+        stop: _stop.future,
       );
       if (mounted) setState(() => _done = r);
     } on FigmaError catch (e) {
@@ -573,16 +579,19 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
         plan.count > 0 &&
         !_importing &&
         done == null;
-    // 가져오는 동안에는 바깥 누르기·Esc로 닫히지 않는다(닫혀도 가져오기는 뒤에서 이어지고 문서가 열리지 않는다).
-    // 그만두려면 `멈추기`.
+    // 가져오는 동안에는 바깥 누르기·Esc로 창이 닫히지 않고 멈추기가 된다(창만 닫히면 가져오기가 뒤에서 이어지고
+    // 문서가 열리지 않는다). 멈춘 뒤에는 닫힌다.
     return PopScope(
       canPop: !_importing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _importing) _halt();
+      },
       child: Sheet(
         title: 'Figma에서 가져오기',
         maxWidth: 520,
         actions: [
           if (_importing)
-            AppButton('멈추기', onPressed: () => setState(() => _cancel = true))
+            AppButton('멈추기', onPressed: _halt)
           else if (done != null)
             AppButton(
               '열기',

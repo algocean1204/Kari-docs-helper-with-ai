@@ -315,18 +315,25 @@ class FigmaLink extends ChangeNotifier {
   Future<FigmaImport> readPage(
     String pageId, {
     Duration timeout = const Duration(seconds: 120),
+    Duration total = maxCommandTime,
   }) async => fromFigma(
-    await _c.send('get_node_info', {'nodeId': pageId}, timeout: timeout),
+    await _c.send(
+      'get_node_info',
+      {'nodeId': pageId},
+      timeout: timeout,
+      total: total,
+    ),
   );
 
   /// [plan]을 [name](겹치면 번호)의 새 캔버스 문서로 가져와 그 id와 화면에 보일 한 줄을 돌려준다. 그림 칠은 Figma가
-  /// 그 노드를 그린 PNG로 받는다. [cancelled]가 참이 되면 그림을 받는 사이에 멈추고 아무것도 만들지 않는다.
+  /// 그 노드를 그린 PNG로 받는다. [stop]이 끝나면 기다리던 답을 버리고 곧 멈추며(Figma에 명령을 더 보내지 않는다)
+  /// 아무것도 남기지 않는다. 문서 이름은 제어 문자를 지우고 줄인다(이름일 뿐 파일 경로로 쓰지 않는다).
   /// Figma에는 읽는 명령만 보낸다. 실패는 [FigmaError]나 [EngineError].
   Future<({int id, String line})> importPage(
     FigmaImport plan, {
     required String name,
     void Function(int done, int total)? onProgress,
-    bool Function()? cancelled,
+    Future<void>? stop,
     Duration imageTimeout = const Duration(seconds: 60),
   }) async {
     if (plan.tooBig != null) throw FigmaError(plan.tooBig!);
@@ -334,18 +341,26 @@ class FigmaLink extends ChangeNotifier {
       throw const FigmaError('가져올 것이 없습니다. 페이지의 최상위에 프레임이 없습니다');
     }
     final c = _c;
-    bool stop() => cancelled?.call() ?? false;
     const stopped = FigmaError('가져오기를 멈췄습니다. 아무것도 만들지 않았습니다');
+    var isStopped = false;
+    final stopNow = stop?.then<Object?>((_) {
+      isStopped = true;
+      throw stopped;
+    });
     final got = <(FigmaImage, List<int>)>[];
     var total = 0, missed = 0;
     for (final (i, want) in plan.images.indexed) {
-      if (stop()) throw stopped;
+      if (isStopped) throw stopped;
       try {
-        final r = await c.send('export_node_as_image', {
+        final asked = c.send('export_node_as_image', {
           'nodeId': want.figmaId,
           'format': 'PNG',
           'scale': 1,
         }, timeout: imageTimeout);
+        // 멈추면 기다리던 답을 버린다(늦게 오는 답이나 실패는 [Future.any]가 받아 버린다).
+        final r = await (stopNow == null
+            ? asked
+            : Future.any([asked, stopNow]));
         final data = r is Map ? r['imageData'] : null;
         // base64는 4글자에 3바이트다. 풀기 전에 길이로 거른다.
         if (data is! String || data.length > (maxImageBytes + 2) ~/ 3 * 4) {
@@ -357,15 +372,17 @@ class FigmaLink extends ChangeNotifier {
         }
         total += bytes.length;
         got.add((want, bytes));
-      } on FigmaError {
-        if (!c.open) rethrow;
+      } on FigmaError catch (e) {
+        // 멈춤, 끊김, 시간 초과는 가져오기를 그만둔다(문서를 만들지 않는다). 플러그인이 그 노드를 내보내지
+        // 못한다고 답한 것만 빼고 이어 간다.
+        if (isStopped || !c.open || e is FigmaTimeout) rethrow;
         missed++;
       } on FormatException {
         missed++;
       }
       onProgress?.call(i + 1, plan.images.length);
     }
-    if (stop()) throw stopped;
+    if (isStopped) throw stopped;
     final put = <String>[];
     // 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지운다.
     Future<Never> undo(Object e) async {
@@ -380,10 +397,11 @@ class FigmaLink extends ChangeNotifier {
     }
 
     if (got.isNotEmpty) {
-      final dir = (Directory(
-        library.outDir,
-      )..createSync(recursive: true)).createTempSync('figma-');
+      Directory? dir;
       try {
+        dir = (Directory(
+          library.outDir,
+        )..createSync(recursive: true)).createTempSync('figma-');
         for (final (want, bytes) in got) {
           final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
           final asset = (await library.engine.assetPut(f.path))['asset'];
@@ -404,19 +422,28 @@ class FigmaLink extends ChangeNotifier {
         }
       } on EngineError catch (e) {
         await undo(e);
+      } on FileSystemException catch (e) {
+        await undo(FigmaError('그림을 임시 폴더에 쓰지 못했습니다 · ${e.message}'));
       } finally {
         try {
-          dir.deleteSync(recursive: true);
+          dir?.deleteSync(recursive: true);
         } on FileSystemException {
           // 남은 폴더는 앱을 다시 켤 때 지운다.
         }
       }
     }
     // 그림을 넣는 동안 멈추기를 눌렀으면 문서를 만들지 않는다.
-    if (stop()) await undo(stopped);
+    if (isStopped) await undo(stopped);
+    final title = clean(name).trim();
     final int id;
     try {
-      id = await library.createCanvasWith(name, plan.withMap(), 'Figma에서 가져오기');
+      id = await library.createCanvasWith(
+        title.isEmpty
+            ? 'Figma 페이지'
+            : String.fromCharCodes(title.runes.take(180)),
+        plan.withMap(),
+        'Figma에서 가져오기',
+      );
     } on EngineError catch (e) {
       await undo(e);
     }
