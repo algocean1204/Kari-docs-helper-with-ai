@@ -208,6 +208,7 @@ flowchart LR
 | `figma-plugin/` | 설정 → Figma의 `경로 복사`가 쓰는 플러그인 파일(`manifest.json`, `code.js`, `ui.html`, `LICENSE`) |
 | `backups/library-<ms>.db` | 백업. 라이브러리를 열 때, 편집이 쉬거나 문서를 닫을 때 마지막 백업에서 하루가 지났으면 만든다. 최근 10개를 남긴다 |
 
+- 그림 파일은 같은 내용이면 하나만 두고 여러 문서가 함께 쓴다. 문서를 완전히 지우거나 휴지통을 비우거나 가져오기가 실패해 그림을 지울 때는 남은 문서(휴지통 포함)의 노드·기록·스냅샷 어디에도 없고, 엔진이 문서 밖에서 쓰는 것(복사해 둔 조각, 캔버스에서 골라 아직 놓지 않은 그림 도구)도 아닌 것만 지운다. 편집 세션의 변경과 되돌리기는 명령마다 기록에 저장되므로 저장된 문서로 센다.
 - 위치: `~/Library/Application Support/dev.clonamic.kari`. 앱은 샌드박스 안에서 돌아 실제로는 `~/Library/Containers/dev.clonamic.kari/` 아래에 놓인다. 소스에서 만든 개발 앱(Kari Dev, Debug·Profile 빌드)은 `~/Library/Containers/dev.clonamic.kari.dev/` 아래를 쓴다.
 - 환경 변수 `KARI_HOME`을 주면 그 폴더를 쓴다.
 - 표와 규칙 → [document-model.md](document-model.md).
