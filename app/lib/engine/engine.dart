@@ -738,8 +738,9 @@ abstract class EngineApi {
   Future<Object?> call(String m, [Json a = const {}]) async =>
       decodeResponse(await send(jsonEncode({'m': m, 'a': a})));
 
-  Future<Json> libOpen(String dir) async =>
-      await call('lib.open', {'dir': dir}) as Json;
+  /// [service]는 키 보관(OS 보안 저장소)의 서비스 이름. 앱의 번들 ID를 준다. 주지 않으면 엔진의 기본값(배포 앱의 이름)이다.
+  Future<Json> libOpen(String dir, {String? service}) async =>
+      await call('lib.open', {'dir': dir, 'service': ?service}) as Json;
 
   /// 백업을 만들었으면 그 경로, 아직 때가 아니면 null.
   Future<String?> libBackupIfDue() async {

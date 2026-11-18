@@ -19,7 +19,7 @@ use std::sync::atomic::AtomicBool;
 pub use anthropic::Anthropic;
 pub use chatgpt::{Auth, Creds, Hints, Pending};
 pub use openai::OpenAi;
-pub use secrets::{MemorySecrets, OsSecrets, Secrets};
+pub use secrets::{service, set_service, MemorySecrets, OsSecrets, Secrets};
 pub use types::{Message, ModelInfo, Part, Reply, Request, Stop, Tool, ToolCall, Usage};
 
 /// 추론 강도. 화면의 낮음, 보통, 높음, 매우 높음, 최대. 순서가 곧 높낮이다.

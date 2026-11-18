@@ -2,12 +2,15 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use crate::AiError;
 
 /// OS 보안 저장소의 서비스 이름. 계정은 제공사 id다. `openai-chatgpt`는 ChatGPT로 계속하기의 자격(토큰 JSON)이다.
-const SERVICE: &str = "dev.clonamic.kari";
+/// 앱이 자기 번들 ID로 바꾼다([`set_service`]). 소스에서 만든 개발 앱(`dev.clonamic.kari.dev`)이 배포 앱의 키를 읽거나
+/// 덮지 않게 하려는 것이다. 바꾸지 않으면 배포 앱의 이름이라 이미 넣어 둔 키를 그대로 읽는다.
+const DEFAULT_SERVICE: &str = "dev.clonamic.kari";
+static SERVICE: RwLock<Option<String>> = RwLock::new(None);
 const PROVIDERS: [&str; 3] = ["anthropic", "openai", "openai-chatgpt"];
 
 /// 자가 확인(`check`)이 쓰는 버리는 계정 이름의 앞머리. 제공사 id와 겹치지 않는다.
@@ -48,6 +51,29 @@ fn round_trip(
     Ok(())
 }
 
+/// 보안 저장소의 서비스 이름을 바꾼다. 번들 ID 꼴(영문·숫자·`.`·`-`, 255자까지)만 받는다.
+pub fn set_service(name: &str) -> Result<(), AiError> {
+    let ok = !name.is_empty()
+        && name.len() <= 255
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    if !ok {
+        return Err(AiError::Secret("서비스 이름이 번들 ID 꼴이 아니다".into()));
+    }
+    *SERVICE.write().unwrap_or_else(|e| e.into_inner()) = Some(name.to_string());
+    Ok(())
+}
+
+/// 지금 쓰는 보안 저장소의 서비스 이름.
+pub fn service() -> String {
+    SERVICE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SERVICE.to_string())
+}
+
 fn check_provider(provider: &str) -> Result<(), AiError> {
     if PROVIDERS.contains(&provider) {
         Ok(())
@@ -78,7 +104,7 @@ fn os_err(e: keyring::Error) -> AiError {
 }
 
 fn entry(account: &str) -> Result<keyring::Entry, AiError> {
-    keyring::Entry::new(SERVICE, account).map_err(os_err)
+    keyring::Entry::new(&service(), account).map_err(os_err)
 }
 
 // 계정 이름으로 읽고 쓰고 지운다. 실제 키(계정 = 제공사 id)와 자가 확인이 이 세 함수를 같이 지난다.

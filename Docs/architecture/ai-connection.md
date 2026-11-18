@@ -23,10 +23,11 @@ flowchart LR
 | 항목 | 값 |
 |---|---|
 | 저장소 | macOS 키체인(OS 보안 저장소) |
-| 서비스 이름 | `dev.clonamic.kari` |
+| 서비스 이름 | 앱의 번들 ID. 배포 앱은 `dev.clonamic.kari`, 소스에서 만든 개발 앱(Kari Dev)은 `dev.clonamic.kari.dev` |
 | 계정 | 제공사 id(`anthropic`, `openai`). 제공사마다 항목 하나. ChatGPT 로그인의 토큰은 `openai-chatgpt`([ChatGPT 플랜 사용](#chatgpt-플랜-사용)) |
 | 받을 때의 검사 | 앞뒤 공백을 떼고, 비었거나 안에 공백·줄바꿈이 있으면 거절 |
 
+- 앱이 라이브러리를 열 때(`lib.open {dir, service}`) 번들 ID를 서비스 이름으로 넘긴다. 넘기지 않으면 `dev.clonamic.kari`다. 그래서 개발 앱은 배포 앱의 키를 읽거나 덮지 않고, 배포 앱은 전에 넣은 키를 그대로 읽는다.
 - 키는 메모리와 키체인에만 있다. 라이브러리 DB, 설정, 로그, 오류 문구, `Debug` 출력에 넣지 않는다. 오류가 앱으로 넘어가기 전에 한 번 더 키를 가린다(`ai_fail`).
 - 키를 넣으면(`ai.setKey {provider, key}`) 먼저 그 키로 그 제공사의 모델 목록을 받아 확인하고, 통과해야 키체인에 쓴다. 모델 목록과 받은 시각은 설정 `ai.models.<제공사>`에 둔다.
 - 키가 있는지는 설정의 모델 목록으로 안다. 상태를 읽는 호출(`ai.providers`, `ai.tasks`)은 키체인을 열지 않는다. 키체인은 키를 넣거나 지울 때, 모델 목록을 다시 받을 때, 모델을 부를 때, `ai.keyStored`(보안 저장소에 그 제공사의 항목이 있는지)를 물을 때만 연다.

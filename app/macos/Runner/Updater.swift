@@ -4,7 +4,7 @@ import Sparkle
 /// 앱 업데이트(채널 `kari/update`). 새 판 확인, 내려받기, 서명 확인, 설치, 다시 켜기는 Sparkle이 하고
 /// 화면은 Dart(app/lib/update.dart)가 그린다. 이 파일은 Sparkle의 사용자 화면 자리(SPUUserDriver)를 채널로 잇기만 한다.
 ///
-/// Dart → Swift: `start` → `{available, auto, version, build}`, `setAuto(bool)`, `check`, `answer(bool)`(새 판 알림에서 고른 것),
+/// Dart → Swift: `info` → `{id, name}`(번들 ID와 이름), `start` → `{available, auto, version, build}`, `setAuto(bool)`, `check`, `answer(bool)`(새 판 알림에서 고른 것),
 /// `retry`(설치하려고 앱을 끄는 요청을 다시 보낸다).
 /// Swift → Dart: `found {version, build, notes}`, `status {kind, code?, message?}`.
 /// `kind`: `latest`(새 판 없음), `downloading`, `installing`, `waiting`(설치를 기다리는데 앱이 아직 꺼지지 않음),
@@ -33,6 +33,12 @@ final class AppUpdater: NSObject, SPUUserDriver {
       switch call.method {
       case "start":
         result(self.start())
+      case "info":
+        // 앱의 번들 ID와 이름. Dart가 키 보관의 서비스 이름과 화면의 앱 이름(Kari, Kari Dev)으로 쓴다.
+        result([
+          "id": Bundle.main.bundleIdentifier ?? "",
+          "name": Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "",
+        ])
       case "setAuto":
         self.updater?.automaticallyChecksForUpdates = call.arguments as? Bool ?? true
         result(self.updater?.automaticallyChecksForUpdates ?? false)
@@ -71,10 +77,13 @@ final class AppUpdater: NSObject, SPUUserDriver {
     return b.unicodeScalars.allSatisfy { CharacterSet.decimalDigits.contains($0) && $0.isASCII }
   }
 
+  /// 소스에서 만든 개발 앱(Debug·Profile 빌드, 번들 ID `dev.clonamic.kari.dev`)인가. AppInfo.xcconfig가 정한다.
+  static var devApp: Bool { Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true }
+
   /// Sparkle을 시작한다. 자동 확인이 켜져 있으면 Sparkle이 마지막 확인에서 24시간이 지날 때마다 확인한다.
-  /// 빌드 번호가 숫자가 아니면 시작하지 않는다(설정의 업데이트 줄이 그 까닭을 알린다).
+  /// 개발 앱이거나 빌드 번호가 숫자가 아니면 시작하지 않는다(설정의 업데이트 줄이 그 까닭을 알린다).
   private func start() -> [String: Any] {
-    if updater == nil, Self.hasKey, Self.numericBuild {
+    if updater == nil, !Self.devApp, Self.hasKey, Self.numericBuild {
       let u = SPUUpdater(
         hostBundle: .main, applicationBundle: .main, userDriver: self, delegate: nil)
       do {

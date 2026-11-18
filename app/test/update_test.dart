@@ -6,10 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
+import 'package:kari/main.dart' show AppRoute;
 import 'package:kari/screens/settings.dart';
 import 'package:kari/update.dart';
 
-import 'design_test.dart' show loadFonts;
+import 'design_test.dart' show loadFonts, pumpApp;
 
 const _channel = MethodChannel('kari/update');
 
@@ -17,6 +18,7 @@ const _channel = MethodChannel('kari/update');
 List<MethodCall> _native(
   WidgetTester tester, {
   Map<String, Object?> start = const {'available': true, 'auto': true},
+  Map<String, Object?> info = const {'id': 'dev.clonamic.kari', 'name': 'Kari'},
 }) {
   final calls = <MethodCall>[];
   var auto = start['auto'];
@@ -26,6 +28,7 @@ List<MethodCall> _native(
     calls.add(c);
     return switch (c.method) {
       'start' => {...start, 'auto': auto},
+      'info' => info,
       'setAuto' => auto = c.arguments,
       'check' => start['available'],
       _ => null,
@@ -232,6 +235,88 @@ void main() {
       expect(updates.devBuild, isFalse);
     });
 
+    testWidgets(
+      '개발 앱(Kari Dev)은 빌드 번호가 숫자여도 앱 안 업데이트를 끄고, 설정과 옆 메뉴에 Kari Dev를 보인다',
+      (tester) async {
+        final calls = _native(
+          tester,
+          start: {
+            'available': true,
+            'auto': true,
+            'version': '0.2.2',
+            'build': '42',
+          },
+          info: {'id': 'dev.clonamic.kari.dev', 'name': 'Kari Dev'},
+        );
+        final u = Updates();
+        await u.identify();
+        expect(
+          (u.id, u.name, u.devApp),
+          ('dev.clonamic.kari.dev', 'Kari Dev', true),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: UpdateHost(
+              updates: u,
+              child: const Scaffold(body: SizedBox()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(u.devBuild, isFalse);
+        expect(u.available, isFalse);
+        expect(u.auto, isFalse);
+        await u.check();
+        await tester.pumpAndSettle();
+        expect(calls.map((c) => c.method), ['info', 'start']);
+        expect(
+          find.textContaining('개발용 앱(Kari Dev)은 앱 안에서 업데이트하지 않습니다'),
+          findsOneWidget,
+        );
+
+        // 배포 앱은 그대로 Kari다.
+        final release = Updates();
+        _native(tester);
+        await release.identify();
+        expect((release.name, release.devApp), ('Kari', false));
+
+        // 설정의 업데이트 줄과 옆 메뉴 맨 위의 앱 이름
+        updates
+          ..id = u.id
+          ..name = u.name
+          ..available = false
+          ..version = '0.2.2'
+          ..build = '42';
+        addTearDown(
+          () => updates
+            ..id = ''
+            ..name = 'Kari'
+            ..version = ''
+            ..build = '',
+        );
+        tester.view.physicalSize = const Size(1200, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: const Scaffold(body: SettingsScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
+        await tester.pumpAndSettle();
+        expect(find.text('Kari Dev 0.2.2 (빌드 42)'), findsOneWidget);
+        expect(find.text(keepAll(updates.unavailableNote)), findsOneWidget);
+        expect(find.text('지금 확인'), findsNothing);
+
+        await pumpApp(tester, AppRoute.home, const Size(1280, 800));
+        expect(find.text('Kari Dev'), findsOneWidget);
+        expect(find.text('Kari'), findsNothing);
+      },
+    );
+
     testWidgets('바뀐 점의 마크다운은 제목, 목록, 굵게, 링크로 그리고 링크는 기본 브라우저로 연다', (
       tester,
     ) async {
@@ -368,12 +453,46 @@ void main() {
       final id = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = (\S+)').firstMatch(
         File('macos/Runner/Configs/AppInfo.xcconfig').readAsStringSync(),
       )![1]!;
-      for (final f in ['Release', 'DebugProfile']) {
-        final ent = File('macos/Runner/$f.entitlements').readAsStringSync();
-        expect(ent, contains('<string>$id-spks</string>'), reason: f);
-        expect(ent, contains('<string>$id-spki</string>'), reason: f);
+      expect(id, 'dev.clonamic.kari');
+      final release = File(
+        'macos/Runner/Release.entitlements',
+      ).readAsStringSync();
+      expect(release, contains('<string>$id-spks</string>'));
+      expect(release, contains('<string>$id-spki</string>'));
+      // Debug·Profile 빌드(Kari Dev)는 업데이트하지 않으므로 설치 도구와 이어지는 예외가 없다.
+      final dev = File(
+        'macos/Runner/DebugProfile.entitlements',
+      ).readAsStringSync();
+      expect(dev, isNot(contains('-spks')));
+      expect(dev, isNot(contains('-spki')));
+      for (final ent in [release, dev]) {
         expect(_plist(ent, 'com.apple.security.app-sandbox'), isTrue);
       }
     });
+
+    test(
+      'Debug·Profile은 Kari Dev(dev.clonamic.kari.dev), Release는 Kari(dev.clonamic.kari)다',
+      () {
+        final xc = File(
+          'macos/Runner/Configs/AppInfo.xcconfig',
+        ).readAsStringSync();
+        String? value(String key, [String? config]) => RegExp(
+          '^${RegExp.escape(key)}${config == null ? '' : RegExp.escape('[config=$config]')} = (.+)\$',
+          multiLine: true,
+        ).firstMatch(xc)?[1];
+        expect(value('PRODUCT_NAME'), 'Kari');
+        expect(value('PRODUCT_BUNDLE_IDENTIFIER'), 'dev.clonamic.kari');
+        for (final config in ['Debug', 'Profile']) {
+          expect(value('PRODUCT_NAME', config), 'Kari Dev', reason: config);
+          expect(
+            value('PRODUCT_BUNDLE_IDENTIFIER', config),
+            'dev.clonamic.kari.dev',
+            reason: config,
+          );
+        }
+        // 배포 앱의 이름과 번들 ID(그래서 키체인의 서비스 이름과 자료 컨테이너)는 바꾸지 않는다.
+        expect(xc, isNot(contains('[config=Release]')));
+      },
+    );
   });
 }

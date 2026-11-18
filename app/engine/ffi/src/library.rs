@@ -117,6 +117,10 @@ fn lib_open(state: &mut Option<Engine>, a: &Args) -> Res {
     if !dir.is_absolute() {
         return Err(bad("dir는 절대 경로입니다."));
     }
+    // 앱이 자기 번들 ID를 키 보관의 서비스 이름으로 준다. 주지 않으면 배포 앱의 이름 그대로다.
+    if let Some(s) = a.maybe("service", Value::as_str)? {
+        kari_ai::set_service(s).map_err(|e| bad(e.to_string()))?;
+    }
     match state {
         Some(e) if e.dir == dir => {}
         Some(_) => return Err(bad("다른 폴더의 라이브러리가 이미 열려 있습니다.")),

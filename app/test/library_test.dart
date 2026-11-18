@@ -7,6 +7,7 @@
 // SHOT_DIR을 주면 화면 그림을 real-*.png로 쓴다.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -30,6 +31,18 @@ final today = DateTime(2026, 11, 11, 14, 20);
 const dir = '/tmp/kari-test';
 
 int ms(DateTime t) => t.millisecondsSinceEpoch;
+
+/// `lib.open`에 넘긴 인자를 모으는 흉내 엔진.
+class _OpenArgs extends FakeEngine {
+  final List<Json> opens = [];
+
+  @override
+  Future<String> send(String request) {
+    final r = jsonDecode(request) as Json;
+    if (r['m'] == 'lib.open') opens.add(r['a'] as Json);
+    return super.send(request);
+  }
+}
 
 /// 시계를 옮길 수 있는 흉내 엔진과 라이브러리.
 class Rig {
@@ -266,6 +279,17 @@ void main() {
     expect(validName('가' * 201), isFalse);
     expect(copyName('이력서'), '이력서 사본');
     expect(validName(copyName('가' * 200)), isTrue);
+  });
+
+  test('열 때 앱의 번들 ID를 키 보관의 서비스 이름으로 넘기고, 없으면 넘기지 않는다', () async {
+    final e = _OpenArgs();
+    final out = '${Directory.systemTemp.path}/kari-service-test';
+    await Library(e, dir, service: 'dev.clonamic.kari.dev', outDir: out).open();
+    await Library(e, dir, outDir: out).open();
+    expect(e.opens, [
+      {'dir': dir, 'service': 'dev.clonamic.kari.dev'},
+      {'dir': dir},
+    ]);
   });
 
   test('열 때 30일이 지난 휴지통 문서만 지운다', () async {

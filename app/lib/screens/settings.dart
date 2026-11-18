@@ -1086,7 +1086,7 @@ class _VersionRow extends StatelessWidget {
               Text('지금 쓰는 버전', style: AppText.label.copyWith(color: c.text)),
               const SizedBox(height: 2),
               Text(
-                'Kari ${updates.version}$build',
+                '${updates.name} ${updates.version}$build',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ],

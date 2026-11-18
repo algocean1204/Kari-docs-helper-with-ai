@@ -40,7 +40,10 @@ enum AppRoute {
   final IconData icon;
 }
 
-void main() {
+Future<void> main() async {
+  // 키 보관의 서비스 이름과 화면의 앱 이름(Kari, 개발 앱은 Kari Dev)을 라이브러리를 열기 전에 읽는다.
+  WidgetsFlutterBinding.ensureInitialized();
+  await updates.identify();
   // 개발과 QA용 시작 옵션: APP_ROUTE=home|editor|interview|report|settings, APP_THEME=light|dark,
   // APP_STATE=sample(견본 자료로 그린 화면. 면접과 리포트는 가짜 엔진의 흐름), APP_STATE=first(견본의 첫 실행 상태).
   // 자료 폴더는 KARI_HOME으로 바꾼다.
@@ -59,8 +62,11 @@ void main() {
       firstRun: env['APP_STATE'] == 'first',
       library: sample
           ? null
-          : (Library(NativeEngine(), libraryDir(env, Platform.operatingSystem))
-              ..camera = ChannelGazeCamera()),
+          : (Library(
+              NativeEngine(),
+              libraryDir(env, Platform.operatingSystem),
+              service: updates.id.isEmpty ? null : updates.id,
+            )..camera = ChannelGazeCamera()),
     ),
   );
 }
@@ -95,7 +101,7 @@ class App extends StatelessWidget {
         (defaultTargetPlatform == TargetPlatform.macOS &&
             !Platform.environment.containsKey('FLUTTER_TEST'));
     return MaterialApp(
-      title: 'Kari',
+      title: updates.name,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
@@ -721,7 +727,7 @@ class _ShellState extends State<Shell> {
                       Space.x3,
                     ),
                     child: Text(
-                      'Kari',
+                      updates.name,
                       // 앱 이름이지 구역 제목이 아니라 구역 제목의 글자 역할을 쓰지 않는다.
                       style: AppText.label.copyWith(color: c.text),
                     ),
