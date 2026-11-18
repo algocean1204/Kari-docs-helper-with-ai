@@ -14,6 +14,7 @@ import 'ai_tasks.dart';
 import 'dialogs.dart';
 import 'figma.dart';
 import 'gaze.dart' show gazeInfo;
+import 'interview_options.dart';
 import 'report.dart' show openSource;
 
 /// 연락처 가리기의 안내. 엔진(mask.rs)이 가리는 것: 전자우편, 국내 전화번호(휴대, 지역, 070, +82, 괄호로 쓴 지역번호),
@@ -52,6 +53,14 @@ String _onOff(bool v) => v ? '켬' : '끔';
 
 const _keyNote = 'API 키. 이 기기의 보안 저장소에만 둡니다.';
 const _planLine = 'OpenAI · ChatGPT 계정으로 로그인';
+
+/// 면접 준비와 같은 저장 값을 쓰는 세 칸의 한 줄 설명. 기본값은 저장 값의 기본값(`Setting`)에서 읽는다.
+final _yearsNote =
+    '질문의 깊이를 맞출 연차. 면접 준비와 같은 값입니다. 기본값 ${optionLabel(yearOptions, Setting.ivYears.fallback as String)}.';
+final _minutesNote =
+    '연습 한 번의 길이. 면접 준비와 같은 값입니다. 기본값 ${optionLabel(minuteOptions, Setting.ivMinutes.fallback as int)}.';
+final _pressureLine =
+    '면접관의 말투, 반박, 힌트 수. 면접 준비와 같은 값입니다. 기본값 ${optionLabel(pressureOptions, Setting.ivPressure.fallback as String)}.';
 const _modelsNote = '면접의 일마다 제공사, 모델, 생각 깊이를 고릅니다.';
 
 /// 모델 창의 설명(ai_tasks.dart의 `모델`, `생각 깊이`)과 계열마다의 기본값([familyNotes])을 줄인 것.
@@ -118,6 +127,19 @@ final List<SettingEntry> settingEntries = [
     id: 'models',
     name: '면접에 쓰는 모델',
     note: _modelsNote,
+  ),
+  (area: SettingsArea.interview, id: 'years', name: '연차', note: _yearsNote),
+  (
+    area: SettingsArea.interview,
+    id: 'minutes',
+    name: '면접 시간',
+    note: _minutesNote,
+  ),
+  (
+    area: SettingsArea.interview,
+    id: 'pressure',
+    name: '면접 분위기',
+    note: _pressureLine,
   ),
   (area: SettingsArea.interview, id: 'gaze', name: '시선 기록', note: _gazeNote),
   (
@@ -201,6 +223,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _gaze = Setting.gaze.fallback as bool;
   bool _autoFormat = true;
+
+  /// 견본(라이브러리 없음)에서 고른 면접 기본값.
+  final _picked = <Setting, Object>{};
 
   /// 고른 구역. [SettingsArea]를 받으면 그것을, 아니면 마지막에 본 구역을 연다. 면접을 시작할 수 없으면(일에 고른
   /// 제공사의 키가 없으면) 키를 고치러 온 것이라 AI 연결에서 연다. 견본은 기억하지 않는다.
@@ -670,6 +695,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ];
   }
 
+  /// 면접 기본값 한 칸. 이름과 한 줄 설명 아래에 선택지를 두고, 값은 [lib]의 저장 값에서 읽는다.
+  Widget _choice<T extends Object>(
+    AppColors c,
+    Library? lib,
+    String id,
+    Setting s,
+    String name,
+    String note,
+    List<(T, String)> options, {
+    Map<T, String>? notes,
+    String? info,
+  }) {
+    final saved = lib == null ? _picked[s] : lib.settings[s.key];
+    final value = options.any((o) => o.$1 == saved)
+        ? saved as T
+        : s.fallback as T;
+    return _item(
+      id,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(name, style: AppText.label.copyWith(color: c.text)),
+              if (info != null) ...[
+                const SizedBox(width: Space.x1),
+                InfoTip(info, name: name),
+              ],
+            ],
+          ),
+          const SizedBox(height: 2),
+          KeepText(note, style: AppText.caption.copyWith(color: c.textMuted)),
+          const SizedBox(height: Space.x3),
+          Segmented<T>(
+            options: options,
+            value: value,
+            notes: notes,
+            onChanged: (v) =>
+                lib == null ? setState(() => _picked[s] = v) : lib.set(s, v),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _body(AppColors c) {
     final lib = widget.library;
     return switch (_area) {
@@ -716,9 +786,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
       SettingsArea.interview => _Section(
-        // 연차·시간·면접 분위기는 interview.dart가 고를 때마다 남기고 다음 준비 화면이 읽는다.
-        caption: '연차, 시간, 면접 분위기는 면접 준비에서 고르고, 다음 연습은 마지막으로 고른 값으로 시작합니다.',
+        // 세 칸은 면접 준비가 고를 때마다 남기고 읽는 값과 같다(interview.dart).
+        caption: '여기서 정한 값으로 면접 준비가 시작합니다. 면접 준비에서 바꾸면 여기도 같은 값으로 바뀝니다.',
         children: [
+          _choice(
+            c,
+            lib,
+            'years',
+            Setting.ivYears,
+            '연차',
+            _yearsNote,
+            yearOptions,
+          ),
+          _choice(
+            c,
+            lib,
+            'minutes',
+            Setting.ivMinutes,
+            '면접 시간',
+            _minutesNote,
+            minuteOptions,
+          ),
+          _choice(
+            c,
+            lib,
+            'pressure',
+            Setting.ivPressure,
+            '면접 분위기',
+            _pressureLine,
+            pressureOptions,
+            notes: pressureNotes,
+            info: pressureInfo,
+          ),
           _item(
             'gaze',
             SwitchRow(

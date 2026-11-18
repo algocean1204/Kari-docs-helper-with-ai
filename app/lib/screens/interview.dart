@@ -9,23 +9,8 @@ import '../library.dart';
 import 'ai.dart' show usageUrl;
 import 'dialogs.dart';
 import 'gaze.dart';
+import 'interview_options.dart';
 import 'report.dart' show openSource;
-
-/// 연차, 시간, 면접 분위기 단계의 값과 화면 이름.
-const _yearOptions = [('new', '신입'), ('junior', '1~3년'), ('senior', '4년 이상')];
-const _minuteOptions = [(10, '10분'), (12, '12분'), (15, '15분')];
-const _pressureOptions = [
-  ('coaching', '코칭'),
-  ('standard', '표준'),
-  ('real', '실전'),
-];
-
-/// 단계마다 한 줄 설명. 힌트 수는 엔진의 `hints_left`(interview/src/state.rs)와 같다.
-const _pressureNotes = {
-  'coaching': '부드럽게 묻고, 막히면 질문마다 힌트를 한 번 씁니다. 답 뒤에 짚은 핵심 수를 보여 줍니다.',
-  'standard': '꼬리질문과 반박을 합니다. 힌트는 주제마다 한 번입니다. 기본값입니다.',
-  'real': '짧고 건조하게 묻고 반박을 먼저 합니다. 힌트가 없습니다.',
-};
 
 /// 면접 분위기마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
 const _hintRules = {
@@ -126,10 +111,10 @@ class _InterviewTabState extends State<InterviewTab> {
       : _lib.postings.any((p) => p['id'] == widget.posting)
       ? widget.posting
       : _lib.postings.firstOrNull?['id'] as String?;
-  late String _years = _last(_yearOptions, 'years', Setting.ivYears);
-  late int _minutes = _last(_minuteOptions, 'minutes', Setting.ivMinutes);
+  late String _years = _last(yearOptions, 'years', Setting.ivYears);
+  late int _minutes = _last(minuteOptions, 'minutes', Setting.ivMinutes);
   late String _pressure = _last(
-    _pressureOptions,
+    pressureOptions,
     'pressure',
     Setting.ivPressure,
   );
@@ -423,7 +408,7 @@ class _InterviewTabState extends State<InterviewTab> {
                     row(
                       '연차',
                       Segmented<String>(
-                        options: _yearOptions,
+                        options: yearOptions,
                         value: _years,
                         onChanged: (v) {
                           setState(() => _years = v);
@@ -439,8 +424,8 @@ class _InterviewTabState extends State<InterviewTab> {
                       title: '옵션',
                       style: AppText.label,
                       summary: [
-                        _minuteOptions.firstWhere((o) => o.$1 == _minutes).$2,
-                        '면접 분위기 ${_pressureOptions.firstWhere((o) => o.$1 == _pressure).$2}',
+                        optionLabel(minuteOptions, _minutes),
+                        '면접 분위기 ${optionLabel(pressureOptions, _pressure)}',
                         '시선 기록 ${_lib.get<bool>(Setting.gaze) ? '켬' : '끔'}',
                       ].join(' · '),
                       child: Column(
@@ -449,7 +434,7 @@ class _InterviewTabState extends State<InterviewTab> {
                           row(
                             '시간',
                             Segmented<int>(
-                              options: _minuteOptions,
+                              options: minuteOptions,
                               value: _minutes,
                               onChanged: (v) {
                                 setState(() => _minutes = v);
@@ -460,15 +445,15 @@ class _InterviewTabState extends State<InterviewTab> {
                           row(
                             '면접 분위기',
                             Segmented<String>(
-                              options: _pressureOptions,
+                              options: pressureOptions,
                               value: _pressure,
                               onChanged: (v) {
                                 setState(() => _pressure = v);
                                 _lib.keep(Setting.ivPressure, v);
                               },
-                              notes: _pressureNotes,
+                              notes: pressureNotes,
                             ),
-                            info: '면접관의 말투, 반박, 힌트 수를 정합니다. 기본값은 표준입니다.',
+                            info: pressureInfo,
                           ),
                           row(
                             '시선 기록',
@@ -756,7 +741,7 @@ class _SessionState extends State<_Session> {
     final pressure = info?['pressure'];
     final about = [
       ?lib.docs.where((d) => d.id == info?['doc']).firstOrNull?.name,
-      for (final o in _pressureOptions)
+      for (final o in pressureOptions)
         if (o.$1 == pressure) '면접 분위기 ${o.$2}',
     ].join(' · ');
     // 시간은 1분 아래에서 경고, 다 되면 위험으로 알린다(색과 아이콘을 함께).
