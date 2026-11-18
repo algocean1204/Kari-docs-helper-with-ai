@@ -9,9 +9,11 @@ import '../engine/engine.dart';
 import '../library.dart';
 import 'client.dart';
 import 'convert.dart';
+import 'receive.dart';
 import 'relay.dart';
 
 export 'client.dart' show FigmaError;
+export 'receive.dart' show FigmaImport;
 
 /// 중계 서버의 상태: 아직 켜지 않음, 이미 켜진 것(다른 앱)을 씀, 앱이 켬, 켜지 못함.
 enum RelayKind { off, external, builtin, failed }
@@ -306,6 +308,109 @@ class FigmaLink extends ChangeNotifier {
       if (conv.hidden > 0) '숨긴 것 ${conv.hidden}개는 뺐습니다',
       if (soft > 0) '글꼴이나 그림 $soft개는 Figma에서 받지 않았습니다',
     ].join(' · ');
+  }
+
+  /// 고른 Figma 페이지를 읽어 무엇을 가져올지 셈한다. 문서는 아직 만들지 않는다.
+  /// 큰 페이지는 플러그인이 내보내는 데 오래 걸려 시간 한도를 넉넉히 둔다.
+  Future<FigmaImport> readPage(
+    String pageId, {
+    Duration timeout = const Duration(seconds: 120),
+  }) async => fromFigma(
+    await _c.send('get_node_info', {'nodeId': pageId}, timeout: timeout),
+  );
+
+  /// [plan]을 [name](겹치면 번호)의 새 캔버스 문서로 가져와 그 id와 화면에 보일 한 줄을 돌려준다. 그림 칠은 Figma가
+  /// 그 노드를 그린 PNG로 받는다. [cancelled]가 참이 되면 그림을 받는 사이에 멈추고 아무것도 만들지 않는다.
+  /// Figma에는 읽는 명령만 보낸다. 실패는 [FigmaError]나 [EngineError].
+  Future<({int id, String line})> importPage(
+    FigmaImport plan, {
+    required String name,
+    void Function(int done, int total)? onProgress,
+    bool Function()? cancelled,
+    Duration imageTimeout = const Duration(seconds: 60),
+  }) async {
+    if (plan.tooBig != null) throw FigmaError(plan.tooBig!);
+    if (plan.count == 0) {
+      throw const FigmaError('가져올 것이 없습니다. 페이지의 최상위에 프레임이 없습니다');
+    }
+    final c = _c;
+    bool stop() => cancelled?.call() ?? false;
+    const stopped = FigmaError('가져오기를 멈췄습니다. 아무것도 만들지 않았습니다');
+    final got = <(FigmaImage, List<int>)>[];
+    var total = 0, missed = 0;
+    for (final (i, want) in plan.images.indexed) {
+      if (stop()) throw stopped;
+      try {
+        final r = await c.send('export_node_as_image', {
+          'nodeId': want.figmaId,
+          'format': 'PNG',
+          'scale': 1,
+        }, timeout: imageTimeout);
+        final data = r is Map ? r['imageData'] : null;
+        // base64는 4글자에 3바이트다. 풀기 전에 길이로 거른다.
+        if (data is! String || data.length > (maxImageBytes + 2) ~/ 3 * 4) {
+          throw const FormatException();
+        }
+        final bytes = base64Decode(data);
+        if (total + bytes.length > maxImagesBytes) {
+          throw const FormatException();
+        }
+        total += bytes.length;
+        got.add((want, bytes));
+      } on FigmaError {
+        if (!c.open) rethrow;
+        missed++;
+      } on FormatException {
+        missed++;
+      }
+      onProgress?.call(i + 1, plan.images.length);
+    }
+    if (stop()) throw stopped;
+    if (got.isNotEmpty) {
+      final dir = (Directory(
+        library.outDir,
+      )..createSync(recursive: true)).createTempSync('figma-');
+      try {
+        for (final (want, bytes) in got) {
+          final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
+          final asset = (await library.engine.assetPut(f.path))['asset'];
+          if (asset is String) {
+            want.props['fills'] = [
+              {
+                'type': 'IMAGE',
+                'asset': asset,
+                'mode': 'FILL',
+                'opacity': 1,
+                'visible': true,
+              },
+            ];
+          } else {
+            missed++;
+          }
+        }
+      } finally {
+        try {
+          dir.deleteSync(recursive: true);
+        } on FileSystemException {
+          // 남은 폴더는 앱을 다시 켤 때 지운다.
+        }
+      }
+    }
+    // 한계: 넣은 뒤 문서를 만들지 못하면 그 그림 에셋은 남는다(캔버스의 그림 도구와 같다).
+    final id = await library.createCanvasWith(
+      name,
+      plan.withMap(),
+      'Figma에서 가져오기',
+    );
+    return (
+      id: id,
+      line: [
+        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개',
+        if (plan.skippedCount > 0) '옮기지 못한 것 ${plan.skippedText}',
+        if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
+        if (plan.fonts > 0) '글 상자 ${plan.fonts}개의 글꼴을 Pretendard로 바꿨습니다',
+      ].join(' · '),
+    );
   }
 
   /// 그림 칠: 에셋 파일을 읽어 base64로 넣는다. 없거나 너무 크면 [FigmaError](그 노드는 그림 없이 남는다).

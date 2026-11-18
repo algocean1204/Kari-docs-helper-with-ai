@@ -42,7 +42,7 @@ typedef Affine = List<double>;
 
 const Affine _identity = [1, 0, 0, 1, 0, 0];
 
-Affine _mul(Affine p, Affine q) => [
+Affine mulAffine(Affine p, Affine q) => [
   p[0] * q[0] + p[2] * q[1],
   p[1] * q[0] + p[3] * q[1],
   p[0] * q[2] + p[2] * q[3],
@@ -51,7 +51,7 @@ Affine _mul(Affine p, Affine q) => [
   p[1] * q[4] + p[3] * q[5] + p[5],
 ];
 
-(double, double) _apply(Affine m, double x, double y) =>
+(double, double) applyAffine(Affine m, double x, double y) =>
     (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
 
 /// 노드의 자리: 왼쪽 위(돌리기 전 상자), 크기, 가운데를 기준으로 시계 방향의 각도. 엔진의 `matrix64`에서 뒤집기를 뺀 것.
@@ -184,7 +184,7 @@ Converted toFigma(
     }
     final w = _num(n, 'w'), h = _num(n, 'h');
     final local = _local(_num(n, 'x'), _num(n, 'y'), w, h, _num(n, 'rotation'));
-    final t = _mul(m, local);
+    final t = mulAffine(m, local);
     final kids = byParent[n['id']] ?? const <Json>[];
     if (type == 'group') {
       for (final k in kids) {
@@ -207,8 +207,8 @@ Converted toFigma(
     final name = (prop(n, 'name') as String?) ?? '';
     final steps = <FigmaStep>[];
     if (type == 'line') {
-      final (x1, y1) = _apply(t, 0, 0);
-      final (x2, y2) = _apply(t, w, 0);
+      final (x1, y1) = applyAffine(t, 0, 0);
+      final (x2, y2) = applyAffine(t, w, 0);
       final stroke = figmaColor(_top(prop(n, 'strokes')));
       made.add(
         Made(
@@ -230,7 +230,7 @@ Converted toFigma(
     }
     // 가운데와 각도는 변환에서 읽는다(그룹이 돌아가 있어도 맞게). Figma는 왼쪽 위를 기준으로 돌리고 반시계 방향이
     // 양수다: 돌린 뒤 가운데가 같은 자리에 오도록 왼쪽 위를 다시 셈한다.
-    final (cx, cy) = _apply(t, w / 2, h / 2);
+    final (cx, cy) = applyAffine(t, w / 2, h / 2);
     final deg = math.atan2(t[1], t[0]) * 180 / math.pi;
     final figmaDeg = _round(-deg);
     final rr = -deg * math.pi / 180;

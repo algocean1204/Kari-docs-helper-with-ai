@@ -2,11 +2,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/native.dart';
+import 'package:kari/figma/receive.dart';
 import 'package:kari/library.dart';
+
+import 'figma_test.dart' show figmaNode, page, samplePage, solid;
 
 void main() {
   late Directory tmp;
@@ -91,6 +95,177 @@ void main() {
       throwsA(isA<EngineError>().having((e) => e.code, 'code', 'bad_request')),
     );
   });
+
+  test(
+    'Figma에서 가져온 노드를 엔진이 받고, 대응표는 다시 열어도 남으며, 되돌리기 한 번에 처음 대지로 돌아간다',
+    () async {
+      await engine.libOpen(tmp.path);
+      final lib = Library(engine, tmp.path, outDir: '${tmp.path}/out');
+      final plan = fromFigma(samplePage());
+      final image = plan.images.first;
+      final put = await engine.assetPut(
+        '${Directory.current.path}/engine/render/tests/data/photo.png',
+      );
+      expect(put['asset'], isA<String>());
+      image.props['fills'] = [
+        {
+          'type': 'IMAGE',
+          'asset': put['asset'],
+          'mode': 'FILL',
+          'opacity': 1,
+          'visible': true,
+        },
+      ];
+      final bad = await engine.assetPut('${tmp.path}/library.db');
+      expect(bad['refused'], isA<String>());
+      final id = await lib.createCanvasWith(
+        'Page 1',
+        plan.withMap(),
+        'Figma에서 가져오기',
+      );
+      Map<String, Object?> byFigma(List<Json> nodes) => {
+        for (final n in nodes)
+          ((n['props'] as Map)['figma'] as Map)['id'] as String: n['type'],
+      };
+      final nodes = await engine.docNodes(id);
+      expect(byFigma(nodes), {
+        '1:1': 'page',
+        '1:2': 'rect',
+        '1:3': 'rect',
+        '1:4': 'rect',
+      });
+      await reopen();
+      final again = await engine.docNodes(id);
+      expect(byFigma(again), byFigma(nodes));
+      final first = again.firstWhere((n) => n['type'] == 'rect');
+      final base = ((first['props'] as Map)['figma'] as Map)['base'] as Map;
+      expect(base['fills'], (first['props'] as Map)['fills']);
+      expect(await engine.docVerify(id), isEmpty);
+      await engine.docOpen(id);
+      await engine.docUndo(id, 'user');
+      final undone = await engine.docNodes(id);
+      expect(undone.map((n) => n['type']), ['page']);
+      expect((undone.single['props'] as Map).containsKey('figma'), isFalse);
+    },
+  );
+
+  test(
+    'Figma의 여러 종류(글, 선, 묶음, 안쪽 프레임, 타원, 돌린 것, 뒤집은 것)를 엔진의 스키마가 받는다',
+    () async {
+      await engine.libOpen(tmp.path);
+      final lib = Library(engine, tmp.path, outDir: '${tmp.path}/out');
+      final r = 0.5;
+      final plan = fromFigma(
+        page([
+          figmaNode(
+            '1:1',
+            'FRAME',
+            x: 10,
+            y: 20,
+            w: 800,
+            h: 600,
+            extra: {
+              'fills': [solid(1, 1, 1)],
+              'strokes': [solid(0, 0, 0)],
+              'strokeWeight': 2,
+              'strokeAlign': 'OUTSIDE',
+              'cornerRadius': 4,
+              'clipsContent': false,
+            },
+            children: [
+              figmaNode(
+                '1:2',
+                'TEXT',
+                x: 30,
+                y: 40,
+                w: 100,
+                h: 20,
+                extra: {
+                  'characters': '안녕\n세계',
+                  'fills': [solid(0, 0, 0)],
+                  'style': {
+                    'fontFamily': 'Inter',
+                    'fontWeight': 650,
+                    'fontSize': 13.5,
+                    'italic': true,
+                    'textAlignHorizontal': 'JUSTIFIED',
+                    'textAutoResize': 'NONE',
+                  },
+                },
+              ),
+              figmaNode(
+                '1:3',
+                'LINE',
+                x: 50,
+                y: 50,
+                w: 100,
+                h: 0,
+                extra: {
+                  'strokes': [solid(1, 0, 0)],
+                  'strokeWeight': 3,
+                },
+              ),
+              figmaNode(
+                '1:4',
+                'GROUP',
+                x: 200,
+                y: 200,
+                w: 50,
+                h: 50,
+                extra: {'opacity': 0.5},
+                children: [
+                  figmaNode(
+                    '1:5',
+                    'ELLIPSE',
+                    x: 210,
+                    y: 210,
+                    w: 20,
+                    h: 20,
+                    extra: {
+                      'fills': [solid(0, 1, 0, opacity: 0.3)],
+                      'visible': false,
+                    },
+                  ),
+                ],
+              ),
+              figmaNode(
+                '1:6',
+                'COMPONENT',
+                x: 300,
+                y: 300,
+                w: 100,
+                h: 100,
+                extra: {
+                  'rectangleCornerRadii': [1, 2, 3, 4],
+                },
+                children: [
+                  {
+                    ...figmaNode('1:7', 'RECTANGLE', x: 0, y: 0, w: 10, h: 10),
+                    'absoluteTransform': [
+                      [math.cos(r), math.sin(r), 320],
+                      [-math.sin(r), math.cos(r), 320],
+                    ],
+                  },
+                  {
+                    ...figmaNode('1:8', 'RECTANGLE', x: 0, y: 0, w: 10, h: 10),
+                    'absoluteTransform': [
+                      [-1, 0, 350],
+                      [0, 1, 350],
+                    ],
+                  },
+                ],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(plan.skipped, isEmpty);
+      final id = await lib.createCanvasWith('종류', plan.withMap(), '가져오기');
+      final nodes = await engine.docNodes(id);
+      expect(nodes, hasLength(plan.count));
+      expect(await engine.docVerify(id), isEmpty);
+    },
+  );
 
   group('줄 나누기', () {
     test('ai.*, doc.exportPdf, 모델을 부르는 iv.*만 느린 줄로 간다', () {

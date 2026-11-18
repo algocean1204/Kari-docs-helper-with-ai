@@ -3,13 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-/// 앱이 Figma 플러그인에 보낼 수 있는 명령. 만들기, 값 바꾸기, 옮기기, 크기, 페이지, 읽기뿐이다. 지우는 명령은 없다.
+import 'relay.dart' show maxMessageBytes;
+
+/// 앱이 Figma 플러그인에 보낼 수 있는 명령. 만들기, 값 바꾸기, 옮기기, 크기, 페이지, 읽기(그림으로 내보내기 포함)뿐이다.
+/// 지우는 명령은 없다.
 const allowedCommands = {
   'join',
   'ping',
   'get_document_info',
   'get_pages',
   'get_node_info',
+  'export_node_as_image',
   'create_page',
   'create_frame',
   'create_rectangle',
@@ -117,6 +121,15 @@ class FigmaClient {
 
   void _receive(Object? data) {
     if (data is! String) return;
+    // 이미 켜진 다른 중계는 크기 한도가 없을 수 있다. 너무 큰 답은 풀지 않고, 앱이 명령을 하나씩 기다리므로 기다리는
+    // 명령을 실패로 끝낸다(시간 한도까지 기다리지 않게).
+    if (data.length > maxMessageBytes) {
+      for (final p in [..._pending.values]) {
+        p.fail(const FigmaError('Figma가 보낸 답이 너무 큽니다'));
+      }
+      _pending.clear();
+      return;
+    }
     final Object? json;
     try {
       json = jsonDecode(data);

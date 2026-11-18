@@ -390,7 +390,20 @@ async function getNodeInfo(nodeId) {
     };
   }
 
+  addGeometry(node, response.document);
   return response.document;
+}
+
+// Kari: give every node of the exported tree its absolute transform and size (the REST JSON may leave them out),
+// and the path of a vector, so the reader can place rotated nodes and straight vector lines.
+function addGeometry(node, json) {
+  if (!json || json.id !== node.id) return;
+  if ("absoluteTransform" in node) json.absoluteTransform = node.absoluteTransform;
+  if ("width" in node && "height" in node) json.size = { x: node.width, y: node.height };
+  if (node.type === "VECTOR" && "vectorPaths" in node) json.vectorPaths = node.vectorPaths;
+  if ("children" in node && Array.isArray(json.children)) {
+    node.children.forEach((child, i) => addGeometry(child, json.children[i]));
+  }
 }
 
 async function getNodesInfo(nodeIds) {

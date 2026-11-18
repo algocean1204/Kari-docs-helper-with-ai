@@ -830,6 +830,10 @@ abstract class EngineApi {
             'base': ?base,
           })
           as Json;
+
+  /// 그림 파일([path], 절대 경로)을 검사·정리해 에셋으로 넣는다. {asset, w, h} 또는 받지 않으면 {refused: 까닭}.
+  Future<Json> assetPut(String path) async =>
+      await call('asset.put', {'path': path}) as Json;
   Future<Json> docUndo(int id, String actor) async =>
       await call('doc.undo', {'id': id, 'actor': actor}) as Json;
   Future<Json> docRedo(int id, String actor) async =>

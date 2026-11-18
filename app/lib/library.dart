@@ -306,6 +306,36 @@ class Library extends ChangeNotifier {
     return id;
   }
 
+  /// [base](겹치면 번호를 붙인다) 이름의 새 캔버스 문서에 [ops]를 한 묶음으로 넣고(되돌리기 한 번) id를 돌려준다.
+  /// 새 문서의 처음 대지는 같은 묶음에서 지운다. 넣지 못하면 만든 문서를 지우고 [EngineError]를 던진다.
+  Future<int> createCanvasWith(
+    String base,
+    List<Json> ops,
+    String label,
+  ) async {
+    final id = await engine.docsCreate('canvas', _freeName(base));
+    try {
+      final first = await engine.docNodes(id);
+      await engine.docCommit(id, [
+        ...ops,
+        for (final n in first)
+          if (n['parent'] == null) {'op': 'del', 'id': n['id']},
+      ], label);
+    } on EngineError {
+      try {
+        await engine.docsTrash(id);
+        await engine.docsPurge(id);
+      } on EngineError {
+        // 지우지 못한 빈 문서는 문서 목록에 남는다(사용자가 지울 수 있다).
+      }
+      await _run(() async {});
+      rethrow;
+    }
+    newCanvases.add(id);
+    await _run(() async {});
+    return id;
+  }
+
   Future<void> rename(DocInfo d, String name) =>
       _run(() => engine.docsRename(d.id, name.trim()));
 

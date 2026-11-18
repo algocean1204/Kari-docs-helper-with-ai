@@ -69,6 +69,7 @@ class MenuEntry {
 typedef AppActions = ({
   VoidCallback newDoc,
   VoidCallback importDoc,
+  VoidCallback figmaImport,
   VoidCallback home,
   VoidCallback settings,
 });
@@ -238,6 +239,7 @@ List<MenuEntry> appMenus({
         run: nav(app.newDoc),
       ),
       MenuEntry('가져오기…', run: nav(app.importDoc)),
+      MenuEntry('Figma에서 가져오기…', run: nav(app.figmaImport)),
       MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
       MenuEntry(
@@ -550,6 +552,7 @@ List<MenuEntry> canvasMenus({
         run: nav(app.newDoc),
       ),
       MenuEntry('가져오기…', run: nav(app.importDoc)),
+      MenuEntry('Figma에서 가져오기…', run: nav(app.figmaImport)),
       MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
       MenuEntry(

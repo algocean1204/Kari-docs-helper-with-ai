@@ -15,6 +15,8 @@
 
 스키마는 문서 종류마다 파일 하나다: `app/engine/doc/schema/flow.json`(흐름 문서), `app/engine/doc/schema/canvas.json`.
 
+캔버스의 모든 노드는 `figma` 속성을 가질 수 있다(기본값 `null`): Figma에서 가져온 노드의 `{id, base}`, 곧 Figma 노드 id와 가져올 때 쓴 속성이다. 다음에 Figma와 다시 맞출 때 어느 쪽이 바뀌었는지 보는 데 쓴다. 기본값이 `null`이라 저장하지 않으므로 이 속성이 없던 때의 문서도 그대로 열린다.
+
 ### 흐름 문서의 노드
 
 ```mermaid

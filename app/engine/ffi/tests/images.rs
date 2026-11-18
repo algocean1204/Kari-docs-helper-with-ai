@@ -473,3 +473,22 @@ fn 앱_안에서_복사한_글과_같은_글이_오면_판의_html이_남은_옛
     );
     assert_eq!(texts(other), ["안에서다른 앱"]);
 }
+
+#[test]
+fn 에셋_넣기는_그림만_받아_해시와_크기를_돌려주고_아닌_것은_거절한다() {
+    let case = Case::new("images-asset-put");
+    let r = ok("asset.put", json!({"path": data("photo.png")}));
+    let hash = r["asset"].as_str().unwrap();
+    assert_eq!(hash.len(), 64);
+    assert!(r["w"].as_u64().unwrap() > 0 && r["h"].as_u64().unwrap() > 0);
+    assert!(asset_file(&case.dir, hash).is_file());
+    // 같은 그림은 같은 에셋
+    assert_eq!(
+        ok("asset.put", json!({"path": data("photo.png")}))["asset"],
+        hash
+    );
+    let not_image = case.dir.join("note.txt");
+    std::fs::write(&not_image, "글").unwrap();
+    assert!(ok("asset.put", json!({"path": not_image}))["refused"].is_string());
+    assert!(ok("asset.put", json!({"path": "relative.png"}))["refused"].is_string());
+}

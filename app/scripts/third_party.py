@@ -239,7 +239,8 @@ def others():
     rows.append({"name": "Claude Talk to Figma 플러그인", "version": FIGMA_PLUGIN_COMMIT, "license": "MIT",
                  "url": "https://github.com/arinspunk/claude-talk-to-figma-mcp",
                  "files": [FIGMA_PLUGIN / "LICENSE"],
-                 "note": "app/assets/figma-plugin의 manifest.json, code.js, ui.html", "folder": FIGMA_PLUGIN})
+                 "note": "app/assets/figma-plugin의 manifest.json, code.js, ui.html(code.js의 get_node_info가 노드의 절대 변환·크기·벡터 경로를 더해 주게 고침)",
+                 "folder": FIGMA_PLUGIN})
     return rows
 
 

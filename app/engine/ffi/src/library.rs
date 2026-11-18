@@ -426,6 +426,15 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let e = on(state)?;
             Ok(json!(e.lib.verify_doc(a.id("id")?)?))
         }
+        // 그림 파일 하나를 검사·정리해 에셋으로 넣는다(Figma에서 가져오기의 그림). 문서는 건드리지 않는다.
+        "asset.put" => {
+            let e = on(state)?;
+            let path = std::path::PathBuf::from(a.str("path")?);
+            Ok(match crate::edit::ingest_file(&mut e.lib, &path)? {
+                Ok(p) => json!({"asset": p.asset, "w": p.px.0, "h": p.px.1}),
+                Err(why) => json!({"refused": why}),
+            })
+        }
         "settings.get" => {
             let e = on(state)?;
             Ok(e.lib.setting(a.str("key")?)?.unwrap_or(Value::Null))

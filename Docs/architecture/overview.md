@@ -83,7 +83,7 @@ flowchart BT
 
 | 이름 앞머리 | 처리하는 파일 | 내용 |
 |---|---|---|
-| `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정 |
+| `lib.*`, `docs.*`, `doc.*`, `version.*`, `settings.*`, `asset.put` | `app/engine/ffi/src/library.rs` | 라이브러리 열기·닫기·백업, 문서 목록, 커밋, 되돌리기, 기록, 버전, 설정, 그림 파일 하나를 에셋으로 넣기(Figma에서 가져오기의 그림) |
 | `edit.*` | `app/engine/ffi/src/edit.rs` | 편집 세션, 편집 명령, 입력기, 찾기, 글자 수, 개요, 그림, 복사, 보기 배율, 표 경계, 눈금선, 스타일의 자세한 값(`styles.rs`) |
 | `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드), `canvas.layers`(레이어 패널의 줄). `canvas.cmd`는 묶기·풀기·쌓임 순서·레이어 끌어 놓기·숨기기·잠그기·대지 더하기도 받는다 → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
@@ -194,9 +194,10 @@ flowchart LR
 ```
 
 - **중계**: 3055에 무엇이 이미 듣고 있으면 그것을 쓰고, 없으면 앱이 127.0.0.1에만 켠다. 채널 규칙은 플러그인의 원래 중계와 같다: `{type: join, channel}`이면 그 채널에 들고 `{type: system, message: {id, result}}`로 답한다. `{type: message}`는 같은 채널의 다른 연결에 `{type: broadcast, message, sender, channel}`로, `progress_update`는 그대로 넘긴다. Origin이 하나이고 없거나 `null`인 업그레이드만 받는다(Figma 플러그인 창이 `null`이다. 다른 프로그램도 같은 모양으로 붙을 수 있어 채널 ID를 아는 것이 들어가는 조건이다). 압축(permessage-deflate)은 받지 않고, 한 연결은 채널 하나에만 들며, 연결은 16개까지다. 메시지는 32MB까지이고, dart:io가 프레임을 다 받은 뒤에 크기를 본다. 3055에 이미 있는 중계를 쓸 때는 그 프로그램의 규칙을 따른다. 원래 중계의 채널마다 줄 세우기는 하지 않는다(앱이 명령을 하나씩 기다려 보낸다).
-- **보내는 쪽**: 요청마다 UUID를 만들어 `{id, type: message, channel, message: {id, command, params: {..., commandId}}}`로 보내고, 답의 `message.id`로 짝을 짓는다. 되돌아온 명령(`message.command`가 있음)은 건너뛰고, `queue_position`과 `progress_update`는 시간 한도를 다시 센다. 들 때는 `join` 뒤에 `ping`으로 플러그인이 있는지 본다. 보낼 수 있는 명령은 `client.dart`의 `allowedCommands`(만들기, `set_*`, `move_node`, `resize_node`, `rotate_node`, `create_page`, 읽기)뿐이다.
+- **보내는 쪽**: 요청마다 UUID를 만들어 `{id, type: message, channel, message: {id, command, params: {..., commandId}}}`로 보내고, 답의 `message.id`로 짝을 짓는다. 되돌아온 명령(`message.command`가 있음)은 건너뛰고, `queue_position`과 `progress_update`는 시간 한도를 다시 센다. 들 때는 `join` 뒤에 `ping`으로 플러그인이 있는지 본다. 보낼 수 있는 명령은 `client.dart`의 `allowedCommands`(만들기, `set_*`, `move_node`, `resize_node`, `rotate_node`, `create_page`, 읽기와 `export_node_as_image`)뿐이다. 32MB를 넘는 답은 풀지 않고 기다리던 명령을 실패로 끝낸다(이미 켜진 다른 중계는 크기 한도가 없을 수 있다).
 - **옮기기**(`convert.dart`): `doc.nodes`의 노드에 스키마의 기본값을 채워 Figma 명령으로 바꾼다. 만드는 명령에는 늘 `parentId`(페이지나 프레임)를 준다(원래 중계가 요구한다). 그룹은 변환을 곱해 풀고, 돌린 것은 Figma의 왼쪽 위 기준·반시계 방향 각도로 바꿔 `rotate_node` 뒤에 `move_node`로 가운데를 맞춘다.
 - **자리**: 지시와 키가 있으면 `ai.place`로 묻고, 답은 `Placement.parse`가 칸과 범위를 엄격히 본다. 없으면 `get_node_info`(페이지)의 `absoluteBoundingBox`로 빈 자리를 셈한다.
+- **가져오기**(`receive.dart`, `link.dart`의 `readPage`·`importPage`): `get_node_info`로 고른 페이지를 JSON_REST_V1로 받는다. 앱에 든 플러그인은 그 나무의 노드마다 `absoluteTransform`, `size`, 벡터의 `vectorPaths`를 더해 준다(`code.js`의 `addGeometry`). 없으면 `absoluteBoundingBox`를 돌리지 않은 상자로 쓴다. 노드의 Kari 자리는 부모의 절대 변환의 역을 곱한 지역 변환에서 엔진의 `place_props`와 같은 규칙(가운데 기준 각도, 행렬식이 음수면 `flipX`)으로 셈한다. 최상위 프레임은 대지(`cx`, `cy`), 그룹은 Kari 그룹(자식은 그룹 좌표)이 된다. 그림 칠은 `export_node_as_image`(PNG, 배율 1)로 받아 앱의 임시 폴더에 쓰고 `asset.put`으로 넣는다. 노드마다 `figma: {id, base}`(Figma 노드 id와 가져올 때의 속성)를 붙여 `Library.createCanvasWith`가 새 캔버스 문서에 묶음 하나로 커밋하고, 같은 묶음에서 처음 대지를 지운다. 읽는 노드 20,000개, 만들 요소 3,000개, 그림 200개·합 128MB, 그림 하나 8MB, 좌표·길이 ±1,000,000, 깊이 64가 한도이고, 페이지 읽기는 120초, 그림 하나는 60초에 끊는다.
 - **끄기**: 앱을 끌 때(`Library.shutdown`) 연결을 닫고 앱이 켠 중계를 끈다.
 
 ## 자료 폴더
