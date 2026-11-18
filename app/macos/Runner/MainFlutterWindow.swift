@@ -455,10 +455,23 @@ class MainFlutterWindow: NSWindow {
           result(false)
           return
         }
+        // macOS 14부터 활성은 협조적이라, 활성이 아닌 앱의 요청은 무시될 수 있다. 막 켜진 이 앱을 먼저 활성으로 만든 뒤
+        // 넘겨 주고, app.activate가 돌려주는 값은 "요청함"일 뿐이므로 실제로 활성이 됐는지 짧게 지켜보고 답한다.
         if #available(macOS 14.0, *) {
+          NSApp.activate()
           NSApp.yieldActivation(to: app)
+          _ = app.activate(options: [.activateAllWindows])
+        } else {
+          _ = app.activate(options: [.activateAllWindows])
         }
-        result(app.activate(options: [.activateAllWindows]))
+        var tries = 0
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+          tries += 1
+          if app.isActive || app.isTerminated || tries >= 30 {
+            timer.invalidate()
+            result(app.isActive)
+          }
+        }
       case "savePath":
         guard let self else {
           result(nil)
