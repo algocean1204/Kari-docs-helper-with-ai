@@ -632,33 +632,41 @@ fn 그림은_파일을_에셋으로_넣어_채운_사각형으로_놓고_받을_
 #[test]
 fn 고른_그림_도구의_에셋은_놓기_전에_같은_그림의_문서를_지워도_남는다() {
     let c = Case::new("canvas-tool-keep");
-    let mut hash = String::new();
-    let gone: Vec<i64> = (0..2)
-        .map(|_| {
-            let o = new_canvas();
-            let s = cmd(
-                o,
-                "create",
-                json!({"tool": "image", "path": data("photo.png"), "x": 100, "y": 100}),
-            );
-            hash = node(o, &sel(&s)[0])["fills"][0]["asset"]
-                .as_str()
-                .unwrap()
-                .to_string();
-            ok("doc.close", json!({"id": o}));
-            ok("docs.trash", json!({"id": o}));
-            o
-        })
-        .collect();
-    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    // 같은 그림을 쓰는 캔버스를 만들어 닫고 휴지통에 넣는다. (문서 id, 그림 해시)
+    let trashed = || {
+        let o = new_canvas();
+        let s = cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.png"), "x": 100, "y": 100}),
+        );
+        let hash = node(o, &sel(&s)[0])["fills"][0]["asset"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        (o, hash)
+    };
+    let (gone, hash) = {
+        let (a, hash) = trashed();
+        let (b, _) = trashed();
+        ([a, b], hash)
+    };
     let id = new_canvas();
     cmd(
         id,
         "tool",
         json!({"tool": "image", "path": data("photo.png")}),
     );
-    ok("docs.purge", json!({"id": gone[0]}));
+    // 그 그림을 쓰는 마지막 문서까지 하나씩 지워도 남는다.
+    for g in gone {
+        ok("docs.purge", json!({"id": g}));
+    }
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
     assert!(file.is_file(), "하나씩 지울 때");
+    // 휴지통 비우기로 마지막 문서를 지워도 남는다.
+    trashed();
     ok("docs.purgeTrashed", json!({"before": u64::MAX / 2}));
     assert!(file.is_file(), "휴지통을 비울 때");
     // 놓으면 그 그림이 그려진다.
