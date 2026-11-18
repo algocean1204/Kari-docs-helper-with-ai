@@ -187,6 +187,8 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
                 return Err(not_open());
             };
             session::clear();
+            // 기다리던 가져오기의 그림은 그 라이브러리의 것이다.
+            crate::edit::pending().clear();
             let now = now_ms();
             for id in e.docs.keys() {
                 e.lib.create_version(*id, Reason::Close, "", now)?;
@@ -343,6 +345,15 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let d = opened(&mut e.lib, &mut e.docs, id)?;
             let out = e.lib.commit(d, ops, &meta)?;
             follow(d, &out);
+            // 커밋한 문서가 쓰게 된 가져오기의 그림은 이제 저장소가 센다.
+            let mut used = Vec::new();
+            crate::edit::assets_in(ops, &mut used);
+            if !used.is_empty() {
+                let mut p = crate::edit::pending();
+                used.iter().for_each(|h| {
+                    p.remove(h);
+                });
+            }
             outcome(&e.lib, id, out)
         }
         "doc.undo" | "doc.redo" => {
@@ -426,12 +437,16 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let e = on(state)?;
             Ok(json!(e.lib.verify_doc(a.id("id")?)?))
         }
-        // 그림 파일 하나를 검사·정리해 에셋으로 넣는다(Figma에서 가져오기의 그림). 문서는 건드리지 않는다.
+        // 그림 파일 하나를 검사·정리해 에셋으로 넣는다(Figma에서 가져오기의 그림). 문서는 건드리지 않는다. 커밋이 쓰거나
+        // 정리할 때까지 지우지 않는다(`edit::pending`).
         "asset.put" => {
             let e = on(state)?;
             let path = std::path::PathBuf::from(a.str("path")?);
             Ok(match crate::edit::ingest_file(&mut e.lib, &path)? {
-                Ok(p) => json!({"asset": p.asset, "w": p.px.0, "h": p.px.1}),
+                Ok(p) => {
+                    crate::edit::pending().insert(p.asset.clone());
+                    json!({"asset": p.asset, "w": p.px.0, "h": p.px.1})
+                }
                 Err(why) => json!({"refused": why}),
             })
         }
@@ -439,14 +454,21 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
         // 문서 밖(복사해 둔 조각, 골라 둔 그림 도구: `kept_assets`)에서 쓰는 것은 남는다.
         "asset.dropUnused" => {
             let e = on(state)?;
-            let keep = crate::edit::kept_assets();
-            let hashes = a
+            let asked: Vec<String> = a
                 .need("hashes", Value::as_array)?
                 .iter()
                 .filter_map(Value::as_str)
-                .filter(|h| !keep.contains(*h))
                 .map(str::to_string)
                 .collect();
+            // 정리하는 그림은 더 기다리지 않는다(모음에서 빼야 `kept_assets`가 남기지 않는다).
+            {
+                let mut p = crate::edit::pending();
+                asked.iter().for_each(|h| {
+                    p.remove(h);
+                });
+            }
+            let keep = crate::edit::kept_assets();
+            let hashes = asked.into_iter().filter(|h| !keep.contains(h)).collect();
             e.lib.drop_unused_assets(hashes)?;
             Ok(Value::Null)
         }

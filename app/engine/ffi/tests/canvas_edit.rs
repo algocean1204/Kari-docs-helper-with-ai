@@ -710,6 +710,54 @@ fn 쓰지_않는_에셋_지우기는_고른_그림_도구의_에셋을_남긴다
     assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
 }
 
+/// 가져오기가 넣고 아직 커밋하지 않은 그림은, 그사이 같은 그림을 쓰던 문서를 완전히 지우거나 휴지통을 비워도 남고,
+/// 그 뒤의 커밋이 그 그림을 쓴다. 정리(`asset.dropUnused`)한 그림은 모음에서 빠져 다음 정리가 지운다.
+#[test]
+fn 커밋_전의_가져온_그림은_다른_문서를_지워도_남는다() {
+    let c = Case::new("canvas-pending-keep");
+    // 같은 그림을 쓰는 캔버스를 만들어 닫고 휴지통에 넣는다.
+    let trashed = || {
+        let o = new_canvas();
+        cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.jpg"), "x": 100, "y": 100}),
+        );
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        o
+    };
+    let first = trashed();
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    ok("docs.purge", json!({"id": first}));
+    assert!(file.is_file(), "하나씩 지울 때");
+    trashed();
+    ok("docs.purgeTrashed", json!({"before": u64::MAX / 2}));
+    assert!(file.is_file(), "휴지통을 비울 때");
+    // 커밋하면 문서가 쓰고, 모음에서 빠진다.
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "가져옴"}))["id"].clone();
+    ok(
+        "doc.commit",
+        json!({"id": id, "label": "가져오기", "ops": [{"op": "add", "node": {
+            "type": "rect", "parent": "n1",
+            "props": {"fills": [{"type": "IMAGE", "asset": hash, "mode": "FILL"}]}}}]}),
+    );
+    assert!(file.is_file());
+    assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+    ok("doc.close", json!({"id": id}));
+    ok("docs.trash", json!({"id": id}));
+    ok("docs.purge", json!({"id": id}));
+    assert!(!file.exists(), "커밋한 뒤에는 모음에 없다");
+    // 넣고 커밋하지 않은 채 정리하면 모음에서 빠져 지워진다.
+    let again = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"].clone();
+    ok("asset.dropUnused", json!({"hashes": [again]}));
+    assert!(!file.exists(), "정리한 뒤에는 지운다");
+}
+
 #[test]
 fn 글을_치면_화면이_바뀌고_커서와_선택이_덧그려진다() {
     let _c = Case::new("canvas-render");
