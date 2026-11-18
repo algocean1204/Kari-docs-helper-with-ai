@@ -199,7 +199,8 @@ void main() {
     });
     m.setMockMethodCallHandler(filesChannel, (c) async {
       files.add(c.method);
-      return true;
+      // 붙여넣기 판 읽기는 판이 비었을 때처럼 null(글·그림 경로를 기대한다). 나머지는 됐다고 답한다.
+      return c.method.startsWith('paste') ? null : true;
     });
     addTearDown(() async {
       m.setMockMethodCallHandler(SystemChannels.platform, null);
