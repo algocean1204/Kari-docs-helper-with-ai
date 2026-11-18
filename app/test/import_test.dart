@@ -1,4 +1,4 @@
-// 가져오기의 위젯 시험(흉내 엔진): 홈의 `가져오기…`, 파일 메뉴의 `가져오기…`, 미리 보기 창의 요약과 옮기지 못한 것,
+// 가져오기의 위젯 시험(흉내 엔진): 홈의 `가져오기…`, 파일 메뉴의 `가져오기…`, 미리 보기 창의 요약(PDF의 쪽 수)과 옮기지 못한 것,
 // 취소와 가져오기, 읽지 못한 파일, 같은 이름의 번호.
 
 import 'dart:async';
@@ -105,6 +105,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ImportDialog), findsNothing);
     expect(previews(), before);
+  });
+
+  testWidgets('PDF는 쪽 수를 요약 앞에 두고 글이 없는 쪽을 옮기지 못한 것에 보인다', (tester) async {
+    const pdf = '/tmp/kari-test/받은 파일/홍길동 이력서.pdf';
+    final rig = await pumpReal(tester, seed: false);
+    rig.fake.imports[pdf] = {
+      ..._preview,
+      'pages': 2,
+      'lost': ['글이 없는 쪽 1개(스캔본은 다음에 지원)'],
+    };
+    rig.importPath = () async => pdf;
+    await tester.tap(find.text('가져오기…'));
+    await tester.pumpAndSettle();
+    expect(find.text('쪽 2개 · 문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
+    expect(find.text(keepAll('· 글이 없는 쪽 1개(스캔본은 다음에 지원)')), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.single['path'], pdf);
+    expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
   });
 
   testWidgets('읽지 못하는 파일은 까닭을 보이고 가져오기가 꺼진다', (tester) async {

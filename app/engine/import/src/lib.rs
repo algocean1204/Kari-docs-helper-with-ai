@@ -1,15 +1,17 @@
-//! 다른 앱의 파일 가져오기(`kari-import`): Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 붙여넣기와 같은
-//! 조각(`Fragment`)으로 읽는다. 조각을 새 문서에 넣는 일은 부르는 쪽(`kari-ffi`)이 한다.
+//! 다른 앱의 파일 가져오기(`kari-import`): Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip),
+//! PDF를 붙여넣기와 같은 조각(`Fragment`)으로 읽는다. 조각을 새 문서에 넣는 일은 부르는 쪽(`kari-ffi`)이 한다.
 //!
 //! 화면, 파일, DB, 스레드를 모른다. 바이트를 받아 조각과 옮기지 못한 것의 목록을 돌려준다. 그림 바이트는 부르는 쪽이
 //! 검사해 에셋으로 저장하고 해시를 돌려준다. 아무것도 실행하지 않고, 네트워크의 그림을 내려받지 않는다.
-//! 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면
-//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린 문서(OLE, 암호 표시가 있는 zip
-//! 항목)는 읽지 않고 까닭만 알린다.
+//! 형식은 확장자가 아니라 내용으로 가린다: 처음 1KB에 `%PDF-`가 있으면 PDF, zip이고 `word/document.xml`이 있으면
+//! DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면 웹 페이지 꾸러미, 그 밖은 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가
+//! 걸린 문서(OLE, 암호 표시가 있는 zip 항목)는 읽지 않고 까닭만 알린다.
 
 mod docx;
 mod html;
 mod hwpx;
+pub mod pdf;
+mod pdftext;
 mod xml;
 mod zip;
 
@@ -37,6 +39,8 @@ pub const TOO_MANY_PARAS: &str = "문단이 5만 개를 넘어 가져올 수 없
 pub struct Imported {
     pub fragment: Fragment,
     pub lost: Vec<String>,
+    /// PDF의 쪽 수(다른 형식은 None).
+    pub pages: Option<usize>,
 }
 
 /// 그림 바이트 → (에셋 해시, 화소 크기). 받을 수 없는 그림(PNG·JPEG가 아님, 깨짐)이면 `None`.
@@ -65,6 +69,10 @@ pub(crate) struct Report {
     pub dropped: usize,
     /// 가리킨 글자·문단 모양이 없어 기본 모양으로 둔 곳.
     pub refs: usize,
+    pub pdf_images: usize,
+    pub blank_pages: usize,
+    pub bad_pages: usize,
+    pub pdf_unknown: usize,
 }
 
 /// 글꼴 목록에 적지 않는 이름: 앱의 글꼴과 CSS의 일반 글꼴.
@@ -131,6 +139,25 @@ impl Report {
             ),
             (self.textboxes, "글 상자", "개", "뺌"),
             (self.shapes, "도형·차트", "개", "뺌"),
+            (
+                self.pdf_images,
+                "그림",
+                "개",
+                "PDF의 그림은 아직 옮기지 않아 뺌",
+            ),
+            (
+                self.blank_pages,
+                "글이 없는 쪽",
+                "개",
+                "스캔본은 다음에 지원",
+            ),
+            (self.bad_pages, "읽지 못한 쪽", "개", "깨져 있어 뺌"),
+            (
+                self.pdf_unknown,
+                "글자",
+                "개",
+                "글꼴에 글자 표가 없어 읽지 못함",
+            ),
             (self.notes, "각주·미주", "개", "뺌"),
             (self.comments, "메모", "개", "뺌"),
             (self.math, "수식", "개", "뺌"),
@@ -266,7 +293,12 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         body,
         seen: HashMap::new(),
     };
-    let paras = if zip::is_zip(bytes) {
+    let mut pages = None;
+    let paras = if pdf::is_pdf(bytes) {
+        let (paras, n) = pdf::read(bytes, &mut cx)?;
+        pages = Some(n);
+        paras
+    } else if zip::is_zip(bytes) {
         let z = zip::Zip::open(bytes)?;
         if z.encrypted() {
             return Err(ENCRYPTED);
@@ -301,6 +333,7 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
             styles: Default::default(),
         },
         lost: cx.rep.lines(),
+        pages,
     })
 }
 

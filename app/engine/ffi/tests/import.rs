@@ -371,6 +371,64 @@ fn hwpx의_그림은_내용으로_가리고_넣을_수_없는_글자는_빼며_�
 }
 
 #[test]
+fn pdf로_내보낸_이력서를_미리_보고_가져오면_제목과_목록이_남고_되돌리기_한_번이다() {
+    let case = Case::new("import-pdf");
+    let id = new_session();
+    insert(id, "홍길동");
+    cmd(id, json!({"k": "setStyle", "name": "title"}));
+    cmd(id, json!({"k": "enter"}));
+    cmd(id, json!({"k": "setStyle", "name": "h1"}));
+    insert(id, "경력");
+    cmd(id, json!({"k": "enter"}));
+    cmd(id, json!({"k": "setStyle", "name": "body"}));
+    insert(id, "• 견본상사에서 결제 API를 만들었습니다.");
+    let out = case.dir.join("내보낸 이력서.pdf");
+    ok("doc.exportPdf", json!({"id": id, "path": out}));
+    let before = doc_count();
+
+    let p = ok("import.preview", json!({"path": out}));
+    assert_eq!(p["pages"], json!(1), "{p}");
+    assert_eq!(
+        p["headings"],
+        json!([{"level": 1, "text": "홍길동"}, {"level": 2, "text": "경력"}])
+    );
+    assert_eq!(p["lost"], json!([]));
+    assert_eq!(doc_count(), before);
+
+    let r = ok(
+        "import.apply",
+        json!({"path": out, "name": "가져온 이력서"}),
+    );
+    let got = r["id"].as_i64().unwrap();
+    ok("doc.open", json!({"id": got}));
+    let paras = top(got);
+    let styles: Vec<Value> = paras.iter().map(|p| p["props"]["style"].clone()).collect();
+    assert_eq!(styles, [json!("h1"), json!("h2"), Value::Null]);
+    let t: Vec<String> = paras.iter().map(texts_of).collect();
+    assert_eq!(
+        t,
+        ["홍길동", "경력", "견본상사에서 결제 API를 만들었습니다."]
+    );
+    assert_eq!(
+        paras[2]["props"]["pf"]["list"],
+        json!({"kind": "BULLET", "level": 0})
+    );
+    assert_eq!(ok("doc.verify", json!({"id": got})), json!([]));
+    let h = ok("doc.history", json!({"id": got, "limit": 10}));
+    assert_eq!(h.as_array().unwrap().len(), 1);
+
+    // 깨진 PDF는 정해진 문장으로 거절하고 문서를 남기지 않는다.
+    let bad = case.dir.join("깨진.pdf");
+    std::fs::write(&bad, b"%PDF-1.7\n broken").unwrap();
+    for m in ["import.preview", "import.apply"] {
+        let e = err(m, json!({"path": bad, "name": "깨진"}));
+        assert_eq!(e["code"], json!("import"), "{e}");
+        assert_eq!(e["message"], json!(kari_import::pdf::BROKEN));
+    }
+    assert_eq!(doc_count(), before + 1);
+}
+
+#[test]
 fn 오천_개가_넘는_op도_묶음_하나로_넣는다() {
     let case = Case::new("import-big");
     let html: String = (0..6000).map(|i| format!("<p>줄 {i}</p>")).collect();

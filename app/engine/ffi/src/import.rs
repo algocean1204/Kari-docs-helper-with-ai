@@ -1,4 +1,4 @@
-//! `import.preview`, `import.apply`: 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미)을 새 흐름 문서로 가져온다.
+//! `import.preview`, `import.apply`: 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미, PDF)을 새 흐름 문서로 가져온다.
 //!
 //! 읽기는 `kari-import`가 한다. 미리 보기는 라이브러리를 건드리지 않는다(명령 잠금 없이 돈다. 그림은 검사만 한다).
 //! 가져오기는 새 문서를 만들고, 조각을 그 문서에 붙이는 op들을 사본(`stage`)에 5,000개씩 적용해 검사한 뒤
@@ -65,7 +65,7 @@ fn body_of(doc: &Document) -> (f64, f64) {
     (f64::from(w), f64::from(h))
 }
 
-/// 미리 보기: 문서를 만들지 않고 읽어 본 요약과 옮기지 못한 것.
+/// 미리 보기: 문서를 만들지 않고 읽어 본 요약과 옮기지 못한 것. `pages`는 PDF의 쪽 수(다른 형식은 null).
 pub(crate) fn preview(a: &Args) -> Res {
     let bytes = read_file(a)?;
     let blank = Document::new(Kind::Flow, "").map_err(Error::Doc)?;
@@ -80,7 +80,7 @@ pub(crate) fn preview(a: &Args) -> Res {
         "hash": digest(&bytes),
         "paras": s.paras, "tables": s.tables, "images": s.images, "chars": s.chars,
         "headings": s.headings.iter().map(|(l, t)| json!({"level": l, "text": t})).collect::<Vec<_>>(),
-        "lost": got.lost,
+        "lost": got.lost, "pages": got.pages,
     }))
 }
 

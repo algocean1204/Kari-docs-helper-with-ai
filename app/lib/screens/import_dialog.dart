@@ -103,6 +103,8 @@ class _ImportDialogState extends State<ImportDialog> {
                 )
               else ...[
                 Text(
+                  // PDF면 쪽 수를 앞에 둔다(다른 형식은 pages가 null).
+                  '${p['pages'] == null ? '' : '쪽 ${p['pages']}개 · '}'
                   '문단 ${p['paras']}개 · 표 ${p['tables']}개 · 그림 ${p['images']}개 · '
                   '글자 ${p['chars']}자',
                   style: AppText.body.copyWith(

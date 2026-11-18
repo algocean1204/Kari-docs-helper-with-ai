@@ -9,3 +9,10 @@ kari-doc = { path = "../doc" }
 kari-edit = { path = "../edit" }
 # 꾸러미(zip)의 압축 풀기. kari-docx가 이미 쓰는 판이라 새로 빌드되는 것은 없다.
 miniz_oxide = "0.9"
+# PDF 파일 구조 읽기(상호 참조, 압축 풀기, 암호 풀기). 기본 기능(rayon 병렬, chrono 시각)은 끈다. 순수 Rust.
+lopdf = { version = "=0.47.0", default-features = false }
+
+[dev-dependencies]
+# 시험의 견본 PDF를 Kari의 PDF 내보내기로 만든다(작업 공간 안의 크레이트).
+kari-layout = { path = "../layout" }
+kari-pdf = { path = "../pdf" }
