@@ -43,7 +43,7 @@ class LibraryHome extends StatelessWidget {
   /// 캔버스 문서를 만들고 연다.
   final VoidCallback onCreateCanvas;
 
-  /// 다른 앱의 파일(DOCX, HTML, zip)을 골라 새 글 문서로 가져온다.
+  /// 다른 앱의 파일(DOCX, HWPX, HTML, zip)을 골라 새 글 문서로 가져온다.
   final VoidCallback onImport;
   final VoidCallback onOpenSettings;
   final VoidCallback onAddPosting;

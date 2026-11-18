@@ -170,6 +170,19 @@ class FakeEngine extends EngineApi {
         }
         return {'id': id};
       case 'import.preview':
+        // 진짜 엔진처럼 옛 한글(HWP)과 옛 Word(.doc) 파일은 안내만 한다.
+        if ((a['path'] as String).endsWith('.hwp')) {
+          throw const EngineError(
+            'import_hwp',
+            '옛 이진 형식의 파일(한글 HWP 등)은 읽지 못합니다. 한글에서 HWPX나 PDF로 저장해 가져와 주세요.',
+          );
+        }
+        if ((a['path'] as String).endsWith('.doc')) {
+          throw const EngineError(
+            'import',
+            '옛 Word(.doc) 형식은 읽지 못합니다. Word에서 .docx로 저장해 가져와 주세요.',
+          );
+        }
         return imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
       case 'import.apply':

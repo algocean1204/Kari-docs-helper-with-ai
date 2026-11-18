@@ -93,6 +93,44 @@ void main() {
     expect(rig.fake.docs, isEmpty);
   });
 
+  testWidgets('한글 문서(HWPX)는 확장자를 뗀 이름으로 미리 보고 가져온다', (tester) async {
+    const hwpx = '/tmp/kari-test/받은 파일/견본 계획서.hwpx';
+    final rig = await _pick(tester, path: hwpx);
+    expect(find.textContaining(keepAll('"견본 계획서" 글 문서를')), findsOneWidget);
+    expect(find.text('문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.single['path'], hwpx);
+    expect(rig.fake.docs.values.single['name'], '견본 계획서');
+  });
+
+  testWidgets('옛 한글 파일(HWP)은 HWPX나 PDF로 저장하라는 안내를 보이고 가져오기가 꺼진다', (
+    tester,
+  ) async {
+    final rig = await _pick(
+      tester,
+      path: '/tmp/kari-test/옛 계획서.hwp',
+      known: false,
+    );
+    expect(find.textContaining('한글에서 HWPX나 PDF로 저장해 가져와 주세요.'), findsOneWidget);
+    expect(find.textContaining('(import_hwp)'), findsOneWidget);
+    expect(button(tester, '가져오기').onPressed, isNull);
+    expect(rig.fake.docs, isEmpty);
+  });
+
+  testWidgets('옛 Word 파일(.doc)은 .docx로 저장하라는 안내를 보이고 가져오기가 꺼진다', (
+    tester,
+  ) async {
+    final rig = await _pick(
+      tester,
+      path: '/tmp/kari-test/옛 이력서.doc',
+      known: false,
+    );
+    expect(find.textContaining('Word에서 .docx로 저장해 가져와 주세요.'), findsOneWidget);
+    expect(button(tester, '가져오기').onPressed, isNull);
+    expect(rig.fake.docs, isEmpty);
+  });
+
   testWidgets('같은 이름의 문서가 있으면 번호를 붙여 만든다', (tester) async {
     final rig = await pumpReal(tester, seed: false);
     await rig.library.create();

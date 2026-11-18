@@ -411,7 +411,7 @@ class MainFlutterWindow: NSWindow {
     // 주소와 파일을 운영체제에 넘기는 채널. `openUrl`은 링크를 기본 브라우저로 연다.
     // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `openFolder`는 폴더를 Finder로 연다. `savePath`는 저장 대화 상자로
     // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을, `importPath`는 가져올
-    // 파일(DOCX, HTML, zip)을 고른다.
+    // 파일(DOCX, HWPX, HTML, zip)을 고른다(옛 HWP와 .doc도 고를 수 있다).
     // `pasteImage`는 붙여넣기 판의 그림을 파일 경로로 준다(캔버스 문서의 그림 붙여넣기). `pasteRich`는 판의 서식 있는 글을
     // HTML 글로 준다(흐름 문서의 붙여넣기).
     // `print`와 `share`는 앱이 만든 PDF를 인쇄 창과 공유 창에 넘기고(Printing.swift), 창이 닫히거나 공유가 끝나면 답한다.
@@ -501,7 +501,8 @@ class MainFlutterWindow: NSWindow {
           result(response == .OK ? panel.url?.path : nil)
         }
       case "importPath":
-        // 가져올 파일 고르기. Word 문서, HTML, Google Docs의 웹 페이지 꾸러미(zip)만 고를 수 있다. 취소하면 nil.
+        // 가져올 파일 고르기. Word 문서, 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 고를 수 있다. 옛 한글(HWP)과
+        // 옛 Word(.doc)도 고를 수 있게 둔다(막으면 저장해 가져오라는 엔진의 안내를 볼 길이 없다). 취소하면 nil.
         // 파일은 엔진이 읽기만 한다(고른 파일에만 샌드박스의 읽기 허락이 생긴다).
         guard let self else {
           result(nil)
@@ -509,7 +510,7 @@ class MainFlutterWindow: NSWindow {
         }
         let panel = NSOpenPanel()
         panel.allowedContentTypes =
-          ["docx", "html", "htm", "zip"].compactMap { UTType(filenameExtension: $0) }
+          ["docx", "doc", "hwpx", "hwp", "html", "htm", "zip"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

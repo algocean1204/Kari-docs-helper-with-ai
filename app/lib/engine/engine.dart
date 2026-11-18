@@ -866,7 +866,7 @@ abstract class EngineApi {
   Future<Json> docExportTxt(int id, String path) async =>
       await call('doc.exportTxt', {'id': id, 'path': path}) as Json;
 
-  /// 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미 zip)을 읽어 본다. 문서를 만들지 않는다.
+  /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip)을 읽어 본다. 문서를 만들지 않는다.
   /// {paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
   Future<Json> importPreview(String path) async =>
       await call('import.preview', {'path': path}) as Json;
