@@ -293,6 +293,8 @@ def build():
     out = ["# 제3자 라이선스 고지", "",
            "Kari는 MIT 라이선스로 배포됩니다. 앱에는 아래의 제3자 코드와 글꼴이 들어 있습니다.",
            f"이 파일은 `{SELF}`가 만듭니다. 손으로 고치지 마세요.", "",
+           "ChatGPT와 ChatGPT 로고는 OpenAI의 상표입니다. 설정의 \"ChatGPT로 계속하기\" 단추는 OpenAI가 Sign in with ChatGPT용으로 "
+           "배포한 로고 파일(`app/assets/siwc/`)을 고치지 않고 씁니다.", "",
            "## 확인이 필요한 것", "",
            "MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이선스를 알 수 없는 것:", ""]
     if trouble:
