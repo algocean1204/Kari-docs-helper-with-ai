@@ -24,12 +24,22 @@ class Updates extends ChangeNotifier {
   /// 지금 쓰는 판과 빌드 번호. macOS 쪽이 번들에서 읽어 준다(없으면 빈 글).
   String version = '', build = '';
 
+  /// 이 앱의 번들 ID와 이름(Info.plist). 소스에서 만든 Debug·Profile 빌드는 `dev.clonamic.kari.dev`, `Kari Dev`다.
+  /// [identify]가 채운다. 채널이 없으면(시험, 견본) 배포 앱의 이름 그대로다.
+  String id = '', name = 'Kari';
+
+  /// 소스에서 만든 개발 앱(Kari Dev). 배포 앱과 자료·키를 따로 쓰고, 앱 안에서 업데이트하지 않는다.
+  /// macOS 쪽도 이 앱에서는 Sparkle을 시작하지 않는다.
+  bool get devApp => id.endsWith('.dev');
+
   /// 빌드 번호가 숫자가 아닌 빌드(소스에서 만든 개발 빌드는 판 글 `0.2.2`가 빌드 번호가 된다). 새 판의 빌드 번호와
   /// 견주면 앞뒤가 뒤바뀔 수 있어 앱 안 업데이트를 쓰지 않는다. macOS 쪽도 이런 빌드에서는 Sparkle을 시작하지 않는다.
   bool get devBuild => build.isNotEmpty && !RegExp(r'^\d+$').hasMatch(build);
 
   /// 앱 안에서 업데이트할 수 없을 때 설정과 메뉴가 보이는 글.
-  String get unavailableNote => devBuild
+  String get unavailableNote => devApp
+      ? '개발용 앱($name)은 앱 안에서 업데이트하지 않습니다. 새 코드는 소스에서 다시 빌드하고, 배포 버전은 GitHub의 Releases에서 받아 주세요.'
+      : devBuild
       ? '이 빌드는 빌드 번호($build)가 숫자가 아닌 개발용 빌드라 앱 안 업데이트를 껐습니다. 새 버전은 GitHub의 Releases에서 받아 주세요.'
       : '이 버전은 앱 안에서 업데이트할 수 없습니다. 새 버전은 GitHub의 Releases에서 받아 주세요.';
 
@@ -45,6 +55,20 @@ class Updates extends ChangeNotifier {
   /// 사용자가 눌러야 하는 띠("다시 시도"). 떠 있는 동안 화면을 옮겨도 걷지 않는다.
   ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? held;
 
+  /// 번들 ID와 이름을 macOS 쪽에서 읽는다. 라이브러리를 열기 전에 부른다(키 보관의 서비스 이름이 번들 ID다).
+  Future<void> identify() async {
+    try {
+      final r = await _channel.invokeMapMethod<String, Object?>('info');
+      id = '${r?['id'] ?? ''}';
+      final n = '${r?['name'] ?? ''}';
+      if (n.isNotEmpty) name = n;
+    } on MissingPluginException {
+      // 채널이 없는 곳(위젯 시험)은 배포 앱의 이름 그대로다.
+    } on PlatformException {
+      // 위와 같다.
+    }
+  }
+
   /// Sparkle을 시작한다. 자동 확인이 켜져 있으면 마지막 확인에서 24시간이 지났을 때 확인한다. 두 번 불러도 한 번만 한다.
   Future<void> start() async {
     if (_started) return;
@@ -54,7 +78,7 @@ class Updates extends ChangeNotifier {
       final r = await _channel.invokeMapMethod<String, Object?>('start');
       version = '${r?['version'] ?? ''}';
       build = '${r?['build'] ?? ''}';
-      available = r?['available'] == true && !devBuild;
+      available = r?['available'] == true && !devBuild && !devApp;
       auto = available && r?['auto'] == true;
     } on MissingPluginException {
       // 채널이 없는 곳(위젯 시험)에서는 업데이트를 받지 않는다.

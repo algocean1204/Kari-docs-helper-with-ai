@@ -73,6 +73,30 @@ fn names(list: &Value) -> Vec<String> {
         .collect()
 }
 
+/// 앱이 준 번들 ID가 키 보관의 서비스 이름이 된다. 주지 않으면 그대로 둔다.
+#[test]
+fn lib_open_takes_keychain_service() {
+    let case = Case::new("service");
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari");
+    case.open();
+    assert_eq!(
+        kari_ai::service(),
+        "dev.clonamic.kari",
+        "주지 않으면 기본값"
+    );
+    call("lib.close", json!({}));
+    assert_eq!(
+        err("lib.open", json!({"dir": case.dir, "service": "a b"}))["code"],
+        "bad_request"
+    );
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari");
+    ok(
+        "lib.open",
+        json!({"dir": case.dir, "service": "dev.clonamic.kari.dev"}),
+    );
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari.dev");
+}
+
 #[test]
 fn bad_requests_come_back_as_errors() {
     let case = Case::new("errors");

@@ -10,6 +10,14 @@ PRODUCT_NAME = Kari
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = dev.clonamic.kari
 
+// 소스에서 만든 Debug·Profile 빌드는 배포 앱과 다른 앱(Kari Dev)이다. 번들 ID가 달라 샌드박스 컨테이너(자료)와
+// 키체인 항목(서비스 이름 = 번들 ID)이 배포 앱과 섞이지 않는다. 앱 안 업데이트도 하지 않는다(Updater.swift).
+// Release(배포 앱)는 위의 이름과 번들 ID 그대로다.
+PRODUCT_NAME[config=Debug] = Kari Dev
+PRODUCT_NAME[config=Profile] = Kari Dev
+PRODUCT_BUNDLE_IDENTIFIER[config=Debug] = dev.clonamic.kari.dev
+PRODUCT_BUNDLE_IDENTIFIER[config=Profile] = dev.clonamic.kari.dev
+
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 algocean. MIT License.
 

@@ -34,6 +34,9 @@ jobs:
         run: python3 app/scripts/public_check.py
       - name: 문서의 상대 링크
         run: python3 app/scripts/check_links.py
+      - name: 배포 앱의 번들 ID
+        # Release는 Kari(dev.clonamic.kari) 그대로다. 개발 앱 값은 Debug·Profile에만 둔다.
+        run: grep -qx 'PRODUCT_BUNDLE_IDENTIFIER = dev.clonamic.kari' app/macos/Runner/Configs/AppInfo.xcconfig && grep -qx 'PRODUCT_NAME = Kari' app/macos/Runner/Configs/AppInfo.xcconfig && ! grep -q 'config=Release' app/macos/Runner/Configs/AppInfo.xcconfig
 
   changes:
     name: changes

@@ -6,7 +6,9 @@ use std::sync::atomic::AtomicBool;
 
 use common::*;
 use kari_ai::Effort::{High, Low, Max, Medium, XHigh};
-use kari_ai::{clamp, AiError, Anthropic, Effort, MemorySecrets, OsSecrets, Secrets};
+use kari_ai::{
+    clamp, service, set_service, AiError, Anthropic, Effort, MemorySecrets, OsSecrets, Secrets,
+};
 
 #[test]
 fn clamp_all_supported() {
@@ -86,6 +88,28 @@ fn rejects_bad_keys_and_providers() {
         OsSecrets.get("claude").unwrap_err(),
         AiError::Secret(_)
     ));
+}
+
+/// 보안 저장소의 서비스 이름. 바꾸지 않으면 배포 앱의 이름이라 이미 넣은 키를 그대로 읽는다.
+/// 프로세스에 하나라 이 시험 하나에서만 바꾼다.
+#[test]
+fn service_name_defaults_to_release_app_and_takes_bundle_id() {
+    assert_eq!(service(), "dev.clonamic.kari");
+    for bad in [
+        "",
+        "dev clonamic",
+        "dev/clonamic",
+        "키체인",
+        &"a".repeat(256),
+    ] {
+        assert!(
+            matches!(set_service(bad).unwrap_err(), AiError::Secret(_)),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(service(), "dev.clonamic.kari", "틀린 이름은 바꾸지 않는다");
+    set_service("dev.clonamic.kari.dev").unwrap();
+    assert_eq!(service(), "dev.clonamic.kari.dev");
 }
 
 #[test]

@@ -494,7 +494,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.clonamic.kari.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kari.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kari";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kari Dev.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kari Dev";
 			};
 			name = Debug;
 		};
@@ -524,7 +524,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.clonamic.kari.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kari.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kari";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kari Dev.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Kari Dev";
 			};
 			name = Profile;
 		};

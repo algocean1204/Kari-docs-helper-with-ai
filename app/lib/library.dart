@@ -23,6 +23,7 @@ class Library extends ChangeNotifier {
     this.openPath = pickOpenPath,
     this.importPath = pickImportPath,
     this.showOther = showOtherKari,
+    this.service,
     String? outDir,
   }) : _now = now ?? DateTime.now,
        outDir = outDir ?? '${Directory.systemTemp.path}/kari-share';
@@ -47,6 +48,9 @@ class Library extends ChangeNotifier {
 
   /// 자료 폴더. 여는 데 실패하면 화면에 보여 준다.
   final String dir;
+
+  /// 키 보관의 서비스 이름(앱의 번들 ID). 열 때 엔진에 넘긴다. 없으면 엔진의 기본값.
+  final String? service;
   final DateTime Function() _now;
 
   LibraryPhase phase = LibraryPhase.opening;
@@ -100,7 +104,7 @@ class Library extends ChangeNotifier {
     openError = null;
     notifyListeners();
     try {
-      await engine.libOpen(dir);
+      await engine.libOpen(dir, service: service);
     } on EngineError catch (e) {
       await _failed(e);
       return;

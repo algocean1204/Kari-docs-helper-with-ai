@@ -23,6 +23,8 @@ Kari는 유지 관리자 한 사람이 검토하고 병합합니다. 모든 이�
 
 필요한 도구와 명령은 [Docs/contributing/build-and-test.md](../Docs/contributing/build-and-test.md), 고칠 곳은 [Docs/contributing/code-map.md](../Docs/contributing/code-map.md), 구조는 [Docs/architecture/](../Docs/architecture/)에 있습니다.
 
+소스에서 만든 Debug·Profile 빌드(`flutter run`, `flutter build macos --debug`)는 배포 앱과 다른 앱 **Kari Dev**(번들 ID `dev.clonamic.kari.dev`)입니다. 자료 폴더와 키체인 항목을 배포 앱과 따로 쓰므로, 배포 앱 Kari를 함께 깔아 써도 자료와 키가 섞이지 않습니다. Kari Dev는 앱 안에서 업데이트하지 않습니다.
+
 ## 가지
 
 - 오래 두는 가지는 둘입니다. `develop`은 다음 판을 모으는 가지이고(저장소의 기본 가지), `main`은 릴리스한 판과 릴리스할 판만 두는 가지입니다. 둘 다 언제나 빌드되고 시험을 통과하는 상태입니다.

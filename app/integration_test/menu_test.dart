@@ -10,7 +10,7 @@
 // KARI_KEY_PATH=window를 더한다(두 길 모두에서 명령은 한 번만 나가야 한다).
 // 시스템 클립보드와 인쇄 창은 가로챈다(사용자의 클립보드를 건드리지 않고, 인쇄 창을 띄우지 않는다).
 // 앱이 도중에 끝나면 그 까닭(끝내기·창 닫기·exit의 호출 스택, 도구가 보낸 SIGTERM)이
-// ~/Library/Containers/dev.clonamic.kari/Data/tmp/kari-menu-test-exit.log에 남는다.
+// ~/Library/Containers/dev.clonamic.kari.dev/Data/tmp/kari-menu-test-exit.log에 남는다.
 //
 // 보는 것: 메뉴 막대가 붙어 있다(제목, 단축키, 도움말 메뉴, 체크). 메뉴에 단축키가 있는 문서 명령을 키로 누르면
 // 명령이 한 번 나간다(⌘Q, ⌘H, ⌥⌘H, ⌘M, ⌃⌘F처럼 앱을 끄거나 가리는 macOS 항목은 빼고). 한글 조합 중 ⌘B, ⌘Z.
