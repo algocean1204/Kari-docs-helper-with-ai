@@ -3,13 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-/// 앱이 Figma 플러그인에 보낼 수 있는 명령. 만들기, 값 바꾸기, 옮기기, 크기, 페이지, 읽기뿐이다. 지우는 명령은 없다.
+import 'relay.dart' show maxMessageBytes;
+
+/// 앱이 Figma 플러그인에 보낼 수 있는 명령. 만들기, 값 바꾸기, 옮기기, 크기, 페이지, 읽기(그림으로 내보내기 포함)뿐이다.
+/// 지우는 명령은 없다.
 const allowedCommands = {
   'join',
   'ping',
   'get_document_info',
   'get_pages',
   'get_node_info',
+  'export_node_as_image',
   'create_page',
   'create_frame',
   'create_rectangle',
@@ -29,12 +33,20 @@ const allowedCommands = {
   'resize_node',
 };
 
+/// 명령 하나를 기다리는 가장 긴 시간. 진행 알림(`progress_update`)이 시간 한도를 다시 세어도 이것은 넘지 않는다.
+const maxCommandTime = Duration(minutes: 10);
+
 /// 플러그인이 거절했거나, 시간이 다 됐거나, 연결이 끊긴 것.
 class FigmaError implements Exception {
   const FigmaError(this.message);
   final String message;
   @override
   String toString() => message;
+}
+
+/// 시간 한도 안에 답이 오지 않은 것.
+class FigmaTimeout extends FigmaError {
+  const FigmaTimeout() : super('Figma가 제때 답하지 않았습니다');
 }
 
 /// 중계 서버에 붙는 쪽. 플러그인의 MCP 쪽(`websocket.ts`)과 같은 모양으로 보낸다: 요청마다 새 id, `join`은
@@ -86,6 +98,7 @@ class FigmaClient {
     String command,
     Map<String, Object?> params, {
     Duration timeout = const Duration(seconds: 60),
+    Duration total = maxCommandTime,
   }) {
     if (!allowedCommands.contains(command)) {
       return Future.error(FigmaError('보낼 수 없는 명령입니다: $command'));
@@ -107,8 +120,8 @@ class FigmaClient {
         'params': {...params, 'commandId': id},
       },
     };
-    final p = _Pending(timeout, () {
-      _pending.remove(id)?.fail(const FigmaError('Figma가 제때 답하지 않았습니다'));
+    final p = _Pending(timeout, total, () {
+      _pending.remove(id)?.fail(const FigmaTimeout());
     });
     _pending[id] = p;
     _ws.add(jsonEncode(request));
@@ -117,6 +130,18 @@ class FigmaClient {
 
   void _receive(Object? data) {
     if (data is! String) return;
+    // 이미 켜진 다른 중계는 크기 한도가 없을 수 있다. 너무 큰 메시지는 풀지 않는다. 그 안에 기다리는 명령의 id가
+    // 있으면 그 답이므로 그 명령만 실패로 끝내고(시간 한도까지 기다리지 않게), 없으면 같은 채널의 다른 연결이 보낸
+    // 것으로 보고 버린다.
+    // 한계: 다른 연결이 보낸 큰 메시지의 글에 우리 id가 들어 있으면 그 명령이 실패한다(id는 무작위 UUID다).
+    if (utf8Length(data, maxMessageBytes) > maxMessageBytes) {
+      for (final id in [..._pending.keys]) {
+        if (data.contains('"$id"')) {
+          _pending.remove(id)!.fail(const FigmaError('Figma가 보낸 답이 너무 큽니다'));
+        }
+      }
+      return;
+    }
     final Object? json;
     try {
       json = jsonDecode(data);
@@ -179,19 +204,47 @@ class FigmaClient {
   }
 }
 
+/// [s]를 UTF-8로 쓴 바이트 수. [limit]를 넘으면 거기서 멈추고 넘은 값을 돌려준다(큰 글을 다시 담지 않고 센다).
+int utf8Length(String s, int limit) {
+  var n = 0;
+  for (var i = 0; i < s.length && n <= limit; i++) {
+    final c = s.codeUnitAt(i);
+    if (c < 0x80) {
+      n += 1;
+    } else if (c < 0x800) {
+      n += 2;
+    } else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      final d = s.codeUnitAt(i + 1);
+      if (d >= 0xDC00 && d <= 0xDFFF) {
+        n += 4;
+        i++;
+      } else {
+        n += 3;
+      }
+    } else {
+      n += 3;
+    }
+  }
+  return n;
+}
+
 class _Pending {
-  _Pending(this._limit, this._onTimeout) {
-    _timer = Timer(_limit, _onTimeout);
+  _Pending(this._limit, this._total, this._onTimeout) {
+    _timer = Timer(_limit < _total ? _limit : _total, _onTimeout);
   }
 
   final Duration _limit;
+  final Duration _total;
   final void Function() _onTimeout;
+  final _since = Stopwatch()..start();
   late Timer _timer;
   final done = Completer<Object?>();
 
+  /// 시간 한도를 다시 센다. 다만 처음 보낸 때부터 [_total]은 넘지 않는다(진행 알림만 끝없이 오는 경우).
   void extend() {
     _timer.cancel();
-    _timer = Timer(_limit, _onTimeout);
+    final left = _total - _since.elapsed;
+    _timer = Timer(left < _limit ? left : _limit, _onTimeout);
   }
 
   void ok(Object? v) {

@@ -687,6 +687,115 @@ fn 고른_그림_도구의_에셋은_놓기_전에_같은_그림의_문서를_�
     assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
 }
 
+/// Figma 가져오기의 정리(`asset.dropUnused`)도 골라 둔 그림 도구의 에셋은 남기고, 도구가 사라지면 지운다.
+#[test]
+fn 쓰지_않는_에셋_지우기는_고른_그림_도구의_에셋을_남긴다() {
+    let c = Case::new("canvas-tool-drop");
+    let id = new_canvas();
+    cmd(
+        id,
+        "tool",
+        json!({"tool": "image", "path": data("photo.jpg")}),
+    );
+    // 같은 바이트라 도구가 넣은 에셋과 같다.
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    ok("asset.dropUnused", json!({"hashes": [hash]}));
+    assert!(file.is_file(), "도구가 쓰는 동안");
+    ok("doc.close", json!({"id": id}));
+    ok("asset.dropUnused", json!({"hashes": [hash]}));
+    assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
+}
+
+/// 가져오기가 넣고 아직 커밋하지 않은 그림은, 그사이 같은 그림을 쓰던 문서를 완전히 지우거나 휴지통을 비워도 남고,
+/// 그 뒤의 커밋이 그 그림을 쓴다. 정리(`asset.dropUnused`)한 그림은 모음에서 빠져 다음 정리가 지운다.
+#[test]
+fn 커밋_전의_가져온_그림은_다른_문서를_지워도_남는다() {
+    let c = Case::new("canvas-pending-keep");
+    // 같은 그림을 쓰는 캔버스를 만들어 닫고 휴지통에 넣는다.
+    let trashed = || {
+        let o = new_canvas();
+        cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.jpg"), "x": 100, "y": 100}),
+        );
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        o
+    };
+    let first = trashed();
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    ok("docs.purge", json!({"id": first}));
+    assert!(file.is_file(), "하나씩 지울 때");
+    trashed();
+    ok("docs.purgeTrashed", json!({"before": u64::MAX / 2}));
+    assert!(file.is_file(), "휴지통을 비울 때");
+    // 커밋하면 문서가 쓰고, 모음에서 빠진다.
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "가져옴"}))["id"].clone();
+    ok(
+        "doc.commit",
+        json!({"id": id, "label": "가져오기", "ops": [{"op": "add", "node": {
+            "type": "rect", "parent": "n1",
+            "props": {"fills": [{"type": "IMAGE", "asset": hash, "mode": "FILL"}]}}}]}),
+    );
+    assert!(file.is_file());
+    assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+    ok("doc.close", json!({"id": id}));
+    ok("docs.trash", json!({"id": id}));
+    ok("docs.purge", json!({"id": id}));
+    assert!(!file.exists(), "커밋한 뒤에는 모음에 없다");
+    // 넣고 커밋하지 않은 채 정리하면 모음에서 빠져 지워진다.
+    let again = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"].clone();
+    ok("asset.dropUnused", json!({"hashes": [again]}));
+    assert!(!file.exists(), "정리한 뒤에는 지운다");
+}
+
+/// 실패한 커밋은 모음에서 빼지 않는다(그림은 계속 남는다). 라이브러리를 닫으면 모음이 빈다.
+#[test]
+fn 실패한_커밋은_모음을_두고_라이브러리를_닫으면_모음이_빈다() {
+    let c = Case::new("canvas-pending-fail");
+    let trashed = || {
+        let o = new_canvas();
+        cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.jpg"), "x": 100, "y": 100}),
+        );
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        o
+    };
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "실패"}))["id"].clone();
+    err(
+        "doc.commit",
+        json!({"id": id, "label": "가져오기", "ops": [{"op": "add", "node": {
+            "type": "rect", "parent": "없는부모",
+            "props": {"fills": [{"type": "IMAGE", "asset": hash, "mode": "FILL"}]}}}]}),
+    );
+    let first = trashed();
+    ok("docs.purge", json!({"id": first}));
+    assert!(file.is_file(), "실패한 커밋 뒤에도 모음에 있다");
+    // 라이브러리를 닫았다 열면 모음이 비어, 그 그림을 쓰던 마지막 문서를 지울 때 지워진다.
+    ok("lib.close", json!({}));
+    c.open();
+    let second = trashed();
+    ok("docs.purge", json!({"id": second}));
+    assert!(!file.exists(), "닫은 뒤에는 모음이 비었다");
+}
+
 #[test]
 fn 글을_치면_화면이_바뀌고_커서와_선택이_덧그려진다() {
     let _c = Case::new("canvas-render");

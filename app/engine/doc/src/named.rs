@@ -339,6 +339,14 @@ pub(crate) fn canvas_named(e: &dyn Fn(&str) -> Spec) -> Named {
         ),
         ("asset", Spec::HashOpt),
         ("poster", Spec::HashOpt),
+        // Figma에서 가져온 노드: 그 노드의 id와 가져올 때 쓴 속성(다음에 다시 맞출 때 어느 쪽이 바뀌었는지 본다).
+        (
+            "figma",
+            Spec::Null(Box::new(obj(
+                vec![("id", Spec::Str(200)), ("base", Spec::Json(true))],
+                &["id"],
+            ))),
+        ),
     ];
     all.into_iter()
         .map(|(k, s)| (format!("*.{k}"), s))

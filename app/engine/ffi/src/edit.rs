@@ -23,8 +23,36 @@ fn clip() -> std::sync::MutexGuard<'static, Option<Fragment>> {
     CLIP.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// 저장된 문서 밖에서 쓰는 그림의 에셋 해시: 복사해 둔 조각(흐름, 캔버스)과 캔버스에서 골라 아직 놓지 않은 그림
-/// 도구. 에셋을 지우는 길(완전히 지우기, 휴지통 비우기, 가져오기 실패)은 모두 이것을 남긴다. 열린 세션의 문서와
+/// `asset.put`으로 넣었지만 아직 어느 커밋도 쓰지 않은 에셋(Figma에서 가져오기가 문서를 만들기 전). 그 해시를 쓰는
+/// 커밋(`doc.commit`)이나 정리(`asset.dropUnused`)가 뺀다.
+// 한계: 엔진 메모리에만 있어 앱이 그사이 꺼지면 사라진다. 그때 남은 에셋은 쓰는 문서 없이 자료 폴더에 남는다(정리는
+// 지우는 문서가 가리키던 에셋만 보고, 시작할 때 고아 에셋을 훑지 않는다).
+static PENDING: Mutex<std::collections::BTreeSet<String>> =
+    Mutex::new(std::collections::BTreeSet::new());
+
+pub(crate) fn pending() -> std::sync::MutexGuard<'static, std::collections::BTreeSet<String>> {
+    PENDING.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// JSON 안의 `"asset": <해시>` 값들(커밋한 연산이 쓰는 에셋).
+pub(crate) fn assets_in(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m {
+                match (k.as_str(), x) {
+                    ("asset", Value::String(h)) => out.push(h.clone()),
+                    _ => assets_in(x, out),
+                }
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|x| assets_in(x, out)),
+        _ => {}
+    }
+}
+
+/// 저장된 문서 밖에서 쓰는 그림의 에셋 해시: 복사해 둔 조각(흐름, 캔버스), 캔버스에서 골라 아직 놓지 않은 그림
+/// 도구, 넣고 아직 커밋하지 않은 가져오기의 그림. 에셋을 지우는 길(완전히 지우기, 휴지통 비우기, 가져오기 실패)은
+/// 모두 이것을 남긴다. 열린 세션의 문서와
 /// 되돌리기 기록은 명령마다 저장소에 커밋되므로 저장소가 이미 센다.
 pub(crate) fn kept_assets() -> std::collections::BTreeSet<String> {
     let mut out: std::collections::BTreeSet<String> =
@@ -36,6 +64,7 @@ pub(crate) fn kept_assets() -> std::collections::BTreeSet<String> {
         });
     out.extend(crate::canvas::clip_assets());
     out.extend(crate::canvas::tool_assets());
+    out.extend(pending().iter().cloned());
     out
 }
 

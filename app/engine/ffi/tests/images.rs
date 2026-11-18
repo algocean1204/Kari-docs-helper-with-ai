@@ -473,3 +473,56 @@ fn 앱_안에서_복사한_글과_같은_글이_오면_판의_html이_남은_옛
     );
     assert_eq!(texts(other), ["안에서다른 앱"]);
 }
+
+#[test]
+fn 에셋_넣기는_그림만_받아_해시와_크기를_돌려주고_아닌_것은_거절한다() {
+    let case = Case::new("images-asset-put");
+    let r = ok("asset.put", json!({"path": data("photo.png")}));
+    let hash = r["asset"].as_str().unwrap();
+    assert_eq!(hash.len(), 64);
+    assert!(r["w"].as_u64().unwrap() > 0 && r["h"].as_u64().unwrap() > 0);
+    assert!(asset_file(&case.dir, hash).is_file());
+    // 같은 그림은 같은 에셋
+    assert_eq!(
+        ok("asset.put", json!({"path": data("photo.png")}))["asset"],
+        hash
+    );
+    let not_image = case.dir.join("note.txt");
+    std::fs::write(&not_image, "글").unwrap();
+    assert!(ok("asset.put", json!({"path": not_image}))["refused"].is_string());
+    assert!(ok("asset.put", json!({"path": "relative.png"}))["refused"].is_string());
+}
+
+#[test]
+fn 쓰지_않는_에셋만_지우고_문서가_쓰는_것은_남긴다() {
+    let case = Case::new("images-asset-drop");
+    // 이 시험만 쓰는 그림: 다른 시험이 복사해 둔 조각의 그림(같은 프로세스에 남는다)과 해시가 겹치지 않게
+    // JPEG 끝에 바이트 하나를 덧붙인다(JPEG는 받은 바이트 그대로 담긴다).
+    let mut bytes = std::fs::read(data("photo.jpg")).unwrap();
+    bytes.push(0);
+    let own = case.dir.join("own.jpg");
+    std::fs::write(&own, bytes).unwrap();
+    let unused = ok("asset.put", json!({"path": own}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // 저장된 문서가 쓰는 에셋(편집 세션의 아직 저장하지 않은 것에 기대지 않게 바로 커밋한다).
+    let used = ok("asset.put", json!({"path": data("photo.png")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "그림"}))["id"].clone();
+    ok(
+        "doc.commit",
+        json!({"id": id, "label": "그림", "ops": [{"op": "add", "node": {
+            "type": "rect", "parent": "n1",
+            "props": {"fills": [{"type": "IMAGE", "asset": used, "mode": "FILL"}]}}}]}),
+    );
+    ok(
+        "asset.dropUnused",
+        json!({"hashes": [unused, used, "../library.db"]}),
+    );
+    assert!(case.db().is_file());
+    assert!(!asset_file(&case.dir, &unused).exists());
+    assert!(asset_file(&case.dir, &used).is_file());
+}

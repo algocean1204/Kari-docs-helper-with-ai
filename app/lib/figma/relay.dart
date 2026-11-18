@@ -166,9 +166,7 @@ class FigmaRelay {
               })
             : data;
         for (final other in members) {
-          if (!identical(other, ws) && other.readyState == WebSocket.open) {
-            other.add(out);
-          }
+          if (!identical(other, ws)) _add(other, out);
         }
     }
   }
@@ -189,8 +187,16 @@ class FigmaRelay {
     });
   }
 
-  void _send(WebSocket ws, Object message) {
-    if (ws.readyState == WebSocket.open) ws.add(jsonEncode(message));
+  void _send(WebSocket ws, Object message) => _add(ws, jsonEncode(message));
+
+  /// 닫히는 중인 연결은 `readyState`가 아직 열림이어도 보내기에서 던진다. 그 메시지는 버린다.
+  void _add(WebSocket ws, String data) {
+    if (ws.readyState != WebSocket.open) return;
+    try {
+      ws.add(data);
+    } on StateError {
+      // 상대가 막 닫았다. `onDone`이 곧 채널에서 뺀다.
+    }
   }
 
   /// 연결을 모두 닫고 자리를 놓는다.

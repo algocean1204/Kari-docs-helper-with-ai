@@ -136,6 +136,46 @@ fn 풍부한_값을_받는다() {
 }
 
 #[test]
+fn figma_대응은_id와_가져올_때의_값만_받고_null이면_지운다() {
+    let mut d = canvas();
+    let figma = json!({"id": "12:34", "base": {"x": 10, "fills": []}});
+    ok(&mut d, json!([rect("r", "n1", json!({"figma": figma}))]));
+    assert_eq!(d.node("r").unwrap().props["figma"], figma);
+    for bad in [
+        json!({"base": {}}),
+        json!({"id": 3}),
+        json!({"id": "1:2", "base": []}),
+        json!({"id": "1:2", "other": 1}),
+        json!("1:2"),
+    ] {
+        rejects(
+            &mut d,
+            json!([{"op": "set", "id": "r", "props": {"figma": bad}}]),
+            Some(0),
+            "figma",
+        );
+    }
+    // 가져올 때의 값은 64KB까지
+    let big = |n: usize| json!({"id": "1:2", "base": {"t": "가".repeat(n)}});
+    ok(
+        &mut d,
+        json!([{"op": "set", "id": "r", "props": {"figma": big(20_000)}}]),
+    );
+    rejects(
+        &mut d,
+        json!([{"op": "set", "id": "r", "props": {"figma": big(22_000)}}]),
+        Some(0),
+        "figma",
+    );
+    ok(
+        &mut d,
+        json!([{"op": "set", "id": "r", "props": {"figma": null}}]),
+    );
+    assert!(!d.node("r").unwrap().props.contains_key("figma"));
+    assert!(d.check().is_empty());
+}
+
+#[test]
 fn 거절은_index와_key를_말한다() {
     let mut d = canvas();
     let p = "n1";

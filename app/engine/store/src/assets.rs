@@ -160,8 +160,9 @@ impl Library {
     }
 
     /// 넣었지만 쓰이지 않게 된 에셋(가져오기가 문서를 만들지 못했을 때)을 지운다. 어느 문서든 쓰는 것은 남는다.
+    /// 해시 꼴이 아닌 이름은 버린다(앱이 준 이름이 에셋 폴더 밖의 경로가 되지 않게).
     pub fn drop_unused_assets(&mut self, hashes: BTreeSet<String>) -> Result<()> {
-        self.drop_assets(hashes)
+        self.drop_assets(hashes.into_iter().filter(|h| hash_ok(h)).collect())
     }
 
     /// 파일을 임시 이름으로 쓰고 동기화한 뒤 제자리로 옮기고, 그다음 행을 넣는다.

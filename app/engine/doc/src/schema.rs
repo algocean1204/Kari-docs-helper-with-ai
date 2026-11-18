@@ -11,6 +11,10 @@ use crate::spec::{check, num, Spec};
 use crate::{runs, Error, Kind};
 
 const CANVAS: &str = include_str!("../schema/canvas.json");
+
+/// Figma에서 가져온 노드가 지니는 가져올 때의 값(`figma.base`)의 한도(JSON으로 쓴 바이트). 노드마다 붙어 문서와
+/// 기록이 함께 커지므로 묶는다.
+pub(crate) const FIGMA_BASE_MAX: usize = 64 * 1024;
 const FLOW: &str = include_str!("../schema/flow.json");
 
 #[derive(Debug)]
@@ -194,6 +198,16 @@ impl Schema {
                     k,
                     "stroke.sides는 rect/frame/page만 씁니다.",
                 ));
+            }
+            if self.kind == Kind::Canvas && k == "figma" && !v["base"].is_null() {
+                let len = serde_json::to_string(&v["base"]).map_or(usize::MAX, |t| t.len());
+                if len > FIGMA_BASE_MAX {
+                    return Err(Error::op(
+                        index,
+                        k,
+                        format!("figma.base는 {FIGMA_BASE_MAX}바이트까지입니다."),
+                    ));
+                }
             }
             if k == "runs" {
                 for r in v.as_array().into_iter().flatten() {

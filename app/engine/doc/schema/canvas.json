@@ -62,7 +62,8 @@
     "stroke": {"kind": "stroke", "default": {"weight": 1, "align": "INSIDE", "sides": null, "dash": [], "dashCap": "NONE", "join": "MITER", "miterLimit": 4, "capStart": "NONE", "capEnd": "NONE"}},
     "effects": {"kind": "effects", "default": []},
     "constraints": {"kind": "object", "default": {"h": "LEFT", "v": "TOP"}},
-    "layoutChild": {"kind": "object", "default": {"sizingH": "FIXED", "sizingV": "FIXED", "absolute": false}}
+    "layoutChild": {"kind": "object", "default": {"sizingH": "FIXED", "sizingV": "FIXED", "absolute": false}},
+    "figma": {"kind": "object", "default": null}
   },
   "props": {
     "page": {

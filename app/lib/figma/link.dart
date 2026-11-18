@@ -9,9 +9,11 @@ import '../engine/engine.dart';
 import '../library.dart';
 import 'client.dart';
 import 'convert.dart';
+import 'receive.dart';
 import 'relay.dart';
 
 export 'client.dart' show FigmaError;
+export 'receive.dart' show FigmaImport;
 
 /// 중계 서버의 상태: 아직 켜지 않음, 이미 켜진 것(다른 앱)을 씀, 앱이 켬, 켜지 못함.
 enum RelayKind { off, external, builtin, failed }
@@ -32,6 +34,11 @@ typedef FigmaPage = ({String id, String name});
 
 /// 보낼 곳: 있는 페이지([pageId]) 또는 새로 만들 페이지([newPage]).
 typedef FigmaTarget = ({String? pageId, String? newPage});
+
+/// 미리 본 뒤 Figma 페이지가 바뀐 것. 아무것도 만들지 않았고, 다시 미리 봐야 한다.
+class FigmaChanged extends FigmaError {
+  const FigmaChanged() : super('Figma 페이지가 바뀌었습니다. 다시 미리 봅니다');
+}
 
 /// Figma 연결. 설정 화면(환경, 중계, 플러그인, 채널)과 캔버스의 "Figma로 보내기"가 함께 쓴다.
 class FigmaLink extends ChangeNotifier {
@@ -306,6 +313,168 @@ class FigmaLink extends ChangeNotifier {
       if (conv.hidden > 0) '숨긴 것 ${conv.hidden}개는 뺐습니다',
       if (soft > 0) '글꼴이나 그림 $soft개는 Figma에서 받지 않았습니다',
     ].join(' · ');
+  }
+
+  /// 고른 Figma 페이지를 읽어 무엇을 가져올지 셈한다. 문서는 아직 만들지 않는다.
+  /// 큰 페이지는 플러그인이 내보내는 데 오래 걸려 시간 한도를 넉넉히 둔다.
+  Future<FigmaImport> readPage(
+    String pageId, {
+    Duration timeout = const Duration(seconds: 120),
+    Duration total = maxCommandTime,
+  }) async => fromFigma(
+    await _c.send(
+      'get_node_info',
+      {'nodeId': pageId},
+      timeout: timeout,
+      total: total,
+    ),
+  )..pageId = pageId;
+
+  /// [plan]을 [name](겹치면 번호)의 새 캔버스 문서로 가져와 그 id와 화면에 보일 한 줄을 돌려준다. 그림 칠은 Figma가
+  /// 그 노드를 그린 PNG로 받는다. [stop]이 끝나면 기다리던 답을 버리고 곧 멈추며(Figma에 명령을 더 보내지 않는다)
+  /// 아무것도 남기지 않는다. 문서 이름은 제어 문자를 지우고 줄인다(이름일 뿐 파일 경로로 쓰지 않는다).
+  /// Figma에는 읽는 명령만 보낸다. 실패는 [FigmaError]나 [EngineError].
+  Future<({int id, String line})> importPage(
+    FigmaImport plan, {
+    required String name,
+    void Function(int done, int total)? onProgress,
+    Future<void>? stop,
+    Duration imageTimeout = const Duration(seconds: 60),
+  }) async {
+    if (plan.tooBig != null) throw FigmaError(plan.tooBig!);
+    if (plan.count == 0) {
+      throw const FigmaError('가져올 것이 없습니다. 페이지의 최상위에 프레임이 없습니다');
+    }
+    final c = _c;
+    const stopped = FigmaError('가져오기를 멈췄습니다. 아무것도 만들지 않았습니다');
+    var isStopped = false;
+    final stopNow = stop?.then<Object?>((_) {
+      isStopped = true;
+      throw stopped;
+    });
+    // 그림이 없으면 아무도 기다리지 않는다: 멈춤의 오류가 처리되지 않은 채 남지 않게.
+    stopNow?.ignore();
+    Future<Object?> race(Future<Object?> asked) =>
+        stopNow == null ? asked : Future.any([asked, stopNow]);
+    // 모양은 미리 볼 때 읽었고 그림은 지금 받는다. 그사이 페이지가 바뀌면 섞인 결과가 되므로 다시 읽어 견준다.
+    final pageId = plan.pageId;
+    if (pageId != null) {
+      final now = await race(
+        c.send('get_node_info', {
+          'nodeId': pageId,
+        }, timeout: const Duration(seconds: 120)),
+      );
+      if (fromFigma(now).fingerprint != plan.fingerprint) {
+        throw const FigmaChanged();
+      }
+    }
+    final got = <(FigmaImage, List<int>)>[];
+    var total = 0, missed = 0;
+    for (final (i, want) in plan.images.indexed) {
+      if (isStopped) throw stopped;
+      try {
+        final asked = c.send('export_node_as_image', {
+          'nodeId': want.figmaId,
+          'format': 'PNG',
+          'scale': 1,
+        }, timeout: imageTimeout);
+        // 멈추면 기다리던 답을 버린다(늦게 오는 답이나 실패는 [Future.any]가 받아 버린다).
+        final r = await race(asked);
+        final data = r is Map ? r['imageData'] : null;
+        // base64는 4글자에 3바이트다. 풀기 전에 길이로 거른다.
+        if (data is! String || data.length > (maxImageBytes + 2) ~/ 3 * 4) {
+          throw const FormatException();
+        }
+        final bytes = base64Decode(data);
+        if (total + bytes.length > maxImagesBytes) {
+          throw const FormatException();
+        }
+        total += bytes.length;
+        got.add((want, bytes));
+      } on FigmaError catch (e) {
+        // 멈춤, 끊김, 시간 초과는 가져오기를 그만둔다(문서를 만들지 않는다). 플러그인이 그 노드를 내보내지
+        // 못한다고 답한 것만 빼고 이어 간다.
+        if (isStopped || !c.open || e is FigmaTimeout) rethrow;
+        missed++;
+      } on FormatException {
+        missed++;
+      }
+      onProgress?.call(i + 1, plan.images.length);
+    }
+    if (isStopped) throw stopped;
+    final put = <String>[];
+    // 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지운다.
+    Future<Never> undo(Object e) async {
+      if (put.isNotEmpty) {
+        try {
+          await library.engine.assetDropUnused(put);
+        } on EngineError {
+          // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
+        }
+      }
+      throw e;
+    }
+
+    if (got.isNotEmpty) {
+      Directory? dir;
+      try {
+        dir = (Directory(
+          library.outDir,
+        )..createSync(recursive: true)).createTempSync('figma-');
+        for (final (want, bytes) in got) {
+          final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
+          final asset = (await library.engine.assetPut(f.path))['asset'];
+          if (asset is String) {
+            put.add(asset);
+            want.props['fills'] = [
+              {
+                'type': 'IMAGE',
+                'asset': asset,
+                'mode': 'FILL',
+                'opacity': 1,
+                'visible': true,
+              },
+            ];
+          } else {
+            missed++;
+          }
+        }
+      } on EngineError catch (e) {
+        await undo(e);
+      } on FileSystemException catch (e) {
+        await undo(FigmaError('그림을 임시 폴더에 쓰지 못했습니다 · ${e.message}'));
+      } finally {
+        try {
+          dir?.deleteSync(recursive: true);
+        } on FileSystemException {
+          // 남은 폴더는 앱을 다시 켤 때 지운다.
+        }
+      }
+    }
+    // 그림을 넣는 동안 멈추기를 눌렀으면 문서를 만들지 않는다.
+    if (isStopped) await undo(stopped);
+    final title = clean(name).trim();
+    final int id;
+    try {
+      id = await library.createCanvasWith(
+        title.isEmpty
+            ? 'Figma 페이지'
+            : String.fromCharCodes(title.runes.take(180)),
+        plan.withMap(),
+        'Figma에서 가져오기',
+      );
+    } on EngineError catch (e) {
+      await undo(e);
+    }
+    return (
+      id: id,
+      line: [
+        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개',
+        if (plan.skippedCount > 0) '옮기지 못한 것 ${plan.skippedText}',
+        if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
+        if (plan.fonts > 0) '글 상자 ${plan.fonts}개의 글꼴을 Pretendard로 바꿨습니다',
+      ].join(' · '),
+    );
   }
 
   /// 그림 칠: 에셋 파일을 읽어 base64로 넣는다. 없거나 너무 크면 [FigmaError](그 노드는 그림 없이 남는다).

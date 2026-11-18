@@ -183,26 +183,33 @@ void main() {
     expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
   });
 
-  test('파일 메뉴의 가져오기는 새 문서 다음에 있고 앱의 가져오기를 부른다', () {
-    var called = 0;
+  test('파일 메뉴의 가져오기와 Figma에서 가져오기는 새 문서 다음에 있고 앱의 일을 부른다', () {
+    var called = 0, figma = 0;
     final menus = appMenus(
       app: (
         newDoc: () {},
         importDoc: () => called++,
+        figmaImport: () => figma++,
         home: () {},
         settings: () {},
       ),
       doc: null,
     );
     final file = menus.firstWhere((m) => m.label == '파일').children!;
-    expect([for (final e in file.take(3)) e.label], ['새 문서', '가져오기…', '홈으로']);
+    expect(
+      [for (final e in file.take(4)) e.label],
+      ['새 문서', '가져오기…', 'Figma에서 가져오기…', '홈으로'],
+    );
     file[1].run!();
     expect(called, 1);
+    file[2].run!();
+    expect(figma, 1);
     // 대화 상자가 떠 있으면 꺼진다.
     final modal = appMenus(
       app: (
         newDoc: () {},
         importDoc: () => called++,
+        figmaImport: () {},
         home: () {},
         settings: () {},
       ),

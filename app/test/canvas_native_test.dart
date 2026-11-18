@@ -3,14 +3,19 @@
 // 빌드 훅이 실은 진짜 엔진을 텍스처 없이 부른다. 앱의 캔버스 세션(CanvasSession)이 `canvas.*`와 `doc.undo`,
 // `doc.exportPdf`를 보내는 길을 그대로 돈다. 임시 폴더만 쓰고 끝나면 지운다.
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/editing/canvas_session.dart';
 import 'package:kari/editing/session.dart' show stalledMessage;
 import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/native.dart';
+import 'package:kari/figma/receive.dart';
 import 'package:kari/library.dart';
+
+import 'figma_test.dart' show figmaNode, page, solid;
 
 void main() {
   // 글꼴을 앱의 자산(rootBundle)에서 읽는다.
@@ -572,4 +577,94 @@ void main() {
     await s.close();
     expect(paragraphs(await engine.docNodes(s.id)), contains('가나'));
   });
+
+  test(
+    '성능: Figma 요소 500개를 엔진에 넣기, 가져온 캔버스의 편집 세션과 PDF, 대응표 5,000개 문서 열기의 증가분',
+    () async {
+      final lib = Library(engine, tmp.path, outDir: '${tmp.path}/out');
+      final plan = fromFigma(
+        page([
+          figmaNode(
+            '1:1',
+            'FRAME',
+            x: 0,
+            y: 0,
+            w: 1000,
+            h: 1000,
+            children: [
+              for (var k = 0; k < 499; k++)
+                figmaNode(
+                  'r$k',
+                  k.isEven ? 'RECTANGLE' : 'TEXT',
+                  x: k.toDouble(),
+                  y: k.toDouble(),
+                  w: 10,
+                  h: 10,
+                  extra: {
+                    'characters': '글 $k',
+                    'fills': [solid(0.5, 0.5, 0.5)],
+                  },
+                ),
+            ],
+          ),
+        ]),
+      );
+      expect(plan.count, 500);
+      final put = Stopwatch()..start();
+      final id = await lib.createCanvasWith('Page 1', plan.withMap(), '가져오기');
+      put.stop();
+      // 가져온 캔버스도 새로 만든 캔버스처럼 편집 세션이 열리고 PDF로 나간다.
+      await engine.canvasOpen(id);
+      final pdf = await engine.docExportPdf(id, '${tmp.path}/out.pdf');
+      expect(pdf['pages'], 1);
+      await engine.canvasClose(id);
+
+      // 대응표가 있는 노드 5,000개와 없는 노드 5,000개의 문서를 다시 열어 견준다.
+      Future<int> make(bool mapped) async {
+        final doc = await engine.docsCreate('canvas', mapped ? '대응' : '없음');
+        await engine.docCommit(doc, [
+          for (var k = 0; k < 5000; k++)
+            {
+              'op': 'add',
+              'node': {
+                'type': 'rect',
+                'parent': 'n1',
+                'props': {
+                  'x': k,
+                  'y': k,
+                  if (mapped)
+                    'figma': {
+                      'id': '1:$k',
+                      'base': {'x': k, 'y': k},
+                    },
+                },
+              },
+            },
+        ], '넣기');
+        return doc;
+      }
+
+      final plain = await make(false), mapped = await make(true);
+      Future<int> openMs(int doc) async {
+        var best = 1 << 30;
+        for (var i = 0; i < 3; i++) {
+          await engine.call('lib.close');
+          await engine.libOpen(tmp.path);
+          final t = Stopwatch()..start();
+          await engine.docOpen(doc);
+          await engine.docNodes(doc);
+          best = math.min(best, t.elapsedMilliseconds);
+        }
+        return best;
+      }
+
+      final a = await openMs(plain), b = await openMs(mapped);
+      debugPrint(
+        '성능(엔진): 요소 500개 넣기 ${put.elapsedMilliseconds}ms, 노드 5,000개 열기 '
+        '대응표 없음 ${a}ms, 있음 ${b}ms',
+      );
+      expect(put.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(b - a, lessThanOrEqualTo(50));
+    },
+  );
 }
