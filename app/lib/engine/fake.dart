@@ -46,6 +46,9 @@ class FakeEngine extends EngineApi {
   /// `asset.put`으로 넣은 파일 경로(받은 순서). 시험용.
   final List<String> assetsPut = [];
 
+  /// `asset.dropUnused`로 받은 에셋 이름(받은 순서). 시험용.
+  final List<String> assetsDropped = [];
+
   /// `doc.exportPdf`로 쓴 경로. 시험용.
   final List<String> exported = [];
 
@@ -285,6 +288,9 @@ class FakeEngine extends EngineApi {
         commits.add(a);
         d['seq'] = (d['seq'] as int) + 1;
         return {'seq': d['seq']};
+      case 'asset.dropUnused':
+        assetsDropped.addAll((a['hashes'] as List).cast<String>());
+        return null;
       case 'asset.put':
         // 흉내: PNG 머리가 아니면 거절하고, 받으면 파일 길이로 64자 이름을 짓는다.
         final bytes = File(a['path'] as String).readAsBytesSync();

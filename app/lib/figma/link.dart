@@ -366,6 +366,19 @@ class FigmaLink extends ChangeNotifier {
       onProgress?.call(i + 1, plan.images.length);
     }
     if (stop()) throw stopped;
+    final put = <String>[];
+    // 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지운다.
+    Future<Never> undo(Object e) async {
+      if (put.isNotEmpty) {
+        try {
+          await library.engine.assetDropUnused(put);
+        } on EngineError {
+          // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
+        }
+      }
+      throw e;
+    }
+
     if (got.isNotEmpty) {
       final dir = (Directory(
         library.outDir,
@@ -375,6 +388,7 @@ class FigmaLink extends ChangeNotifier {
           final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
           final asset = (await library.engine.assetPut(f.path))['asset'];
           if (asset is String) {
+            put.add(asset);
             want.props['fills'] = [
               {
                 'type': 'IMAGE',
@@ -388,6 +402,8 @@ class FigmaLink extends ChangeNotifier {
             missed++;
           }
         }
+      } on EngineError catch (e) {
+        await undo(e);
       } finally {
         try {
           dir.deleteSync(recursive: true);
@@ -396,12 +412,14 @@ class FigmaLink extends ChangeNotifier {
         }
       }
     }
-    // 한계: 넣은 뒤 문서를 만들지 못하면 그 그림 에셋은 남는다(캔버스의 그림 도구와 같다).
-    final id = await library.createCanvasWith(
-      name,
-      plan.withMap(),
-      'Figma에서 가져오기',
-    );
+    // 그림을 넣는 동안 멈추기를 눌렀으면 문서를 만들지 않는다.
+    if (stop()) await undo(stopped);
+    final int id;
+    try {
+      id = await library.createCanvasWith(name, plan.withMap(), 'Figma에서 가져오기');
+    } on EngineError catch (e) {
+      await undo(e);
+    }
     return (
       id: id,
       line: [

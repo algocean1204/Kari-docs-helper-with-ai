@@ -17,6 +17,10 @@ const maxImagesBytes = 128 * 1024 * 1024;
 /// 좌표와 길이의 한도(절댓값). 이보다 크거나 수가 아니면 그 노드를 옮기지 않는다.
 const maxLength = 1e6;
 
+/// 노드마다 지니는 가져올 때의 값의 한도(JSON 바이트). 엔진의 한도(64KB)보다 조금 작게 두어 수를 쓰는 모양의
+/// 차이를 견딘다. 넘으면 Figma id만 둔다.
+const maxBaseBytes = 60 * 1024;
+
 const _maxDepth = 64;
 
 /// 옮기지 못한 것의 이름(알림에 그대로 보인다).
@@ -64,13 +68,15 @@ class FigmaImport {
   String get skippedText =>
       [for (final e in skipped.entries) '${e.key} ${e.value}'].join(', ');
 
-  /// 대응표를 넣은 묶음: 노드마다 `figma`에 Figma id와 가져올 때의 속성. 그림을 받은 뒤에 부른다.
+  /// 대응표를 넣은 묶음: 노드마다 `figma`에 Figma id와 가져올 때의 속성([maxBaseBytes]를 넘으면 id만). 그림을
+  /// 받은 뒤에 부른다.
   // 한계: 복제하거나 복사해 붙인 요소도 같은 Figma id를 가진다. 다시 맞출 때 겹치는 id를 가린다.
   List<Json> withMap() => [
     for (final op in ops)
       () {
         final node = op['node'] as Json;
         final props = node['props'] as Json;
+        final base = jsonEncode(props);
         return {
           'op': 'add',
           'node': {
@@ -79,7 +85,8 @@ class FigmaImport {
               ...props,
               'figma': {
                 'id': figmaOf[node['id']],
-                'base': jsonDecode(jsonEncode(props)),
+                if (utf8.encode(base).length <= maxBaseBytes)
+                  'base': jsonDecode(base),
               },
             },
           },
@@ -113,9 +120,14 @@ double _r3(double v) => (v * 1000).round() / 1000;
       return null;
     }
     final a = [for (final x in v) x!];
-    // 돌리기와 뒤집기뿐이다. 늘이거나 찌그러진 변환은 받지 않는다.
-    final det = a[0] * a[3] - a[1] * a[2];
-    if ((det.abs() - 1).abs() > 0.01) return null;
+    // 돌리기와 뒤집기뿐이다: 두 열이 길이 1이고 서로 직각이어야 한다. 행렬식만 보면 행렬식이 1인 늘이기와
+    // 찌그러뜨리기가 지나간다.
+    final p = a[0], q = a[1], r = a[2], s = a[3];
+    if ((p * p + q * q - 1).abs() > 0.01 ||
+        (r * r + s * s - 1).abs() > 0.01 ||
+        (p * r + q * s).abs() > 0.01) {
+      return null;
+    }
     return (a: a, w: w, h: h);
   }
   final b = n['absoluteBoundingBox'];

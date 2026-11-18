@@ -193,6 +193,20 @@ void main() {
                   },
                 },
               ),
+              // 가져올 때의 값이 앱의 한도 바로 아래인 것(엔진의 한도 안)과 넘는 것(id만).
+              for (final (id, n) in [
+                ('1:20', maxBaseBytes ~/ 3 - 200),
+                ('1:21', maxBaseBytes ~/ 3 + 200),
+              ])
+                figmaNode(
+                  id,
+                  'TEXT',
+                  x: 0,
+                  y: 0,
+                  w: 10,
+                  h: 10,
+                  extra: {'characters': '가' * n},
+                ),
               figmaNode(
                 '1:3',
                 'LINE',

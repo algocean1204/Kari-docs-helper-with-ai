@@ -121,13 +121,16 @@ class FigmaClient {
 
   void _receive(Object? data) {
     if (data is! String) return;
-    // 이미 켜진 다른 중계는 크기 한도가 없을 수 있다. 너무 큰 답은 풀지 않고, 앱이 명령을 하나씩 기다리므로 기다리는
-    // 명령을 실패로 끝낸다(시간 한도까지 기다리지 않게).
-    if (data.length > maxMessageBytes) {
-      for (final p in [..._pending.values]) {
-        p.fail(const FigmaError('Figma가 보낸 답이 너무 큽니다'));
+    // 이미 켜진 다른 중계는 크기 한도가 없을 수 있다. 너무 큰 메시지는 풀지 않는다. 그 안에 기다리는 명령의 id가
+    // 있으면 그 답이므로 그 명령만 실패로 끝내고(시간 한도까지 기다리지 않게), 없으면 같은 채널의 다른 연결이 보낸
+    // 것으로 보고 버린다.
+    // 한계: 다른 연결이 보낸 큰 메시지의 글에 우리 id가 들어 있으면 그 명령이 실패한다(id는 무작위 UUID다).
+    if (utf8Length(data, maxMessageBytes) > maxMessageBytes) {
+      for (final id in [..._pending.keys]) {
+        if (data.contains('"$id"')) {
+          _pending.remove(id)!.fail(const FigmaError('Figma가 보낸 답이 너무 큽니다'));
+        }
       }
-      _pending.clear();
       return;
     }
     final Object? json;
@@ -190,6 +193,30 @@ class FigmaClient {
     return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
         '${h.substring(16, 20)}-${h.substring(20)}';
   }
+}
+
+/// [s]를 UTF-8로 쓴 바이트 수. [limit]를 넘으면 거기서 멈추고 넘은 값을 돌려준다(큰 글을 다시 담지 않고 센다).
+int utf8Length(String s, int limit) {
+  var n = 0;
+  for (var i = 0; i < s.length && n <= limit; i++) {
+    final c = s.codeUnitAt(i);
+    if (c < 0x80) {
+      n += 1;
+    } else if (c < 0x800) {
+      n += 2;
+    } else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      final d = s.codeUnitAt(i + 1);
+      if (d >= 0xDC00 && d <= 0xDFFF) {
+        n += 4;
+        i++;
+      } else {
+        n += 3;
+      }
+    } else {
+      n += 3;
+    }
+  }
+  return n;
 }
 
 class _Pending {

@@ -155,6 +155,18 @@ fn figma_대응은_id와_가져올_때의_값만_받고_null이면_지운다() {
             "figma",
         );
     }
+    // 가져올 때의 값은 64KB까지
+    let big = |n: usize| json!({"id": "1:2", "base": {"t": "가".repeat(n)}});
+    ok(
+        &mut d,
+        json!([{"op": "set", "id": "r", "props": {"figma": big(20_000)}}]),
+    );
+    rejects(
+        &mut d,
+        json!([{"op": "set", "id": "r", "props": {"figma": big(22_000)}}]),
+        Some(0),
+        "figma",
+    );
     ok(
         &mut d,
         json!([{"op": "set", "id": "r", "props": {"figma": null}}]),

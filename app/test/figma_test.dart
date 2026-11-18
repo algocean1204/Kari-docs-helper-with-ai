@@ -14,6 +14,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart' show keepAll;
@@ -1563,6 +1564,27 @@ void main() {
               },
               {...figmaNode('f', 'RECTANGLE', x: 0, y: 0, w: 1, h: 1)}
                 ..remove('id'),
+              // 행렬식이 1이어도 늘이거나 찌그러뜨린 변환.
+              for (final (id, m) in [
+                (
+                  'g',
+                  [
+                    [2, 0, 0],
+                    [0, 0.5, 0],
+                  ],
+                ),
+                (
+                  'h',
+                  [
+                    [1, 0.5, 0],
+                    [0, 1, 0],
+                  ],
+                ),
+              ])
+                {
+                  ...figmaNode(id, 'RECTANGLE', x: 0, y: 0, w: 1, h: 1),
+                  'absoluteTransform': m,
+                },
               'not a node',
               figmaNode('i' * 201, 'RECTANGLE', x: 0, y: 0, w: 1, h: 1),
               deep(70),
@@ -1571,7 +1593,7 @@ void main() {
           figmaNode('2:1', 'FRAME', x: double.infinity, y: 0, w: 1, h: 1),
         ]),
       );
-      expect(plan.skipped, {skipBad: 7, skipDeep: 1});
+      expect(plan.skipped, {skipBad: 9, skipDeep: 1});
       expect(plan.boards, 1);
       expect(plan.tooBig, isNull);
     });
@@ -1589,6 +1611,39 @@ void main() {
       expect(huge.tooBig, contains('$maxReadNodes개를 넘어'));
       final ok = fromFigma(page([frame(rects(10))]));
       expect((ok.tooBig, ok.count), (null, 11));
+    });
+
+    test('대응표: 노드마다 Figma id와 가져올 때의 값을 두고, 값이 한도를 넘으면 id만 둔다', () {
+      final plan = fromFigma(
+        page([
+          figmaNode(
+            '1:1',
+            'FRAME',
+            x: 0,
+            y: 0,
+            w: 100,
+            h: 100,
+            children: [
+              figmaNode(
+                '1:2',
+                'TEXT',
+                x: 0,
+                y: 0,
+                w: 10,
+                h: 10,
+                extra: {'characters': '가' * (maxBaseBytes ~/ 3 + 10)},
+              ),
+            ],
+          ),
+        ]),
+      );
+      final figma = [
+        for (final op in plan.withMap())
+          ((op['node'] as Json)['props'] as Json)['figma'] as Json,
+      ];
+      expect(figma[0]['id'], '1:1');
+      expect(figma[0]['base'], isA<Map>());
+      expect(figma[1], {'id': '1:2'});
     });
 
     test('그림 칠은 내보낸 PNG를 받을 자리를 두고, 프레임의 그림 칠과 한도를 넘은 그림은 센다', () {
@@ -1962,6 +2017,55 @@ void main() {
       await plugin.close();
     });
 
+    test('그림을 넣는 동안 멈추거나 문서를 만들지 못하면 넣은 에셋을 지우고 문서를 남기지 않는다', () async {
+      final (link, plugin) = await connect(
+        (command, _) => switch (command) {
+          'get_node_info' => samplePage(),
+          'export_node_as_image' => {
+            'imageData': base64Encode([
+              0x89,
+              0x50,
+              0x4E,
+              0x47,
+              0x0D,
+              0x0A,
+              0x1A,
+              0x0A,
+              1,
+            ]),
+          },
+          _ => null,
+        },
+      );
+      final before = fake.docs.length;
+      // 그림을 받은 뒤, 에셋을 넣은 다음에야 멈추기가 눌린다.
+      await expectLater(
+        link.importPage(
+          await link.readPage('0:1'),
+          name: 'Page 1',
+          cancelled: () => fake.assetsPut.isNotEmpty,
+        ),
+        throwsA(
+          isA<FigmaError>().having((e) => e.message, 'message', contains('멈췄')),
+        ),
+      );
+      expect(fake.assetsPut, hasLength(2));
+      expect(fake.assetsDropped, hasLength(2));
+      expect(fake.commits, isEmpty);
+      expect(fake.docs.length, before);
+
+      fake.assetsDropped.clear();
+      fake.failures['doc.commit'] = const EngineError('bad_request', '받지 않는 값');
+      await expectLater(
+        link.importPage(await link.readPage('0:1'), name: 'Page 1'),
+        throwsA(isA<EngineError>()),
+      );
+      expect(fake.assetsDropped, hasLength(2));
+      expect(fake.docs.length, before);
+      await link.stop();
+      await plugin.close();
+    });
+
     test('시간 초과와 끊김: 페이지 읽기는 실패, 그림 하나의 시간 초과는 빼고 가져오며, 끊기면 만들지 않는다', () async {
       late FakePlugin plugin;
       var mode = 'slow-page';
@@ -2041,15 +2145,36 @@ void main() {
       await plugin.close();
     });
 
-    test('이미 켜진 중계가 한도보다 큰 답을 주면 풀지 않고 기다리던 명령을 실패로 끝낸다', () async {
+    test('한도보다 큰 메시지는 바이트로 세고, 기다리는 명령의 답일 때만 그 명령을 실패로 끝낸다', () async {
+      // 받은 요청마다 정한 꼴로 답한다: 다른 연결이 보낸 듯한 큰 메시지(id 없음), 또는 그 요청 id가 든 큰 답.
+      var reply = 'other';
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       server.listen((req) async {
         final ws = await WebSocketTransformer.upgrade(req);
-        ws.listen((_) => ws.add('x' * (maxMessageBytes + 1)));
+        ws.listen((d) {
+          final id = (jsonDecode(d as String) as Map)['id'];
+          ws.add(switch (reply) {
+            'other' => 'x' * (maxMessageBytes + 1),
+            // 글자 수는 한도의 3분의 1 남짓이지만 UTF-8로는 한도를 넘는다.
+            _ =>
+              '{"message":{"id":"$id","result":"${'가' * (maxMessageBytes ~/ 3 + 10)}"}}',
+          });
+        });
       });
       final c = await FigmaClient.connect(
         Uri.parse('ws://127.0.0.1:${server.port}'),
       );
+      // 우리 답이 아닌 큰 메시지는 버리고 기다린다(여기서는 시간 한도까지).
+      await expectLater(
+        c.send('join', {
+          'channel': 'ch',
+        }, timeout: const Duration(milliseconds: 500)),
+        throwsA(
+          isA<FigmaError>().having((e) => e.message, 'message', contains('제때')),
+        ),
+      );
+      expect(c.open, isTrue);
+      reply = 'ours';
       await expectLater(
         c.send('join', {'channel': 'ch'}),
         throwsA(
@@ -2060,6 +2185,9 @@ void main() {
           ),
         ),
       );
+      expect(utf8Length('가a', 100), 4);
+      expect(utf8Length('😀', 100), 4);
+      expect(utf8Length('가' * 10, 5), lessThan(10 * 3));
       await c.close();
       await server.close(force: true);
     });
@@ -2109,6 +2237,31 @@ void main() {
       expect(link.settings, 1);
       expect(link.result, isNull);
       expect(find.byType(FigmaImportDialog), findsNothing);
+    });
+
+    testWidgets('가져오는 동안에는 바깥 누르기와 Esc로 닫히지 않고, 멈추기를 누르면 멈춘다', (tester) async {
+      final link = await pump(tester);
+      final hold = Completer<void>();
+      link.hold = hold.future;
+      await tester.tap(find.text('가져오기'));
+      await tester.pump();
+      expect(find.text('멈추기'), findsOneWidget);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(FigmaImportDialog), findsOneWidget);
+      await tester.tap(find.text('멈추기'));
+      await tester.pump();
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(link.stopAsked, isTrue);
+      expect(find.textContaining('멈췄습니다'), findsOneWidget);
+      // 멈춘 뒤에는 다시 닫을 수 있다.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.byType(FigmaImportDialog), findsNothing);
+      expect(link.result, isNull);
     });
 
     testWidgets('페이지를 고르면 오는 것과 옮기지 못하는 것을 보이고, 가져온 뒤 열기로 그 문서를 돌려준다', (
@@ -2427,6 +2580,10 @@ class _ImportLink extends FigmaLink {
   int settings = 0;
   int? result;
 
+  /// 있으면 가져오기가 이것이 끝날 때까지 기다린다(진행 중인 창).
+  Future<void>? hold;
+  bool stopAsked = false;
+
   @override
   Future<List<FigmaPage>> pages() async => [
     (id: '0:1', name: 'Page 1'),
@@ -2458,6 +2615,11 @@ class _ImportLink extends FigmaLink {
   }) async {
     imported.add(name);
     onProgress?.call(1, 2);
+    await hold;
+    if (cancelled?.call() ?? false) {
+      stopAsked = true;
+      throw const FigmaError('가져오기를 멈췄습니다. 아무것도 만들지 않았습니다');
+    }
     return (id: 42, line: 'Figma에서 가져왔습니다 · 페이지 1개, 요소 4개');
   }
 }

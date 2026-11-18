@@ -573,94 +573,99 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
         plan.count > 0 &&
         !_importing &&
         done == null;
-    return Sheet(
-      title: 'Figma에서 가져오기',
-      maxWidth: 520,
-      actions: [
-        if (_importing)
-          AppButton('멈추기', onPressed: () => setState(() => _cancel = true))
-        else if (done != null)
-          AppButton(
-            '열기',
-            kind: ButtonKind.primary,
-            onPressed: () => Navigator.of(context).pop(done.id),
-          )
-        else ...[
-          AppButton('취소', onPressed: () => Navigator.of(context).pop()),
-          if (!link.connected)
+    // 가져오는 동안에는 바깥 누르기·Esc로 닫히지 않는다(닫혀도 가져오기는 뒤에서 이어지고 문서가 열리지 않는다).
+    // 그만두려면 `멈추기`.
+    return PopScope(
+      canPop: !_importing,
+      child: Sheet(
+        title: 'Figma에서 가져오기',
+        maxWidth: 520,
+        actions: [
+          if (_importing)
+            AppButton('멈추기', onPressed: () => setState(() => _cancel = true))
+          else if (done != null)
             AppButton(
-              '설정 열기',
+              '열기',
               kind: ButtonKind.primary,
-              onPressed: () {
-                Navigator.of(context).pop();
-                widget.onOpenSettings();
-              },
+              onPressed: () => Navigator.of(context).pop(done.id),
             )
-          else
-            AppButton(
-              '가져오기',
-              kind: ButtonKind.primary,
-              onPressed: ready ? _import : null,
-            ),
-        ],
-      ],
-      children: [
-        if (!link.connected)
-          line('Figma에 연결되지 않았습니다. 설정 → Figma에서 플러그인의 채널에 연결한 뒤 다시 엽니다.')
-        else ...[
-          Text('가져올 페이지', style: AppText.label.copyWith(color: c.text)),
-          const SizedBox(height: Space.x2),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: MoreMenu(
-              key: const Key('figma-import-page'),
-              label: pages == null ? '페이지를 읽는 중' : _page?.name ?? '페이지 없음',
-              tooltip: '가져올 페이지',
-              icon: Icons.unfold_more,
-              checked: {?_page?.name},
-              items: [
-                for (final p in pages ?? const <FigmaPage>[])
-                  (
-                    p.name,
-                    () {
-                      if (!_importing && done == null) _read(p);
-                    },
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: Space.x4),
-          if (_reading) line('페이지를 읽는 중', color: c.textMuted),
-          if (plan != null) ...[
-            line(
-              'Kari로 오는 것: 페이지 ${plan.boards}개, 요소 ${plan.count}개, '
-              '그림 ${plan.images.length}개',
-            ),
-            if (plan.skippedCount > 0)
-              line(
-                '옮기지 못하는 것(빼고 가져옵니다): ${plan.skippedText}',
-                color: c.textMuted,
+          else ...[
+            AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+            if (!link.connected)
+              AppButton(
+                '설정 열기',
+                kind: ButtonKind.primary,
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  widget.onOpenSettings();
+                },
+              )
+            else
+              AppButton(
+                '가져오기',
+                kind: ButtonKind.primary,
+                onPressed: ready ? _import : null,
               ),
-            if (plan.fonts > 0)
-              line(
-                '글 상자 ${plan.fonts}개의 글꼴은 Pretendard로 바뀝니다',
-                color: c.textMuted,
-              ),
-            if (plan.tooBig != null) NoticeText(plan.tooBig!, failed: true),
-            if (plan.count == 0 && plan.tooBig == null)
-              line('이 페이지의 최상위에 프레임이 없어 가져올 것이 없습니다', color: c.textMuted),
           ],
-          line(
-            '최상위 프레임은 Kari의 페이지가 되고, 새 캔버스 문서 하나로 들어옵니다(되돌리기 한 번으로 비웁니다). '
-            'Figma 파일은 읽기만 하고 바꾸지 않습니다.',
-            color: c.textMuted,
-          ),
         ],
-        if (_progress != null)
-          line('그림을 받는 중 · ${_progress!.$1}/${_progress!.$2}'),
-        if (done != null) NoticeText(done.line),
-        if (_error != null) NoticeText(_error!, failed: true),
-      ],
+        children: [
+          if (!link.connected)
+            line('Figma에 연결되지 않았습니다. 설정 → Figma에서 플러그인의 채널에 연결한 뒤 다시 엽니다.')
+          else ...[
+            Text('가져올 페이지', style: AppText.label.copyWith(color: c.text)),
+            const SizedBox(height: Space.x2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoreMenu(
+                key: const Key('figma-import-page'),
+                label: pages == null ? '페이지를 읽는 중' : _page?.name ?? '페이지 없음',
+                tooltip: '가져올 페이지',
+                icon: Icons.unfold_more,
+                checked: {?_page?.name},
+                items: [
+                  for (final p in pages ?? const <FigmaPage>[])
+                    (
+                      p.name,
+                      () {
+                        if (!_importing && done == null) _read(p);
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Space.x4),
+            if (_reading) line('페이지를 읽는 중', color: c.textMuted),
+            if (plan != null) ...[
+              line(
+                'Kari로 오는 것: 페이지 ${plan.boards}개, 요소 ${plan.count}개, '
+                '그림 ${plan.images.length}개',
+              ),
+              if (plan.skippedCount > 0)
+                line(
+                  '옮기지 못하는 것(빼고 가져옵니다): ${plan.skippedText}',
+                  color: c.textMuted,
+                ),
+              if (plan.fonts > 0)
+                line(
+                  '글 상자 ${plan.fonts}개의 글꼴은 Pretendard로 바뀝니다',
+                  color: c.textMuted,
+                ),
+              if (plan.tooBig != null) NoticeText(plan.tooBig!, failed: true),
+              if (plan.count == 0 && plan.tooBig == null)
+                line('이 페이지의 최상위에 프레임이 없어 가져올 것이 없습니다', color: c.textMuted),
+            ],
+            line(
+              '최상위 프레임은 Kari의 페이지가 되고, 새 캔버스 문서 하나로 들어옵니다(되돌리기 한 번으로 비웁니다). '
+              'Figma 파일은 읽기만 하고 바꾸지 않습니다.',
+              color: c.textMuted,
+            ),
+          ],
+          if (_progress != null)
+            line('그림을 받는 중 · ${_progress!.$1}/${_progress!.$2}'),
+          if (done != null) NoticeText(done.line),
+          if (_error != null) NoticeText(_error!, failed: true),
+        ],
+      ),
     );
   }
 }
