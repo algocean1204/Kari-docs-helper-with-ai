@@ -18,16 +18,16 @@ use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
 
 const NOT_DOCX: &str = "Word 문서(DOCX)를 읽지 못했습니다.";
 /// 표의 최대 행·열(붙여넣기와 같다). 넘으면 글로 풀어 쓴다.
-const MAX_ROWS: usize = 50;
-const MAX_COLS: usize = 20;
-const MIN_COL: f64 = 12.0;
+pub(crate) const MAX_ROWS: usize = 50;
+pub(crate) const MAX_COLS: usize = 20;
+pub(crate) const MIN_COL: f64 = 12.0;
 /// 문단 하나에 담는 글자 수와 run 수(문서의 한 문단 상한 100,000자, 10,000개에 못 미치게 나눈다).
 const PARA_CHARS: usize = 90_000;
 const PARA_RUNS: usize = 9_000;
 /// EMU(1/914,400인치) → pt.
 const EMU_PER_PT: f64 = 12_700.0;
 
-fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
+pub(crate) fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
     let Some(bytes) = z.read(name)? else {
         return Ok(None);
     };
@@ -98,12 +98,12 @@ fn apply(look: &mut Look, rpr: &El, size: bool) {
 /// 같은 모양의 글을 이어 붙이며 문단 하나를 만든다. 문단 상한(`PARA_CHARS`, `PARA_RUNS`)에 닿으면 끊어 `done`에
 /// 쌓고 이어지는 글로 다음 문단을 시작한다.
 #[derive(Default)]
-struct Line {
-    runs: Vec<(String, Look, Option<String>, Option<Value>)>,
-    chars: usize,
+pub(crate) struct Line {
+    pub runs: Vec<(String, Look, Option<String>, Option<Value>)>,
+    pub chars: usize,
     /// 굵기와 크기를 문단 스타일에 맡기는 제목 문단인가.
-    heading: bool,
-    done: Vec<Vec<Value>>,
+    pub heading: bool,
+    pub done: Vec<Vec<Value>>,
 }
 
 impl Line {
@@ -114,7 +114,7 @@ impl Line {
         }
     }
 
-    fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
+    pub fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
         // 제어 문자는 문서에 넣을 수 없다(탭과 줄바꿈만).
         let t: String = t
             .chars()
@@ -142,14 +142,14 @@ impl Line {
         }
     }
 
-    fn obj(&mut self, o: Value) {
+    pub fn obj(&mut self, o: Value) {
         self.room();
         self.chars += 1;
         self.runs
             .push(("\u{FFFC}".into(), Look::default(), None, Some(o)));
     }
 
-    fn take(&mut self) -> Vec<Value> {
+    pub fn take(&mut self) -> Vec<Value> {
         self.chars = 0;
         let heading = self.heading;
         std::mem::take(&mut self.runs)
@@ -718,7 +718,7 @@ fn cells(tr: &El) -> impl Iterator<Item = &El> {
 }
 
 /// 칸 바탕(`w:shd w:fill`) → `#RRGGBBFF`. `auto`와 흰색은 바탕 없음.
-fn fill_color(v: &str) -> Option<String> {
+pub(crate) fn fill_color(v: &str) -> Option<String> {
     let v = v.trim();
     if v.len() != 6 || v.eq_ignore_ascii_case("FFFFFF") || !v.bytes().all(|c| c.is_ascii_hexdigit())
     {

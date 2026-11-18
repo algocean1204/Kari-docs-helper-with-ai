@@ -1,4 +1,4 @@
-//! `import.preview`, `import.apply`: 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미)을 새 흐름 문서로 가져온다.
+//! `import.preview`, `import.apply`: 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미)을 새 흐름 문서로 가져온다.
 //!
 //! 읽기는 `kari-import`가 한다. 미리 보기는 라이브러리를 건드리지 않는다(명령 잠금 없이 돈다. 그림은 검사만 한다).
 //! 가져오기는 새 문서를 만들고, 조각을 그 문서에 붙이는 op들을 사본(`stage`)에 5,000개씩 적용해 검사한 뒤
@@ -12,7 +12,7 @@ use std::path::Path;
 use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::{Document, Kind};
 use kari_edit::{Command, Editor, Fragment};
-use kari_import::{import, summary, Imported, MAX_FILE, TOO_LARGE};
+use kari_import::{import, summary, Imported, HWP_LEGACY, MAX_FILE, TOO_LARGE};
 use kari_layout::{body_size, Layouter};
 use kari_store::{stage, Actor, DocId, Error, Meta};
 
@@ -39,6 +39,18 @@ fn read_file(a: &Args) -> Result<Vec<u8>, Fail> {
     Ok(bytes)
 }
 
+/// 읽기 오류. 옛 한글(HWP) 파일은 따로 가를 수 있게 코드를 `import_hwp`로 한다.
+fn read_fail(m: &'static str) -> Fail {
+    fail(
+        if m == HWP_LEGACY {
+            "import_hwp"
+        } else {
+            "import"
+        },
+        m,
+    )
+}
+
 fn body_of(doc: &Document) -> (f64, f64) {
     let (w, h) = body_size(doc);
     (f64::from(w), f64::from(h))
@@ -53,7 +65,7 @@ pub(crate) fn preview(a: &Args) -> Res {
             .ok()
             .map(|p| (String::new(), (p.width, p.height)))
     };
-    let got = import(&bytes, body_of(&blank), &mut check).map_err(|m| fail("import", m))?;
+    let got = import(&bytes, body_of(&blank), &mut check).map_err(read_fail)?;
     let s = summary(&got.fragment);
     Ok(json!({
         "paras": s.paras, "tables": s.tables, "images": s.images, "chars": s.chars,
@@ -119,7 +131,7 @@ fn fill(
             None
         }
     };
-    let got = import(bytes, body_of(d.doc()), &mut store).map_err(|m| fail("import", m));
+    let got = import(bytes, body_of(d.doc()), &mut store).map_err(read_fail);
     if let Some(f) = io {
         return Err(f);
     }

@@ -69,7 +69,7 @@ xattr -dr com.apple.quarantine /Applications/Kari.app
 - 쪽 설정(용지 크기와 방향, 사용자 지정 용지, 여백), 머리글·바닥글, 쪽 번호
 - 되돌리기·다시 하기, 자동 저장, 버전(예전 상태로 돌아가기)
 - PDF로 내보내기(링크가 눌리고 글자를 고르고 찾을 수 있는 PDF), Word 문서(DOCX)와 텍스트로 내보내기
-- 다른 앱의 파일 가져오기: Word 문서(DOCX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 새 문서로([writing.md](writing.md#가져오기))
+- 다른 앱의 파일 가져오기: Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 새 문서로([writing.md](writing.md#가져오기))
 - 인쇄, 공유, 보기 배율(50~300%, 쪽 너비에 맞춤), macOS 메뉴 막대
 - 채용공고 붙여넣기
 - 글로 하는 면접 연습과 리포트(백엔드 개발 직무)
@@ -165,7 +165,7 @@ OpenAI는 API 키 대신 내 ChatGPT 플랜의 사용량으로도 쓸 수 있다
 - 머리글·바닥글은 쪽 설정 창에서 고친다.
 - Word 문서로 내보낼 때 글꼴은 담지 않는다. 문단의 테두리에서 글과 선 사이의 거리는 1pt 단위로 반올림한다.
 - 면접은 백엔드 개발 직무를 다루고, 글로 주고받는다.
-- 다른 앱의 파일은 Word 문서(DOCX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 새 문서로 가져온다. PDF와 그 밖의 형식은 아직 가져오지 않는다. 글꼴은 Pretendard로 바꾸고, 옮기지 못한 것은 가져오기 전에 보인다.
+- 다른 앱의 파일은 Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 새 문서로 가져온다. 옛 한글 파일(HWP)은 읽지 않고 HWPX나 PDF로 저장하라고 안내한다. PDF와 그 밖의 형식은 아직 가져오지 않는다. 글꼴은 Pretendard로 바꾸고, 옮기지 못한 것은 가져오기 전에 보인다.
 - 면접에 쓰는 AI 제공사는 Anthropic(Claude)과 OpenAI이다.
 - 화면과 문서는 한국어이다.
 

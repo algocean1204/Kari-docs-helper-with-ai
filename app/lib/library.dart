@@ -38,7 +38,7 @@ class Library extends ChangeNotifier {
   /// 넣을 그림 파일 고르기(PNG, JPEG). 시험은 바꿔 끼운다.
   final OpenPath openPath;
 
-  /// 가져올 파일 고르기(DOCX, HTML, zip). 시험은 바꿔 끼운다.
+  /// 가져올 파일 고르기(DOCX, HWPX, HWP, HTML, zip). 시험은 바꿔 끼운다.
   final OpenPath importPath;
 
   /// 같은 자료 폴더를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져오기. 시험은 바꿔 끼운다.
@@ -589,7 +589,7 @@ typedef OpenPath = Future<String?> Function();
 Future<String?> pickOpenPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('openPath');
 
-/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
+/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, 한글 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
 Future<String?> pickImportPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('importPath');
 

@@ -173,6 +173,107 @@ fn docx로_내보낸_문서를_가져오면_제목과_표가_남는다() {
     assert_eq!(ok("doc.verify", json!({"id": got})), json!([]));
 }
 
+/// 압축하지 않고 담는 꾸러미(읽는 쪽은 crc를 보지 않는다).
+fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let (mut out, mut dir) = (Vec::new(), Vec::new());
+    for (name, data) in files {
+        let at = out.len() as u32;
+        let common = |v: &mut Vec<u8>| {
+            v.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // 판, 깃발, 담기, 시각, crc
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        };
+        out.extend_from_slice(&0x0403_4B50u32.to_le_bytes());
+        common(&mut out);
+        out.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        dir.extend_from_slice(&0x0201_4B50u32.to_le_bytes());
+        dir.extend_from_slice(&[20, 0]);
+        common(&mut dir);
+        dir.extend_from_slice(&[0; 12]);
+        dir.extend_from_slice(&at.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+    }
+    let start = out.len() as u32;
+    out.extend_from_slice(&dir);
+    out.extend_from_slice(&0x0605_4B50u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(dir.len() as u32).to_le_bytes());
+    out.extend_from_slice(&start.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}
+
+#[test]
+fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다() {
+    let case = Case::new("import-hwpx");
+    let head = r##"<hh:head xmlns:hh="h" xmlns:hc="c"><hh:refList><hh:charProperties><hh:charPr id="0" height="1000" textColor="#000000"><hh:fontRef hangul="0"/></hh:charPr><hh:charPr id="1" height="1000" textColor="#000000"><hh:fontRef hangul="0"/><hh:bold/></hh:charPr></hh:charProperties><hh:paraProperties><hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr><hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties></hh:refList></hh:head>"##;
+    let cell = |c: u32, rs: u32, t: &str| {
+        format!(
+            r#"<hp:tc header="0"><hp:subList><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>{t}</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr colAddr="{c}" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="{rs}"/><hp:cellSz width="3000" height="900"/></hp:tc>"#
+        )
+    };
+    let sec = format!(
+        r#"<hs:sec xmlns:hs="s" xmlns:hp="p" xmlns:hc="c"><hp:p paraPrIDRef="1"><hp:run charPrIDRef="0"><hp:t>홍길동</hp:t></hp:run></hp:p><hp:p paraPrIDRef="0"><hp:run charPrIDRef="1"><hp:t>견본상사 백엔드</hp:t></hp:run><hp:run charPrIDRef="0"><hp:pic><hp:curSz width="7200" height="7200"/><hc:img binaryItemIDRef="image1"/></hp:pic><hp:t/></hp:run></hp:p><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="1" colCnt="2"><hp:tr>{}{}</hp:tr></hp:tbl><hp:t/></hp:run></hp:p></hs:sec>"#,
+        cell(0, 1, "회사"),
+        cell(1, 1, "견본상사")
+    );
+    let manifest = r#"<opf:package xmlns:opf="o"><opf:manifest><opf:item id="image1" href="BinData/image1.png" media-type="image/png"/></opf:manifest></opf:package>"#;
+    let png = photo();
+    let z = stored_zip(&[
+        ("mimetype", b"application/hwp+zip"),
+        ("Contents/content.hpf", manifest.as_bytes()),
+        ("Contents/header.xml", head.as_bytes()),
+        ("Contents/section0.xml", sec.as_bytes()),
+        ("BinData/image1.png", &png),
+    ]);
+    let path = case.dir.join("이력서.hwpx");
+    std::fs::write(&path, z).unwrap();
+    let before = doc_count();
+
+    let p = ok("import.preview", json!({"path": path}));
+    assert_eq!(
+        (p["paras"].clone(), p["tables"].clone(), p["images"].clone()),
+        (json!(2), json!(1), json!(1)),
+        "{p}"
+    );
+    assert_eq!(p["headings"], json!([{"level": 1, "text": "홍길동"}]));
+    assert_eq!(doc_count(), before);
+    assert!(walk(&case.dir.join("assets")).is_empty());
+
+    let r = ok("import.apply", json!({"path": path, "name": "이력서"}));
+    let id = r["id"].as_i64().unwrap();
+    ok("doc.open", json!({"id": id}));
+    let top = top(id);
+    assert_eq!(top[0]["props"]["style"], json!("h1"));
+    assert_eq!(texts_of(&top[0]), "홍길동");
+    assert!(texts_of(&top[1]).contains("견본상사 백엔드"));
+    assert_eq!(nodes(id, "table").len(), 1);
+    assert_eq!(nodes(id, "cell").len(), 2);
+    assert_eq!(walk(&case.dir.join("assets")).len(), 1);
+    assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+
+    // 옛 한글(HWP) 이진 파일은 문서를 만들지 않고 안내와 따로 가를 수 있는 코드를 돌려준다.
+    let hwp = case.dir.join("옛 이력서.hwp");
+    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    ole.extend_from_slice(&[0; 1024]);
+    std::fs::write(&hwp, ole).unwrap();
+    let docs = doc_count();
+    for m in ["import.preview", "import.apply"] {
+        let e = err(m, json!({"path": hwp, "name": "옛 이력서"}));
+        assert_eq!(e["code"], json!("import_hwp"), "{e}");
+        assert!(
+            e["message"].as_str().unwrap().contains("HWPX나 PDF로 저장"),
+            "{e}"
+        );
+    }
+    assert_eq!(doc_count(), docs);
+}
+
 #[test]
 fn 오천_개가_넘는_op도_묶음_하나로_넣는다() {
     let case = Case::new("import-big");

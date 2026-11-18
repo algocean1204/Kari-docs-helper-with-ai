@@ -444,11 +444,12 @@ sequenceDiagram
 
 ## 가져오기 (`app/engine/import`)
 
-다른 앱의 파일 바이트를 붙여넣기와 같은 조각(`Fragment`)과 옮기지 못한 것의 목록(`lost`, 내보내기와 같은 꼴의 한 줄들)으로 읽는다. 파일, DB, 스레드를 모르고, 그림 바이트는 부르는 쪽이 검사해 에셋으로 저장한 해시를 받는다. 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, 다른 zip이면 웹 페이지 꾸러미, 아니면 HTML.
+다른 앱의 파일 바이트를 붙여넣기와 같은 조각(`Fragment`)과 옮기지 못한 것의 목록(`lost`, 내보내기와 같은 꼴의 한 줄들)으로 읽는다. 파일, DB, 스레드를 모르고, 그림 바이트는 부르는 쪽이 검사해 에셋으로 저장한 해시를 받는다. 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, `mimetype`이 `application/hwp+zip`인 꾸러미(또는 `Contents/header.xml`과 `Contents/section*.xml`이 있는 꾸러미)면 HWPX, 다른 zip이면 웹 페이지 꾸러미, 아니면 HTML. OLE 머리(`D0 CF 11 E0`)나 HWP 3.0 머리 글의 옛 한글 파일은 읽지 않고 오류 코드 `import_hwp`와 안내(HWPX나 PDF로 저장)를 돌려준다.
 
 | 형식 | 읽는 길 |
 |---|---|
 | DOCX | `docx.rs`가 `word/document.xml`, `styles.xml`, `numbering.xml`, 관계 파일, `fontTable.xml`을 직접 읽는다. 제목은 스타일 이름(`heading N`, `Title`, `Subtitle`)이나 개요 수준을 바탕 스타일까지 따라가 정한다. 목록은 `w:numPr`(없으면 스타일의 것)의 종류·단계·시작 번호, 표는 `w:gridSpan`·`w:vMerge`로 합친 칸, `w:tblGrid`의 열 폭(본문 폭을 넘으면 줄임), `w:tblHeader`, 칸 바탕. 그림은 `a:blip`(DrawingML)과 `v:imagedata`(VML)가 가리키는 꾸러미 안의 파일이고 크기는 문서에 적힌 값이다. 변경 추적은 받아들인 모양(`w:del` 뺌), `mc:AlternateContent`는 `mc:Choice`만 읽는다 |
+| HWPX | `hwpx.rs`가 `Contents/header.xml`의 글자 모양(`hh:charPr`: `hh:bold`, `hh:italic`, `hh:underline`, `hh:strikeout`, `textColor`, `height`, `hh:supscript`·`hh:subscript`)과 문단 모양(`hh:paraPr`: `hh:align`, `hh:heading`의 `OUTLINE`은 제목, `NUMBER`·`BULLET`은 목록), 칸 바탕(`hh:borderFill`의 `hc:winBrush`)을 읽고, `Contents/section*.xml`(번호 순)의 `hp:p`·`hp:run`·`hp:t`(`hp:tab`, `hp:lineBreak` 포함)가 `charPrIDRef`·`paraPrIDRef`로 그것을 가리킨다. 표는 `hp:tbl`의 `hp:tc`가 `hp:cellAddr`·`hp:cellSpan`·`hp:cellSz`로 자리, 합침, 폭을 적고(서로 겹치면 글로 풀어 씀), 그림은 `hp:pic`의 `hc:img`가 `META-INF/container.xml`이 가리키는 `content.hpf`의 항목을 거쳐 `BinData/` 아래 파일을 가리킨다(크기는 `hp:curSz`). 링크는 `hp:ctrl`의 `hp:fieldBegin`(`type="HYPERLINK"`)의 `Command` 인자에서 `;` 앞의 주소(`\` 이스케이프를 풂)를 `hp:fieldEnd`까지의 글에 걸고, 허용한 주소(http, https, mailto, tel)가 아니면 글만 두고 `링크`로 센다. 글 상자(`hp:drawText`), 그 밖의 도형·차트, `hp:footNote`·`hp:endNote`, `hp:header`·`hp:footer`, `hp:equation`은 읽지 않고 센다 |
 | HTML | `kari-edit`의 `html_import`: 붙여넣기의 `html_fragment`와 같은 파서·상한에 그림(`<img>`)을 더하고, 쓰인 글꼴과 버린 개체(SVG, 동영상, 입력 칸 등)를 알린다. 그림 주소는 data: 주소만 받는다 |
 | 웹 페이지 꾸러미 | 가장 얕은 자리의 `.html` 하나를 HTML처럼 읽고, 상대 주소의 그림은 꾸러미 안에서 찾는다. Google Docs가 겹치지 않고 적는 목록 단계(클래스 `lst-kix_…-N`)와 링크를 감싸는 넘김 주소(`google.com/url?q=`)를 푼다 |
 

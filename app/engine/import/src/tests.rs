@@ -8,6 +8,8 @@ use crate::*;
 const BODY: (f64, f64) = (481.9, 728.5);
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-fake-";
 
+mod hwpx;
+
 /// 시험용 저장: PNG 머리면 받아 "h<길이>"와 20×10px로, 아니면 거절.
 fn store(b: &[u8]) -> Option<(String, (u32, u32))> {
     b.starts_with(b"\x89PNG")
