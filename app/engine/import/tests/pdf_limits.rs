@@ -1,6 +1,8 @@
 //! 해로운 PDF 꾸러미(P1~P26). 견본은 모두 시험 안에서 바이트로 만든다(암호 견본만 qpdf로, 없으면 실패한다).
-//! 시간과 최대 힙을 이 시험 실행 파일에만 둔 셈하는 할당자로 잰다. 힙이 섞이지 않게 차례로 돈다. 시간 상한(2초)은
-//! release 기준이라 debug 빌드에서는 힙만 본다. P23(두 단 + 머리글·쪽 번호)은 Kari 내보내기 왕복이라 `pdf.rs`에 있다.
+//! 견본마다 이 시험 실행 파일을 자식 프로세스로 다시 띄워 그 안에서 읽힌다. 자식 안에서는 이 실행 파일에만 둔 셈하는
+//! 할당자(realloc 포함)로 최대 힙을 재고, 끝나면 자식의 최대 RSS(`getrusage`)를 부모가 받아 함께 본다. 자식은 하나씩
+//! 돈다. 시간 상한(2초)은 release 기준이라 debug 빌드에서는 힙과 RSS만 본다. P23(두 단 + 머리글·쪽 번호)은 Kari 내보내기
+//! 왕복이라 `pdf.rs`에 있다.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::process::Command;
@@ -31,6 +33,18 @@ unsafe impl GlobalAlloc for Counting {
         System.dealloc(p, l);
         NOW.fetch_sub(l.size(), Relaxed);
     }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
+        let q = System.realloc(p, l, new);
+        if !q.is_null() {
+            if new >= l.size() {
+                let more = new - l.size();
+                PEAK.fetch_max(NOW.fetch_add(more, Relaxed) + more, Relaxed);
+            } else {
+                NOW.fetch_sub(l.size() - new, Relaxed);
+            }
+        }
+        q
+    }
 }
 
 #[global_allocator]
@@ -55,6 +69,70 @@ fn take(pdf: &[u8]) -> Result<Imported, &'static str> {
 
 fn lock() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// 지금 시험 함수의 이름.
+macro_rules! here {
+    () => {{
+        fn f() {}
+        let n = std::any::type_name_of_val(&f);
+        n.strip_suffix("::f").unwrap().rsplit("::").next().unwrap()
+    }};
+}
+
+const CHILD: &str = "KARI_PDF_CASE";
+
+/// 자식 안에서 끝날 때 최대 RSS를 적는다.
+struct Rss;
+
+impl Drop for Rss {
+    fn drop(&mut self) {
+        println!("\nKARI_RSS {}", max_rss());
+    }
+}
+
+/// 이 프로세스의 최대 RSS(바이트).
+fn max_rss() -> usize {
+    // SAFETY: rusage는 정수 칸뿐이라 0으로 채워도 되고, getrusage는 그 자리에 쓰기만 한다.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    let v = u.ru_maxrss as usize;
+    if cfg!(target_os = "macos") {
+        v
+    } else {
+        v * 1024
+    }
+}
+
+/// 자식 프로세스 안이면 `Some`(시험 몸통을 여기서 돈다). 아니면 같은 시험을 자식으로 띄워 성공과 최대 RSS ≤ 512MB를
+/// 보고 `None`.
+fn child(name: &str) -> Option<Rss> {
+    if std::env::var(CHILD).as_deref() == Ok(name) {
+        return Some(Rss);
+    }
+    let _l = lock();
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args([name, "--exact", "--nocapture", "--test-threads=1"])
+        .env(CHILD, name)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{name}:\n{text}\n{err}");
+    let rss: usize = text
+        .lines()
+        .find_map(|l| l.split("KARI_RSS ").nth(1)?.trim().parse().ok())
+        .unwrap_or_else(|| panic!("{name}: 자식이 RSS를 적지 않았다\n{text}"));
+    eprintln!(
+        "{name}: {}자식 최대 RSS {}MB",
+        err.lines()
+            .filter(|l| l.contains("최대 힙"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        rss >> 20
+    );
+    assert!(rss <= HEAP, "{name}: 자식 최대 RSS {}MB", rss >> 20);
+    None
 }
 
 /// 객체(1번부터)로 PDF를 만든다. 1번이 카탈로그다.
@@ -148,7 +226,9 @@ fn kari() -> Vec<u8> {
 
 #[test]
 fn p01_빈_파일과_머리뿐인_파일() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // 빈 파일은 형식을 알 수 없어 다른 형식과 같은 문장으로 거절한다.
     assert_eq!(take(b"").unwrap_err(), EMPTY);
     assert_eq!(take(b"%PDF-").unwrap_err(), BROKEN);
@@ -157,7 +237,9 @@ fn p01_빈_파일과_머리뿐인_파일() {
 
 #[test]
 fn p02_pdf_머리를_단_html과_zip은_pdf로_읽어_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     assert_eq!(
         take(b"%PDF-1.7\n<html><body><p>Kari</p></body></html>").unwrap_err(),
         BROKEN
@@ -169,7 +251,9 @@ fn p02_pdf_머리를_단_html과_zip은_pdf로_읽어_거절한다() {
 
 #[test]
 fn p03_압축_폭탄은_상한에서_멈추고_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let bomb = zlib(&vec![0u8; 40 << 20]);
     let pdf = doc(
         &[stream("/Filter /FlateDecode", &bomb)],
@@ -184,7 +268,9 @@ fn p03_압축_폭탄은_상한에서_멈추고_거절한다() {
 
 #[test]
 fn p04_상한_아래_스트림_여럿의_합계도_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let part = zlib(&vec![b' '; 20 << 20]);
     // 한 쪽의 내용이 스트림 5개(풀면 합계 100MB).
     let n = 5;
@@ -209,7 +295,9 @@ fn p04_상한_아래_스트림_여럿의_합계도_거절한다() {
 
 #[test]
 fn p05_거짓_길이는_넘쳐_읽지_않는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     for len in ["5", "99999", "-1"] {
         let body = text(72, 700, "Kari");
         let c = format!("<< /Length {len} >>\nstream\n{body}\nendstream").into_bytes();
@@ -223,7 +311,9 @@ fn p05_거짓_길이는_넘쳐_읽지_않는다() {
 
 #[test]
 fn p06_긴_필터_사슬과_모르는_필터는_그_쪽을_읽지_않는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let mut data = text(72, 700, "Kari").into_bytes();
     for _ in 0..10 {
         data = zlib(&data);
@@ -266,7 +356,9 @@ fn forms(n: usize, body: impl Fn(usize) -> String) -> (String, Vec<Vec<u8>>) {
 
 #[test]
 fn p07_자기를_부르거나_서로_부르는_폼은_펼치지_않고_센다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // X0은 자기를, X1→X2→X1로 돈다.
     let (res, more) = forms(3, |i| match i {
         0 => text(72, 700, "Self") + "/X0 Do",
@@ -286,7 +378,9 @@ fn p07_자기를_부르거나_서로_부르는_폼은_펼치지_않고_센다() 
 
 #[test]
 fn p08_열세_단_겹친_폼은_깊이_상한에서_그_폼만_건너뛴다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let (res, more) = forms(13, |i| {
         let next = if i + 1 < 13 {
             format!("/X{} Do", i + 1)
@@ -312,7 +406,9 @@ fn p08_열세_단_겹친_폼은_깊이_상한에서_그_폼만_건너뛴다() {
 
 #[test]
 fn p09_돌고_도는_참조와_긴_참조_사슬은_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // 쪽 나무가 자기를 가리킨다.
     let cyc = build(&[
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
@@ -330,15 +426,19 @@ fn p09_돌고_도는_참조와_긴_참조_사슬은_거절한다() {
 
 #[test]
 fn p10_깨진_상호_참조와_돌고_도는_prev() {
-    let _l = lock();
-    // 자리가 파일 밖이면 다시 훑어 읽는다.
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 자리가 모두 파일 밖이면(서로는 다르다) 다시 훑어 읽는다.
     let good = String::from_utf8(kari()).unwrap();
     let (head, xref) = good.split_at(good.find("xref\n").unwrap());
+    let mut k = 0;
     let bad: String = xref
         .lines()
         .map(|l| {
             if l.ends_with(" 00000 n ") {
-                "0099999999 00000 n ".into()
+                k += 1;
+                format!("{:010} 00000 n ", 99_999_000 + k)
             } else {
                 l.to_string()
             }
@@ -360,7 +460,9 @@ fn p10_깨진_상호_참조와_돌고_도는_prev() {
 
 #[test]
 fn p11_객체가_아주_많으면_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let mut objs = vec![
         b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [] /Count 0 >>".to_vec(),
@@ -373,7 +475,9 @@ fn p11_객체가_아주_많으면_거절한다() {
 
 #[test]
 fn p12_쪽이_너무_많거나_쪽_나무가_돌면_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let pages: Vec<Vec<u8>> = (0..301).map(|_| page("")).collect();
     assert_eq!(
         take(&doc(&pages, &[], "", Vec::new())).unwrap_err(),
@@ -390,7 +494,9 @@ fn p12_쪽이_너무_많거나_쪽_나무가_돌면_거절한다() {
 
 #[test]
 fn p13_한_쪽의_글_조각이_너무_많으면_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let mut c = String::from("BT /F1 1 Tf 0 0 Td\n");
     for _ in 0..300_000 {
         c += "0 -2 Td (A) Tj\n";
@@ -404,7 +510,9 @@ fn p13_한_쪽의_글_조각이_너무_많으면_거절한다() {
 
 #[test]
 fn p14_너무_깊은_q와_너무_많은_피연산자는_그_쪽을_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let deep = "q ".repeat(100_000) + &text(72, 700, "Kari");
     let many = "0 ".repeat(10_000) + "re " + &text(72, 700, "Kari");
     for c in [deep, many] {
@@ -449,7 +557,9 @@ fn type0(content: &str, tounicode: Option<&[u8]>, program: Option<&[u8]>) -> Vec
 
 #[test]
 fn p15_글꼴_표가_크거나_글꼴_파일이_이상해도_멈추지_않는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let ranges: String = (0..200_000u32)
         .map(|i| {
             format!(
@@ -476,7 +586,9 @@ fn p15_글꼴_표가_크거나_글꼴_파일이_이상해도_멈추지_않는다
 
 #[test]
 fn p16_글자_표가_없는_글꼴은_세어_알리고_깨진_글자를_넣지_않는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let mixed = text(72, 700, "Kari") + "BT /F2 12 Tf 72 600 Td <00010002> Tj ET";
     let got = take(&type0(&mixed, None, None)).unwrap();
     assert_eq!(texts(&got), ["Kari"]);
@@ -492,7 +604,9 @@ fn p16_글자_표가_없는_글꼴은_세어_알리고_깨진_글자를_넣지_�
 
 #[test]
 fn p17_제어_문자_개체_자리_방향_글자로_가는_글자_표() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let cmap = b"5 beginbfchar <0001> <0001> <0002> <FFFC> <0003> <D800> <0004> <202E> <0005> <0041> endbfchar";
     let got = take(&type0(
         "BT /F2 12 Tf 72 700 Td <0001000200030004000500050005> Tj ET",
@@ -544,7 +658,9 @@ fn encrypted(name: &str, user: &str, bits: &str, aes: bool) -> Vec<u8> {
 
 #[test]
 fn p18_사용자_암호와_모르는_보안_처리기는_암호가_걸린_pdf다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     for (name, bits, aes) in [
         ("u40", "40", false),
         ("u128", "128", true),
@@ -566,7 +682,9 @@ fn p18_사용자_암호와_모르는_보안_처리기는_암호가_걸린_pdf다
 
 #[test]
 fn p19_소유자_암호만_건_pdf는_읽는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     for (name, bits, aes) in [
         ("o40", "40", false),
         ("o128", "128", true),
@@ -579,7 +697,9 @@ fn p19_소유자_암호만_건_pdf는_읽는다() {
 
 #[test]
 fn p20_스크립트_실행_내장_파일_동작은_무시한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let objs = vec![
         b"<< /Type /Catalog /Pages 2 0 R /OpenAction << /S /JavaScript /JS (app.alert(1)) >> \
           /Names << /EmbeddedFiles << /Names [(a.exe) << /Type /Filespec /F (a.exe) /EF << /F 7 0 R >> >>] >> >> >>"
@@ -618,7 +738,9 @@ fn image(n: usize) -> (String, Vec<Vec<u8>>) {
 
 #[test]
 fn p21_그림만_있는_쪽은_스캔_쪽이다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let pages: Vec<Vec<u8>> = (0..10).map(|_| page(SCAN)).collect();
     let (res, more) = image(10);
     assert_eq!(take(&doc(&pages, &[], &res, more)).unwrap_err(), NO_TEXT);
@@ -648,7 +770,9 @@ fn p21_그림만_있는_쪽은_스캔_쪽이다() {
 
 #[test]
 fn p22_돌린_쪽은_보이는_차례로_읽고_넓이가_0인_쪽은_건너뛴다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // 90도 돌린 쪽: 내용은 반대로 돌려 그려 보일 때 바로 선다.
     let c = format!(
         "q 0 1 -1 0 595 0 cm {}{} Q",
@@ -683,7 +807,9 @@ fn p22_돌린_쪽은_보이는_차례로_읽고_넓이가_0인_쪽은_건너뛴�
 
 #[test]
 fn p24_50mb가_넘는_파일은_읽기_전에_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let mut big = kari();
     big.resize(kari_import::MAX_FILE + 1, b' ');
     assert_eq!(take(&big).unwrap_err(), TOO_LARGE);
@@ -691,7 +817,9 @@ fn p24_50mb가_넘는_파일은_읽기_전에_거절한다() {
 
 #[test]
 fn p25_문단이_5만_개를_넘으면_거절한다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // 쪽마다 글머리표 줄 200개, 260쪽(쪽마다 같은 자리의 첫·끝 줄은 쪽 번호처럼 빠져도 문단 51,480개).
     let one: String = (0..200)
         .map(|i| format!("BT /F1 3 Tf 20 {} Td (- {i}) Tj ET\n", 830 - 4 * i))
@@ -705,7 +833,9 @@ fn p25_문단이_5만_개를_넘으면_거절한다() {
 
 #[test]
 fn p26_오른쪽에서_왼쪽_글과_이모지_한자는_글로_넣는다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     let cmap = b"3 beginbfchar <0001> <0645 0631 062D 0628 0627> <0002> <D83D DE00> <0003> <6F22 5B57> endbfchar";
     let got = take(&type0(
         "BT /F2 12 Tf 72 700 Td <000100020003> Tj ET",
@@ -721,7 +851,9 @@ fn p26_오른쪽에서_왼쪽_글과_이모지_한자는_글로_넣는다() {
 
 #[test]
 fn 오십_mb_pdf의_최대_힙_증가는_264mb_안이다() {
-    let _l = lock();
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
     // 글 쪽 하나와 풀지 않는 49MB 그림(JPEG로 적은 스트림).
     let mut noise = vec![0u8; 49 << 20];
     let mut x = 0x9E37_79B9_7F4A_7C15u64;
@@ -748,4 +880,121 @@ fn 오십_mb_pdf의_최대_힙_증가는_264mb_안이다() {
     eprintln!("50MB 견본: 최대 힙 증가 {}MB", peak >> 20);
     assert_eq!(texts(&got), ["Kari"]);
     assert!(peak <= 264 << 20, "{}MB", peak >> 20);
+}
+
+/// 읽기 전에 거절하는 결과 셋(내용이 너무 큼, 그 쪽을 읽지 못함 → 깨짐).
+fn refused(got: Result<Imported, &'static str>) {
+    let e = got.expect_err("거절해야 한다");
+    assert!(e == TOO_BIG || e == BROKEN, "{e}");
+}
+
+#[test]
+fn 정수_50만_개를_든_객체_묶음_100개는_파싱_전에_거절한다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 묶음마다 정수 50만 개짜리 배열 하나(풀면 1MB, 읽으면 약 60MB). 압축한 바이트는 같은 것을 쓴다.
+    let head = "100 0 ";
+    let body = format!("{head}[{}]", "0 ".repeat(500_000));
+    let packed = zlib(body.as_bytes());
+    drop(body);
+    let more: Vec<Vec<u8>> = (0..100)
+        .map(|_| {
+            stream(
+                &format!(
+                    "/Type /ObjStm /N 1 /First {} /Filter /FlateDecode",
+                    head.len()
+                ),
+                &packed,
+            )
+        })
+        .collect();
+    let pdf = doc(&[page(&text(72, 700, "Kari"))], &[], "", more);
+    assert!(pdf.len() < 1 << 20, "{}", pdf.len());
+    refused(take(&pdf));
+}
+
+#[test]
+fn 원소_400만_개짜리_tj는_그_쪽을_읽지_않는다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    let tj = format!(
+        "BT /F1 12 Tf 72 700 Td [{}(Kari)] TJ ET",
+        "0 ".repeat(4_000_000)
+    );
+    let c = flate("", tj.as_bytes());
+    drop(tj);
+    let pdf = doc(&[c], &[], "", Vec::new());
+    assert!(pdf.len() < 64 << 10, "{}", pdf.len());
+    refused(take(&pdf));
+}
+
+/// 정수 `ints`개짜리 배열(6번, 카탈로그가 가리킴)과, 같은 자리를 가리키는 상호 참조 항목 `dups`개를 더한 파일.
+fn big_array(ints: usize, dups: usize) -> Vec<u8> {
+    let objs = [
+        b"<< /Type /Catalog /Pages 2 0 R /Junk 6 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>"
+            .to_vec(),
+        page(&text(72, 700, "Kari")),
+        b"<< /Font << /F1 7 0 R >> >>".to_vec(),
+        format!("[{}]", "0 ".repeat(ints)).into_bytes(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+    ];
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut at = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        at.push(out.len());
+        out.extend(format!("{} 0 obj\n", i + 1).bytes());
+        out.extend(o);
+        out.extend(b"\nendobj\n");
+    }
+    let n = objs.len() + 1 + dups;
+    let xref = out.len();
+    out.extend(format!("xref\n0 {n}\n0000000000 65535 f \n").bytes());
+    for a in &at {
+        out.extend(format!("{a:010} 00000 n \n").bytes());
+    }
+    // 더한 항목은 모두 6번 객체의 자리를 가리킨다.
+    for _ in 0..dups {
+        out.extend(format!("{:010} 00000 n \n", at[5]).bytes());
+    }
+    out.extend(format!("trailer\n<< /Size {n} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").bytes());
+    out
+}
+
+#[test]
+fn 정수_100만_개_배열을_같은_자리로_2000번_가리키면_읽기_전에_거절한다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    refused(take(&big_array(1_000_000, 2000)));
+    // 배열이 작아도 한 상호 참조 표에서 같은 자리를 가리키는 항목이 있으면 깨진 파일이다.
+    assert_eq!(take(&big_array(3, 3)).unwrap_err(), BROKEN);
+}
+
+#[test]
+fn 큰_정수_배열을_든_암호_pdf도_읽기_전에_거절한다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    let dir = env!("CARGO_TARGET_TMPDIR");
+    let (src, out) = (
+        format!("{dir}/big-array-src.pdf"),
+        format!("{dir}/big-array-enc.pdf"),
+    );
+    std::fs::write(&src, big_array(1_000_000, 0)).unwrap();
+    qpdf(&[
+        "--encrypt",
+        "",
+        "o1",
+        "128",
+        "--use-aes=y",
+        "--",
+        &src,
+        &out,
+    ]);
+    let pdf = std::fs::read(&out).unwrap();
+    refused(take(&pdf));
 }

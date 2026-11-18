@@ -170,13 +170,27 @@ fn lines(mut spans: Vec<Span>) -> Vec<Ln> {
     out
 }
 
-/// 머리글·바닥글의 열쇠: 숫자를 `#`로 바꾸고 공백을 뺀 글(쪽 번호가 달라도 같게).
+/// 머리글·바닥글의 열쇠: 공백을 뺀 글. 쪽 번호처럼 숫자 덩이가 둘 이하(덩이마다 세 자리 이하)인 20자 이하의 줄만
+/// 숫자를 `#`로 바꾼다(쪽마다 번호가 달라도 같게). 다른 줄은 글이 똑같아야 같은 열쇠다.
 fn key(l: &Ln) -> String {
-    l.text()
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .map(|c| if c.is_ascii_digit() { '#' } else { c })
-        .collect()
+    let t: String = l.text().chars().filter(|c| !c.is_whitespace()).collect();
+    let digits: Vec<usize> = t
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|g| !g.is_empty())
+        .map(str::len)
+        .collect();
+    if t.chars().count() <= 20 && digits.len() <= 2 && digits.iter().all(|n| *n <= 3) {
+        t.chars()
+            .map(|c| if c.is_ascii_digit() { '#' } else { c })
+            .collect()
+    } else {
+        t
+    }
+}
+
+/// 줄(또는 덩이)에 공백 글자가 적혀 있는가. 적혀 있으면 조각 사이의 틈은 대개 자간이다.
+fn explicit(spans: &[Span]) -> bool {
+    spans.iter().any(|s| s.text.contains(char::is_whitespace))
 }
 
 /// 글이 있는 모든 쪽의 같은 자리(첫 줄이나 끝 줄)에서 되풀이되는 글(머리글·바닥글)을 뺀다.
@@ -394,7 +408,7 @@ impl Runs {
         self.0.iter().map(|(s, _)| s.as_str()).collect()
     }
 
-    /// 덩이 하나를 붙인다. 조각 사이가 띄어 있으면 공백을 넣는다: 쪽에 공백 글자가 적혀 있으면(`explicit`) 글자
+    /// 덩이 하나를 붙인다. 조각 사이가 띄어 있으면 공백을 넣는다: 그 줄에 공백 글자가 적혀 있으면(`explicit`) 글자
     /// 크기의 60%, 아니면 15%를 넘는 틈.
     fn chunk(&mut self, c: &Chunk, explicit: bool) {
         let mut prev: Option<&Span> = None;
@@ -521,13 +535,12 @@ struct Para {
 
 /// 읽는 차례대로 놓인 덩이: 문단으로 이을 줄들(쪽에 공백 글자가 적혀 있는가와 함께), 또는 선으로 그린 표.
 enum Unit {
-    Lines(Vec<Ln>, bool),
-    Grid(Grid, Vec<Vec<Span>>, bool),
+    Lines(Vec<Ln>),
+    Grid(Grid, Vec<Vec<Span>>),
 }
 
 /// 쪽 하나 → 덩이들. 선으로 그린 표 안의 글은 표로 가고, 나머지는 표 위·사이·아래로 나눠 단을 찾는다.
 fn units(p: Page, out: &mut Vec<Unit>) {
-    let explicit = p.spans.iter().any(|s| s.text.contains(char::is_whitespace));
     let mut gs = grids(&p.hlines, &p.vlines);
     gs.sort_by(|a, b| b.ys[0].total_cmp(&a.ys[0]));
     let mut cells: Vec<Vec<Vec<Span>>> = gs
@@ -552,11 +565,11 @@ fn units(p: Page, out: &mut Vec<Unit>) {
         out.extend(
             regions(segs.next().unwrap_or_default())
                 .into_iter()
-                .map(|l| Unit::Lines(l, explicit)),
+                .map(Unit::Lines),
         );
-        out.push(Unit::Grid(g, c, explicit));
+        out.push(Unit::Grid(g, c));
     }
-    out.extend(segs.flat_map(regions).map(|l| Unit::Lines(l, explicit)));
+    out.extend(segs.flat_map(regions).map(Unit::Lines));
 }
 
 /// 쪽마다 구역을 나눠 표와 문단을 만들고, 글자 크기의 단계로 제목을 정한다.
@@ -569,7 +582,7 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
     let regions: Vec<Vec<Ln>> = us
         .iter()
         .filter_map(|u| match u {
-            Unit::Lines(l, _) => Some(l.clone()),
+            Unit::Lines(l) => Some(l.clone()),
             Unit::Grid(..) => None,
         })
         .collect();
@@ -590,12 +603,8 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
     let mut loose = 0;
     for u in us {
         match u {
-            Unit::Lines(lines, explicit) => {
-                region(&lines, &pitch, explicit, &mut blocks, &mut loose)
-            }
-            Unit::Grid(g, cells, explicit) => {
-                blocks.push(Block::Table(table(&g, cells, explicit, cx.body.0)))
-            }
+            Unit::Lines(lines) => region(&lines, &pitch, &mut blocks, &mut loose),
+            Unit::Grid(g, cells) => blocks.push(Block::Table(table(&g, cells, cx.body.0))),
         }
     }
     cx.rep.pdf_loose_tables += loose;
@@ -714,20 +723,14 @@ fn pitches(regions: &[Vec<Ln>]) -> HashMap<i32, f32> {
 
 /// 구역 하나의 줄들 → 문단. 선 없이 열만 맞춘 표(같은 열에 덩이가 놓인 줄이 두 줄 이상)는 줄마다 문단으로
 /// 두고(칸은 탭) `loose`에 센다.
-fn region(
-    lines: &[Ln],
-    pitch: &HashMap<i32, f32>,
-    explicit: bool,
-    out: &mut Vec<Block>,
-    loose: &mut usize,
-) {
+fn region(lines: &[Ln], pitch: &HashMap<i32, f32>, out: &mut Vec<Block>, loose: &mut usize) {
     let right = lines.iter().map(|l| l.x1).fold(f32::MIN, f32::max);
     let ch: Vec<Vec<Chunk>> = lines.iter().map(chunks).collect();
     let marks: Vec<Option<(Mark, usize)>> = ch
         .iter()
         .map(|c| {
             let mut r = Runs::default();
-            r.chunk(&c[0], explicit);
+            r.chunk(&c[0], explicit(&c[0].spans));
             mark(&r.text())
         })
         .collect();
@@ -787,7 +790,7 @@ fn region(
             if k > 0 {
                 p.runs.push("\t", &chunk.spans[0].look);
             }
-            p.runs.chunk(chunk, explicit);
+            p.runs.chunk(chunk, explicit(&l.spans));
         }
         if !joins {
             if let Some((m, n)) = marks[i] {
@@ -1049,7 +1052,7 @@ fn grids(h: &[(f32, f32, f32)], v: &[(f32, f32, f32)]) -> Vec<Grid> {
 }
 
 /// 격자와 칸마다의 글 → 표 조각. 열 폭은 본문 폭에 맞추고, 첫 행만 모두 굵으면 머리 행이다.
-fn table(g: &Grid, cells: Vec<Vec<Span>>, explicit: bool, body_w: f64) -> FragTable {
+fn table(g: &Grid, cells: Vec<Vec<Span>>, body_w: f64) -> FragTable {
     let cols = g.cols();
     let rows = g.ys.len() - 1;
     let all_bold = |sp: &[Span]| !sp.is_empty() && sp.iter().all(|s| s.look.bold);
@@ -1070,7 +1073,7 @@ fn table(g: &Grid, cells: Vec<Vec<Span>>, explicit: bool, body_w: f64) -> FragTa
             let ls = lines(sp);
             let pitch = pitches(std::slice::from_ref(&ls));
             let (mut blocks, mut loose) = (Vec::new(), 0);
-            region(&ls, &pitch, explicit, &mut blocks, &mut loose);
+            region(&ls, &pitch, &mut blocks, &mut loose);
             blocks
                 .into_iter()
                 .filter_map(|b| match b {
@@ -1194,10 +1197,11 @@ mod tests {
         let good = pdf(&[&text(72, 700, "Kari")]);
         let s = String::from_utf8(good).unwrap();
         let (head, xref) = s.split_at(s.find("xref\n").unwrap());
+        // 자리마다 3바이트씩 어긋난다(서로는 다르다).
         let bad: String = xref
             .lines()
             .map(|l| match l.strip_suffix(" 00000 n ") {
-                Some(_) => "0000000001 00000 n ".to_string(),
+                Some(n) => format!("{:010} 00000 n ", n.parse::<usize>().unwrap() + 3),
                 None => l.to_string(),
             })
             .collect::<Vec<_>>()
@@ -1237,6 +1241,44 @@ mod tests {
         let got = run(&pdf(&[&p1, &p2])).unwrap();
         assert_eq!(texts(&got), ["Kari", "Rust"]);
         assert!(got.lost.iter().any(|l| l == "머리글·바닥글(뺌)"));
+    }
+
+    fn plain_texts(got: &Imported) -> Vec<String> {
+        got.fragment
+            .paras
+            .iter()
+            .map(|p| p.runs.iter().filter_map(|r| r["t"].as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn 글자가_든_쪽_끝_기간_줄도_글이_다르면_남긴다() {
+        let p1 = text(72, 700, "Kari") + &text(72, 100, "2019.03 - 2021.02 Kari Corp");
+        let p2 = text(72, 700, "Rust") + &text(72, 100, "2021.03 - 2024.02 Kari Corp");
+        let got = run(&pdf(&[&p1, &p2])).unwrap();
+        assert_eq!(
+            plain_texts(&got),
+            [
+                "Kari",
+                "2019.03 - 2021.02 Kari Corp",
+                "Rust",
+                "2021.03 - 2024.02 Kari Corp"
+            ]
+        );
+        assert!(
+            !got.lost.iter().any(|l| l.contains("머리글")),
+            "{:?}",
+            got.lost
+        );
+    }
+
+    #[test]
+    fn 공백_글자가_없는_줄은_다른_줄에_공백이_있어도_틈으로_띄운다() {
+        // "Next"는 4글자 × 6pt = 24pt 폭(72~96). 글자 크기 12의 30%(3.6pt) 띄어 "Line".
+        let page = text(72, 700, "Hello World")
+            + "BT /F1 12 Tf 72 600 Td (Next) Tj ET BT /F1 12 Tf 99.6 600 Td (Line) Tj ET";
+        let got = run(&pdf(&[&page])).unwrap();
+        assert_eq!(plain_texts(&got), ["Hello World", "Next Line"]);
     }
 
     #[test]

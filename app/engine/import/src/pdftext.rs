@@ -3,7 +3,10 @@
 //!
 //! 글자의 유니코드는 글꼴의 ToUnicode 표, 없으면 한 바이트 글꼴의 인코딩(Standard, WinAnsi, MacRoman, Differences)으로
 //! 얻는다. 한계: ToUnicode가 없는 두 바이트 글꼴(Identity-H)의 글은 읽지 못해 센다. 두 바이트 글꼴은 글자 코드를 늘
-//! 2바이트로 본다. 표준 14 글꼴처럼 폭 표가 없는 글꼴은 글자 폭을 글자 크기의 절반으로 어림한다. 쪽 돌림은 보지 않는다.
+//! 2바이트로 본다. 표준 14 글꼴처럼 폭 표가 없는 글꼴은 글자 폭을 글자 크기의 절반으로 어림한다.
+//!
+//! lopdf는 객체를 다 읽은 뒤에야 거르는 함수를 부르고 암호 파일에서는 그마저 부르지 않는다. 그래서 읽기 전에 파일과
+//! 객체 묶음, 내용 스트림의 토큰을 세어(`count`) 읽은 뒤의 메모리를 미리 묶는다.
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -56,6 +59,201 @@ const MAX_OBJSTM: usize = 1 << 20;
 const MAX_OBJECT: usize = 1 << 20;
 /// 글꼴 하나를 읽을 때 예산에서 늘 빼는 몫(글꼴 사전이 아주 많은 파일을 묶는다).
 const FONT_COST: usize = 4 << 10;
+/// 객체 묶음 안 배열 하나의 원소 수(읽으면 객체 하나가 1MB쯤)와 내용 스트림 안 배열 하나의 원소 수.
+/// 한계: 원소가 아주 많은 글꼴 폭 표(`/W`)를 객체 묶음에 둔 정상 파일도 받지 않는다.
+const MAX_ARRAY_OBJ: usize = (1 << 20) / size_of::<Object>();
+const MAX_ARRAY_CONTENT: usize = 50_000;
+
+/// PDF 문법 바이트의 셈.
+#[derive(Debug, Default, PartialEq)]
+struct Count {
+    /// 읽으면 `Object` 하나가 되는 토큰 수.
+    tokens: usize,
+    /// 배열 하나의 가장 많은 원소 수.
+    max_array: usize,
+    /// 맨 위에서 연산자 없이 이어진 피연산자의 가장 긴 수(내용 스트림에서 쓴다).
+    max_run: usize,
+}
+
+fn regular(b: u8) -> bool {
+    !(b.is_ascii_whitespace() || b == 0 || b"()<>[]{}/%".contains(&b))
+}
+
+fn find_from(b: &[u8], at: usize, pat: &[u8]) -> Option<usize> {
+    b.get(at..)?
+        .windows(pat.len())
+        .position(|w| w == pat)
+        .map(|p| at + p)
+}
+
+/// PDF 문법 바이트를 훑어 센다. 문자열 `(…)`·`<…>`와 주석은 하나로 세거나 건너뛰고, `stream`…`endstream`과 인라인
+/// 그림 `ID`…`EI`의 바이트는 건너뛴다(읽지 않는다).
+fn count(b: &[u8]) -> Count {
+    let mut c = Count::default();
+    // 열린 배열(참)·사전(거짓)과 그 원소 수.
+    let mut stack: Vec<(bool, usize)> = Vec::new();
+    let mut run = 0;
+    fn elem(stack: &mut [(bool, usize)], c: &mut Count, run: &mut usize) {
+        c.tokens += 1;
+        match stack.last_mut() {
+            Some(top) => {
+                top.1 += 1;
+                if top.0 {
+                    c.max_array = c.max_array.max(top.1);
+                }
+            }
+            None => {
+                *run += 1;
+                c.max_run = c.max_run.max(*run);
+            }
+        }
+    }
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            x if x.is_ascii_whitespace() || x == 0 => i += 1,
+            b'%' => {
+                while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                    i += 1;
+                }
+            }
+            b'(' => {
+                let mut depth = 0;
+                while i < b.len() {
+                    match b[i] {
+                        b'\\' => i += 1,
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
+                    i += 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                elem(&mut stack, &mut c, &mut run);
+            }
+            b'<' if b.get(i + 1) == Some(&b'<') => {
+                elem(&mut stack, &mut c, &mut run);
+                stack.push((false, 0));
+                i += 2;
+            }
+            b'<' => {
+                i = find_from(b, i, b">").map_or(b.len(), |p| p + 1);
+                elem(&mut stack, &mut c, &mut run);
+            }
+            b'>' if b.get(i + 1) == Some(&b'>') => {
+                stack.pop();
+                i += 2;
+            }
+            b'[' => {
+                elem(&mut stack, &mut c, &mut run);
+                stack.push((true, 0));
+                i += 1;
+            }
+            b']' => {
+                stack.pop();
+                i += 1;
+            }
+            b'/' => {
+                i += 1;
+                while i < b.len() && regular(b[i]) {
+                    i += 1;
+                }
+                elem(&mut stack, &mut c, &mut run);
+            }
+            x if regular(x) => {
+                let start = i;
+                while i < b.len() && regular(b[i]) {
+                    i += 1;
+                }
+                let tok = &b[start..i];
+                match tok {
+                    b"stream" => {
+                        i = find_from(b, i, b"endstream").map_or(b.len(), |p| p + 9);
+                    }
+                    // 인라인 그림의 바이트는 공백 뒤의 `EI`까지 건너뛴다.
+                    b"ID" => {
+                        let mut at = i;
+                        loop {
+                            match find_from(b, at, b"EI") {
+                                Some(p) if p > 0 && b[p - 1].is_ascii_whitespace() => {
+                                    i = p + 2;
+                                    break;
+                                }
+                                Some(p) => at = p + 2,
+                                None => {
+                                    i = b.len();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        let operand = matches!(tok[0], b'+' | b'-' | b'.' | b'0'..=b'9')
+                            || tok == b"true"
+                            || tok == b"false"
+                            || tok == b"null";
+                        if operand || !stack.is_empty() {
+                            elem(&mut stack, &mut c, &mut run);
+                        } else {
+                            // 연산자(또는 obj, R 같은 낱말).
+                            c.tokens += 1;
+                            run = 0;
+                        }
+                    }
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    c
+}
+
+/// 고전 상호 참조 표(`xref`) 하나 안에서 쓰는 중(`n`)인 두 항목이 같은 자리를 가리키는가. 같은 객체를 여러 번 읽게
+/// 하는 깨진 파일이다.
+fn xref_dups(b: &[u8]) -> bool {
+    let mut at = 0;
+    while let Some(p) = find_from(b, at, b"xref") {
+        at = p + 4;
+        // `startxref`의 꼬리는 표가 아니다.
+        if p > 0 && !matches!(b[p - 1], b'\n' | b'\r') {
+            continue;
+        }
+        let mut words = b[at..]
+            .split(|x| x.is_ascii_whitespace())
+            .filter(|w| !w.is_empty())
+            .take(3_000_000);
+        let mut seen = HashSet::new();
+        while let (Some(_start), Some(n)) = (words.next(), words.next()) {
+            let Some(n) = std::str::from_utf8(n)
+                .ok()
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
+                break;
+            };
+            for _ in 0..n {
+                let (Some(off), Some(_gen), Some(kind)) =
+                    (words.next(), words.next(), words.next())
+                else {
+                    break;
+                };
+                if kind == b"n" && off.iter().any(|d| *d != b'0') && !seen.insert(off) {
+                    return true;
+                }
+            }
+            // 다음 부분 표가 아니면(`trailer`) 끝.
+            if !words
+                .clone()
+                .next()
+                .is_some_and(|w| w.iter().all(u8::is_ascii_digit))
+            {
+                break;
+            }
+        }
+    }
+    false
+}
 
 thread_local! {
     /// 파일을 읽는 동안(`keep`) 남은 예산과, 예산을 넘었는지.
@@ -89,9 +287,17 @@ fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
         return None;
     }
     let cost = match &*o {
+        // 묶음은 lopdf가 풀어 읽기 전에 토큰을 센다: 읽으면 토큰마다 `Object` 하나, 배열 하나가 1MB를 넘으면 받지 않는다.
         Object::Stream(st) if st.dict.has_type(b"ObjStm") => {
             match st.get_plain_content_with_limit(MAX_OBJSTM.min(left)) {
-                Ok(c) => c.len(),
+                Ok(c) => {
+                    let k = count(&c);
+                    if k.max_array > MAX_ARRAY_OBJ {
+                        usize::MAX
+                    } else {
+                        c.len() + k.tokens * size_of::<Object>()
+                    }
+                }
                 Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => usize::MAX,
                 // 깨진 객체 스트림은 lopdf가 건너뛴다.
                 Err(_) => 0,
@@ -128,6 +334,14 @@ fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> 
     // 이름처럼 탈출해 쓸 수 없다). 푼 바이트는 읽으면 객체로 늘어나므로(두 바이트가 `Object` 하나) 예산을 그
     // 비율로 줄여 쓴다(64MB면 푼 총량 약 1MB). 암호 표시(`/Encrypt`)는 `#hh`를 풀어 찾는다.
     // 한계: 스트림이 아주 많거나 객체 묶음이 큰 암호 PDF는 내용이 작아도 받지 않을 수 있다.
+    // 읽기 전에 파일을 센다: 스트림 밖 토큰이 읽으면 예산을 넘거나, 상호 참조 표가 같은 자리를 여러 번 가리키면
+    // 받지 않는다. 암호 파일도 이 길을 지난다.
+    if count(bytes).tokens > budget / size_of::<Object>() {
+        return Err(TOO_BIG);
+    }
+    if xref_dups(bytes) {
+        return Err(BROKEN);
+    }
     let encrypted = has_name(bytes, b"Encrypt");
     let streams = bytes
         .windows(9)
@@ -581,7 +795,7 @@ fn parse_cmap(data: &[u8], font: &mut Font) {
                     Some("[") => {
                         let mut k = i + 3;
                         let mut code = lo;
-                        while k < toks.len() && toks[k] != "]" {
+                        while k < toks.len() && toks[k] != "]" && font.map.len() < MAX_CMAP {
                             if let Some(d) = hex(&toks[k]) {
                                 if code <= hi && d.len() <= MAX_DST {
                                     font.map.insert(code, String::from_utf16_lossy(&utf16(&d)));
@@ -828,6 +1042,11 @@ impl<'a> Reader<'a, '_> {
         let mut stack: Vec<State> = Vec::new();
         let (mut tm, mut tlm) = (IDENTITY, IDENTITY);
         let mut path = Path::default();
+        // 내용을 읽기 전에 센다: 배열 하나나 연산자 없이 이어진 피연산자가 너무 많으면 그 쪽을 읽지 않는다.
+        let k = count(data);
+        if k.max_array > MAX_ARRAY_CONTENT || k.max_run > MAX_OPERANDS {
+            return Err(BAD_PAGE);
+        }
         for op in Content::decode_iter(data) {
             let Ok(Operation {
                 operator,

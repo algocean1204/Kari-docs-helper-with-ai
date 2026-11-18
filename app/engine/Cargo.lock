@@ -1183,6 +1183,7 @@ dependencies = [
  "kari-edit",
  "kari-layout",
  "kari-pdf",
+ "libc",
  "lopdf",
  "miniz_oxide 0.9.1",
 ]
