@@ -22,6 +22,7 @@ import 'package:kari/main.dart';
 import 'package:kari/screens/dialogs.dart' show trashedWhen;
 import 'package:kari/screens/name_field.dart';
 import 'package:kari/screens/settings.dart' show SettingsArea, maskNote;
+import 'package:kari/update.dart' show updates;
 
 import 'design_test.dart'
     show focusableCount, loadFonts, pumpApp, saveShot, sizes, tabCycle;
@@ -55,13 +56,26 @@ class Rig {
       savePath: (name) => savePath(name),
       openPath: () => openPath(),
       importPath: () => importPath(),
-      showOther: (pid) async => shown.add(pid),
+      showOther: (pid) async {
+        shown.add(pid);
+        return raised;
+      },
+      quit: () async {
+        quits++;
+        return true;
+      },
       outDir: outDir,
     );
   }
 
   /// 앞으로 가져오라고 한 다른 Kari의 프로세스 id.
   final List<int> shown = [];
+
+  /// 앞의 Kari를 앞으로 가져왔는가(macOS가 돌려주는 값 대신).
+  bool raised = false;
+
+  /// 두 번째 Kari를 끄라고 한 횟수.
+  int quits = 0;
 
   /// 열기 대화 상자 대신. 기본은 취소.
   Future<String?> Function() openPath = () async => null;
@@ -693,7 +707,7 @@ void main() {
       expect(find.text(openAdvice('too_new')), findsOneWidget);
     });
 
-    testWidgets('다른 Kari가 자료를 쓰고 있으면 그 창을 앞으로 가져오고 까닭을 보이며, 다시 시도로 연다', (
+    testWidgets('다른 Kari가 자료를 쓰고 있으면 앞 창을 못 가져오면 까닭을 보이고 다시 시도로 연다', (
       tester,
     ) async {
       final rig = Rig();
@@ -705,9 +719,11 @@ void main() {
       rig.fake.backups = [ms(today)];
       await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
       expect(rig.shown, [4321]);
+      expect(rig.quits, 0);
       expect(find.text('다른 Kari가 이 자료를 쓰고 있습니다.'), findsOneWidget);
       expect(find.text('in_use'), findsOneWidget);
       expect(find.text(openAdvice('in_use')), findsOneWidget);
+      expect(find.textContaining('Kari 창'), findsOneWidget);
       expect(find.text('백업에서 되살리기'), findsNothing);
       // 앞의 Kari를 끈 뒤
       rig.fake.failures.clear();
@@ -715,6 +731,42 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('AI 연결'), findsOneWidget);
       expect(rig.shown, [4321]);
+    });
+
+    testWidgets('앞 Kari를 앞으로 가져왔으면 실패 화면 없이 끄기를 한 번 요청한다', (tester) async {
+      final rig = Rig()..raised = true;
+      rig.fake.failures['lib.open'] = const EngineError(
+        'in_use',
+        '다른 Kari가 이 자료를 쓰고 있습니다.',
+        {'pid': 4321},
+      );
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      expect(rig.shown, [4321]);
+      expect(rig.quits, 1);
+      expect(rig.library.phase, LibraryPhase.opening);
+      expect(find.text('자료 폴더를 열지 못했습니다'), findsNothing);
+      expect(find.text('in_use'), findsNothing);
+    });
+
+    testWidgets('앞 창을 못 가져온 안내 화면은 개발 앱의 이름을 쓴다', (tester) async {
+      final before = updates.name;
+      updates.name = 'Kari Dev';
+      addTearDown(() => updates.name = before);
+      final rig = Rig();
+      rig.fake.failures['lib.open'] = const EngineError(
+        'in_use',
+        '다른 Kari가 이 자료를 쓰고 있습니다.',
+        {'pid': 4321},
+      );
+      await pumpApp(tester, AppRoute.home, sizes[1], library: rig.library);
+      expect(find.text(openAdvice('in_use', 'Kari Dev')), findsOneWidget);
+      expect(find.textContaining('Kari Dev 창'), findsOneWidget);
+    });
+
+    testWidgets('안내 글의 앱 이름은 앱 이름을 따른다', (tester) async {
+      expect(openAdvice('in_use', 'Kari Dev'), contains('Kari Dev 창'));
+      expect(openAdvice('too_new', 'Kari Dev'), contains('Kari Dev를'));
+      expect(openAdvice('in_use'), contains('Kari 창'));
     });
 
     testWidgets('여는 동안은 빈 바탕이고 200ms가 넘으면 불러오는 중이라고 알린다', (tester) async {
