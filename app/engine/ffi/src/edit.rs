@@ -25,7 +25,8 @@ fn clip() -> std::sync::MutexGuard<'static, Option<Fragment>> {
 
 /// `asset.put`으로 넣었지만 아직 어느 커밋도 쓰지 않은 에셋(Figma에서 가져오기가 문서를 만들기 전). 그 해시를 쓰는
 /// 커밋(`doc.commit`)이나 정리(`asset.dropUnused`)가 뺀다.
-// 한계: 엔진 메모리에만 있어 앱이 그사이 꺼지면 사라진다. 그때 남은 에셋은 쓰는 문서가 없으니 다음 정리가 지운다.
+// 한계: 엔진 메모리에만 있어 앱이 그사이 꺼지면 사라진다. 그때 남은 에셋은 쓰는 문서 없이 자료 폴더에 남는다(정리는
+// 지우는 문서가 가리키던 에셋만 보고, 시작할 때 고아 에셋을 훑지 않는다).
 static PENDING: Mutex<std::collections::BTreeSet<String>> =
     Mutex::new(std::collections::BTreeSet::new());
 

@@ -68,6 +68,12 @@ class FigmaImport {
   /// 글꼴을 Pretendard로 바꾼 글 상자의 수(앱에는 Pretendard만 있다).
   int fonts = 0;
 
+  /// 읽은 Figma 페이지의 id([FigmaLink.readPage]가 채운다). 있으면 적용할 때 같은 페이지를 다시 읽어 견준다.
+  String? pageId;
+
+  /// 읽은 페이지 나무의 지문([fingerprintOf]). 적용할 때 다시 읽은 것과 다르면 페이지가 바뀐 것이다.
+  int fingerprint = 0;
+
   /// 한도를 넘어 가져오지 않는 까닭.
   String? tooBig;
 
@@ -306,6 +312,44 @@ Object? _radius(Map n) {
   return r != null && r > 0 ? r : null;
 }
 
+/// 페이지 나무의 지문: 칸을 이름 차례로 늘어놓은 글의 64비트 FNV-1a. 같은 나무면 같고, 바뀌었는지 보는 데만 쓴다
+/// (보안용이 아니다). 수가 아닌 값(NaN 등)도 글로 쓴다.
+int fingerprintOf(Object? v) {
+  var h = 0xcbf29ce484222325;
+  void add(String s) {
+    for (var i = 0; i < s.length; i++) {
+      h = (h ^ s.codeUnitAt(i)) * 0x100000001b3;
+    }
+  }
+
+  void walk(Object? v) {
+    switch (v) {
+      case final Map m:
+        add('{');
+        for (final k in [for (final k in m.keys) '$k']..sort()) {
+          add('${jsonEncode(k)}:');
+          walk(m[k]);
+          add(',');
+        }
+        add('}');
+      case final List l:
+        add('[');
+        for (final x in l) {
+          walk(x);
+          add(',');
+        }
+        add(']');
+      case final String s:
+        add(jsonEncode(s));
+      default:
+        add('$v');
+    }
+  }
+
+  walk(v);
+  return h;
+}
+
 /// 이름: 제어 문자를 지우고 200자까지.
 String? _name(Object? v) {
   if (v is! String) return null;
@@ -320,7 +364,7 @@ String? _name(Object? v) {
 // 한계: 벡터(곧은 선 하나는 선으로), 불리언, 별·다각형, 그라디언트, 효과, 글자별 모양, 자동 배치, 제약은 옮기지 않는다.
 // 글꼴은 늘 Pretendard다. 돌린 최상위 프레임은 그 경계 상자의 대지가 된다.
 FigmaImport fromFigma(Object? page) {
-  final out = FigmaImport._();
+  final out = FigmaImport._()..fingerprint = fingerprintOf(page);
   var read = 0, next = 0;
   final seen = <String>{};
   String newId() => 'fg${(next++).toRadixString(36)}';
@@ -383,10 +427,10 @@ FigmaImport fromFigma(Object? page) {
     }
     final g = _geo(n);
     if (g == null) return out._skip(skipBad);
-    // 크기 0은 이상한 값이다. 선은 길이만 본다(Figma의 선은 높이가 0이고, 곧은 벡터는 한쪽이 0일 수 있다).
+    // 크기 0은 이상한 값이다. 선은 길이만 본다(Figma의 선은 높이가 0이다). 곧은 벡터와 선만 든 묶음은 한쪽이 0일 수 있다.
     final flat = switch (type) {
       'LINE' => g.w <= 0,
-      'VECTOR' => g.w <= 0 && g.h <= 0,
+      'VECTOR' || 'GROUP' => g.w <= 0 && g.h <= 0,
       _ => g.w <= 0 || g.h <= 0,
     };
     if (flat) return out._skip(skipBad);

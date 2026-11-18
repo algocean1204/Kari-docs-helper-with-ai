@@ -36,6 +36,9 @@ class FakePlugin {
   final String channel;
   final commands = <Json>[];
   int _made = 0;
+
+  /// 읽기 전용 단언이 보기 시작하는 명령의 차례. 같은 시험에서 먼저 보내기(쓰기)를 한 뒤 가져오면 그 뒤만 본다.
+  int readFrom = 0;
   Object? Function(String command, Json params)? answer;
 
   static const hold = Object();
@@ -1986,6 +1989,51 @@ void main() {
       expect(byFigma['f7']!['fills'], [paint('#00FF80FF')]);
     });
 
+    test('가로선 하나만 든 묶음(높이 0)은 버리지 않고 묶음과 선으로 온다', () {
+      final plan = fromFigma(
+        page([
+          figmaNode(
+            '1:1',
+            'FRAME',
+            x: 0,
+            y: 0,
+            w: 200,
+            h: 200,
+            children: [
+              figmaNode(
+                'g',
+                'GROUP',
+                x: 10,
+                y: 50,
+                w: 100,
+                h: 0,
+                children: [
+                  figmaNode(
+                    'l',
+                    'LINE',
+                    x: 10,
+                    y: 50,
+                    w: 100,
+                    h: 0,
+                    extra: {
+                      'strokes': [solid(0, 0, 0)],
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ]),
+      );
+      expect(plan.skipped, isEmpty);
+      final types = {
+        for (final op in plan.ops)
+          plan.figmaOf[(op['node'] as Json)['id']]:
+              (op['node'] as Json)['type'],
+      };
+      expect(types, {'1:1': 'page', 'g': 'group', 'l': 'line'});
+    });
+
     test('대응표 전체가 4MB를 넘으면 미리 보기에서 알리고 가져오지 않는다', () {
       Json texts(int n) => page([
         figmaNode(
@@ -2037,6 +2085,8 @@ void main() {
       Object? Function(String, Json) answer,
     ) async {
       final plugin = await FakePlugin.join(relay.port, 'ch', answer: answer);
+      // 가져오기 경로의 시험은 모두 이 도우미로 플러그인을 만든다: 끝날 때 쓰기 명령 0을 빠짐없이 본다.
+      addTearDown(() => expectReadOnly(plugin));
       final link = FigmaLink(lib, port: relay.port);
       await link.connect('ch');
       expect(link.status, LinkStatus.connected, reason: link.error);
@@ -2166,6 +2216,8 @@ void main() {
         docName: '포트폴리오',
         target: (pageId: '5:1', newPage: null),
       );
+      // 여기까지는 보내기(쓰기)다. 가져오기의 읽기 전용 단언은 이 뒤만 본다.
+      plugin.readFrom = plugin.commands.length;
       final plan = await link.readPage('5:1');
       expect(plan.skipped, isEmpty);
       expect(plan.boards, 1);
@@ -2525,6 +2577,97 @@ void main() {
       await c.close();
       await server.close(force: true);
     });
+    test('미리 본 뒤 Figma 페이지가 바뀌면 그림을 받지 않고 아무것도 만들지 않는다', () async {
+      var reads = 0;
+      final (link, plugin) = await connect(
+        (command, _) => switch (command) {
+          // 두 번째 읽기(적용 시작)에는 사각형의 색이 바뀌어 있다.
+          'get_node_info' when ++reads > 1 => page([
+            figmaNode(
+              '1:1',
+              'FRAME',
+              x: 0,
+              y: 0,
+              w: 400,
+              h: 300,
+              children:
+                  [
+                      ...((samplePage()['children'] as List).first
+                              as Map)['children']
+                          as List,
+                    ]
+                    ..[0] = figmaNode(
+                      '1:2',
+                      'RECTANGLE',
+                      x: 10,
+                      y: 10,
+                      w: 50,
+                      h: 50,
+                      extra: {
+                        'fills': [solid(0, 0, 1)],
+                      },
+                    ),
+            ),
+          ]),
+          'get_node_info' => samplePage(),
+          'export_node_as_image' => {'imageData': base64Encode(_png)},
+          _ => null,
+        },
+      );
+      final before = fake.docs.length;
+      final plan = await link.readPage('0:1');
+      await expectLater(
+        link.importPage(plan, name: 'Page 1'),
+        throwsA(
+          isA<FigmaChanged>().having(
+            (e) => e.message,
+            'message',
+            'Figma 페이지가 바뀌었습니다. 다시 미리 봅니다',
+          ),
+        ),
+      );
+      expect(plugin.names.where((c) => c == 'get_node_info'), hasLength(2));
+      expect(plugin.names, isNot(contains('export_node_as_image')));
+      expect(fake.docs.length, before);
+      expect(fake.commits, isEmpty);
+      expect(fake.assetsPut, isEmpty);
+      // 바뀌지 않았으면(같은 나무, 칸 차례만 다름) 그대로 가져온다.
+      reads = -100;
+      final again = await link.readPage('0:1');
+      final r = await link.importPage(again, name: 'Page 1');
+      expect(fake.docs.containsKey(r.id), isTrue);
+      await link.stop();
+      await plugin.close();
+    });
+
+    test('페이지 지문은 칸 차례에 매이지 않고 값이 바뀌면 달라진다', () {
+      expect(
+        fingerprintOf({
+          'a': 1,
+          'b': [1, 2],
+          'c': {'x': 'y', 'z': null},
+        }),
+        fingerprintOf({
+          'c': {'z': null, 'x': 'y'},
+          'b': [1, 2],
+          'a': 1,
+        }),
+      );
+      expect(
+        fingerprintOf({
+          'a': 1,
+          'b': [1, 2],
+        }),
+        isNot(
+          fingerprintOf({
+            'a': 1,
+            'b': [2, 1],
+          }),
+        ),
+      );
+      expect(fingerprintOf({'v': double.nan}), isA<int>());
+    });
+
     test('F8: PNG가 아닌 그림은 받지 못한 것으로 세고 나머지는 가져온다', () async {
       final (link, plugin) = await connect(
         (command, params) => switch (command) {
@@ -2672,7 +2815,9 @@ void main() {
       final lib2 = Library(breaks, tmp.path, outDir: '${tmp.path}/out2');
       await breaks.libOpen(tmp.path);
       await lib2.open();
-      final plugin = await FakePlugin.join(
+      late final FakePlugin plugin;
+      addTearDown(() => expectReadOnly(plugin));
+      plugin = await FakePlugin.join(
         relay.port,
         'ch2',
         answer: (command, _) => switch (command) {
@@ -2988,6 +3133,18 @@ void main() {
         expect(link.result, isNull);
       });
     }
+
+    testWidgets('가져오는 사이 Figma 페이지가 바뀌었으면 다시 미리 보고 그 까닭을 보인다', (tester) async {
+      final link = await pump(tester);
+      link.changedOnce = true;
+      expect(link.read, ['0:1']);
+      await tester.tap(find.text('가져오기'));
+      await tester.pumpAndSettle();
+      expect(link.read, ['0:1', '0:1']);
+      expect(find.textContaining('Figma 페이지가 바뀌었습니다'), findsOneWidget);
+      expect(find.text('가져오기'), findsOneWidget);
+      expect(link.result, isNull);
+    });
 
     testWidgets('페이지를 고르면 오는 것과 옮기지 못하는 것을 보이고, 가져온 뒤 열기로 그 문서를 돌려준다', (
       tester,
@@ -3309,6 +3466,9 @@ class _ImportLink extends FigmaLink {
   Future<void>? hold;
   bool stopAsked = false;
 
+  /// 참이면 다음 가져오기가 "페이지가 바뀜"으로 끝난다.
+  bool changedOnce = false;
+
   @override
   Future<List<FigmaPage>> pages() async => [
     (id: '0:1', name: 'Page 1'),
@@ -3340,6 +3500,10 @@ class _ImportLink extends FigmaLink {
     Duration imageTimeout = const Duration(seconds: 60),
   }) async {
     imported.add(name);
+    if (changedOnce) {
+      changedOnce = false;
+      throw const FigmaChanged();
+    }
     onProgress?.call(1, 2);
     var stopped = false;
     unawaited(stop?.then((_) => stopped = true));
@@ -3363,8 +3527,10 @@ const _readCommands = {
 };
 
 /// 가짜 플러그인이 받은 명령이 모두 읽기다(쓰기·지우기 0).
-void expectReadOnly(FakePlugin plugin) =>
-    expect(plugin.names.where((c) => !_readCommands.contains(c)), isEmpty);
+void expectReadOnly(FakePlugin plugin) => expect(
+  plugin.names.skip(plugin.readFrom).where((c) => !_readCommands.contains(c)),
+  isEmpty,
+);
 
 /// 가짜 플러그인이 요청 [id]에 [result]로 답한다(늦은 답, 다른 id의 답, 같은 답 두 번을 흉내 낼 때).
 void replyTo(FakePlugin plugin, String id, Object? result) => plugin.ws.add(

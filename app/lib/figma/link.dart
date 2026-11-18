@@ -35,6 +35,11 @@ typedef FigmaPage = ({String id, String name});
 /// 보낼 곳: 있는 페이지([pageId]) 또는 새로 만들 페이지([newPage]).
 typedef FigmaTarget = ({String? pageId, String? newPage});
 
+/// 미리 본 뒤 Figma 페이지가 바뀐 것. 아무것도 만들지 않았고, 다시 미리 봐야 한다.
+class FigmaChanged extends FigmaError {
+  const FigmaChanged() : super('Figma 페이지가 바뀌었습니다. 다시 미리 봅니다');
+}
+
 /// Figma 연결. 설정 화면(환경, 중계, 플러그인, 채널)과 캔버스의 "Figma로 보내기"가 함께 쓴다.
 class FigmaLink extends ChangeNotifier {
   FigmaLink(
@@ -323,7 +328,7 @@ class FigmaLink extends ChangeNotifier {
       timeout: timeout,
       total: total,
     ),
-  );
+  )..pageId = pageId;
 
   /// [plan]을 [name](겹치면 번호)의 새 캔버스 문서로 가져와 그 id와 화면에 보일 한 줄을 돌려준다. 그림 칠은 Figma가
   /// 그 노드를 그린 PNG로 받는다. [stop]이 끝나면 기다리던 답을 버리고 곧 멈추며(Figma에 명령을 더 보내지 않는다)
@@ -347,6 +352,20 @@ class FigmaLink extends ChangeNotifier {
       isStopped = true;
       throw stopped;
     });
+    // 그림이 없으면 아무도 기다리지 않는다: 멈춤의 오류가 처리되지 않은 채 남지 않게.
+    stopNow?.ignore();
+    Future<Object?> race(Future<Object?> asked) =>
+        stopNow == null ? asked : Future.any([asked, stopNow]);
+    // 모양은 미리 볼 때 읽었고 그림은 지금 받는다. 그사이 페이지가 바뀌면 섞인 결과가 되므로 다시 읽어 견준다.
+    final pageId = plan.pageId;
+    if (pageId != null) {
+      final now = await race(
+        c.send('get_node_info', {
+          'nodeId': pageId,
+        }, timeout: const Duration(seconds: 120)),
+      );
+      if (fingerprintOf(now) != plan.fingerprint) throw const FigmaChanged();
+    }
     final got = <(FigmaImage, List<int>)>[];
     var total = 0, missed = 0;
     for (final (i, want) in plan.images.indexed) {
@@ -358,9 +377,7 @@ class FigmaLink extends ChangeNotifier {
           'scale': 1,
         }, timeout: imageTimeout);
         // 멈추면 기다리던 답을 버린다(늦게 오는 답이나 실패는 [Future.any]가 받아 버린다).
-        final r = await (stopNow == null
-            ? asked
-            : Future.any([asked, stopNow]));
+        final r = await race(asked);
         final data = r is Map ? r['imageData'] : null;
         // base64는 4글자에 3바이트다. 풀기 전에 길이로 거른다.
         if (data is! String || data.length > (maxImageBytes + 2) ~/ 3 * 4) {

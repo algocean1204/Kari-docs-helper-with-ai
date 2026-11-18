@@ -345,9 +345,14 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
             let d = opened(&mut e.lib, &mut e.docs, id)?;
             let out = e.lib.commit(d, ops, &meta)?;
             follow(d, &out);
-            // 커밋한 문서가 쓰게 된 가져오기의 그림은 이제 저장소가 센다.
+            // 커밋한 문서가 쓰게 된 가져오기의 그림은 이제 저장소가 센다. 실제로 적용한 연산만 본다(바뀐 것이 없으면
+            // 빼지 않는다).
             let mut used = Vec::new();
-            crate::edit::assets_in(ops, &mut used);
+            if let Outcome::Committed(c) = &out {
+                c.ops
+                    .iter()
+                    .for_each(|op| crate::edit::assets_in(op, &mut used));
+            }
             if !used.is_empty() {
                 let mut p = crate::edit::pending();
                 used.iter().for_each(|h| {

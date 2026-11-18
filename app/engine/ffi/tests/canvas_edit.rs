@@ -758,6 +758,44 @@ fn 커밋_전의_가져온_그림은_다른_문서를_지워도_남는다() {
     assert!(!file.exists(), "정리한 뒤에는 지운다");
 }
 
+/// 실패한 커밋은 모음에서 빼지 않는다(그림은 계속 남는다). 라이브러리를 닫으면 모음이 빈다.
+#[test]
+fn 실패한_커밋은_모음을_두고_라이브러리를_닫으면_모음이_빈다() {
+    let c = Case::new("canvas-pending-fail");
+    let trashed = || {
+        let o = new_canvas();
+        cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.jpg"), "x": 100, "y": 100}),
+        );
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        o
+    };
+    let hash = ok("asset.put", json!({"path": data("photo.jpg")}))["asset"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    let id = ok("docs.create", json!({"kind": "canvas", "name": "실패"}))["id"].clone();
+    err(
+        "doc.commit",
+        json!({"id": id, "label": "가져오기", "ops": [{"op": "add", "node": {
+            "type": "rect", "parent": "없는부모",
+            "props": {"fills": [{"type": "IMAGE", "asset": hash, "mode": "FILL"}]}}}]}),
+    );
+    let first = trashed();
+    ok("docs.purge", json!({"id": first}));
+    assert!(file.is_file(), "실패한 커밋 뒤에도 모음에 있다");
+    // 라이브러리를 닫았다 열면 모음이 비어, 그 그림을 쓰던 마지막 문서를 지울 때 지워진다.
+    ok("lib.close", json!({}));
+    c.open();
+    let second = trashed();
+    ok("docs.purge", json!({"id": second}));
+    assert!(!file.exists(), "닫은 뒤에는 모음이 비었다");
+}
+
 #[test]
 fn 글을_치면_화면이_바뀌고_커서와_선택이_덧그려진다() {
     let _c = Case::new("canvas-render");

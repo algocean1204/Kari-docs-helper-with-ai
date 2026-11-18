@@ -545,6 +545,16 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
         stop: _stop.future,
       );
       if (mounted) setState(() => _done = r);
+    } on FigmaChanged catch (e) {
+      // 바뀐 페이지를 다시 미리 보고, 무엇이 바뀌었는지 알린다.
+      if (mounted) {
+        setState(() {
+          _importing = false;
+          _progress = null;
+        });
+        await _read(_page!);
+        if (mounted) setState(() => _error = e.message);
+      }
     } on FigmaError catch (e) {
       if (mounted) setState(() => _error = e.message);
     } on EngineError catch (e) {
