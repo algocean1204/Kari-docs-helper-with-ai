@@ -15,6 +15,7 @@ use kari_edit::{Command, Editor, Fragment};
 use kari_import::{import, summary, Imported, HWP_LEGACY, MAX_FILE, TOO_LARGE};
 use kari_layout::{body_size, Layouter};
 use kari_store::{stage, Actor, DocId, Error, Meta};
+use sha2::{Digest, Sha256};
 
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::library::{now_ms, on, Engine};
@@ -37,6 +38,14 @@ fn read_file(a: &Args) -> Result<Vec<u8>, Fail> {
         return Err(fail("import", TOO_LARGE));
     }
     Ok(bytes)
+}
+
+/// 읽은 바이트의 SHA-256(소문자 16진수). 미리 보기가 돌려주고 적용이 다시 읽은 것과 견준다.
+fn digest(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// 읽기 오류. 옛 한글(HWP) 파일은 따로 가를 수 있게 코드를 `import_hwp`로 한다.
@@ -68,6 +77,7 @@ pub(crate) fn preview(a: &Args) -> Res {
     let got = import(&bytes, body_of(&blank), &mut check).map_err(read_fail)?;
     let s = summary(&got.fragment);
     Ok(json!({
+        "hash": digest(&bytes),
         "paras": s.paras, "tables": s.tables, "images": s.images, "chars": s.chars,
         "headings": s.headings.iter().map(|(l, t)| json!({"level": l, "text": t})).collect::<Vec<_>>(),
         "lost": got.lost,
@@ -156,13 +166,27 @@ fn fill(
         run: None,
         base: None,
     };
+    // 시험용: 사본에 다 적용하고 커밋하기 직전에 멈춘 경우.
+    #[cfg(feature = "test-hooks")]
+    if a.get("testPanic").and_then(Value::as_str) == Some("commit") {
+        panic!("시험용 멈춤");
+    }
     e.lib.commit_staged(&mut d, st, &meta)?;
     Ok(got)
 }
 
-/// 가져오기: 파일을 읽어 `name`의 새 흐름 문서를 만든다. `styles`를 주면 새 문서가 그 스타일 표로 시작한다(`docs.create`와 같다).
+/// 가져오기: 파일을 읽어 `name`의 새 흐름 문서를 만든다. `hash`(미리 보기가 돌려준 값)를 주면 읽은 파일이 그것과 같을 때만 한다. `styles`를 주면 새 문서가 그 스타일 표로 시작한다(`docs.create`와 같다).
 pub(crate) fn apply(state: &mut Option<Engine>, a: &Args) -> Res {
     let bytes = read_file(a)?;
+    // 미리 본 뒤 원본이 바뀌었으면 아무것도 만들기 전에 멈춘다. 해시가 없는 호출은 그대로 읽는다.
+    if a.maybe("hash", Value::as_str)?
+        .is_some_and(|h| h != digest(&bytes))
+    {
+        return Err(fail(
+            "import_changed",
+            "파일이 바뀌었습니다. 다시 미리 봅니다.",
+        ));
+    }
     let e = on(state)?;
     let root = match a.maybe("styles", Value::as_object)? {
         Some(s) => std::iter::once(("styles".to_string(), Value::Object(s.clone()))).collect(),

@@ -69,6 +69,27 @@ void main() {
     expect(find.text('홍길동 이력서'), findsOneWidget);
   });
 
+  testWidgets('미리 본 뒤 파일이 바뀌면 안내를 보이고 다시 미리 본 뒤 가져온다', (tester) async {
+    final rig = await _pick(tester);
+    // 미리 본 뒤 원본이 바뀐다.
+    rig.fake.importHashes[_path] = 'h1';
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    // 미리 본 해시(h0)를 넘겼고, 거절되어 문서가 만들어지지 않았고, 창이 남아 안내를 보인다.
+    expect(rig.fake.importCalls.single['hash'], 'h0');
+    expect(rig.fake.docs, isEmpty);
+    expect(find.byType(ImportDialog), findsOneWidget);
+    expect(find.textContaining('파일이 바뀌었습니다. 다시 미리 봅니다.'), findsOneWidget);
+    // 자동으로 다시 읽어 새 해시로 이어서 가져올 수 있다.
+    expect(rig.fake.sent.where((m) => m == 'import.preview'), hasLength(2));
+    expect(button(tester, '가져오기').onPressed, isNotNull);
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.last['hash'], 'h1');
+    expect(find.byType(ImportDialog), findsNothing);
+    expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
+  });
+
   testWidgets('취소하면 문서를 만들지 않고, 파일을 고르지 않으면 창을 띄우지 않는다', (tester) async {
     final rig = await _pick(tester);
     await tester.tap(find.widgetWithText(TextButton, '취소'));

@@ -171,9 +171,14 @@ class NativeEngine extends EngineApi {
 
   /// 가져오기는 새 문서에 붙일 자리를 배치로 찾아 글꼴이 있어야 한다. 홈에서 편집 화면을 열기 전에도 부르므로 먼저 넘긴다.
   @override
-  Future<Json> importApply(String path, String name, {Json? styles}) async {
+  Future<Json> importApply(
+    String path,
+    String name, {
+    Json? styles,
+    String? hash,
+  }) async {
     await _ready();
-    return super.importApply(path, name, styles: styles);
+    return super.importApply(path, name, styles: styles, hash: hash);
   }
 
   Future<void> _ready() async {

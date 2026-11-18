@@ -389,6 +389,93 @@ fn 오천_개가_넘는_op도_묶음_하나로_넣는다() {
     assert_eq!(texts(id), [""]);
 }
 
+/// 미리 보기가 읽은 바이트의 해시를 적용에 넘기면, 그 사이 파일이 바뀐 경우 적용하지 않고 아무것도 만들지 않는다.
+/// 같은 파일이면 성공하고, 해시를 넘기지 않는 호출은 그대로 된다. 모든 형식이 같은 길이다.
+#[test]
+fn 미리_본_뒤_원본이_바뀌면_적용하지_않고_아무것도_남기지_않는다() {
+    let case = Case::new("import-changed");
+    let img = format!("<img src=\"data:image/png;base64,{}\">", base64(&photo()));
+    let html = case.dir.join("바뀜.html");
+    std::fs::write(&html, format!("<p>첫 글</p>{img}")).unwrap();
+    let zip = case.dir.join("바뀜.zip");
+    std::fs::write(
+        &zip,
+        stored_zip(&[("index.html", format!("<p>꾸러미</p>{img}").as_bytes())]),
+    )
+    .unwrap();
+    let docx = case.dir.join("바뀜.docx");
+    let src = new_session();
+    insert(src, "워드 글");
+    ok("doc.exportDocx", json!({"id": src, "path": docx}));
+    let head = r##"<hh:head xmlns:hh="h"><hh:refList><hh:charProperties><hh:charPr id="0" height="1000" textColor="#000000"><hh:fontRef hangul="0"/></hh:charPr></hh:charProperties><hh:paraProperties><hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr></hh:paraProperties></hh:refList></hh:head>"##;
+    let sec = r#"<hs:sec xmlns:hs="s" xmlns:hp="p"><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>한글 글</hp:t></hp:run></hp:p></hs:sec>"#;
+    let hwpx = case.dir.join("바뀜.hwpx");
+    std::fs::write(
+        &hwpx,
+        stored_zip(&[
+            ("mimetype", b"application/hwp+zip"),
+            ("Contents/header.xml", head.as_bytes()),
+            ("Contents/section0.xml", sec.as_bytes()),
+        ]),
+    )
+    .unwrap();
+
+    let mut docs = doc_count();
+    for path in [&html, &docx, &zip, &hwpx] {
+        let p = ok("import.preview", json!({"path": path}));
+        let hash = p["hash"]
+            .as_str()
+            .expect("미리 보기가 해시를 돌려준다")
+            .to_string();
+        assert_eq!(hash.len(), 64, "{p}");
+        // 같은 파일이면 해시도 같다.
+        assert_eq!(
+            ok("import.preview", json!({"path": path}))["hash"],
+            json!(hash)
+        );
+        let original = std::fs::read(path).unwrap();
+        let assets = walk(&case.dir.join("assets")).len();
+        // 미리 본 뒤 파일이 바뀐다(길이가 같은 한 바이트 변경도 잡는다).
+        let mut changed = original.clone();
+        let last = changed.len() - 1;
+        changed[last] ^= 1;
+        std::fs::write(path, &changed).unwrap();
+        let e = err(
+            "import.apply",
+            json!({"path": path, "name": "x", "hash": hash}),
+        );
+        assert_eq!(e["code"], json!("import_changed"), "{path:?} {e}");
+        assert_eq!(
+            e["message"],
+            json!("파일이 바뀌었습니다. 다시 미리 봅니다.")
+        );
+        assert_eq!(doc_count(), docs, "{path:?}");
+        assert!(ok("docs.list", json!({"trashed": true}))
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(walk(&case.dir.join("assets")).len(), assets, "{path:?}");
+        // 같은 파일로 돌아오면 적용된다.
+        std::fs::write(path, &original).unwrap();
+        ok(
+            "import.apply",
+            json!({"path": path, "name": "같은 파일", "hash": hash}),
+        );
+        docs += 1;
+        assert_eq!(doc_count(), docs, "{path:?}");
+    }
+    // 해시를 넘기지 않는 옛 호출은 그대로 된다.
+    ok("import.apply", json!({"path": html, "name": "옛 호출"}));
+    // 지워진 파일은 읽지 못했다고 한다(섞인 결과 없음).
+    std::fs::remove_file(&html).unwrap();
+    let e = err(
+        "import.apply",
+        json!({"path": html, "name": "x", "hash": "0".repeat(64)}),
+    );
+    assert_eq!(e["code"], json!("import"));
+    assert_eq!(doc_count(), docs + 1);
+}
+
 #[test]
 fn 읽지_못하는_파일은_문서와_그림을_남기지_않는다() {
     let case = Case::new("import-bad");
@@ -502,17 +589,20 @@ fn 가져오는_중에_엔진이_멈춰도_문서와_그림을_남기지_않는�
     let id = ok("docs.create", json!({"kind": "flow", "name": "남는 문서"}))["id"].clone();
     ok("doc.open", json!({"id": id}));
     let before = doc_count();
-    let e = err(
-        "import.apply",
-        json!({"path": path, "name": "멈춤", "testPanic": true}),
-    );
-    assert_eq!(e["code"], json!("panic"), "{e}");
-    assert_eq!(doc_count(), before);
-    assert!(ok("docs.list", json!({"trashed": true}))
-        .as_array()
-        .unwrap()
-        .is_empty());
-    assert!(walk(&case.dir.join("assets")).is_empty());
+    // 그림을 넣은 뒤와 커밋 직전, 두 지점에서 멈춘다.
+    for at in [json!(true), json!("commit")] {
+        let e = err(
+            "import.apply",
+            json!({"path": path, "name": "멈춤", "testPanic": at}),
+        );
+        assert_eq!(e["code"], json!("panic"), "{e}");
+        assert_eq!(doc_count(), before);
+        assert!(ok("docs.list", json!({"trashed": true}))
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(walk(&case.dir.join("assets")).is_empty());
+    }
     // 명령 잠금이 상하지 않았다: 열어 둔 문서가 그대로 메모리에 있고, 다음 가져오기가 된다.
     ok(
         "doc.commit",

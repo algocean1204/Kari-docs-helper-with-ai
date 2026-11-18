@@ -22,12 +22,18 @@ class ImportDialog extends StatefulWidget {
 }
 
 class _ImportDialogState extends State<ImportDialog> {
-  late final Future<Json> _preview = widget.library.engine.importPreview(
-    widget.path,
-  );
+  late Future<Json> _preview = _read();
+  String? _hash;
   late final String _name = widget.library.importName(widget.path);
   bool _saving = false;
   EngineError? _error;
+
+  /// 파일을 읽어 본다. 적용에 넘길 해시를 함께 기억한다.
+  Future<Json> _read() async {
+    final p = await widget.library.engine.importPreview(widget.path);
+    _hash = p['hash'] as String?;
+    return p;
+  }
 
   Future<void> _import() async {
     setState(() {
@@ -35,13 +41,15 @@ class _ImportDialogState extends State<ImportDialog> {
       _error = null;
     });
     try {
-      final r = await widget.library.importFile(widget.path);
+      final r = await widget.library.importFile(widget.path, hash: _hash);
       if (mounted) Navigator.of(context).pop(r['id'] as int);
     } on EngineError catch (e) {
       if (mounted) {
         setState(() {
           _saving = false;
           _error = e;
+          // 미리 본 뒤 원본이 바뀌었다. 안내를 보이고 바뀐 파일을 다시 읽어 보인다.
+          if (e.code == 'import_changed') _preview = _read();
         });
       }
     }
