@@ -28,6 +28,8 @@ flutter:
   # Figma 플러그인 파일(MIT, assets/figma-plugin/LICENSE). 설정 → Figma에서 자료 폴더에 써서 Figma가 가져가게 한다.
   assets:
     - assets/figma-plugin/
+    # OpenAI가 배포한 ChatGPT 로고(고치지 않음). 설정의 "ChatGPT로 계속하기" 단추에 쓴다.
+    - assets/siwc/
   # 글꼴은 assets/fonts를 Rust 엔진과 같이 쓴다.
   fonts:
     - family: Pretendard

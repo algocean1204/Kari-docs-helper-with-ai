@@ -4,6 +4,7 @@ import 'dart:ui' show SemanticsRole;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../design/chatgpt_button.dart';
 import '../design/components.dart';
 import '../design/tokens.dart';
 import '../engine/engine.dart';
@@ -467,9 +468,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: lib?.cancelChatGpt,
               )
             else
-              AppButton(
-                'ChatGPT로 계속하기',
-                onPressed: lib == null ? () {} : () => _connectPlan(lib),
+              // 승인 형식의 치수를 지키고, 줄이 좁으면 비율대로 줄인다(형식의 max-width: 100%).
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: ChatGptButton(
+                    onPressed: lib == null ? () {} : () => _connectPlan(lib),
+                  ),
+                ),
               ),
           ],
         ),
