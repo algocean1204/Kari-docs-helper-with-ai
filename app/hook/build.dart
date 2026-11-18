@@ -47,7 +47,7 @@ void main(List<String> args) async {
       '--remap-path-prefix=${engine.toFilePath()}=engine/',
     ].where((f) => f.isNotEmpty).join('\x1f');
 
-    // 라이브러리만 빌드한다(크레이트의 시험용 실행 파일은 앱에 싣지 않는다).
+    // 라이브러리만 빌드한다(크레이트의 시험용 실행 파일은 앱에 싣지 않는다). `app` 기능은 PDF 도우미의 힙 상한.
     await _run(
       'cargo',
       [
@@ -57,6 +57,8 @@ void main(List<String> args) async {
         '-p',
         'kari-ffi',
         '--lib',
+        '--features',
+        'app',
         '--target',
         target,
       ],

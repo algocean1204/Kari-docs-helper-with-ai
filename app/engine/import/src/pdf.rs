@@ -28,8 +28,45 @@ pub const UNMAPPED: &str = "글꼴에 글자 표가 없어 글을 읽을 수 없
 pub const TOO_BIG: &str = "내용이 너무 큰 PDF는 가져올 수 없습니다.";
 pub const TOO_SLOW: &str = "읽는 데 너무 오래 걸리는 PDF는 가져올 수 없습니다.";
 pub const CANCELLED: &str = "PDF 읽기를 멈췄습니다.";
+/// 도우미를 띄우지 못했거나 도우미가 엔진을 열지 못했다(파일이 아니라 앱의 문제).
+pub const NO_HELPER: &str = "PDF를 읽는 도우미를 띄우지 못했습니다. 앱을 다시 설치해 주세요.";
 
-pub use crate::pdfhelper::{cancel, helper_main, last_peak, set_helper, MAX_MEMORY, MAX_TIME};
+pub use crate::pdfhelper::{
+    cancel, helper_main, last_peak, set_helper, with_ticket, Capped, MAX_MEMORY, MAX_TIME,
+};
+
+/// 가져온 결과의 크기 예산: 문단(표 칸 안 포함)과 표의 칸 자리는 4, 글 조각(run)은 1. 새 문서에 넣는 일(적용)의 시간과
+/// 메모리가 이 합에 거의 비례한다(칸·문단 하나에 약 33KB, run 하나에 약 9KB). 넘으면 `TOO_BIG`.
+pub const MAX_WEIGHT: usize = 24_000;
+/// 쪽 하나에서 표로 보는 선 격자의 수. 넘으면 `TOO_BIG`.
+pub const MAX_GRIDS: usize = 16;
+
+/// 문단 하나(표면 그 안의 칸과 문단까지)의 무게. `MAX_WEIGHT`와 함께 쓴다.
+pub fn weight(p: &FragPara) -> usize {
+    let mut w = 4 + p.runs.len();
+    if let Some(t) = &p.table {
+        for (_, row) in &t.rows {
+            for c in row {
+                w += 4 + c.as_ref().map_or(0, |(_, ps)| ps.iter().map(weight).sum());
+            }
+        }
+    }
+    w
+}
+
+/// 쓴 무게.
+struct Budget(usize);
+
+impl Budget {
+    fn spend(&mut self, n: usize) -> Result<(), &'static str> {
+        self.0 += n;
+        if self.0 > MAX_WEIGHT {
+            Err(TOO_BIG)
+        } else {
+            Ok(())
+        }
+    }
+}
 
 /// 표의 최대 행·열(붙여넣기와 같다). 행이 넘으면 다음 표로 나눈다.
 const MAX_ROWS: usize = 50;
@@ -118,9 +155,8 @@ pub(crate) fn read(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<FragPara>, usize),
 }
 
 /// 쪽마다 글 조각. 그림·도형·글이 없는 쪽·읽지 못한 쪽은 센다. (쪽들, 쪽 수).
-/// 파일 해석은 따로 된 프로세스(`pdfhelper`)에서 한다.
 fn load(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<Page>, usize), &'static str> {
-    let read = crate::pdfhelper::read(bytes, &mut cx.rep)?;
+    let read = crate::pdftext::read(bytes, &mut cx.rep, MAX_PAGES, MAX_SPANS)?;
     let n = read.pages.len();
     let mut pages = Vec::with_capacity(n);
     for pt in read.pages {
@@ -545,8 +581,15 @@ enum Unit {
 }
 
 /// 쪽 하나 → 덩이들. 선으로 그린 표 안의 글은 표로 가고, 나머지는 표 위·사이·아래로 나눠 단을 찾는다.
-fn units(p: Page, out: &mut Vec<Unit>) {
+/// 표의 칸 자리는 표를 만들기 전에 예산에서 뺀다.
+fn units(p: Page, out: &mut Vec<Unit>, budget: &mut Budget) -> Result<(), &'static str> {
     let mut gs = grids(&p.hlines, &p.vlines);
+    if gs.len() > MAX_GRIDS {
+        return Err(TOO_BIG);
+    }
+    for g in &gs {
+        budget.spend(4 * g.cell.len())?;
+    }
     gs.sort_by(|a, b| b.ys[0].total_cmp(&a.ys[0]));
     let mut cells: Vec<Vec<Vec<Span>>> = gs
         .iter()
@@ -575,14 +618,16 @@ fn units(p: Page, out: &mut Vec<Unit>) {
         out.push(Unit::Grid(g, c));
     }
     out.extend(segs.flat_map(regions).map(Unit::Lines));
+    Ok(())
 }
 
 /// 쪽마다 구역을 나눠 표와 문단을 만들고, 글자 크기의 단계로 제목을 정한다.
 fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str> {
     drop_running(&mut pages, cx);
+    let mut budget = Budget(0);
     let mut us: Vec<Unit> = Vec::new();
     for p in pages {
-        units(p, &mut us);
+        units(p, &mut us, &mut budget)?;
     }
     let regions: Vec<Vec<Ln>> = us
         .iter()
@@ -633,11 +678,14 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
         match b {
             Block::Table(t) => {
                 prev_ordered = None;
-                out.push(FragPara {
+                let p = FragPara {
                     runs: Vec::new(),
                     props: Map::new(),
                     table: Some(t),
-                });
+                };
+                // 칸 자리는 이미 뺐다.
+                budget.spend(weight(&p) - 4 * cells(&p))?;
+                out.push(p);
             }
             Block::Para(p) => {
                 let level = heading_like(&p, bodyf)
@@ -676,15 +724,24 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
                 if !pf.is_empty() {
                     props.insert("pf".into(), Value::Object(pf));
                 }
-                out.push(FragPara {
+                let p = FragPara {
                     runs: p.runs.values(level.is_some()),
                     props,
                     table: None,
-                });
+                };
+                budget.spend(weight(&p))?;
+                out.push(p);
             }
         }
     }
     Ok(out)
+}
+
+/// 표의 칸 자리 수.
+fn cells(p: &FragPara) -> usize {
+    p.table
+        .as_ref()
+        .map_or(0, |t| t.rows.iter().map(|(_, r)| r.len()).sum())
 }
 
 /// 제목: 목록이 아닌 150자 이하의 문단으로, 본문보다 1.5pt 넘고 15% 넘게 크거나, 조금이라도 크고 모두 굵다.

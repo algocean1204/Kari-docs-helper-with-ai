@@ -74,9 +74,10 @@ fn handle(request: Option<&str>) -> Res {
     if m == "import.preview" {
         return import::preview(&Args(a));
     }
-    // 돌고 있는 PDF 읽기(도우미 프로세스)를 멈춘다. 미리 보기 창의 `취소`가 부른다. 잠금을 잡지 않는다.
+    // 표(`ticket`)를 단 PDF 미리 보기를 멈춘다(돌고 있으면 도우미를 끝내고, 줄 서 있으면 시작하자마자 멈춘다).
+    // 미리 보기 창의 `취소`가 부른다. 잠금을 잡지 않는다.
     if m == "import.cancel" {
-        kari_import::pdf::cancel();
+        kari_import::pdf::cancel(Args(a).seq("ticket")?);
         return Ok(Value::Null);
     }
     let mut state = library::engine();
@@ -176,6 +177,11 @@ pub unsafe extern "C" fn kari_font_add(data: *const u8, len: usize) -> i32 {
     let bytes = std::slice::from_raw_parts(data, len);
     catch_unwind(|| if session::font_add(bytes) { 0 } else { 1 }).unwrap_or(3)
 }
+
+/// 앱 빌드에서 PDF 도우미의 힙 상한을 세는 할당자. 도우미가 아닐 때는 시스템 할당자에 그대로 넘긴다.
+#[cfg(feature = "app")]
+#[global_allocator]
+static ALLOC: kari_import::pdf::Capped = kari_import::pdf::Capped;
 
 /// PDF 읽기 도우미의 몸통. 앱이 자기 실행 파일을 `--kari-pdf-helper`로 다시 띄우면, 창을 열기 전에 이것만 부르고
 /// 그 값으로 끝난다. 표준 입력의 PDF를 읽어 결과를 표준 출력에 쓴다. 0 성공, 1 입출력 실패, 3 엔진 안의 오류.

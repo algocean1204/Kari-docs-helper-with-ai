@@ -388,9 +388,13 @@ fn pdf로_내보낸_이력서를_미리_보고_가져오면_제목과_목록이_
     let original = std::fs::read(&out).unwrap();
     let assets = walk(&case.dir.join("assets")).len();
 
-    // 돌고 있는 읽기가 없을 때 멈추기는 아무 일도 하지 않고, 다음 읽기를 막지 않는다.
-    assert_eq!(ok("import.cancel", json!({})), Value::Null);
-    let p = ok("import.preview", json!({"path": out}));
+    // 다른 표의 멈추기는 이 미리 보기를 막지 않는다. 표를 빠뜨린 멈추기는 틀린 요청이다.
+    assert_eq!(ok("import.cancel", json!({"ticket": 41})), Value::Null);
+    assert_eq!(
+        err("import.cancel", json!({}))["code"],
+        json!("bad_request")
+    );
+    let p = ok("import.preview", json!({"path": out, "ticket": 42}));
     assert_eq!(p["pages"], json!(1), "{p}");
     assert_eq!(
         p["headings"],
@@ -400,6 +404,10 @@ fn pdf로_내보낸_이력서를_미리_보고_가져오면_제목과_목록이_
     // 미리 보기는 문서도 그림도 만들지 않는다.
     assert_eq!(doc_count(), before);
     assert_eq!(walk(&case.dir.join("assets")).len(), assets);
+    // 멈추라고 한 표의 미리 보기는 읽지 않고 멈춘다.
+    assert_eq!(ok("import.cancel", json!({"ticket": 43})), Value::Null);
+    let e = err("import.preview", json!({"path": out, "ticket": 43}));
+    assert_eq!(e["message"], json!(kari_import::pdf::CANCELLED), "{e}");
     let hash = p["hash"]
         .as_str()
         .expect("미리 보기가 해시를 돌려준다")

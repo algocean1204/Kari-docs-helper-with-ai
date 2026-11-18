@@ -1169,6 +1169,7 @@ dependencies = [
  "kari-pdf",
  "kari-render",
  "kari-store",
+ "libc",
  "num-bigint",
  "rusqlite",
  "serde_json",

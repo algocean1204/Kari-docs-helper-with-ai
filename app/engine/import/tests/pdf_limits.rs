@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use kari_import::pdf::{
     BROKEN, LOCKED, NO_TEXT, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS, TOO_SLOW, UNMAPPED,
 };
-use kari_import::{import, Imported, EMPTY, TOO_LARGE, TOO_MANY_PARAS};
+use kari_import::{import, Imported, EMPTY, TOO_LARGE};
 
 struct Counting;
 
@@ -832,7 +832,7 @@ fn p24_50mb가_넘는_파일은_읽기_전에_거절한다() {
 }
 
 #[test]
-fn p25_문단이_5만_개를_넘으면_거절한다() {
+fn p25_문단이_5만_개를_넘으면_크기_예산에서_거절한다() {
     let Some(_rss) = child(here!()) else {
         return;
     };
@@ -841,9 +841,10 @@ fn p25_문단이_5만_개를_넘으면_거절한다() {
         .map(|i| format!("BT /F1 3 Tf 20 {} Td (- {i}) Tj ET\n", 830 - 4 * i))
         .collect();
     let pages: Vec<Vec<u8>> = (0..260).map(|_| page(&one)).collect();
+    // 문단 상한(5만)보다 먼저 PDF의 크기 예산에 걸린다(넣는 일의 메모리를 묶는 상한).
     assert_eq!(
         take(&doc(&pages, &[], "", Vec::new())).unwrap_err(),
-        TOO_MANY_PARAS
+        TOO_BIG
     );
 }
 
@@ -1192,27 +1193,167 @@ fn 멈춰_있는_도우미는_시간_상한에서_끝내고_거둔다() {
 }
 
 #[test]
-fn 멈추기는_도우미를_1초_안에_끝낸다() {
+fn 멈추기는_그_표의_도우미를_1초_안에_끝내고_다른_읽기는_두며_줄_선_것도_멈춘다() {
     let Some(_rss) = child(here!()) else {
         return;
     };
+    use kari_import::pdf::{cancel, with_ticket, CANCELLED};
     std::env::set_var("KARI_TEST_HELPER_HANG", "1");
     let mut pdf = kari();
     pdf.extend(vec![b' '; 1 << 20]);
-    let reading = std::thread::spawn(move || {
-        let got = import(&pdf, (481.9, 728.5), &mut |_| None).map(|_| ());
-        (got, Instant::now())
-    });
+    let read = |ticket| {
+        let pdf = pdf.clone();
+        std::thread::spawn(move || {
+            let got =
+                with_ticket(ticket, || import(&pdf, (481.9, 728.5), &mut |_| None)).map(|_| ());
+            (got, Instant::now())
+        })
+    };
+    // 표 1(미리 보기)과 표 없는 읽기(적용)가 함께 돈다. 표 1만 멈춘다.
+    let (preview, apply) = (read(Some(1)), read(None));
     std::thread::sleep(Duration::from_millis(300));
     let asked = Instant::now();
-    kari_import::pdf::cancel();
-    let (got, done) = reading.join().unwrap();
+    cancel(1);
+    let (got, done) = preview.join().unwrap();
     let took = done - asked;
     eprintln!("멈추기: {took:?}");
-    assert_eq!(got.unwrap_err(), kari_import::pdf::CANCELLED);
+    assert_eq!(got.unwrap_err(), CANCELLED);
     assert!(took < Duration::from_secs(1), "{took:?}");
+    let (got, _) = apply.join().unwrap();
+    assert_eq!(
+        got.unwrap_err(),
+        TOO_SLOW,
+        "표 없는 읽기는 멈추기로 끝나지 않는다"
+    );
+    // 시작하기 전에 멈추라고 한 읽기(느린 줄에 줄 선 미리 보기)는 도우미를 띄우지 않고 멈춘다.
+    cancel(2);
+    let t = Instant::now();
+    let (got, _) = read(Some(2)).join().unwrap();
+    assert_eq!(got.unwrap_err(), CANCELLED);
+    assert!(
+        t.elapsed() < Duration::from_millis(100),
+        "{:?}",
+        t.elapsed()
+    );
     no_children();
-    // 멈춘 뒤의 읽기는 그대로 된다.
+    // 멈춘 뒤의 읽기는 그대로 된다(같은 표를 다시 써도).
     std::env::remove_var("KARI_TEST_HELPER_HANG");
     assert_eq!(texts(&take(&kari()).unwrap()), ["Kari"]);
+    let got = with_ticket(Some(1), || take(&kari())).unwrap();
+    assert_eq!(texts(&got), ["Kari"]);
+}
+
+// 도우미 안에서는 작지만 문서로 만들면 커지는 견본. 표의 칸·문단·run은 문서 전체 크기 예산(`MAX_WEIGHT`)과 쪽당 격자 수
+// (`MAX_GRIDS`)로 묶고, 표와 문단을 만들기 전에 센다.
+
+/// 모든 쪽이 같은 내용 스트림 하나(5번)를 쓰는 문서. 글꼴 F1(Helvetica), F2(Helvetica-Bold).
+fn shared(pages: usize, content: &str) -> Vec<u8> {
+    let kids: String = (0..pages).map(|i| format!("{} 0 R ", 6 + i)).collect();
+    let mut objs = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Kids [{kids}] /Count {pages} >>").into_bytes(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>".to_vec(),
+        flate("", content.as_bytes()),
+    ];
+    for _ in 0..pages {
+        objs.push(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>"
+                .to_vec(),
+        );
+    }
+    build(&objs)
+}
+
+/// 50행·20열 선 격자 `grids`개(가로로 9개씩). `text`면 칸마다 글 "ab".
+fn grid_page(grids: usize, text: bool) -> String {
+    let mut c = String::from("BT /F1 12 Tf 5 5 Td (Kari) Tj ET\n");
+    for g in 0..grids {
+        let (ox, oy) = ((g % 9) as f32 * 400.0, (g / 9) as f32 * 700.0);
+        for r in 0..=50 {
+            let y = oy + r as f32 * 10.0;
+            c += &format!("{ox} {y} m {} {y} l S\n", ox + 300.0);
+        }
+        for k in 0..=20 {
+            let x = ox + k as f32 * 15.0;
+            c += &format!("{x} {oy} m {x} {} l S\n", oy + 500.0);
+        }
+        if text {
+            for r in 0..50 {
+                for k in 0..20 {
+                    let (x, y) = (ox + k as f32 * 15.0 + 2.0, oy + r as f32 * 10.0 + 2.0);
+                    c += &format!("BT /F{} 6 Tf {x} {y} Td (ab) Tj ET\n", 1 + (r + k) % 2);
+                }
+            }
+        }
+    }
+    c
+}
+
+/// 줄 `lines`개, 줄마다 굵기가 번갈아 바뀌는 조각 `per`개.
+fn spans_page(lines: usize, per: usize) -> String {
+    let mut c = String::new();
+    for l in 0..lines {
+        for k in 0..per {
+            let (x, y) = (20 + k * 45, 760 - l as i32 * 12);
+            c += &format!("BT /F{} 10 Tf {x} {y} Td (abcdefghi) Tj ET\n", 1 + k % 2);
+        }
+    }
+    c
+}
+
+#[test]
+fn 쪽마다_격자_27개는_표를_만들기_전에_거절한다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 칸 27,000개(1쪽), 81,000개(3쪽), 810만 개(300쪽). 앞의 둘은 고치기 전 적용에서 RSS 2.3GB였다.
+    let page = grid_page(27, false);
+    for pages in [1, 3, 300] {
+        bypass(&shared(pages, &page));
+    }
+}
+
+#[test]
+fn 칸과_run이_크기_예산을_넘으면_거절하고_안이면_가져온다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 격자 둘(칸 2,000개, 칸마다 글)은 예산 안, 셋은 넘는다.
+    let got = take(&shared(1, &grid_page(2, true))).unwrap();
+    assert_eq!(
+        got.fragment
+            .paras
+            .iter()
+            .filter(|p| p.table.is_some())
+            .count(),
+        2
+    );
+    bypass(&shared(1, &grid_page(3, true)));
+    // 쪽마다 줄 50개 × 조각 40개: 12쪽은 예산 안, 100쪽(run 20만 개)은 넘는다.
+    let page = spans_page(50, 40);
+    let got = take(&shared(12, &page)).unwrap();
+    let w: usize = got
+        .fragment
+        .paras
+        .iter()
+        .map(kari_import::pdf::weight)
+        .sum();
+    assert!(w <= kari_import::pdf::MAX_WEIGHT, "{w}");
+    bypass(&shared(100, &page));
+}
+
+#[test]
+fn 도우미를_띄우지_못하면_파일이_아니라_앱의_문제라고_알린다() {
+    let name = here!();
+    if std::env::var(CHILD).as_deref() != Ok(name) {
+        child(name);
+        return;
+    }
+    kari_import::pdf::set_helper("/nonexistent/kari-pdf-helper");
+    let _rss = Rss;
+    assert_eq!(
+        import(&kari(), (481.9, 728.5), &mut |_| None).unwrap_err(),
+        kari_import::pdf::NO_HELPER
+    );
 }

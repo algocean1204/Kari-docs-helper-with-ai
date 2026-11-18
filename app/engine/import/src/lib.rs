@@ -309,6 +309,7 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         seen: HashMap::new(),
     };
     let mut pages = None;
+    let mut lost = None;
     // zip을 먼저 본다(앞 1KB에 `%PDF-`가 든 zip도 있다).
     let paras = if zip::is_zip(bytes) {
         let z = zip::Zip::open(bytes)?;
@@ -323,9 +324,11 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
             html::read_zip(&z, &mut cx)?
         }
     } else if pdf::is_pdf(bytes) {
-        let (paras, n) = pdf::read(bytes, &mut cx)?;
-        pages = Some(n);
-        paras
+        // PDF는 도우미 프로세스가 문단까지 만들어 돌려준다(옮기지 못한 것도 거기서 센다).
+        let got = pdfhelper::read(bytes, body)?;
+        pages = Some(got.pages);
+        lost = Some(got.lost);
+        got.paras
     } else {
         html::read_file(bytes, &mut cx)?
     };
@@ -348,7 +351,7 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
             paras,
             styles: Default::default(),
         },
-        lost: cx.rep.lines(),
+        lost: lost.unwrap_or_else(|| cx.rep.lines()),
         pages,
     })
 }

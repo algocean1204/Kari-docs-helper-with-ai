@@ -74,7 +74,10 @@ pub(crate) fn preview(a: &Args) -> Res {
             .ok()
             .map(|p| (String::new(), (p.width, p.height)))
     };
-    let got = import(&bytes, body_of(&blank), &mut check).map_err(read_fail)?;
+    // `ticket`을 주면 `import.cancel`로 이 미리 보기를 멈출 수 있다.
+    let ticket = a.maybe("ticket", Value::as_u64)?;
+    let got = kari_import::pdf::with_ticket(ticket, || import(&bytes, body_of(&blank), &mut check))
+        .map_err(read_fail)?;
     let s = summary(&got.fragment);
     Ok(json!({
         "hash": digest(&bytes),

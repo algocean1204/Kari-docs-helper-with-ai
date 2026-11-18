@@ -25,6 +25,9 @@ class ImportDialog extends StatefulWidget {
 
 class _ImportDialogState extends State<ImportDialog> {
   late Future<Json> _preview = _read();
+
+  /// 이 창의 미리 보기 표. `취소`가 이 표의 읽기만 멈춘다(돌고 있는 다른 가져오기는 두고).
+  final int _ticket = DateTime.now().microsecondsSinceEpoch;
   String? _hash;
   late final String _name = widget.library.importName(widget.path);
   bool _saving = false;
@@ -32,7 +35,10 @@ class _ImportDialogState extends State<ImportDialog> {
 
   /// 파일을 읽어 본다. 적용에 넘길 해시를 함께 기억한다.
   Future<Json> _read() async {
-    final p = await widget.library.engine.importPreview(widget.path);
+    final p = await widget.library.engine.importPreview(
+      widget.path,
+      ticket: _ticket,
+    );
     _hash = p['hash'] as String?;
     return p;
   }
@@ -86,9 +92,11 @@ class _ImportDialogState extends State<ImportDialog> {
                 onPressed: _saving
                     ? null
                     : () {
-                        // 아직 읽는 중이면(큰 PDF) 엔진의 읽기도 멈춘다.
+                        // 아직 읽는 중이거나 줄 서 있으면(큰 PDF) 엔진의 그 읽기도 멈춘다.
                         if (p == null && error == null) {
-                          unawaited(widget.library.engine.importCancel());
+                          unawaited(
+                            widget.library.engine.importCancel(_ticket),
+                          );
                         }
                         Navigator.of(context).pop();
                       },

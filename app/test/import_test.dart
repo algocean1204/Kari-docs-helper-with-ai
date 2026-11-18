@@ -144,6 +144,9 @@ void main() {
     expect(rig.fake.sent.where((m) => m == 'import.cancel'), hasLength(1));
     reading.complete();
     await tester.pumpAndSettle();
+    // 멈추는 것은 이 창이 미리 보기에 단 표다.
+    expect(rig.fake.importTickets.single, isNotNull);
+    expect(rig.fake.importCancels, [rig.fake.importTickets.single]);
     expect(find.byType(ImportDialog), findsNothing);
 
     rig.fake.waits.remove('import.preview');
