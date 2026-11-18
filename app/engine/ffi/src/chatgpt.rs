@@ -469,6 +469,9 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 status(lib)
             })
         }
+        // 시험 빌드: 보안 저장소(메모리)에 ChatGPT 자격이 있는지. 토큰은 돌려주지 않는다.
+        #[cfg(feature = "test-hooks")]
+        "ai.chatgptTestStored" => Ok(json!(load().map_err(|e| ai_fail(e, &[]))?.is_some())),
         _ => Err(bad(format!("모르는 이름입니다: {m}"))),
     }
 }

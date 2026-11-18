@@ -40,6 +40,8 @@ const AGENT_NAME: &str = "Kari";
 const CALLBACK: &str = "/auth/callback";
 /// ID 토큰 만료를 볼 때 봐주는 시계 차이(초).
 const SKEW: u64 = 5;
+/// ID 토큰 서명을 확인해 볼 JWKS 키의 수.
+const MAX_KEYS: usize = 8;
 /// 인증 서버 요청 하나의 전체 한도.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 /// 돌아온 연결 하나의 요청 머리를 읽는 한도와, 그 사이 읽기 한 번을 기다리는 한도.
@@ -492,6 +494,8 @@ impl Auth {
                     && (k["use"].is_null() || k["use"] == "sig")
                     && (k["alg"].is_null() || k["alg"] == "RS256")
             })
+            // 서명 확인은 키마다 큰 수의 거듭제곱이라, 키가 아주 많은 문서에 오래 붙잡히지 않게 앞의 몇 개만 해 본다.
+            .take(MAX_KEYS)
             .collect();
         if keys.is_empty() {
             return Err(bad("서명 키를 찾지 못했다"));
@@ -710,7 +714,7 @@ fn decode(s: &str) -> String {
 }
 
 /// RSASSA-PKCS1-v1_5 + SHA-256 서명 확인. 풀어낸 블록 전체를 기대한 블록과 바이트 단위로 견준다(느슨히 읽지 않는다).
-/// 2048비트보다 작은 키는 받지 않는다.
+/// 2048비트보다 작거나 8192비트보다 큰 키는 받지 않는다(큰 키는 확인이 오래 걸린다).
 fn rs256(n: &[u8], e: &[u8], msg: &[u8], sig: &[u8]) -> bool {
     const SHA256_INFO: [u8; 19] = [
         0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
@@ -718,7 +722,7 @@ fn rs256(n: &[u8], e: &[u8], msg: &[u8], sig: &[u8]) -> bool {
     ];
     let n = BigUint::from_bytes_be(n);
     let k = n.bits().div_ceil(8) as usize;
-    if n.bits() < 2048 || sig.len() != k {
+    if !(2048..=8192).contains(&n.bits()) || sig.len() != k {
         return false;
     }
     // 공개 지수는 3 이상의 홀수(보통 65537)만 받는다.
@@ -872,6 +876,10 @@ mod tests {
         let (n2, d2) = key(521, 607);
         let sig2 = sign(&n2, &d2, b"msg");
         assert!(!rs256(&n2.to_bytes_be(), &e, b"msg", &sig2));
+        // 8192비트보다 큰 키도 서명이 맞아도 받지 않는다(8676비트).
+        let (n3, d3) = key(4253, 4423);
+        let sig3 = sign(&n3, &d3, b"msg");
+        assert!(!rs256(&n3.to_bytes_be(), &e, b"msg", &sig3));
     }
 
     #[test]

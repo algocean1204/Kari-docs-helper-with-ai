@@ -392,12 +392,18 @@ mod hooked {
         });
         assert!(r.get("ok").is_some(), "{r}");
         let host = param(&first, "ext_agent_host_id").unwrap();
+        assert_eq!(ok("ai.chatgptTestStored", json!({})), true);
         let e = err(
             "ai.place",
             json!({"summary": "{}", "instruction": "오른쪽 빈 곳에"}),
         );
         assert_eq!(e["code"], "signin", "{e}");
         assert_eq!(openai_row()["plan"]["connected"], false);
+        assert_eq!(
+            ok("ai.chatgptTestStored", json!({})),
+            false,
+            "자격이 남았다"
+        );
         let fresh = |host: &str| {
             let url = ok("ai.chatgptBegin", json!({}))["url"]
                 .as_str()
@@ -415,6 +421,7 @@ mod hooked {
         // 코드 교환에서: 새로 등록해 연결한 뒤, 그 발급 id로 다시 로그인하는데 invalid_client.
         let (r, _, _) = sign_in(oauth::SCOPES, good, |_| Vec::new());
         assert!(r.get("ok").is_some(), "{r}");
+        assert_eq!(ok("ai.chatgptTestStored", json!({})), true);
         let (srv, tx) = serve_later();
         ok("ai.testBase", json!({"url": srv.url}));
         let url = ok("ai.chatgptBegin", json!({}))["url"]
@@ -429,6 +436,11 @@ mod hooked {
         b.join().unwrap();
         assert_eq!(r["err"]["code"], "signin", "{r}");
         assert_eq!(openai_row()["plan"]["connected"], false);
+        assert_eq!(
+            ok("ai.chatgptTestStored", json!({})),
+            false,
+            "자격이 남았다"
+        );
         fresh(&host);
     }
 

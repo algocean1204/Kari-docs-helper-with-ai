@@ -278,6 +278,20 @@ fn id_token_without_kid_tries_every_key() {
         good,
     );
     assert!(sign_in_err(&r.unwrap_err()).contains("서명"));
+    // 해 보는 키는 앞의 8개까지다: 맞는 키가 9번째에 있으면 받지 않고, 8번째에 있으면 받는다.
+    let (wrong, right) = (&jwks["keys"][0], &jwks["keys"][1]);
+    for (before, want_ok) in [(8, false), (7, true)] {
+        let mut keys = vec![wrong.clone(); before];
+        keys.push(right.clone());
+        let (r, ..) = sign_in_with(
+            None,
+            |_| {},
+            no_kid,
+            json!({ "keys": keys }).to_string(),
+            good,
+        );
+        assert_eq!(r.is_ok(), want_ok, "{before}: {r:?}");
+    }
 }
 
 /// 아주 긴 만료(`expires_in`, ID 토큰의 `exp`)도 넘치지 않는다.
