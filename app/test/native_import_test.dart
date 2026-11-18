@@ -22,7 +22,11 @@ void main() {
     expect(preview['headings'], [
       {'level': 1, 'text': '홍길동'},
     ]);
-    final r = await engine.importApply(file.path, '홍길동 이력서');
+    final r = await engine.importApply(
+      file.path,
+      '홍길동 이력서',
+      hash: preview['hash'] as String,
+    );
     final id = r['id'] as int;
     await engine.docOpen(id);
     final styles = [

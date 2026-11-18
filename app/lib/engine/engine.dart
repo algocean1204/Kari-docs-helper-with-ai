@@ -867,16 +867,23 @@ abstract class EngineApi {
       await call('doc.exportTxt', {'id': id, 'path': path}) as Json;
 
   /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip)을 읽어 본다. 문서를 만들지 않는다.
-  /// {paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
+  /// {hash: 읽은 바이트의 SHA-256, paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
   Future<Json> importPreview(String path) async =>
       await call('import.preview', {'path': path}) as Json;
 
   /// 파일을 [name]의 새 흐름 문서로 가져온다. [styles]를 주면 그 스타일 표로 시작한다. {id, lost}.
-  Future<Json> importApply(String path, String name, {Json? styles}) async =>
+  /// [hash](미리 보기가 돌려준 `hash`)를 주면 지금 읽은 파일이 그것과 다를 때 `import_changed`로 거절하고 아무것도 만들지 않는다.
+  Future<Json> importApply(
+    String path,
+    String name, {
+    Json? styles,
+    String? hash,
+  }) async =>
       await call('import.apply', {
             'path': path,
             'name': name,
             'styles': ?styles,
+            'hash': ?hash,
           })
           as Json;
 

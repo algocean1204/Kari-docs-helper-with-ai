@@ -253,12 +253,13 @@ class Library extends ChangeNotifier {
   }
 
   /// 파일을 새 흐름 문서로 가져온다. {id, lost}. 새 문서의 스타일은 [create]와 같다.
-  /// 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
-  Future<Json> importFile(String path) async {
+  /// [hash]는 미리 보기가 돌려준 값이다. 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
+  Future<Json> importFile(String path, {String? hash}) async {
     final r = await engine.importApply(
       path,
       importName(path),
       styles: newDocStyles,
+      hash: hash,
     );
     await _run(() async {});
     return r;

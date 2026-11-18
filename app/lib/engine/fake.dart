@@ -52,6 +52,9 @@ class FakeEngine extends EngineApi {
   /// 있으면 [imports]에 없는 경로도 이 요약으로 읽는다(경로를 미리 알 수 없는 견본 만들기 시험용).
   Json? importAny;
 
+  /// `import.preview`가 돌려줄 파일 해시(경로 → 해시, 없으면 `h0`). 미리 본 뒤 파일이 바뀐 것은 이 값을 바꿔 흉내 낸다. 시험용.
+  final Map<String, String> importHashes = {};
+
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
 
@@ -183,14 +186,20 @@ class FakeEngine extends EngineApi {
             '옛 Word(.doc) 형식은 읽지 못합니다. Word에서 .docx로 저장해 가져와 주세요.',
           );
         }
-        return imports[a['path']] ??
+        final shown =
+            imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
+        return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
       case 'import.apply':
         final p =
             imports[a['path']] ??
             importAny ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         importCalls.add(a);
+        if (a['hash'] != null &&
+            a['hash'] != (importHashes[a['path']] ?? 'h0')) {
+          throw const EngineError('import_changed', '파일이 바뀌었습니다. 다시 미리 봅니다.');
+        }
         final id = _add('flow', _name(a), _initial('flow'), null);
         return {'id': id, 'lost': p['lost'] ?? const []};
       case 'docs.rename':
