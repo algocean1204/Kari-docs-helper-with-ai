@@ -187,7 +187,7 @@ void main() {
     await s.click(find.text('되돌리기'));
     await s.until(() => find.byType(SnackBar).evaluate().isEmpty, '알림 닫힘');
     await s.hold(400);
-    await s.click(find.text('새 글 문서').first);
+    await s.click(find.text('새 문서').first);
     await s.wait(
       () =>
           find.byType(PaperView).evaluate().isNotEmpty &&
@@ -387,7 +387,7 @@ void main() {
 
     await fitAll();
     await s.hold(300);
-    // 모두 보기는 대지 하나(1920×1080)를 판의 가운데에 맞춘다. 자리는 대지 위의 비율로 잡는다.
+    // 모두 보기는 페이지 하나(1920×1080)를 판의 가운데에 맞춘다. 자리는 페이지 위의 비율로 잡는다.
     final view = tester.getRect(find.byType(CanvasSurface));
     final zoom = canvas().session.state!.zoom;
     final board = Rect.fromCenter(
@@ -431,7 +431,7 @@ void main() {
     await s.click(find.byTooltip('가로 간격 고르게'), after: 100);
     await s.hold(400);
 
-    // 레이어와 대지: 맞춰 붙는 안내선, 이름 바꾸기, 숨기기·잠그기, 묶기, 대지 더하기와 크기.
+    // 레이어와 페이지: 맞춰 붙는 안내선, 이름 바꾸기, 숨기기·잠그기, 묶기, 페이지 더하기와 크기.
     s.cut('layers');
     // 글 상자의 왼쪽 변은 사각형의 왼쪽 변과 같은 자리다. 끄는 동안 그 변에 붙어 빨간 안내선이 보인다.
     await s.drag(
@@ -458,7 +458,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
     await s.key(LogicalKeyboardKey.keyG, meta: true);
     await s.hold(400);
-    await s.click(find.byTooltip('대지 더하기'), after: 100);
+    await s.click(find.byTooltip('페이지 더하기'), after: 100);
     await s.click(find.text('iPhone 16 · 393×852').last, after: 100);
     await s.hold(200);
     await s.click(find.byKey(const Key('board-size')), after: 100);

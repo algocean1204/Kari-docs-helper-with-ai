@@ -76,7 +76,7 @@ fn 폭과_높이를_함께_주면_그_크기로_바뀌고_본문_상자와_최�
         h: Some(75.0),
         alt: None,
     });
-    assert_eq!(step.label, "이미지 크기");
+    assert_eq!(step.label, "그림 크기");
     assert_eq!(
         obj(&t, "p0"),
         json!({"type": "image", "asset": hash('a'), "w": 300, "h": 75})
@@ -142,7 +142,7 @@ fn 끌어_옮기면_뒤로_앞으로_한_묶음으로_가고_옮긴_그림이_�
     // 뒤로: "라" 앞(문서 글 자리 6 + 3 + 3 = "가나그림다" 뒤)
     let to = Pos::new("p0", "가나\u{FFFC}다".len());
     let step = move_to(&mut t, &to, false);
-    assert_eq!(step.label, "이미지 옮기기");
+    assert_eq!(step.label, "그림 옮기기");
     assert_eq!(shown(&t), ["가나다\u{FFFC}라"]);
     assert_eq!(t.undo.len(), n + 1, "되돌리기 한 번");
     // 옮긴 그림이 선택이다: 다시 크기를 바꿀 수 있다.
@@ -177,7 +177,7 @@ fn 자기_자리나_바로_옆으로_옮기면_할_일이_없고_복사는_옆�
     assert_eq!((t.doc.hash(), t.undo.len()), (h0.clone(), n));
     // ⌥: 복사는 그림을 지우지 않는다.
     let step = move_to(&mut t, &Pos::new("p0", 0), true);
-    assert_eq!(step.label, "이미지 복사");
+    assert_eq!(step.label, "그림 복사");
     assert_eq!(shown(&t), ["\u{FFFC}가나\u{FFFC}다라"]);
     assert_eq!(t.undo.len(), n + 1);
     // 복사된 쪽이 선택이고, 둘 다 같은 에셋이다.

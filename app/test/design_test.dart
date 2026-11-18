@@ -41,7 +41,7 @@ Future<ByteData> _file(String path) async {
 
 Future<void> loadFonts() async {
   final text = FontLoader(AppText.family);
-  for (final w in ['Regular', 'Bold']) {
+  for (final w in ['Regular', 'SemiBold', 'Bold']) {
     text.addFont(_file('assets/fonts/Pretendard-$w.ttf'));
   }
   await text.load();
@@ -114,9 +114,10 @@ int focusableCount(WidgetTester tester, {Finder? within}) {
   Finder all(Type t) => within == null
       ? find.byType(t)
       : find.descendant(of: within, matching: find.byType(t));
+  // 목록 안에서 화살표로 옮기는 줄(설정의 구역 목록)은 고른 줄 하나만 Tab이 멈춘다.
   final taps = tester
       .widgetList<InkWell>(all(InkWell))
-      .where((w) => w.onTap != null)
+      .where((w) => w.onTap != null && w.focusNode?.skipTraversal != true)
       .length;
   final switches = tester
       .widgetList<Switch>(all(Switch))
@@ -245,22 +246,23 @@ void main() {
           ('바탕', c.bg),
           ('표면2', c.surface2),
         ]) {
-          // 채운 단추: 낮춘 채움 위의 글.
-          for (final (kind, fill, fg) in [
-            ('주 동작', c.accent, c.onAccent),
-            ('위험', c.danger, c.surface),
+          // 채운 단추: 꺼지면 제 색의 연한 바탕에 제 색 글.
+          for (final (kind, k, fill) in [
+            ('주 동작', ButtonKind.primary, c.accent),
+            ('위험', ButtonKind.danger, c.danger),
           ]) {
-            final off = over(
-              fill.withValues(alpha: AppButton.disabledFill),
-              under,
-            );
+            final (off, fg) = AppButton.disabledFilled(c, k);
             expect(
-              contrast(fg, off),
+              contrast(fg, over(off, under)),
               greaterThanOrEqualTo(3),
               reason: '$name 꺼진 $kind 단추/$where',
             );
-            // 켜진 것과는 채움이 달라 보인다.
-            expect(off, isNot(fill), reason: '$name $kind/$where');
+            // 켜진 것과는 채움이 한눈에 갈린다(부품 경계와 같은 3:1).
+            expect(
+              contrast(fill, off),
+              greaterThanOrEqualTo(3),
+              reason: '$name $kind 켬/끔',
+            );
           }
           // 조용한 단추: 옅은 바탕 위의 낮춘 글.
           final quiet = over(c.text.withValues(alpha: 0.04), under);
@@ -341,7 +343,7 @@ void main() {
       ('밝게', Brightness.light, AppColors.light),
       ('어둡게', Brightness.dark, AppColors.dark),
     ]) {
-      testWidgets('$name 단추: 위험 단추는 위험 색 채움이고, 꺼진 채운 단추는 제 색을 낮춰 자리를 지킨다', (
+      testWidgets('$name 단추: 위험 단추는 위험 색 채움이고, 꺼진 채운 단추는 제 색의 연한 바탕으로 갈린다', (
         tester,
       ) async {
         Widget row(String tag, VoidCallback? on) => Padding(
@@ -371,16 +373,11 @@ void main() {
         expect(fillOf(tester, '위험 켬', on), c.danger);
         expect(inkOf(tester, '위험 켬', on), c.surface);
         expect(fillOf(tester, '주 켬', on), c.accent);
-        // 꺼진 채운 단추: 회색이 아니라 낮춘 제 색, 글은 그대로.
-        expect(
-          fillOf(tester, '주 끔', off),
-          c.accent.withValues(alpha: AppButton.disabledFill),
-        );
-        expect(inkOf(tester, '주 끔', off), c.onAccent);
-        expect(
-          fillOf(tester, '위험 끔', off),
-          c.danger.withValues(alpha: AppButton.disabledFill),
-        );
+        // 꺼진 채운 단추: 회색이 아니라 제 색의 연한 바탕과 제 색 글.
+        expect(fillOf(tester, '주 끔', off), c.accentSoft);
+        expect(inkOf(tester, '주 끔', off), c.accentText);
+        expect(fillOf(tester, '위험 끔', off), c.dangerSoft);
+        expect(inkOf(tester, '위험 끔', off), c.danger);
         // 꺼진 조용한 단추와 보통 단추: 보조 글보다 더 낮춘 글.
         final low = c.textMuted.withValues(alpha: AppButton.disabledText);
         expect(inkOf(tester, '조용 끔', off), low);
@@ -418,6 +415,26 @@ void main() {
         expect(side('둘').color, c.border);
         expect(side('둘').width, 1);
         expect(side('하나'), BorderSide.none);
+      });
+
+      testWidgets('$name 카드: 옅은 구분선으로 바탕과 갈린다', (tester) async {
+        await pumpIn(
+          tester,
+          const Panel(child: Text('카드')),
+          brightness: brightness,
+        );
+        final box =
+            tester
+                    .widget<Container>(
+                      find.ancestor(
+                        of: find.text('카드'),
+                        matching: find.byType(Container),
+                      ),
+                    )
+                    .decoration!
+                as BoxDecoration;
+        expect(box.color, c.surface);
+        expect(box.border, Border.all(color: c.divider));
       });
     }
 
@@ -540,16 +557,16 @@ void main() {
       });
     }
 
-    testWidgets('문서 화면의 주장 탭으로 바꿔도 넘침이 없다', (tester) async {
+    testWidgets('문서 화면의 물을 문장 탭으로 바꿔도 넘침이 없다', (tester) async {
       await pumpApp(tester, AppRoute.editor, sizes[0]);
-      await tester.tap(find.text('주장 5'));
+      await tester.tap(find.text('물을 문장 5'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('방어 못 함'), findsOneWidget);
+      expect(find.text('설명 못 함'), findsOneWidget);
       await saveShot(tester, 'editor-1024-light-claims');
     });
 
-    testWidgets('첫 실행 홈: 이력서부터 쓰라고 하고, 준비 줄이 있고, 넘침이 없다', (tester) async {
+    testWidgets('첫 실행 홈: 이력서부터 쓰라고 하고, 체크리스트가 있고, 넘침이 없다', (tester) async {
       for (final size in [sizes[0], sizes[1]]) {
         await pumpApp(tester, AppRoute.home, size, firstRun: true);
         expect(tester.takeException(), isNull);
@@ -559,13 +576,17 @@ void main() {
         expect(find.text('면접 연습 시작'), findsNothing);
         await saveShot(tester, 'home-first-${size.width.toInt()}-light');
       }
-      await tester.tap(find.text('AI 연결'));
+      await tester.tap(find.widgetWithText(TextButton, 'AI 연결하기'));
       await tester.pumpAndSettle();
-      expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+      // 설정의 구역 목록.
+      expect(find.text('업데이트와 정보'), findsOneWidget);
     });
 
     testWidgets('공고 추가: 붙여넣으면 추가할 수 있고, 추가하면 닫힌다', (tester) async {
       await pumpApp(tester, AppRoute.home, sizes[0]);
+      // 홈이 창보다 길어 공고 구역이 보이게 굴린다.
+      await tester.ensureVisible(find.text('공고 추가'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('공고 추가'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -590,7 +611,8 @@ void main() {
       tester,
     ) async {
       await pumpApp(tester, AppRoute.home, sizes[0]);
-      await tester.tap(find.text('면접 연습 시작'));
+      // 견본에는 설명하지 못한 문장이 있어 다음 할 일이 "약한 문장 다시 연습"이다.
+      await tester.tap(find.text('약한 문장 다시 연습'));
       await tester.pumpAndSettle();
       expect(find.text('보내는 내용 보기'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, '시작'));
@@ -624,9 +646,9 @@ void main() {
 
     testWidgets('옆 메뉴로 화면을 옮긴다: 홈 → 면접 → 끝내기 → 리포트', (tester) async {
       await pumpApp(tester, AppRoute.home, sizes[1]);
-      // 진행 카드는 마지막 면접의 공고와 문서를 제목으로 둔다. 면접 연습 시작은 그 둘을 골라 둔다.
+      // 내 진척은 마지막 면접의 공고와 문서를 제목으로 둔다. 약한 문장 다시 연습은 그 연습의 값을 골라 둔다.
       expect(find.text('예시페이 백엔드 엔지니어 · 이력서'), findsOneWidget);
-      await tester.tap(find.text('면접 연습 시작'));
+      await tester.tap(find.text('약한 문장 다시 연습'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, '예시페이 백엔드 엔지니어'), findsOneWidget);
       await tester.tap(find.widgetWithText(TextButton, '시작'));
@@ -719,6 +741,32 @@ void main() {
     );
     expect(normal, const Duration(milliseconds: 150));
     expect(reduced, Duration.zero);
+  });
+
+  test('글자 역할의 굵기마다 그 굵기의 글꼴 파일이 pubspec에 등록돼 있다', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final registered = {
+      for (final m in RegExp(
+        r'asset: (assets/fonts/Pretendard-\w+\.ttf)\s+weight: (\d+)',
+      ).allMatches(pubspec))
+        int.parse(m[2]!): m[1]!,
+    };
+    const styles = [
+      AppText.figure,
+      AppText.question,
+      AppText.display,
+      AppText.title,
+      AppText.reading,
+      AppText.body,
+      AppText.label,
+      AppText.caption,
+      AppText.dense,
+    ];
+    for (final s in styles) {
+      final file = registered[s.fontWeight!.value];
+      expect(file, isNotNull, reason: '굵기 ${s.fontWeight!.value}');
+      expect(File(file!).existsSync(), isTrue, reason: file);
+    }
   });
 
   test('어절 줄바꿈: 공백이 아닌 글자 사이에만 결합 문자를 넣는다', () {

@@ -23,9 +23,10 @@ fn clip() -> std::sync::MutexGuard<'static, Option<Fragment>> {
     CLIP.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// 마지막으로 복사한 조각에 든 그림의 에셋 해시. 문서를 완전히 지울 때 이것은 남긴다(지운 문서에서 복사해 둔
-/// 그림을 다른 문서에 붙이면 그 에셋을 쓴다).
-pub(crate) fn clip_assets() -> std::collections::BTreeSet<String> {
+/// 저장된 문서 밖에서 쓰는 그림의 에셋 해시: 복사해 둔 조각(흐름, 캔버스)과 캔버스에서 골라 아직 놓지 않은 그림
+/// 도구. 에셋을 지우는 길(완전히 지우기, 휴지통 비우기, 가져오기 실패)은 모두 이것을 남긴다. 열린 세션의 문서와
+/// 되돌리기 기록은 명령마다 저장소에 커밋되므로 저장소가 이미 센다.
+pub(crate) fn kept_assets() -> std::collections::BTreeSet<String> {
     let mut out: std::collections::BTreeSet<String> =
         clip().as_ref().map_or_else(Default::default, |f| {
             f.all_runs()
@@ -34,6 +35,7 @@ pub(crate) fn clip_assets() -> std::collections::BTreeSet<String> {
                 .collect()
         });
     out.extend(crate::canvas::clip_assets());
+    out.extend(crate::canvas::tool_assets());
     out
 }
 

@@ -137,7 +137,7 @@ fn 만들기_명령은_결과와_선택을_내고_되돌리기와_다시_하기�
     // 대지 밖의 사각형은 거절하고 문서를 바꾸지 않는다
     let before = (units(id), node_count(id));
     let r = cmd(id, "create", json!({"tool": "rect", "x": -500, "y": -500}));
-    assert_eq!(r["refused"], "대지 안에 놓아야 합니다.");
+    assert_eq!(r["refused"], "페이지 안에 놓아야 합니다.");
     assert_eq!(r["changed"], false);
     assert_eq!((units(id), node_count(id)), before);
     // 판의 빈 곳의 프레임은 새 대지
@@ -194,7 +194,7 @@ fn 도구로_끌어_만들면_끌기_중에는_커밋이_없고_뗄_때_한_번�
     cmd(id, "tool", json!({"tool": "ellipse"}));
     let u = units(id);
     let d = pointer(id, "down", -400.0, -400.0);
-    assert_eq!(d["refused"], "대지 안에 놓아야 합니다.");
+    assert_eq!(d["refused"], "페이지 안에 놓아야 합니다.");
     pointer(id, "up", -400.0, -400.0);
     assert_eq!(units(id), u);
     assert_eq!(ok("canvas.state", json!({"id": id}))["tool"], "ellipse");
@@ -260,7 +260,7 @@ fn 지우기_복제_방향키_모두_고르기() {
     // 마지막 대지는 지울 수 없다
     cmd(id, "select", json!({"ids": ["n1"]}));
     let r = cmd(id, "delete", json!({}));
-    assert_eq!(r["refused"], "마지막 대지는 지울 수 없습니다.");
+    assert_eq!(r["refused"], "마지막 페이지는 지울 수 없습니다.");
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn 속성_바꾸기와_수치_끌기는_미리_본_뒤_한_번_커밋한다() {
     let r = cmd(id, "set", json!({"props": {"opacity": 3}}));
     assert_eq!(r["refused"], "불투명도는 0부터 1까지입니다.");
     let r = cmd(id, "set", json!({"props": {"fontSize": 20}}));
-    assert_eq!(r["refused"], "고른 노드에 쓸 수 없는 속성입니다.");
+    assert_eq!(r["refused"], "고른 요소에 쓸 수 없는 속성입니다.");
     assert!(units(id) > n0);
 }
 
@@ -625,6 +625,66 @@ fn 그림은_파일을_에셋으로_넣어_채운_사각형으로_놓고_받을_
         .filter(|p| p[2] > 180 && p[1] < 90 && p[0] < 90)
         .count();
     assert!(red > 100, "빨간 화소 {red}");
+}
+
+/// 그림 도구를 고르면 그림을 에셋으로 저장하지만 놓기 전에는 어느 문서에도 없다. 그사이 같은 그림을 쓰던 문서를
+/// 완전히 지워도(하나씩, 휴지통 비우기) 파일이 남는다. 도구를 내려놓은 뒤에는 정리가 지운다.
+#[test]
+fn 고른_그림_도구의_에셋은_놓기_전에_같은_그림의_문서를_지워도_남는다() {
+    let c = Case::new("canvas-tool-keep");
+    // 같은 그림을 쓰는 캔버스를 만들어 닫고 휴지통에 넣는다. (문서 id, 그림 해시)
+    let trashed = || {
+        let o = new_canvas();
+        let s = cmd(
+            o,
+            "create",
+            json!({"tool": "image", "path": data("photo.png"), "x": 100, "y": 100}),
+        );
+        let hash = node(o, &sel(&s)[0])["fills"][0]["asset"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        ok("doc.close", json!({"id": o}));
+        ok("docs.trash", json!({"id": o}));
+        (o, hash)
+    };
+    let (gone, hash) = {
+        let (a, hash) = trashed();
+        let (b, _) = trashed();
+        ([a, b], hash)
+    };
+    let id = new_canvas();
+    cmd(
+        id,
+        "tool",
+        json!({"tool": "image", "path": data("photo.png")}),
+    );
+    // 그 그림을 쓰는 마지막 문서까지 하나씩 지워도 남는다.
+    for g in gone {
+        ok("docs.purge", json!({"id": g}));
+    }
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    assert!(file.is_file(), "하나씩 지울 때");
+    // 휴지통 비우기로 마지막 문서를 지워도 남는다.
+    trashed();
+    ok("docs.purgeTrashed", json!({"before": u64::MAX / 2}));
+    assert!(file.is_file(), "휴지통을 비울 때");
+    // 놓으면 그 그림이 그려진다.
+    pointer(id, "down", 100.0, 100.0);
+    pointer(id, "up", 100.0, 100.0);
+    let (px, r) = render(id, 1000, 700, 1.0, 0.0);
+    assert_eq!(r, 0);
+    assert!(
+        px.chunks(4)
+            .filter(|p| p[2] > 180 && p[1] < 90 && p[0] < 90)
+            .count()
+            > 100
+    );
+    // 문서를 닫으면(세션과 도구가 사라진다) 쓰는 곳이 없어 완전히 지울 때 지워진다.
+    ok("doc.close", json!({"id": id}));
+    ok("docs.trash", json!({"id": id}));
+    ok("docs.purge", json!({"id": id}));
+    assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
 }
 
 #[test]

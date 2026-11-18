@@ -4,11 +4,13 @@
 //! 받은 시각은 설정(`ai.models.<제공사>`)에 둔다. 키가 있는지는 그 목록으로 안다(확인을 통과한 키만 목록을 남긴다).
 //! 그래서 상태를 읽는 호출은 보안 저장소를 열지 않는다. 일마다 쓰는 모델은 `task.rs`.
 //! 네트워크 호출은 명령 잠금을 놓은 채 한다. 잠금은 설정을 읽고 쓰는 동안만 잡는다.
+//! OpenAI는 키 대신 ChatGPT 플랜으로도 부를 수 있다(`chatgpt.rs`). 둘 다 있으면 플랜을 쓴다(사용자가 키를 고르면 키).
 
 use kari_ai::{AiError, Effort, ModelInfo, Provider, Secrets};
 use kari_doc::serde_json::{json, Value};
 use kari_store::Library;
 
+use crate::chatgpt;
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::library::{engine, now_ms, on};
 
@@ -20,6 +22,12 @@ pub(crate) const PROVIDERS: [(&str, &str, &str); 2] = [
 
 #[cfg(feature = "test-hooks")]
 static TEST_BASE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// 시험 빌드가 부를 가짜 서버(제공사 API와 ChatGPT 인증 서버 모두).
+#[cfg(feature = "test-hooks")]
+pub(crate) fn test_base() -> Option<String> {
+    TEST_BASE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
 
 #[cfg(feature = "test-hooks")]
 pub(crate) fn secrets() -> &'static dyn Secrets {
@@ -36,8 +44,8 @@ pub(crate) fn secrets() -> &'static dyn Secrets {
 #[cfg(feature = "test-hooks")]
 pub(crate) fn client(provider: &str) -> Result<Box<dyn Provider>, Fail> {
     use std::time::Duration;
-    let base = TEST_BASE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let base = base.ok_or_else(|| fail("ai", "시험 빌드에서는 ai.testBase를 먼저 부릅니다."))?;
+    let base =
+        test_base().ok_or_else(|| fail("ai", "시험 빌드에서는 ai.testBase를 먼저 부릅니다."))?;
     let quick = vec![Duration::from_millis(1); 2];
     Ok(match provider {
         "anthropic" => {
@@ -74,6 +82,29 @@ pub(crate) fn ai_fail(e: AiError, keys: &[&str]) -> Fail {
     }
     let code = match e {
         AiError::Unauthorized => return fail("unauthorized", "키가 올바르지 않습니다."),
+        // ChatGPT 플랜. 화면이 경우마다 할 일을 알린다(사용량 관리, 다시 로그인, API 키로 바꾸기).
+        AiError::PlanLimit => {
+            return fail(
+                "plan_limit",
+                "ChatGPT 플랜(또는 이 앱)의 사용 한도에 닿았습니다. ChatGPT 설정의 사용량에서 확인합니다.",
+            )
+        }
+        AiError::SignedOut => {
+            return fail("signed_out", "ChatGPT 로그인을 다시 해야 합니다.")
+        }
+        AiError::Declined => {
+            return fail("declined", "ChatGPT 플랜 사용을 허락받지 못했습니다.")
+        }
+        AiError::Plan(ref c) => return fail("plan", plan_message(c)),
+        // 엔진이 그 등록을 이미 잊었다. 화면의 로그인 실패 안내(다시 시도)가 그대로 맞는다.
+        AiError::ClientRejected => {
+            return fail(
+                "signin",
+                "OpenAI가 이 기기의 ChatGPT 앱 등록을 받지 않습니다. 다시 연결하면 새로 등록합니다.",
+            )
+        }
+        AiError::SignIn(_) => "signin",
+        AiError::Canceled => "canceled",
         AiError::Network(_) => "network",
         // 보안 저장소(키체인) 단계의 실패. 화면이 "키는 맞지만 저장하지 못함"을 따로 알린다.
         AiError::Secret(_) => "secret",
@@ -91,6 +122,24 @@ pub(crate) fn ai_fail(e: AiError, keys: &[&str]) -> Fail {
     fail(code, message)
 }
 
+/// ChatGPT 플랜 오류 코드마다의 문구. 코드는 끝에 그대로 붙인다(진단용).
+fn plan_message(code: &str) -> String {
+    let what = match code {
+        "subscription_sharing_user_not_eligible" => {
+            "이 ChatGPT 계정이나 워크스페이스에서는 ChatGPT 플랜을 쓸 수 없습니다."
+        }
+        "subscription_sharing_unsupported_capability" => {
+            "ChatGPT 플랜으로는 이 요청의 기능이나 모델을 쓸 수 없습니다."
+        }
+        "forbidden" => "ChatGPT 플랜의 정책이나 권한(쓸 수 있는 지역 등)이 이 요청을 막았습니다.",
+        "subscription_sharing_invalid_user" => {
+            "ChatGPT 계정을 확인하지 못했습니다. 계속되면 연결을 끊고 다시 로그인합니다."
+        }
+        _ => "ChatGPT 플랜으로 이 요청을 할 수 없습니다.",
+    };
+    format!("{what} ({code})")
+}
+
 fn known<'a>(a: &Args<'a>) -> Result<&'a str, Fail> {
     let p = a.str("provider")?;
     if PROVIDERS.iter().any(|(id, ..)| *id == p) {
@@ -104,7 +153,7 @@ pub(crate) fn parse_effort(s: &str) -> Option<Effort> {
     Effort::ALL.into_iter().find(|e| e.as_str() == s)
 }
 
-fn model_json(m: &ModelInfo) -> Value {
+pub(crate) fn model_json(m: &ModelInfo) -> Value {
     let efforts: Vec<&str> = m.efforts.iter().map(|e| e.as_str()).collect();
     json!({
         "id": m.id, "name": m.name, "maxInput": m.max_input, "maxOutput": m.max_output,
@@ -126,15 +175,43 @@ fn record(lib: &Library, p: &str) -> Result<Option<Value>, Fail> {
         .filter(|v| !v.is_null()))
 }
 
-pub(crate) fn models_of(lib: &Library, p: &str) -> Result<Vec<Value>, Fail> {
+/// 키로 받아 저장한 모델 목록.
+pub(crate) fn key_models(lib: &Library, p: &str) -> Result<Vec<Value>, Fail> {
     Ok(record(lib, p)?
         .and_then(|r| r["models"].as_array().cloned())
         .unwrap_or_default())
 }
 
-/// 그 제공사의 확인된 키가 있는지(저장한 모델 목록으로 안다).
+/// 그 제공사의 호출에 쓰는 모델 목록: OpenAI가 ChatGPT 플랜으로 가면 플랜의 목록, 아니면 키의 목록.
+pub(crate) fn models_of(lib: &Library, p: &str) -> Result<Vec<Value>, Fail> {
+    if p == "openai" && chatgpt::uses_plan(lib)? {
+        return chatgpt::plan_models(lib);
+    }
+    key_models(lib, p)
+}
+
+/// 그 제공사를 부를 수 있는지: 확인된 키가 있다(저장한 모델 목록으로 안다). OpenAI는 ChatGPT 플랜이 연결돼 있어도 된다.
 pub(crate) fn has_key(lib: &Library, p: &str) -> Result<bool, Fail> {
-    Ok(!models_of(lib, p)?.is_empty())
+    Ok(!key_models(lib, p)?.is_empty() || p == "openai" && chatgpt::connected(lib)?)
+}
+
+/// 모델을 부를 때의 키와 어댑터.
+pub(crate) type Credential = (String, Box<dyn Provider>);
+
+/// 모델을 부를 때의 (키, 어댑터). OpenAI가 ChatGPT 플랜으로 가면 키는 비고 어댑터가 접근 토큰을 쓴다.
+/// 키가 없으면 `None`. 명령 잠금을 잡은 채 불러도 된다(네트워크를 쓰지 않는다).
+pub(crate) fn credential(lib: &Library, p: &str) -> Result<Option<Credential>, Fail> {
+    if p == "openai" && chatgpt::uses_plan(lib)? {
+        return Ok(Some((String::new(), Box::new(chatgpt::Plan::new()?))));
+    }
+    // 키를 넣은 적이 없으면(저장한 모델 목록이 없으면) 보안 저장소를 열지 않는다.
+    if key_models(lib, p)?.is_empty() {
+        return Ok(None);
+    }
+    match secrets().get(p).map_err(|e| ai_fail(e, &[]))? {
+        Some(key) => Ok(Some((key, client(p)?))),
+        None => Ok(None),
+    }
 }
 
 /// 키로 모델 목록을 받는다. 명령 잠금을 잡지 않은 채 부른다.
@@ -157,16 +234,31 @@ fn store(lib: &mut Library, p: &str, models: &[ModelInfo]) -> Result<Vec<Value>,
 }
 
 pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
+    if m.starts_with("ai.chatgpt") {
+        return chatgpt::dispatch(m, a);
+    }
     match m {
         "ai.providers" => with_lib(|lib| {
             let mut out = Vec::new();
             for (id, name, vendor) in PROVIDERS {
                 let rec = record(lib, id)?;
-                out.push(json!({
+                let mut row = json!({
                     "id": id, "name": name, "vendor": vendor,
                     "hasKey": rec.is_some(),
                     "checkedAt": rec.map_or(Value::Null, |r| r["checkedAt"].clone()),
-                }));
+                });
+                // OpenAI: ChatGPT 플랜의 상태와, 호출이 무엇으로 가는지(`plan`, `key`, 없으면 null).
+                if id == "openai" {
+                    row["plan"] = chatgpt::status(lib)?;
+                    row["via"] = if chatgpt::uses_plan(lib)? {
+                        json!("plan")
+                    } else if has_key(lib, id)? {
+                        json!("key")
+                    } else {
+                        Value::Null
+                    };
+                }
+                out.push(row);
             }
             Ok(Value::from(out))
         }),
@@ -198,7 +290,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 return with_lib(|lib| Ok(Value::from(models_of(lib, p)?)));
             }
             // 키를 넣은 적이 없으면(저장한 모델 목록이 없으면) 보안 저장소를 열지 않는다.
-            if !with_lib(|lib| has_key(lib, p))? {
+            if with_lib(|lib| key_models(lib, p))?.is_empty() {
                 return Err(fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."));
             }
             let key = secrets()
@@ -210,7 +302,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
             // 키 지우기는 보안 저장소를 먼저 지우고 이 잠금 안에서 목록을 비운다.
             with_lib(|lib| {
                 let same = secrets().get(p).map_err(|e| ai_fail(e, &[]))?.as_deref() == Some(&key);
-                if !same || !has_key(lib, p)? {
+                if !same || key_models(lib, p)?.is_empty() {
                     return Err(fail("no_key", "키가 없습니다. 먼저 키를 넣습니다."));
                 }
                 Ok(Value::from(store(lib, p, &models)?))

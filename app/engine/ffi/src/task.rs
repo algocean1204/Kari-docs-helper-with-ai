@@ -18,7 +18,7 @@ use crate::fail::{bad, Args, Fail, Res};
 
 /// 일과 화면 이름. 면접의 네 가지(AI 편집의 일은 뒤에 더한다).
 pub(crate) const TASKS: [(&str, &str); 4] = [
-    ("claims", "이력서 주장 뽑기"),
+    ("claims", "면접에서 물을 문장 뽑기"),
     ("posting", "채용공고 나누기"),
     ("ask", "질문 만들기"),
     ("grade", "답변 채점"),
@@ -175,6 +175,27 @@ pub(crate) fn resolve(lib: &Library, task: &str) -> Result<(Choice, ModelInfo), 
         .cloned()
         .unwrap_or_else(|| assumed(&c.provider, &fallback(&c.provider, &c.family)));
     Ok((c, m))
+}
+
+/// Figma로 보낼 때 자리를 정하는 판(`ai.place`). 면접의 일과 따로 고르지 않는다: Claude 키가 있으면 Claude,
+/// 없으면 OpenAI의 가장 가벼운 계열을 낮은 강도로 쓴다. 키가 하나도 없으면 `None`.
+pub(crate) fn place_model(lib: &Library) -> Result<Option<(String, ModelInfo)>, Fail> {
+    let provider = if has_key(lib, "anthropic")? {
+        "anthropic"
+    } else if has_key(lib, "openai")? {
+        "openai"
+    } else {
+        return Ok(None);
+    };
+    let family = kari_ai::families(provider)[0];
+    let list: Vec<ModelInfo> = models_of(lib, provider)?
+        .iter()
+        .map(|m| info_of(provider, m))
+        .collect();
+    let m = kari_ai::latest(provider, &list, family)
+        .cloned()
+        .unwrap_or_else(|| assumed(provider, &fallback(provider, family)));
+    Ok(Some((provider.to_string(), m)))
 }
 
 /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 확인된 키(저장한 모델 목록)가 있다.

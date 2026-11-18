@@ -1049,8 +1049,12 @@ dependencies = [
 name = "kari-ai"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "getrandom",
  "keyring",
+ "num-bigint",
  "serde_json",
+ "sha2",
  "ureq",
 ]
 
@@ -1088,17 +1092,30 @@ dependencies = [
 name = "kari-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "kari-ai",
  "kari-doc",
  "kari-docx",
  "kari-edit",
+ "kari-import",
  "kari-interview",
  "kari-layout",
  "kari-pdf",
  "kari-render",
  "kari-store",
+ "num-bigint",
  "rusqlite",
  "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "kari-import"
+version = "0.1.0"
+dependencies = [
+ "kari-doc",
+ "kari-edit",
+ "miniz_oxide 0.9.1",
 ]
 
 [[package]]

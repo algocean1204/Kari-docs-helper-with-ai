@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'editing/session.dart' show OpenEdits, docClosing;
 import 'engine/engine.dart';
+import 'figma/link.dart';
 import 'gaze.dart';
 import 'interview.dart';
 
@@ -20,6 +22,10 @@ class Library extends ChangeNotifier {
     DateTime Function()? now,
     this.savePath = pickSavePath,
     this.openPath = pickOpenPath,
+    this.importPath = pickImportPath,
+    this.showOther = showOtherKari,
+    this.quit = quitApp,
+    this.service,
     String? outDir,
   }) : _now = now ?? DateTime.now,
        outDir = outDir ?? '${Directory.systemTemp.path}/kari-share';
@@ -32,12 +38,24 @@ class Library extends ChangeNotifier {
   /// 넣을 그림 파일 고르기(PNG, JPEG). 시험은 바꿔 끼운다.
   final OpenPath openPath;
 
+  /// 가져올 파일 고르기(DOCX, HTML, zip). 시험은 바꿔 끼운다.
+  final OpenPath importPath;
+
+  /// 같은 자료 폴더를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져오기. 시험은 바꿔 끼운다.
+  final ShowOther showOther;
+
+  /// 앞의 Kari를 앞으로 가져왔을 때 이 두 번째 Kari를 끈다. 끄는 중이면 참. 시험은 바꿔 끼운다.
+  final Future<bool> Function() quit;
+
   /// 인쇄·공유에 넘길 PDF를 잠깐 두는 폴더. 앱의 임시 폴더 안에 앱이 만든 하위 폴더 하나다.
   /// 공유가 끝났는지 알 수 없는 경우가 있어 앱을 켤 때 비운다. 시험은 바꿔 끼운다.
   final String outDir;
 
   /// 자료 폴더. 여는 데 실패하면 화면에 보여 준다.
   final String dir;
+
+  /// 키 보관의 서비스 이름(앱의 번들 ID). 열 때 엔진에 넘긴다. 없으면 엔진의 기본값.
+  final String? service;
   final DateTime Function() _now;
 
   LibraryPhase phase = LibraryPhase.opening;
@@ -78,6 +96,9 @@ class Library extends ChangeNotifier {
   GazeCamera? camera;
   late final gaze = GazeRecorder(this);
 
+  /// Figma 연결(중계 서버, 플러그인 파일, 채널). 설정 화면에서 켜기 전에는 아무것도 열지 않는다.
+  late final figma = FigmaLink(this);
+
   static const keepTrash = Duration(days: 30);
 
   DateTime now() => _now();
@@ -88,7 +109,7 @@ class Library extends ChangeNotifier {
     openError = null;
     notifyListeners();
     try {
-      await engine.libOpen(dir);
+      await engine.libOpen(dir, service: service);
     } on EngineError catch (e) {
       await _failed(e);
       return;
@@ -119,6 +140,18 @@ class Library extends ChangeNotifier {
         // 백업을 읽지 못하면 되살리기를 보이지 않는다.
       }
     }
+    // 다른 Kari가 이 자료를 쓰고 있으면 그 창을 앞으로 가져오고, 가져왔으면 저장할 것이 없는 이 Kari는 조용히 끈다.
+    // 가져오지 못하면 이 창에 까닭과 다시 시도가 남는다.
+    final detail = e.detail;
+    if (e.code == 'in_use' && detail is Map && detail['pid'] is int) {
+      try {
+        if (await showOther(detail['pid'] as int) && await quit()) return;
+      } on PlatformException {
+        // 가져오지 못해도 안내는 그대로 보인다.
+      } on MissingPluginException {
+        // 위와 같다.
+      }
+    }
     phase = LibraryPhase.failed;
     notifyListeners();
   }
@@ -129,9 +162,7 @@ class Library extends ChangeNotifier {
     phase = LibraryPhase.ready;
     await _run(() async {
       final cutoff = _now().subtract(keepTrash).millisecondsSinceEpoch;
-      for (final d in await engine.docsList(trashed: true)) {
-        if (d.trashed! < cutoff) await engine.docsPurge(d.id);
-      }
+      await engine.docsPurgeTrashed(cutoff);
       for (final k in Setting.values) {
         settings[k.key] = await engine.settingsGet(k.key);
       }
@@ -167,6 +198,7 @@ class Library extends ChangeNotifier {
     // 막 떠난 화면의 닫기(줄에 남은 편집과 `doc.close`)가 라이브러리를 닫기 전에 닿게 한다.
     await Future.wait([...docClosing.values]);
     await close();
+    await figma.stop();
     return true;
   }
 
@@ -203,6 +235,64 @@ class Library extends ChangeNotifier {
       return id;
     }
     await _run(() async => id = await engine.docsCreate('flow', name));
+    return id;
+  }
+
+  /// 가져온 파일의 새 문서 이름: 확장자를 뗀 파일 이름. 이미 쓰는 이름이면 번호를 붙인다.
+  String importName(String path) {
+    var base = path.split('/').last;
+    final dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.substring(0, dot);
+    base = base.trim();
+    if (base.isEmpty) base = '가져온 문서';
+    // 이름은 200자까지다. 번호 붙일 자리를 남긴다.
+    if (base.runes.length > 190) {
+      base = String.fromCharCodes(base.runes.take(190)).trim();
+    }
+    return _freeName(base);
+  }
+
+  /// 파일을 새 흐름 문서로 가져온다. {id, lost}. 새 문서의 스타일은 [create]와 같다.
+  /// 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
+  Future<Json> importFile(String path) async {
+    final r = await engine.importApply(
+      path,
+      importName(path),
+      styles: newDocStyles,
+    );
+    await _run(() async {});
+    return r;
+  }
+
+  /// 견본 이력서(지어낸 인물)로 새 글 문서를 만들고 그 id를 돌려준다. 실패하면 null([error]에 남는다).
+  /// 파일 가져오기와 같은 길(HTML)로 넣는다. 잠깐 쓰는 파일은 부를 때마다 새 폴더에 두고 폴더째 지운다
+  /// (빠르게 두 번 눌러도 서로의 파일을 지우지 않는다).
+  Future<int?> createSample() async {
+    int? id;
+    await _run(() async {
+      Directory? tmp;
+      try {
+        tmp = (Directory(
+          outDir,
+        )..createSync(recursive: true)).createTempSync('sample-');
+        final file = File('${tmp.path}/견본 이력서.html')
+          ..writeAsStringSync(sampleResumeHtml);
+        final r = await engine.importApply(
+          file.path,
+          _freeName('견본 이력서'),
+          styles: newDocStyles,
+        );
+        id = r['id'] as int;
+      } on FileSystemException catch (e) {
+        throw EngineError('io', '견본 파일을 쓰지 못했습니다: ${e.message}');
+      } finally {
+        try {
+          tmp?.deleteSync(recursive: true);
+        } on FileSystemException {
+          // 지우지 못한 폴더는 앱을 다시 켤 때 [clearOut]이 지운다.
+        }
+      }
+    });
     return id;
   }
 
@@ -295,8 +385,8 @@ class Library extends ChangeNotifier {
   bool hasKey(String provider) =>
       providers.any((p) => p['id'] == provider && p['hasKey'] == true);
 
-  /// 어느 제공사든 키가 있는지.
-  bool get anyKey => providers.any((p) => p['hasKey'] == true);
+  /// 어느 제공사든 키가 있는지(ChatGPT 플랜 연결도 센다).
+  bool get anyKey => providers.any((p) => p['hasKey'] == true) || planConnected;
 
   /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다.
   bool get connected =>
@@ -361,7 +451,57 @@ class Library extends ChangeNotifier {
     await _loadAi();
   });
 
-  /// 일 하나의 제공사, 계열, 추론 강도. 실패는 [EngineError]로 던진다.
+  // ChatGPT로 계속하기: OpenAI 줄에서 API 키 대신 사용자의 ChatGPT 플랜을 쓴다. 토큰은 엔진이 보안 저장소에 둔다.
+
+  Json get _openai =>
+      providers.firstWhere((p) => p['id'] == 'openai', orElse: () => const {});
+  Json get _plan => _openai['plan'] as Json? ?? const {};
+
+  /// ChatGPT 플랜이 연결돼 있는지.
+  bool get planConnected => _plan['connected'] == true;
+
+  /// 확인한 ChatGPT 계정의 전자우편. ID 토큰에 없었으면 null.
+  String? get planEmail => _plan['email'] as String?;
+
+  /// 전에 ChatGPT 플랜 사용을 허락하지 않았는지(다음 연결은 동의를 다시 묻는다).
+  bool get planDeclined => _plan['declined'] == true;
+
+  /// OpenAI 호출이 무엇으로 가는지: `plan`, `key`, 둘 다 없으면 null. 둘 다 있으면 플랜이 먼저다(사용자가 키를 고르면 키).
+  String? get openaiVia => _openai['via'] as String?;
+
+  /// OpenAI 호출이 ChatGPT 플랜으로 가는지.
+  bool get planInUse => openaiVia == 'plan';
+
+  /// ChatGPT로 로그인한다: 승인 주소를 [open]으로 기본 브라우저에 열고, 브라우저에서 마치기를 기다린다.
+  /// 처음 연결이면 참(화면이 안내를 한 번 보인다). 실패와 취소는 [EngineError]로 던진다(`canceled`, `declined` 등).
+  Future<bool> connectChatGpt(Future<void> Function(String url) open) async {
+    try {
+      final url = (await engine.aiChatgptBegin())['url'] as String;
+      await open(url);
+      final r = await engine.aiChatgptWait();
+      return r['welcome'] == true;
+    } finally {
+      await _run(_loadAi);
+    }
+  }
+
+  /// 브라우저를 기다리는 로그인을 끊는다.
+  Future<void> cancelChatGpt() => engine.aiChatgptCancel();
+
+  /// ChatGPT 연결을 끊는다. 서버에서 세션을 끝낸 것을 확인했으면 참.
+  Future<bool> disconnectChatGpt() async {
+    final r = await engine.aiChatgptSignOut();
+    await _run(_loadAi);
+    return r['revoked'] == true;
+  }
+
+  /// 키와 플랜이 둘 다 있을 때 OpenAI 호출에 [plan]이면 ChatGPT 플랜, 아니면 API 키를 쓴다.
+  Future<void> useChatGpt(bool plan) => _run(() async {
+    await engine.aiChatgptUse(plan ? 'plan' : 'key');
+    await _loadAi();
+  });
+
+  /// 일 하나의 제공사, 계열, 생각 깊이. 실패는 [EngineError]로 던진다.
   Future<void> setTask(
     String task, {
     required String provider,
@@ -402,6 +542,23 @@ class Library extends ChangeNotifier {
   }
 }
 
+/// 견본 이력서. 인물, 회사, 연락처는 지어낸 것이다. 면접이 물을 문장(쓴 기술, 겪은 문제, 낸 결과)이 들어 있다.
+const sampleResumeHtml = '''<!doctype html>
+<html><head><meta charset="utf-8"><title>견본 이력서</title></head><body>
+<h1>김서연</h1>
+<p>백엔드 개발자 · seoyeon@example.com · 010-0000-0000</p>
+<h2>경력</h2>
+<h3>견본상사 · 서버 개발 (2023~2024)</h3>
+<ul>
+<li>주문 조회 API가 2초 넘게 걸려, 실행 계획을 보고 복합 인덱스를 더해 120ms로 줄였습니다.</li>
+<li>결제 API의 멱등성을 보장하기 위해 요청 키와 상태 머신을 함께 사용했습니다.</li>
+<li>Redis 캐시 무효화 전략을 TTL과 이벤트 기반으로 나누어 적용했습니다.</li>
+</ul>
+<h2>기술</h2>
+<p>Java, Spring, MySQL, Redis</p>
+</body></html>
+''';
+
 /// 저장 위치를 고른다. [name]은 기본 파일 이름이고, 고르면 절대 경로, 취소하면 null.
 typedef SavePath = Future<String?> Function(String name);
 
@@ -410,6 +567,21 @@ Future<String?> pickSavePath(String name) => const MethodChannel(
   'kari/files',
 ).invokeMethod<String>('savePath', {'name': name});
 
+/// 같은 자료를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져온다. 가져오라고 요청했으면 참.
+typedef ShowOther = Future<bool> Function(int pid);
+
+/// `kari/files`의 `activate`. macOS 쪽은 같은 번들 ID의 앱일 때만 앞으로 가져오고, 못 찾으면 거짓이다.
+Future<bool> showOtherKari(int pid) async =>
+    await const MethodChannel(
+      'kari/files',
+    ).invokeMethod<bool>('activate', {'pid': pid}) ==
+    true;
+
+/// 앱을 끄는 보통 길(⌘Q와 같다: 끄기 요청이 `_onExit`을 지난다). 끄는 중이면 참, 취소됐으면 거짓.
+Future<bool> quitApp() async =>
+    await ServicesBinding.instance.exitApplication(AppExitType.cancelable) ==
+    AppExitResponse.exit;
+
 /// 열 파일을 고른다. 고르면 절대 경로, 취소하면 null.
 typedef OpenPath = Future<String?> Function();
 
@@ -417,9 +589,14 @@ typedef OpenPath = Future<String?> Function();
 Future<String?> pickOpenPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('openPath');
 
+/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
+Future<String?> pickImportPath() =>
+    const MethodChannel('kari/files').invokeMethod<String>('importPath');
+
 /// 설정 화면이 저장하는 값. 이름은 엔진의 `settings` 표에 들어가는 키다.
 enum Setting {
-  gaze('interview.gaze', true),
+  /// 시선 기록. 처음 쓰는 사람에게 카메라 권한부터 묻지 않게 기본값은 끔이다. 저장한 값이 있으면 그 값을 쓴다.
+  gaze('interview.gaze', false),
 
   /// 처음 면접을 시작할 때 "보내는 내용 보기"를 보고 시작했는지.
   previewSeen('interview.previewSeen', false),
@@ -445,14 +622,17 @@ enum Setting {
   outline('view.outline', false),
 
   /// 입력하면서 자동 서식(목록·제목 표시, 주소를 링크로). 엔진이 편집 세션을 열 때 이 키를 읽는다.
-  autoFormat('edit.autoFormat', true);
+  autoFormat('edit.autoFormat', true),
+
+  /// 마지막으로 연결한 Figma 플러그인의 채널.
+  figmaChannel('figma.channel', '');
 
   const Setting(this.key, this.fallback);
   final String key;
   final Object fallback;
 }
 
-/// 추론 강도의 단계와 화면 이름. 엔진이 일마다 저장하고 그 판이 받는 값으로 맞춘다.
+/// 생각 깊이(엔진의 effort)의 단계와 화면 이름. 엔진이 일마다 저장하고 그 버전이 받는 값으로 맞춘다.
 const efforts = {
   'low': '낮음',
   'medium': '보통',

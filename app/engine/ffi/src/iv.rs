@@ -22,7 +22,7 @@ use kari_interview::{
 };
 use kari_store::Library;
 
-use crate::ai::{ai_fail, client, parse_effort, secrets, with_lib};
+use crate::ai::{ai_fail, credential, parse_effort, with_lib};
 use crate::fail::{bad, fail, Args, Fail, Res};
 use crate::library::{engine, now_ms, on};
 use crate::task;
@@ -80,14 +80,16 @@ fn pack() -> Result<&'static Pack, Fail> {
 }
 
 fn no_key(provider: &str) -> Fail {
-    let name = if provider == "openai" {
-        "OpenAI"
+    let (name, or) = if provider == "openai" {
+        ("OpenAI", " ChatGPT로 계속하기를 하거나,")
     } else {
-        "Claude(Anthropic)"
+        ("Claude(Anthropic)", "")
     };
     fail(
         "no_key",
-        format!("{name} 키가 없습니다. 설정의 AI 연결에서 키를 넣거나, 이 일의 모델을 바꿉니다."),
+        format!(
+            "{name} 키가 없습니다. 설정의 AI 연결에서 키를 넣거나,{or} 이 일의 모델을 바꿉니다."
+        ),
     )
 }
 
@@ -168,16 +170,10 @@ fn ai_setup(lib: &Library, pins: &BTreeMap<String, Pin>) -> Result<Ai, Fail> {
     let mut infos = BTreeMap::new();
     for p in pins.values() {
         if !keys.contains_key(&p.provider) {
-            // 키를 넣은 적이 없으면(저장한 모델 목록이 없으면) 보안 저장소를 열지 않는다.
-            if crate::ai::models_of(lib, &p.provider)?.is_empty() {
-                return Err(no_key(&p.provider));
-            }
-            let key = secrets()
-                .get(&p.provider)
-                .map_err(|e| ai_fail(e, &[]))?
-                .ok_or_else(|| no_key(&p.provider))?;
+            // OpenAI는 ChatGPT 플랜이 연결돼 있으면 그것으로(키는 비고 어댑터가 접근 토큰을 쓴다).
+            let (key, api) = credential(lib, &p.provider)?.ok_or_else(|| no_key(&p.provider))?;
             keys.insert(p.provider.clone(), key);
-            apis.insert(p.provider.clone(), client(&p.provider)?);
+            apis.insert(p.provider.clone(), api);
         }
         infos.insert(p.model.clone(), task::info(lib, &p.provider, &p.model)?);
     }
@@ -199,7 +195,7 @@ fn caller<'a>(
         let pin = ai
             .pins
             .get(kari_interview::task_of(c.what))
-            .ok_or_else(|| AiError::Unsupported(format!("정한 판이 없는 일: {}", c.what)))?;
+            .ok_or_else(|| AiError::Unsupported(format!("정한 버전이 없는 일: {}", c.what)))?;
         let info = &ai.infos[&pin.model];
         let key = ai.keys.get(&pin.provider).ok_or(AiError::NoKey)?;
         let api = ai.apis.get(&pin.provider).ok_or(AiError::NoKey)?;
@@ -212,6 +208,7 @@ fn caller<'a>(
             effort: parse_effort(&pin.effort).unwrap_or(Effort::High),
             max_tokens: None,
             format: info.structured.then(|| c.schema.clone()),
+            long_cache: kari_interview::long_cache(c.what),
         };
         let r = api.stream(key, &req, info, cancel, &mut |_| {})?;
         match &r.stop {
@@ -230,6 +227,7 @@ fn caller<'a>(
             output: r.usage.output,
             cache_read: r.usage.cache_read,
             cache_write: r.usage.cache_write,
+            cache_write_1h: r.usage.cache_write_1h,
             thinking: r.usage.thinking,
         })
     }

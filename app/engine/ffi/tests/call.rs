@@ -73,6 +73,30 @@ fn names(list: &Value) -> Vec<String> {
         .collect()
 }
 
+/// 앱이 준 번들 ID가 키 보관의 서비스 이름이 된다. 주지 않으면 그대로 둔다.
+#[test]
+fn lib_open_takes_keychain_service() {
+    let case = Case::new("service");
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari");
+    case.open();
+    assert_eq!(
+        kari_ai::service(),
+        "dev.clonamic.kari",
+        "주지 않으면 기본값"
+    );
+    call("lib.close", json!({}));
+    assert_eq!(
+        err("lib.open", json!({"dir": case.dir, "service": "a b"}))["code"],
+        "bad_request"
+    );
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari");
+    ok(
+        "lib.open",
+        json!({"dir": case.dir, "service": "dev.clonamic.kari.dev"}),
+    );
+    assert_eq!(kari_ai::service(), "dev.clonamic.kari.dev");
+}
+
 #[test]
 fn bad_requests_come_back_as_errors() {
     let case = Case::new("errors");
@@ -169,6 +193,22 @@ fn lone_surrogates_become_replacement_chars() {
     );
 }
 
+/// 다른 Kari(프로세스)가 쥔 자료 폴더는 열지 않고 `in_use`와 그 프로세스의 id를 돌려준다. 놓으면 열린다.
+#[test]
+fn 다른_곳이_쓰는_폴더는_in_use로_열지_않는다() {
+    let case = Case::new("in-use");
+    let other = kari_store::Library::open(&case.dir).unwrap();
+    let e = err("lib.open", json!({"dir": case.dir}));
+    assert_eq!(e["code"], "in_use");
+    assert_eq!(e["detail"]["pid"], std::process::id());
+    assert_eq!(
+        err("lib.restoreBackup", json!({"dir": case.dir}))["code"],
+        "in_use"
+    );
+    drop(other);
+    assert_eq!(case.open()["schema"], 2);
+}
+
 #[test]
 fn every_name_through_kari_call() {
     let case = Case::new("names");
@@ -210,6 +250,18 @@ fn every_name_through_kari_call() {
     ok("docs.trash", json!({"id": c}));
     ok("docs.purge", json!({"id": c}));
     assert_eq!(err("doc.open", json!({"id": c}))["code"], "not_found");
+    // 오래된 휴지통을 한 번에: 기준 시각보다 앞서 버린 것만
+    let d = ok("docs.create", json!({"kind": "flow", "name": "버릴 것"}))["id"].clone();
+    ok("docs.trash", json!({"id": d}));
+    assert_eq!(
+        ok("docs.purgeTrashed", json!({"before": 1})),
+        json!({"purged": 0})
+    );
+    assert_eq!(
+        ok("docs.purgeTrashed", json!({"before": u64::MAX / 2})),
+        json!({"purged": 1})
+    );
+    assert_eq!(err("doc.open", json!({"id": d}))["code"], "not_found");
 
     // 문서 열기와 노드
     let open = ok("doc.open", json!({"id": a}));

@@ -6,24 +6,13 @@ import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../interview.dart';
 import '../library.dart';
+import 'ai.dart' show usageUrl;
 import 'dialogs.dart';
 import 'gaze.dart';
+import 'interview_options.dart';
+import 'report.dart' show openSource;
 
-/// 연차, 시간, 압박 단계의 값과 화면 이름.
-const _yearOptions = [('new', '신입'), ('junior', '1~3년'), ('senior', '4년 이상')];
-const _minuteOptions = [(10, '10분'), (12, '12분'), (15, '15분')];
-const _pressureOptions = [
-  ('coaching', '코칭'),
-  ('standard', '표준'),
-  ('real', '실전'),
-];
-const _pressureNotes = {
-  'coaching': '부드럽게 묻고, 막히면 질문마다 힌트를 한 번 씁니다. 답 뒤에 짚은 핵심 수를 보여 줍니다.',
-  'standard': '꼬리질문과 반박을 합니다. 힌트는 주제마다 한 번입니다.',
-  'real': '짧고 건조하게 묻고 반박을 먼저 합니다. 힌트가 없습니다.',
-};
-
-/// 압박마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
+/// 면접 분위기마다 힌트를 쓸 수 있는 횟수(힌트 단추의 도구 설명).
 const _hintRules = {
   'coaching': '코칭은 질문마다 힌트를 한 번 씁니다.',
   'standard': '표준은 주제마다 힌트를 한 번 씁니다.',
@@ -65,6 +54,17 @@ Future<void> discardInterview(
   'shape' => ('모델의 답이 중간에 끊겼거나 읽을 수 없는 모양이었습니다. 다시 시도해 주세요.', false),
   'ai' => ('모델을 부르지 못했습니다. 잠시 뒤 다시 시도해 주세요. ${e.message}', false),
   'canceled' => ('진행 중이던 호출을 멈췄습니다.', false),
+  // ChatGPT 플랜. 한도는 사용량 관리가 첫 일이다(_Problem이 단추를 둔다).
+  'plan_limit' => (
+    'ChatGPT 플랜(또는 이 앱)의 사용 한도에 닿았습니다. ChatGPT 설정의 사용량에서 한도를 확인해 주세요.',
+    false,
+  ),
+  'signed_out' => ('ChatGPT 로그인이 끝났습니다. 설정에서 ChatGPT로 다시 계속해 주세요.', true),
+  'declined' => (
+    'ChatGPT 플랜 사용이 허락되지 않았습니다. 설정에서 다시 연결하거나 API 키를 넣어 주세요.',
+    true,
+  ),
+  'plan' => (e.message, true),
   _ => (describe(e), false),
 };
 
@@ -111,10 +111,10 @@ class _InterviewTabState extends State<InterviewTab> {
       : _lib.postings.any((p) => p['id'] == widget.posting)
       ? widget.posting
       : _lib.postings.firstOrNull?['id'] as String?;
-  late String _years = _last(_yearOptions, 'years', Setting.ivYears);
-  late int _minutes = _last(_minuteOptions, 'minutes', Setting.ivMinutes);
+  late String _years = _last(yearOptions, 'years', Setting.ivYears);
+  late int _minutes = _last(minuteOptions, 'minutes', Setting.ivMinutes);
   late String _pressure = _last(
-    _pressureOptions,
+    pressureOptions,
     'pressure',
     Setting.ivPressure,
   );
@@ -220,36 +220,50 @@ class _InterviewTabState extends State<InterviewTab> {
     final gazeBlocked =
         _lib.get<bool>(Setting.gaze) &&
         const {'denied', 'none'}.contains(_lib.gaze.permission);
-    Widget row(String name, Widget child, {String? note}) => Padding(
-      padding: const EdgeInsets.only(bottom: Space.x4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 88,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 7),
-              child: Text(name, style: AppText.label.copyWith(color: c.text)),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                child,
-                if (note != null) ...[
-                  const SizedBox(height: Space.x1),
-                  Text(
-                    keepAll(note),
-                    style: AppText.caption.copyWith(color: c.textMuted),
+    Widget row(String name, Widget child, {String? note, String? info}) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: Space.x4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 120,
+                child: Padding(
+                  padding: EdgeInsets.only(top: info == null ? 7 : 3),
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          style: AppText.label.copyWith(color: c.text),
+                        ),
+                      ),
+                      if (info != null) ...[
+                        const SizedBox(width: Space.x1),
+                        InfoTip(info, name: name),
+                      ],
+                    ],
                   ),
-                ],
-              ],
-            ),
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    child,
+                    if (note != null) ...[
+                      const SizedBox(height: Space.x1),
+                      KeepText(
+                        note,
+                        style: AppText.caption.copyWith(color: c.textMuted),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
+        );
     return SingleChildScrollView(
       padding: const EdgeInsets.all(Space.x8),
       child: Center(
@@ -260,8 +274,8 @@ class _InterviewTabState extends State<InterviewTab> {
             children: [
               Text('면접 연습', style: AppText.display.copyWith(color: c.text)),
               const SizedBox(height: Space.x1),
-              Text(
-                keepAll('이력서와 채용공고로 백엔드 개발 직무의 기술 면접을 글로 연습합니다.'),
+              KeepText(
+                '이력서와 채용공고로 백엔드 개발 직무의 기술 면접을 글로 연습합니다.',
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
               const SizedBox(height: Space.x6),
@@ -270,6 +284,7 @@ class _InterviewTabState extends State<InterviewTab> {
                   error: error,
                   onOpenSettings: widget.onOpenSettings,
                   onRetry: _run.retry,
+                  library: _lib,
                 ),
                 const SizedBox(height: Space.x4),
               ],
@@ -339,7 +354,7 @@ class _InterviewTabState extends State<InterviewTab> {
                                   ),
                                 ),
                                 AppButton(
-                                  '새 글 문서',
+                                  '새 문서',
                                   onPressed: widget.onCreateDoc,
                                 ),
                               ],
@@ -393,7 +408,7 @@ class _InterviewTabState extends State<InterviewTab> {
                     row(
                       '연차',
                       Segmented<String>(
-                        options: _yearOptions,
+                        options: yearOptions,
                         value: _years,
                         onChanged: (v) {
                           setState(() => _years = v);
@@ -401,7 +416,7 @@ class _InterviewTabState extends State<InterviewTab> {
                         },
                       ),
                     ),
-                    // 시간, 압박, 시선 기록은 기본값이 보이는 접힌 묶음이다.
+                    // 시간, 면접 분위기, 시선 기록은 기본값이 보이는 접힌 묶음이다.
                     // 켜 둔 시선 기록을 할 수 없으면(권한 없음, 카메라 없음) 그 안내가 보이게 펼쳐 둔다.
                     Fold(
                       key: ValueKey(gazeBlocked),
@@ -409,8 +424,8 @@ class _InterviewTabState extends State<InterviewTab> {
                       title: '옵션',
                       style: AppText.label,
                       summary: [
-                        _minuteOptions.firstWhere((o) => o.$1 == _minutes).$2,
-                        '압박 ${_pressureOptions.firstWhere((o) => o.$1 == _pressure).$2}',
+                        optionLabel(minuteOptions, _minutes),
+                        '면접 분위기 ${optionLabel(pressureOptions, _pressure)}',
                         '시선 기록 ${_lib.get<bool>(Setting.gaze) ? '켬' : '끔'}',
                       ].join(' · '),
                       child: Column(
@@ -419,7 +434,7 @@ class _InterviewTabState extends State<InterviewTab> {
                           row(
                             '시간',
                             Segmented<int>(
-                              options: _minuteOptions,
+                              options: minuteOptions,
                               value: _minutes,
                               onChanged: (v) {
                                 setState(() => _minutes = v);
@@ -428,18 +443,23 @@ class _InterviewTabState extends State<InterviewTab> {
                             ),
                           ),
                           row(
-                            '압박',
+                            '면접 분위기',
                             Segmented<String>(
-                              options: _pressureOptions,
+                              options: pressureOptions,
                               value: _pressure,
                               onChanged: (v) {
                                 setState(() => _pressure = v);
                                 _lib.keep(Setting.ivPressure, v);
                               },
+                              notes: pressureNotes,
                             ),
-                            note: _pressureNotes[_pressure],
+                            info: pressureInfo,
                           ),
-                          row('시선 기록', GazeChoice(library: _lib)),
+                          row(
+                            '시선 기록',
+                            GazeChoice(library: _lib),
+                            info: gazeInfo,
+                          ),
                         ],
                       ),
                     ),
@@ -497,8 +517,8 @@ class _Notice extends StatelessWidget {
             children: [
               Text(title, style: AppText.title.copyWith(color: c.text)),
               const SizedBox(height: Space.x1),
-              Text(
-                keepAll(text),
+              KeepText(
+                text,
                 textAlign: TextAlign.center,
                 style: AppText.body.copyWith(color: c.textMuted),
               ),
@@ -523,9 +543,13 @@ class _Problem extends StatelessWidget {
     required this.onRetry,
     this.note,
     this.onSkipGrading,
+    this.library,
   });
 
   final EngineError error;
+
+  /// ChatGPT 플랜의 한도에 닿았을 때 API 키로 바꿔 이어 가려고.
+  final Library? library;
   final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
   final VoidCallback? onSkipGrading;
@@ -550,11 +574,31 @@ class _Problem extends StatelessWidget {
             Icon(Icons.error, size: 16, color: c.danger),
             const SizedBox(width: Space.x2),
             Expanded(
-              child: Text(
-                keepAll(note == null ? text : '$text $note'),
+              child: KeepText(
+                note == null ? text : '$text $note',
                 style: AppText.body.copyWith(color: c.danger),
               ),
             ),
+            // 한도: 사용량 관리가 첫 일, OpenAI API 키가 있으면 키로 바꿔 다시 시도가 다음.
+            if (error.code == 'plan_limit') ...[
+              const SizedBox(width: Space.x2),
+              AppButton(
+                '사용량 관리',
+                semanticLabel: 'ChatGPT 사용량 관리',
+                kind: ButtonKind.primary,
+                onPressed: () => openSource(usageUrl),
+              ),
+              if (library case final lib? when lib.hasKey('openai')) ...[
+                const SizedBox(width: Space.x2),
+                AppButton(
+                  'API 키로 계속',
+                  onPressed: () async {
+                    await lib.useChatGpt(false);
+                    onRetry?.call();
+                  },
+                ),
+              ],
+            ],
             if (onSkipGrading != null) ...[
               const SizedBox(width: Space.x2),
               AppButton(
@@ -691,14 +735,14 @@ class _SessionState extends State<_Session> {
     final sent = answering || done
         ? null
         : history.where((h) => h['question'] == v['question']).lastOrNull;
-    // 위 줄의 맥락: 어느 이력서로, 어느 압박으로 하는 연습인지.
+    // 위 줄의 맥락: 어느 이력서로, 어느 면접 분위기로 하는 연습인지.
     final lib = _run.library;
     final info = lib.sessions.where((s) => s['id'] == v['id']).firstOrNull;
     final pressure = info?['pressure'];
     final about = [
       ?lib.docs.where((d) => d.id == info?['doc']).firstOrNull?.name,
-      for (final o in _pressureOptions)
-        if (o.$1 == pressure) '압박 ${o.$2}',
+      for (final o in pressureOptions)
+        if (o.$1 == pressure) '면접 분위기 ${o.$2}',
     ].join(' · ');
     // 시간은 1분 아래에서 경고, 다 되면 위험으로 알린다(색과 아이콘을 함께).
     final timeColor = left <= 0
@@ -816,6 +860,7 @@ class _SessionState extends State<_Session> {
                         onSkipGrading: !done && v['canSkipGrading'] == true
                             ? _run.skip
                             : null,
+                        library: _run.library,
                       ),
                       const SizedBox(height: Space.x4),
                     ],
@@ -829,8 +874,8 @@ class _SessionState extends State<_Session> {
                       if (v['question'] != null)
                         Semantics(
                           header: true,
-                          child: Text(
-                            keepAll(v['question'] as String),
+                          child: KeepText(
+                            v['question'] as String,
                             style: AppText.question.copyWith(color: c.text),
                           ),
                         ),
@@ -842,8 +887,8 @@ class _SessionState extends State<_Session> {
                             color: c.accentSoft,
                             borderRadius: BorderRadius.circular(Radii.control),
                           ),
-                          child: Text(
-                            keepAll('힌트 · ${v['hint']}'),
+                          child: KeepText(
+                            '힌트 · ${v['hint']}',
                             style: AppText.body.copyWith(color: c.text),
                           ),
                         ),
@@ -868,12 +913,10 @@ class _SessionState extends State<_Session> {
                             color: c.surface2,
                             borderRadius: BorderRadius.circular(Radii.control),
                           ),
-                          child: Text(
-                            keepAll(
-                              sent['skipped'] == true
-                                  ? '모르겠습니다'
-                                  : sent['answer'] as String? ?? '',
-                            ),
+                          child: KeepText(
+                            sent['skipped'] == true
+                                ? '모르겠습니다'
+                                : sent['answer'] as String? ?? '',
                             style: AppText.reading.copyWith(color: c.text),
                           ),
                         ),
@@ -964,17 +1007,15 @@ class _SessionState extends State<_Session> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  keepAll('${i + 1}. ${h['question']}'),
+                                KeepText(
+                                  '${i + 1}. ${h['question']}',
                                   style: AppText.label.copyWith(color: c.text),
                                 ),
                                 const SizedBox(height: Space.x1),
-                                Text(
-                                  keepAll(
-                                    h['skipped'] == true
-                                        ? '모르겠습니다'
-                                        : h['answer'] as String? ?? '',
-                                  ),
+                                KeepText(
+                                  h['skipped'] == true
+                                      ? '모르겠습니다'
+                                      : h['answer'] as String? ?? '',
                                   style: AppText.body.copyWith(
                                     color: c.textMuted,
                                   ),

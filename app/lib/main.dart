@@ -15,6 +15,7 @@ import 'engine/native.dart';
 import 'gaze.dart';
 import 'library.dart';
 import 'screens/app_menu.dart';
+import 'screens/import_dialog.dart';
 import 'screens/canvas.dart';
 import 'screens/doc.dart';
 import 'screens/editor.dart';
@@ -39,7 +40,10 @@ enum AppRoute {
   final IconData icon;
 }
 
-void main() {
+Future<void> main() async {
+  // 키 보관의 서비스 이름과 화면의 앱 이름(Kari, 개발 앱은 Kari Dev)을 라이브러리를 열기 전에 읽는다.
+  WidgetsFlutterBinding.ensureInitialized();
+  await updates.identify();
   // 개발과 QA용 시작 옵션: APP_ROUTE=home|editor|interview|report|settings, APP_THEME=light|dark,
   // APP_STATE=sample(견본 자료로 그린 화면. 면접과 리포트는 가짜 엔진의 흐름), APP_STATE=first(견본의 첫 실행 상태).
   // 자료 폴더는 KARI_HOME으로 바꾼다.
@@ -58,8 +62,14 @@ void main() {
       firstRun: env['APP_STATE'] == 'first',
       library: sample
           ? null
-          : (Library(NativeEngine(), libraryDir(env, Platform.operatingSystem))
-              ..camera = ChannelGazeCamera()),
+          : (Library(
+              NativeEngine(),
+              libraryDir(env, Platform.operatingSystem),
+              // 번들 ID를 못 읽어도 개발 빌드는 배포 앱의 키 보관 항목으로 떨어지지 않는다.
+              service: updates.id.isNotEmpty
+                  ? updates.id
+                  : (kReleaseMode ? null : 'dev.clonamic.kari.dev'),
+            )..camera = ChannelGazeCamera()),
     ),
   );
 }
@@ -94,7 +104,7 @@ class App extends StatelessWidget {
         (defaultTargetPlatform == TargetPlatform.macOS &&
             !Platform.environment.containsKey('FLUTTER_TEST'));
     return MaterialApp(
-      title: 'Kari',
+      title: updates.name,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
@@ -117,9 +127,9 @@ class _Words extends DefaultMaterialLocalizations {
 
   static const delegate = _WordsDelegate();
 
-  // 대화 상자 바깥 영역의 이름. 기본값은 영어 "Dismiss"다.
+  // 대화 상자 바깥 영역의 이름. 기본값은 영어 "Dismiss"다. "닫기"로 두면 대화 상자의 닫기 단추와 이름이 겹친다.
   @override
-  String get modalBarrierDismissLabel => '닫기';
+  String get modalBarrierDismissLabel => '대화 상자 바깥';
 }
 
 class _WordsDelegate extends LocalizationsDelegate<MaterialLocalizations> {
@@ -247,8 +257,10 @@ class _LoadingState extends State<_Loading> {
 }
 
 /// 자료 폴더를 열지 못했을 때 사람이 다음에 할 일.
-String openAdvice(String code) => switch (code) {
-  'too_new' => '이 자료는 더 새 판의 Kari가 만들었습니다. Kari를 새 판으로 바꾼 뒤 다시 열어 주세요.',
+/// [app]은 앱 이름(배포 앱은 Kari, 개발 앱은 Kari Dev).
+String openAdvice(String code, [String app = 'Kari']) => switch (code) {
+  'too_new' => '이 자료는 더 새 버전의 $app가 만들었습니다. $app를 새 버전으로 바꾼 뒤 다시 열어 주세요.',
+  'in_use' => '이미 열려 있는 $app 창을 쓰세요. 그 $app를 끈 뒤 다시 시도하면 여기서 열립니다.',
   'corrupt' ||
   'integrity' => '자료 폴더를 다른 곳에 복사해 두세요. 그 안의 backups 폴더에 지난 사본이 있을 수 있습니다.',
   _ => '다시 시도해도 같으면 자료 폴더를 다른 곳에 복사해 두세요. 그 안의 backups 폴더에 지난 사본이 있을 수 있습니다.',
@@ -374,7 +386,7 @@ class _OpenFailed extends StatelessWidget {
               const SizedBox(height: Space.x2),
               row('자료 폴더', dir),
               const SizedBox(height: Space.x2),
-              row('할 일', openAdvice(error.code)),
+              row('할 일', openAdvice(error.code, updates.name)),
               if (error.code == 'corrupt' && backups.isNotEmpty) ...[
                 const SizedBox(height: Space.x2),
                 row('최근 백업', formatWhen(backups.first, now)),
@@ -495,9 +507,15 @@ class _ShellState extends State<Shell> {
     return mounted;
   }
 
-  Future<void> _go(AppRoute r) async {
+  /// 설정 화면을 열 때 고를 구역. 없으면 마지막으로 본 구역이다.
+  SettingsArea? _settingsArea;
+
+  Future<void> _go(AppRoute r, {SettingsArea? area}) async {
     if (r != _route && !await _leave()) return;
-    setState(() => _route = r);
+    setState(() {
+      _route = r;
+      _settingsArea = area;
+    });
     // 홈의 대시보드(하던 면접의 질문 번호 같은 것)를 다시 읽는다.
     if (r == AppRoute.home) _lib.refreshInterview();
   }
@@ -523,6 +541,39 @@ class _ShellState extends State<Shell> {
     if (!await _leave()) return;
     final id = await widget.library!.create();
     if (id != null && mounted) _show(id);
+  }
+
+  /// 다른 앱의 파일을 골라 미리 본 뒤 새 글 문서로 가져와 연다. 견본 상태에서는 하지 않는다.
+  Future<void> _import() async {
+    final lib = widget.library;
+    if (lib == null || !await _leave()) return;
+    final path = await lib.importPath();
+    if (path == null || !mounted) return;
+    final id = await showDialog<int>(
+      context: context,
+      builder: (_) => ImportDialog(library: lib, path: path),
+    );
+    if (id != null && mounted) _show(id);
+  }
+
+  /// 견본 이력서로 새 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
+  Future<void> _createSample() async {
+    if (widget.library == null) {
+      _go(AppRoute.editor);
+      return;
+    }
+    if (!await _leave()) return;
+    final id = await widget.library!.createSample();
+    if (id != null && mounted) _show(id);
+  }
+
+  /// 문서와 채용공고를 모두 보는 화면(옆 메뉴의 "문서"). 연 문서는 닫는다. 견본 상태는 견본 문서 화면이다.
+  Future<void> _showDocs() async {
+    if (!await _leave()) return;
+    setState(() {
+      _doc = null;
+      _route = AppRoute.editor;
+    });
   }
 
   /// 캔버스 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
@@ -565,7 +616,7 @@ class _ShellState extends State<Shell> {
     doc: _ivDoc,
     posting: _ivPosting,
     again: _ivAgain,
-    onOpenSettings: () => _go(AppRoute.settings),
+    onOpenSettings: _openAi,
     onCreateDoc: _create,
     onAddPosting: _addPosting,
     onShowReport: _showReport,
@@ -579,23 +630,31 @@ class _ShellState extends State<Shell> {
     onStart: _startInterview,
   );
 
-  Widget _home(Library lib) => LibraryHome(
+  Widget _home(Library lib, {bool full = false}) => LibraryHome(
     library: lib,
+    full: full,
     // 견본 상태는 견본 문서 화면으로 간다.
     onOpen: (d, {reveal}) => widget.library == null
         ? _go(AppRoute.editor)
         : _open(d.id, reveal: reveal),
     onCreate: _create,
     onCreateCanvas: _createCanvas,
-    onOpenSettings: () => _go(AppRoute.settings),
+    onImport: _import,
+    onOpenSettings: _openAi,
+    onOpenModels: () => _go(AppRoute.settings, area: SettingsArea.models),
     onAddPosting: _addPosting,
     onStartInterview: _startInterview,
     onResume: _resume,
     onShowReport: _showReport,
+    onCreateSample: _createSample,
+    onPractice: (s) => _startInterview(doc: s['doc'] as int, again: s),
+    onShowAll: _showDocs,
   );
 
   Widget _real(Library lib) => switch (_route) {
     AppRoute.home => _home(lib),
+    // 연 문서가 없으면 문서 목록이다(막다른 안내 화면으로 보내지 않는다).
+    AppRoute.editor when _doc == null => _home(lib, full: true),
     AppRoute.editor =>
       lib.docs.any((d) => d.id == _doc && d.kind == 'canvas')
           ? CanvasScreen(
@@ -618,10 +677,14 @@ class _ShellState extends State<Shell> {
     AppRoute.report => _report(lib),
     AppRoute.settings => SettingsScreen(
       library: lib,
+      area: _settingsArea,
       onInterview: _startInterview,
       onAddPosting: _addPosting,
     ),
   };
+
+  /// 키를 넣으러 가는 길(홈의 AI 연결하기, 면접의 설정 열기): 설정의 AI 연결 구역을 연다.
+  Future<void> _openAi() => _go(AppRoute.settings, area: SettingsArea.ai);
 
   Future<void> _addPosting() => showDialog<bool>(
     context: context,
@@ -649,7 +712,8 @@ class _ShellState extends State<Shell> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            width: collapsed ? 56 : 208,
+            // 좁아도 이름을 남긴다. 들어가지 않으면 줄이고, 툴팁과 읽는 이름은 그대로다.
+            width: collapsed ? 104 : 208,
             color: c.surface,
             padding: const EdgeInsets.symmetric(
               horizontal: Space.x2,
@@ -659,6 +723,19 @@ class _ShellState extends State<Shell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.x3,
+                      Space.x1,
+                      Space.x3,
+                      Space.x3,
+                    ),
+                    child: Text(
+                      updates.name,
+                      // 앱 이름이지 구역 제목이 아니라 구역 제목의 글자 역할을 쓰지 않는다.
+                      style: AppText.label.copyWith(color: c.text),
+                    ),
+                  ),
                   for (final r in AppRoute.values) ...[
                     // 설정은 아래쪽에 따로 둔다.
                     if (r == AppRoute.settings) const Spacer(),
@@ -666,7 +743,10 @@ class _ShellState extends State<Shell> {
                       route: r,
                       selected: r == _route,
                       collapsed: collapsed,
-                      onTap: () => _go(r),
+                      onTap: () =>
+                          r == AppRoute.editor && widget.library != null
+                          ? _showDocs()
+                          : _go(r),
                     ),
                     const SizedBox(height: 2),
                   ],
@@ -700,6 +780,7 @@ class _ShellState extends State<Shell> {
       host: _menu,
       app: (
         newDoc: _create,
+        importDoc: _import,
         home: () => _go(AppRoute.home),
         settings: () => _go(AppRoute.settings),
       ),
@@ -750,20 +831,19 @@ class _NavItem extends StatelessWidget {
               child: SizedBox(
                 height: 36,
                 child: Row(
-                  mainAxisAlignment: collapsed
-                      ? MainAxisAlignment.center
-                      : MainAxisAlignment.start,
                   children: [
-                    if (!collapsed) const SizedBox(width: Space.x3),
+                    SizedBox(width: collapsed ? Space.x2 : Space.x3),
                     Icon(route.icon, size: 18, color: fg),
-                    if (!collapsed) ...[
-                      const SizedBox(width: Space.x2),
-                      Text(
+                    const SizedBox(width: Space.x2),
+                    Flexible(
+                      child: Text(
                         route.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: (selected ? AppText.label : AppText.body)
                             .copyWith(color: selected ? c.accentText : c.text),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),

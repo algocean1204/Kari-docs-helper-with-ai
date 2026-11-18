@@ -157,12 +157,16 @@ class _StyleMenuState extends State<StyleMenu> {
                 ? null
                 : () => widget.send({'k': 'setStyle', 'name': x.id}),
             style: item,
+            // 지금 문단의 스타일은 고른 것으로도 알린다(확인 표시의 "켜짐"과 함께).
             leadingIcon: x.id == current?.id
-                ? Icon(
-                    Icons.check,
-                    size: 16,
-                    color: c.text,
-                    semanticLabel: '켜짐',
+                ? Semantics(
+                    selected: true,
+                    child: Icon(
+                      Icons.check,
+                      size: 16,
+                      color: c.text,
+                      semanticLabel: '켜짐',
+                    ),
                   )
                 : const SizedBox(width: 16),
             trailingIcon: Row(

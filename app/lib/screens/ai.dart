@@ -8,6 +8,7 @@ import '../design/tokens.dart';
 import '../engine/engine.dart';
 import '../library.dart';
 import 'dialogs.dart';
+import 'report.dart' show openSource;
 
 /// 제공사의 화면 이름, 회사, 키 입력 칸의 안내, 설정 줄의 둘째 줄.
 const providerNames = {
@@ -37,6 +38,79 @@ String keyError(EngineError e, String vendor) => switch (e.code) {
   'rate' || 'server' => '$vendor 서버가 지금 붐빕니다. 잠시 뒤 다시 확인해 주세요.',
   _ => '확인하지 못했습니다 (${e.code})',
 };
+
+// ChatGPT로 계속하기(OpenAI의 공식 Sign in with ChatGPT). 글은 OpenAI의 UI/UX 지침을 따른다:
+// 시작 단추 "Continue with ChatGPT" → `ChatGPT로 계속하기`, 처음 한 번의 안내 "You're using your ChatGPT plan",
+// 모델 고르는 곳의 "Using ChatGPT plan" + "Manage usage", 한도에 닿으면 "Manage usage"가 첫 일.
+
+/// ChatGPT 설정 → 사용량. 사용량을 보고 이 앱의 한도를 바꾸는 곳.
+const usageUrl = 'https://chatgpt.com/settings/usage';
+
+/// ChatGPT 연결이 실패한 까닭을 한 줄로. 사용자가 끊었으면(`canceled`) null.
+String? planError(EngineError e) => switch (e.code) {
+  'canceled' => null,
+  'declined' => 'ChatGPT 플랜 사용을 허락하지 않았습니다. 다시 연결해 허락하거나 OpenAI API 키를 넣어 주세요.',
+  'signed_out' => 'ChatGPT 로그인이 끝났습니다. 다시 연결해 주세요.',
+  'signin' => 'ChatGPT 로그인을 마치지 못했습니다. 다시 시도해 주세요.',
+  'network' => 'OpenAI에 연결하지 못했습니다. 네트워크를 확인해 주세요.',
+  'secret' => '이 기기의 보안 저장소(키체인)를 쓰지 못했습니다. ${e.message}',
+  'plan' || 'plan_limit' => e.message,
+  'server' => 'OpenAI 서버가 지금 붐빕니다. 잠시 뒤 다시 시도해 주세요.',
+  _ => 'ChatGPT에 연결하지 못했습니다 (${e.code})',
+};
+
+/// 처음 ChatGPT 플랜을 연결했을 때 한 번 보이는 안내.
+class PlanWelcomeDialog extends StatelessWidget {
+  const PlanWelcomeDialog({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Sheet(
+      title: 'ChatGPT 플랜을 씁니다',
+      subtitle:
+          '이제 면접 연습에서 OpenAI로 보내는 요청은 ChatGPT 플랜의 사용량으로 처리됩니다. API 요금과는 따로입니다. '
+          'Kari는 ChatGPT 계정의 대화나 다른 정보에 닿지 않습니다. 사용량은 ChatGPT 설정에서 보고 관리합니다.',
+      maxWidth: 440,
+      actions: [
+        AppButton('사용량 관리', onPressed: () => openSource(usageUrl)),
+        AppButton(
+          '확인',
+          kind: ButtonKind.primary,
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+      children: const [],
+    );
+  }
+}
+
+/// 모델을 고르는 곳 가까이의 한 줄: ChatGPT 플랜으로 부른다는 것과 사용량 관리 연결.
+class PlanBadge extends StatelessWidget {
+  const PlanBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Row(
+      children: [
+        Icon(Icons.verified_user_outlined, size: 16, color: c.textMuted),
+        const SizedBox(width: Space.x2),
+        Expanded(
+          child: Text(
+            'ChatGPT 플랜 사용',
+            style: AppText.label.copyWith(color: c.text),
+          ),
+        ),
+        AppButton(
+          '사용량 관리',
+          semanticLabel: 'ChatGPT 사용량 관리',
+          kind: ButtonKind.quiet,
+          onPressed: () => openSource(usageUrl),
+        ),
+      ],
+    );
+  }
+}
 
 /// 입력한 키의 꼴. 네트워크 없이 글자만 본다.
 enum KeyShape { tooShort, ok, otherProvider }
@@ -254,10 +328,8 @@ class _KeyDialogState extends State<KeyDialog> {
             ),
           ),
           const SizedBox(height: Space.x2),
-          Text(
-            keepAll(
-              '키는 ${keyConsoles[widget.provider]}에서 가입하고 결제 수단을 등록한 뒤 만듭니다. 비용은 쓴 만큼 제공사($vendor)가 청구합니다.',
-            ),
+          KeepText(
+            '키는 ${keyConsoles[widget.provider]}에서 가입하고 결제 수단을 등록한 뒤 만듭니다. 비용은 쓴 만큼 제공사($vendor)가 청구합니다.',
             style: AppText.caption.copyWith(color: c.textMuted),
           ),
           if (_error != null) ...[

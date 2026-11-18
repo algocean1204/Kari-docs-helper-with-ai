@@ -96,7 +96,7 @@ pub(crate) fn name(cmd: &Command, has_ops: bool) -> (&'static str, Option<Chain>
         C::ReplaceAll { .. } => ("모두 바꾸기", None),
         C::SetPage(_) => ("쪽 설정", None),
         C::SetHeaderFooter(_) => ("머리글·바닥글", None),
-        C::InsertImage { .. } => ("이미지", None),
+        C::InsertImage { .. } => ("그림", None),
         C::InsertTable { .. }
         | C::TableRow { .. }
         | C::TableCol { .. }
@@ -109,12 +109,12 @@ pub(crate) fn name(cmd: &Command, has_ops: bool) -> (&'static str, Option<Chain>
         C::SetCell { .. } => ("셀 모양", None),
         C::Table(p) if p.table_level() => ("표 모양", None),
         C::Table(_) => ("셀 모양", None),
-        C::SetImage { .. } => ("이미지 크기", None),
+        C::SetImage { .. } => ("그림 크기", None),
         C::MoveImage { copy, .. } => (
             if *copy {
-                "이미지 복사"
+                "그림 복사"
             } else {
-                "이미지 옮기기"
+                "그림 옮기기"
             },
             None,
         ),

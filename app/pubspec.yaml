@@ -1,7 +1,7 @@
 name: kari
 description: "Kari(카리): 이력서·포트폴리오 작성과 면접 준비 앱의 Flutter 셸."
 publish_to: 'none'
-version: 0.2.2
+version: 0.2.3
 
 environment:
   sdk: ^3.10.0
@@ -25,11 +25,16 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Figma 플러그인 파일(MIT, assets/figma-plugin/LICENSE). 설정 → Figma에서 자료 폴더에 써서 Figma가 가져가게 한다.
+  assets:
+    - assets/figma-plugin/
   # 글꼴은 assets/fonts를 Rust 엔진과 같이 쓴다.
   fonts:
     - family: Pretendard
       fonts:
         - asset: assets/fonts/Pretendard-Regular.ttf
           weight: 400
+        - asset: assets/fonts/Pretendard-SemiBold.ttf
+          weight: 600
         - asset: assets/fonts/Pretendard-Bold.ttf
           weight: 700

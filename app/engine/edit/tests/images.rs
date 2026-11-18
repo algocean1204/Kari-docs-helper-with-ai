@@ -36,7 +36,7 @@ fn 넣기는_커서_자리에_개체_하나를_넣고_처음_크기는_096dpi로
     let mut t = T::new(&["가[나]다"]);
     let h0 = t.doc.hash();
     let step = t.run(insert('a', (200, 100)));
-    assert_eq!(step.label, "이미지");
+    assert_eq!(step.label, "그림");
     assert_eq!(t.text("p0"), "가\u{FFFC}다");
     assert_eq!(
         obj(&t, "p0"),
@@ -90,7 +90,7 @@ fn 개체는_글자_하나이고_누르면_선택되며_크기를_바꿀_수_있
         w: Some(300.0),
         alt: Some("증명사진".into()),
     });
-    assert_eq!(step.label, "이미지 크기");
+    assert_eq!(step.label, "그림 크기");
     assert_eq!(
         obj(&t, "p0"),
         json!({"type": "image", "asset": hash('a'), "w": 300, "h": 150, "alt": "증명사진"})

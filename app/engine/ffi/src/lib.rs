@@ -7,14 +7,17 @@
 
 mod ai;
 mod canvas;
+mod chatgpt;
 mod cmd;
 mod dashboard;
 mod docx;
 mod edit;
 mod fail;
+mod import;
 mod iv;
 mod library;
 mod pdf;
+mod place;
 mod session;
 mod state;
 mod styles;
@@ -49,6 +52,9 @@ fn handle(request: Option<&str>) -> Res {
     if matches!(m, "ai.tasks" | "ai.setTask" | "ai.resetTasks") {
         return task::dispatch(m, &Args(a));
     }
+    if m == "ai.place" {
+        return place::dispatch(m, &Args(a));
+    }
     if m.starts_with("ai.") {
         return ai::dispatch(m, &Args(a));
     }
@@ -64,7 +70,14 @@ fn handle(request: Option<&str>) -> Res {
     if m == "doc.exportTxt" {
         return docx::export_txt(&Args(a));
     }
+    // 미리 보기는 라이브러리를 건드리지 않아 명령 잠금을 잡지 않는다(큰 파일을 읽는 동안 편집이 이어진다).
+    if m == "import.preview" {
+        return import::preview(&Args(a));
+    }
     let mut state = library::engine();
+    if m == "import.apply" {
+        return import::apply(&mut state, &Args(a));
+    }
     if m.starts_with("edit.") {
         edit::dispatch(&mut state, m, &Args(a))
     } else if m.starts_with("canvas.") {

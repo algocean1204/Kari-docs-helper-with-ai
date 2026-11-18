@@ -5,6 +5,7 @@
 
 pub mod anthropic;
 mod body;
+pub mod chatgpt;
 mod http;
 pub mod openai;
 mod reply;
@@ -16,8 +17,9 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 
 pub use anthropic::Anthropic;
+pub use chatgpt::{Auth, Creds, Hints, Pending};
 pub use openai::OpenAi;
-pub use secrets::{MemorySecrets, OsSecrets, Secrets};
+pub use secrets::{service, set_service, MemorySecrets, OsSecrets, Secrets};
 pub use types::{Message, ModelInfo, Part, Reply, Request, Stop, Tool, ToolCall, Usage};
 
 /// 추론 강도. 화면의 낮음, 보통, 높음, 매우 높음, 최대. 순서가 곧 높낮이다.
@@ -146,6 +148,18 @@ pub enum AiError {
     Canceled,
     Unsupported(String),
     Secret(String),
+    /// ChatGPT 로그인이 끝나지 못했다(state·ID 토큰 확인 실패, 코드 교환 실패 등). 문구에 토큰을 넣지 않는다
+    SignIn(String),
+    /// 사용자가 동의하지 않았거나 ChatGPT 플랜 사용 권한(`chatgpt.tokens.use.direct`)을 받지 못했다
+    Declined,
+    /// ChatGPT 로그인을 다시 해야 한다(갱신 토큰을 쓸 수 없거나 서버가 로그인을 받지 않는다)
+    SignedOut,
+    /// 인증 서버가 저장한 발급 client id를 받지 않는다(`invalid_client`). 그 등록을 잊고 처음부터 새로 등록한다
+    ClientRejected,
+    /// ChatGPT 플랜(또는 이 앱)의 사용 한도에 닿았다. 기다려도 저절로 풀린다고 보지 않는다
+    PlanLimit,
+    /// 그 밖의 ChatGPT 플랜 오류. 서버의 오류 코드(`subscription_sharing_…`, `chatpass_v2_…`). 같은 요청을 다시 보내지 않는다
+    Plan(String),
 }
 
 impl fmt::Display for AiError {
@@ -171,6 +185,12 @@ impl fmt::Display for AiError {
             AiError::Canceled => write!(f, "취소했다"),
             AiError::Unsupported(m) => write!(f, "지원하지 않는다: {m}"),
             AiError::Secret(m) => write!(f, "키 보관 오류: {m}"),
+            AiError::SignIn(m) => write!(f, "ChatGPT 로그인 실패: {m}"),
+            AiError::Declined => write!(f, "ChatGPT 플랜 사용을 허락받지 못했다"),
+            AiError::SignedOut => write!(f, "ChatGPT 로그인을 다시 해야 한다"),
+            AiError::ClientRejected => write!(f, "인증 서버가 ChatGPT 앱 등록을 받지 않는다"),
+            AiError::PlanLimit => write!(f, "ChatGPT 플랜의 사용 한도에 닿았다"),
+            AiError::Plan(code) => write!(f, "ChatGPT 플랜 오류: {code}"),
         }
     }
 }

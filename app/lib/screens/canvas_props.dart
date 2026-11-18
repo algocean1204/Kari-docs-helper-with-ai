@@ -84,8 +84,8 @@ class CanvasProps extends StatelessWidget {
           if (sel.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(Space.x4),
-              child: Text(
-                keepAll('고른 것이 없습니다. 도구를 골라 만들거나 판에서 눌러 고르세요.'),
+              child: KeepText(
+                '고른 것이 없습니다. 도구를 골라 만들거나 판에서 눌러 고르세요.',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             );
@@ -151,7 +151,10 @@ class _Fields extends StatelessWidget {
     final strokeHex = commonOf(strokes.map((s) => hexOf(s?['paintColor'])));
     final align = commonOf(sel.map((n) => n.text?['align'] as String?));
     final weight = commonOf(sel.map((n) => _num(n.text?['weight'])));
-    final strokeAlign = commonOf(strokes.map((s) => s?['align'] as String?));
+    // 선 위치가 문서에 없으면 엔진이 그리는 기본값(layout/src/scene.rs의 INSIDE)이다.
+    final strokeAlign = commonOf(
+      strokes.map((s) => s?['align'] as String? ?? 'INSIDE'),
+    );
     Widget gap() => const SizedBox(height: Space.x2);
     Widget row(List<Widget> kids) => Row(
       children: [
@@ -246,7 +249,7 @@ class _Fields extends StatelessWidget {
           ],
         ]),
         if (sel.length == 1 && sel.first.type == 'page')
-          _Section('대지 크기', [
+          _Section('페이지 크기', [
             MoreMenu(
               key: const Key('board-size'),
               label: switch (boardSizes.where(
@@ -260,7 +263,7 @@ class _Fields extends StatelessWidget {
                   _ => '사용자 지정',
                 },
               },
-              tooltip: '대지 크기',
+              tooltip: '페이지 크기',
               icon: Icons.unfold_more,
               checked: {
                 for (final s in boardSizes)
@@ -283,27 +286,34 @@ class _Fields extends StatelessWidget {
               onChanged: (v) => _set({'orientation': v}),
             ),
           ]),
-        _Section('모양', [
-          row([
-            _field(
-              '불투명도',
-              sel.map((n) => _pct(n.props['opacity']) ?? 100),
-              (v) => {'opacity': v / 100},
-              min: 0,
-              max: 100,
-              semantic: '불투명도(%)',
-            ),
-            if (_any({'rect', 'frame'}))
+        _Section(
+          '모양',
+          info: (
+            '불투명도',
+            '불투명도는 요소 전체(칠, 선, 글, 묶음 안의 것)를 함께 투명하게 합니다. 100%가 불투명입니다.',
+          ),
+          [
+            row([
               _field(
-                '모서리',
-                sel.map((n) => _num(n.props['radius'])),
-                (v) => {'radius': v},
+                '불투명도',
+                sel.map((n) => _pct(n.props['opacity']) ?? 100),
+                (v) => {'opacity': v / 100},
                 min: 0,
-              )
-            else
-              const SizedBox.shrink(),
-          ]),
-        ]),
+                max: 100,
+                semantic: '불투명도(%)',
+              ),
+              if (_any({'rect', 'frame'}))
+                _field(
+                  '모서리',
+                  sel.map((n) => _num(n.props['radius'])),
+                  (v) => {'radius': v},
+                  min: 0,
+                )
+              else
+                const SizedBox.shrink(),
+            ]),
+          ],
+        ),
         if (!sel.every((n) => n.type == 'line'))
           _Section(texts ? '글 색' : '칠', [
             _ColorField(
@@ -372,7 +382,16 @@ class _Fields extends StatelessWidget {
               const SizedBox.shrink(),
           ]),
           gap(),
-          Text('위치', style: AppText.caption.copyWith(color: c.textMuted)),
+          Row(
+            children: [
+              Text('위치', style: AppText.caption.copyWith(color: c.textMuted)),
+              const SizedBox(width: Space.x1),
+              const InfoTip(
+                '선을 모양의 테두리 기준으로 어디에 그릴지 정합니다. 기본값은 안쪽입니다.',
+                name: '선 위치',
+              ),
+            ],
+          ),
           const SizedBox(height: Space.x1),
           Segmented<String?>(
             options: const [
@@ -380,6 +399,12 @@ class _Fields extends StatelessWidget {
               ('CENTER', '가운데'),
               ('OUTSIDE', '바깥'),
             ],
+            // 엔진의 그리기(layout/src/scene.rs)가 선을 테두리에서 안쪽·가운데·바깥으로 옮기는 것과 같다.
+            notes: const {
+              'INSIDE': '선이 테두리 안쪽에 그려져 모양의 크기가 그대로 보입니다.',
+              'CENTER': '선의 가운데가 테두리 위에 놓입니다.',
+              'OUTSIDE': '선이 테두리 바깥에 그려져 모양이 선 굵기만큼 커 보입니다.',
+            },
             value: strokeAlign,
             onChanged: (v) => _set({
               'stroke': {'align': v},
@@ -430,10 +455,13 @@ class _Fields extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section(this.title, this.children);
+  const _Section(this.title, this.children, {this.info});
 
   final String title;
   final List<Widget> children;
+
+  /// 제목 옆 ⓘ: (무엇의 설명인지, 설명).
+  final (String, String)? info;
 
   @override
   Widget build(BuildContext context) {
@@ -443,9 +471,20 @@ class _Section extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Semantics(
-            header: true,
-            child: Text(title, style: AppText.label.copyWith(color: c.text)),
+          Row(
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: AppText.label.copyWith(color: c.text),
+                ),
+              ),
+              if (info case (final name, final text)) ...[
+                const SizedBox(width: Space.x1),
+                InfoTip(text, name: name),
+              ],
+            ],
           ),
           const SizedBox(height: Space.x2),
           ...children,

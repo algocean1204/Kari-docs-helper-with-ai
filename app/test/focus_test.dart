@@ -1,17 +1,22 @@
 // 대시보드와 화면의 초점.
 //
-// - 홈의 다섯 상태: 주인공 카드의 내용과 채운 단추, 단추가 가는 곳.
-// - 준비 줄: 단계별 표시와 누르면 가는 곳(나머지는 ai_test, interview_test에 있다).
+// - 홈의 다섯 상태: 다음 할 일 카드의 내용과 채운 단추(하나), 단추가 가는 곳.
+// - 내 진척: 흉내 엔진의 기록으로 센 숫자와 줄이 가는 곳.
+// - 첫 실행 체크리스트: 단계별 표시, 끝난 단계 접기, 다 끝나면 사라짐(나머지는 ai_test, interview_test에 있다).
 // - 채운 단추 하나 이하: 화면마다, 대화 상자는 상자 안에서 센다.
 // - 1024×640과 1280×800, 두 테마에서 넘침 없음. 홈의 다섯 상태는 Tab으로 모든 단추에 닿는다.
 // - SHOT_DIR을 주면 화면 그림을 남긴다.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip;
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/main.dart';
+import 'package:kari/screens/settings.dart' show SettingsArea;
 
 import 'design_test.dart'
     show filledLabels, focusableCount, loadFonts, saveShot, sizes, tabCycle;
@@ -94,13 +99,13 @@ final List<HomeState> homeStates = [
     true,
     true,
     doneSession,
-    '이력서의 주장을 방어했습니다',
-    '면접 연습 시작',
+    '설명하지 못한 문장이 있습니다',
+    '약한 문장 다시 연습',
     '보내는 내용 보기',
   ),
   ('ready', true, true, null, '이 이력서로 면접을 연습할 수 있습니다', '면접 연습 시작', '보내는 내용 보기'),
-  ('recent', false, true, null, '최근에 고친 문서', '이어서 쓰기', '글 문서'),
-  ('empty', false, false, null, '이력서부터 씁니다', '새 글 문서', '제목 없는 문서'),
+  ('nokey', false, true, null, 'AI를 연결하면 면접을 연습할 수 있습니다', 'AI 연결하기', '키 넣기'),
+  ('empty', false, false, null, '이력서부터 씁니다', '이력서 쓰기', '제목 없는 문서'),
 ];
 
 Future<Rig> pumpHome(
@@ -124,7 +129,7 @@ void main() {
   group('홈의 다섯 상태', () {
     for (final s in homeStates) {
       final (name, _, _, _, text, primary, after) = s;
-      testWidgets('$name: 주인공 카드는 "$text", 채운 단추는 "$primary" 하나이고 그 일로 간다', (
+      testWidgets('$name: 다음 할 일은 "$text", 채운 단추는 "$primary" 하나이고 그 일로 간다', (
         tester,
       ) async {
         await pumpHome(tester, s);
@@ -135,15 +140,24 @@ void main() {
       });
     }
 
-    testWidgets('진행 카드: n / m, 먼저 준비할 주장 둘(방어 못 함 먼저), 줄은 리포트로, 글 단추는 이력서로', (
+    testWidgets('내 진척: n / m, 연습 횟수, 주제별 깊이, 다시 볼 주제, 먼저 준비할 문장 둘, 최근 연습', (
       tester,
     ) async {
       final rig = await pumpHome(tester, homeStates[1]);
+      expect(find.text('내 진척'), findsOneWidget);
+      expect(find.text('연습 1번 · 최근 오늘 14:20'), findsOneWidget);
       expect(find.text('예시페이 백엔드 엔지니어 · 이력서'), findsOneWidget);
-      expect(find.bySemanticsLabel('이력서의 주장 3개 중 1개를 방어했습니다'), findsOneWidget);
-      expect(find.text('먼저 준비할 주장'), findsOneWidget);
-      final failed = find.text('방어 못 함');
-      final partial = find.text('일부 방어');
+      expect(
+        find.bySemanticsLabel('면접에서 물을 문장 3개 중 1개를 설명했습니다'),
+        findsOneWidget,
+      );
+      expect(find.text('먼저 준비할 문장'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate((w) => w is InfoTip && w.name == '문장 상태'),
+        findsOneWidget,
+      );
+      final failed = find.text('설명 못 함');
+      final partial = find.text('일부 설명');
       expect(failed, findsOneWidget);
       expect(partial, findsOneWidget);
       expect(
@@ -155,6 +169,24 @@ void main() {
         find.text(keepAll('쓰기마다 인덱스도 고쳐야 해서 쓰기 비용이 늘어난다는 점을 말한다')),
         findsWidgets,
       );
+      // 주제별 깊이와 목표에 못 닿은 주제(다시 볼 주제). AI를 부르지 않고 기록만 읽는다.
+      expect(find.textContaining('깊이 '), findsWidgets);
+      expect(find.text('다시 볼 주제'), findsOneWidget);
+      // 홈에 다시 올 때 읽는 것은 기록뿐이다(모델을 부르는 호출이 없다).
+      rig.fake.sent.clear();
+      await tap(tester, find.text('면접'));
+      await tap(tester, find.text('홈'));
+      expect(rig.fake.sent.toSet(), {
+        'iv.postings',
+        'iv.sessions',
+        'docs.list',
+        'iv.dashboard',
+      });
+      // 최근 연습 줄은 그 리포트로 간다.
+      expect(find.text('최근 연습'), findsOneWidget);
+      await tap(tester, find.text('오늘 14:20 · 이력서'));
+      expect(find.text('먼저 고칠 것'), findsOneWidget);
+      await tap(tester, find.text('홈'));
       // 줄을 누르면 그 면접의 리포트로 간다.
       await tap(tester, failed);
       expect(find.text('먼저 고칠 것'), findsOneWidget);
@@ -166,7 +198,7 @@ void main() {
       expect(rig.fake.sent.where((m) => m == 'edit.cmd').length, before + 1);
     });
 
-    testWidgets('진행 카드: 주장이 없으면 큰 수 대신 지난 면접의 주제별 결과 한 줄', (tester) async {
+    testWidgets('내 진척: 주장이 없으면 큰 수 대신 지난 면접의 주제별 결과 한 줄', (tester) async {
       await pumpIv(
         tester,
         route: AppRoute.home,
@@ -187,16 +219,65 @@ void main() {
     });
   });
 
-  group('준비 줄', () {
-    testWidgets('단계별 표시, 누르면 그 일로 간다', (tester) async {
+  group('첫 실행 체크리스트', () {
+    const aiWhy = '질문과 채점에 AI를 씁니다. API 키나 ChatGPT 플랜으로 연결합니다.';
+    const postingWhy = '붙여넣으면 공고가 요구하는 수준에 맞춰 질문의 깊이를 정합니다.';
+
+    testWidgets('단계마다 왜 하는지 한 줄, 끝난 단계는 체크 한 줄로 접는다', (tester) async {
       await pumpIv(tester, route: AppRoute.home, connected: false);
+      expect(find.text('처음 시작하기'), findsOneWidget);
       expect(find.text('준비 1/4'), findsOneWidget);
+      // 끝난 이력서 단계는 이름과 체크뿐이다.
       expect(find.bySemanticsLabel('이력서 끝남'), findsOneWidget);
-      await tap(tester, find.widgetWithText(TextButton, '첫 연습'));
-      expect(find.text('AI 연결이 필요합니다'), findsOneWidget);
-      await tap(tester, find.text('홈'));
-      await tap(tester, find.widgetWithText(TextButton, 'AI 연결'));
-      expect(find.text('키 넣기'), findsNWidgets(2));
+      expect(find.textContaining(keepAll('면접 질문은 이력서에')), findsNothing);
+      expect(find.text(keepAll(aiWhy)), findsOneWidget);
+      // AI 연결은 다음 할 일 카드가 맡아 체크리스트에는 단추가 없다. 화면의 채운 단추는 하나다.
+      expect(find.widgetWithText(TextButton, 'AI 연결하기'), findsOneWidget);
+      expect(filledLabels(tester), ['AI 연결하기']);
+      // 채용공고를 붙여넣으면 그 단계가 접힌다.
+      expect(find.text(keepAll(postingWhy)), findsOneWidget);
+      await tap(tester, find.widgetWithText(TextButton, '공고 붙여넣기'));
+      await tester.enterText(find.byType(TextField), '예시페이 백엔드');
+      await tester.pumpAndSettle();
+      await tap(tester, inDialog('추가'));
+      expect(find.text('준비 2/4'), findsOneWidget);
+      expect(find.bySemanticsLabel('채용공고(선택) 끝남'), findsOneWidget);
+      expect(find.text(keepAll(postingWhy)), findsNothing);
+      expect(find.widgetWithText(TextButton, '공고 붙여넣기'), findsNothing);
+    });
+
+    testWidgets('키를 넣으면 AI 연결이 접히고, 첫 연습을 마치면 체크리스트가 사라진다', (tester) async {
+      await pumpIv(tester, route: AppRoute.home);
+      expect(find.text('준비 2/4'), findsOneWidget);
+      expect(find.bySemanticsLabel('AI 연결 끝남'), findsOneWidget);
+      expect(find.text(keepAll(aiWhy)), findsNothing);
+      await pumpHome(tester, homeStates[1]);
+      expect(find.text('처음 시작하기'), findsNothing);
+      expect(find.textContaining('준비 '), findsNothing);
+    });
+
+    testWidgets('이력서가 없으면 견본으로 시작할 수 있다', (tester) async {
+      final out = Directory.systemTemp.createTempSync('kari-sample');
+      addTearDown(() => out.deleteSync(recursive: true));
+      late Rig rig;
+      await pumpIv(
+        tester,
+        route: AppRoute.home,
+        docs: false,
+        setup: (r) async {
+          rig = r;
+          r.fake.importAny = {'lost': []};
+        },
+        outDir: out.path,
+      );
+      expect(find.text('준비 1/4'), findsOneWidget);
+      await tap(tester, find.widgetWithText(TextButton, '견본으로 시작'));
+      expect(rig.library.error, isNull);
+      // 가져오기와 같은 길로 넣고, 잠깐 쓴 파일은 남기지 않는다.
+      expect(rig.fake.importCalls.single['name'], '견본 이력서');
+      expect(out.listSync(), isEmpty);
+      expect(find.text('견본 이력서'), findsOneWidget);
+      expect(find.text('글 문서'), findsOneWidget);
     });
   });
 
@@ -241,8 +322,12 @@ void main() {
       await pumpIv(tester, route: AppRoute.settings, connected: false);
       expect(filledLabels(tester), ['키 넣기']);
       await pumpIv(tester, route: AppRoute.settings);
-      await tap(tester, find.text('면접에 쓰는 모델'));
       expect(filledLabels(tester), isEmpty);
+      // 설정의 다른 구역에도 없다.
+      for (final area in SettingsArea.values.skip(1)) {
+        await tap(tester, find.widgetWithText(InkWell, area.label));
+        expect(filledLabels(tester), isEmpty, reason: area.label);
+      }
     });
 
     testWidgets('대화 상자는 상자 안에서 하나: 보내는 내용, 공고 추가, 키 넣기', (tester) async {
@@ -384,12 +469,46 @@ void main() {
               'settings-${connected ? 'key' : 'nokey'}-$tag',
             );
           }
-          await tap(tester, find.text('면접에 쓰는 모델'));
-          expect(tester.takeException(), isNull, reason: '$tag 모델 펼침');
+          await tap(tester, find.widgetWithText(InkWell, 'AI 모델'));
+          expect(tester.takeException(), isNull, reason: '$tag 모델 구역');
           await saveShot(tester, 'settings-models-$tag');
         }
       }
       debugDisableShadows = true;
+    });
+
+    testWidgets('리포트는 요약 → 다시 연습할 것 → 나머지(접힘) 순서이고, 펼침은 화면을 다시 열면 접혀 있다', (
+      tester,
+    ) async {
+      await pumpIv(tester, route: AppRoute.report, setup: doneSession);
+      expect(find.textContaining('목표 깊이에 닿았습니다'), findsOneWidget);
+      double y(String t) => tester.getTopLeft(find.text(t)).dy;
+      const order = [
+        '이번 연습',
+        '다시 연습할 것',
+        '먼저 고칠 것',
+        '나머지',
+        '바로잡을 것',
+        '잘한 점',
+        '주제별 깊이',
+        '자세히',
+      ];
+      for (var i = 1; i < order.length; i++) {
+        expect(y(order[i - 1]), lessThan(y(order[i])), reason: order[i]);
+      }
+      // 요약 안의 걸린 시간과 비용은 다시 연습할 것보다 위다.
+      expect(
+        tester.getTopLeft(find.textContaining('추정 비용')).dy,
+        lessThan(y('다시 연습할 것')),
+      );
+      // 나머지는 접혀 있고 제목 줄을 누르면 펼친다.
+      expect(find.text('틀린 생각'), findsNothing);
+      await tap(tester, find.text('바로잡을 것'));
+      expect(find.text('틀린 생각'), findsOneWidget);
+      // 다른 화면에 다녀오면 다시 접혀 있다(펼친 상태는 저장하지 않는다).
+      await tap(tester, find.text('홈'));
+      await tap(tester, find.text('리포트'));
+      expect(find.text('틀린 생각'), findsNothing);
     });
 
     testWidgets('리포트를 다 펼쳐도 Tab으로 모든 누를 수 있는 것에 닿는다', (tester) async {
@@ -397,6 +516,10 @@ void main() {
       for (final t in ['바로잡을 것', '잘한 점', '주제별 깊이']) {
         await tap(tester, find.text(t));
       }
+      expect(
+        find.byWidgetPredicate((w) => w is InfoTip && w.name == '깊이 단계'),
+        findsOneWidget,
+      );
       final seen = await tabCycle(tester);
       expect(seen.length, focusableCount(tester));
     });

@@ -201,7 +201,7 @@ class _PaperContent extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(keepAll(x.text), style: t(10))),
+          Expanded(child: KeepText(x.text, style: t(10))),
           const SizedBox(width: 56),
         ],
       ),
@@ -280,7 +280,7 @@ class _SidePanel extends StatelessWidget {
                 ),
                 const SizedBox(width: Space.x1),
                 _Tab(
-                  label: '주장 ${claims.length}',
+                  label: '물을 문장 ${claims.length}',
                   selected: showClaims,
                   onTap: () => onToggle(true),
                 ),
@@ -369,10 +369,8 @@ class _Suggestion extends StatelessWidget {
           after: '',
         ),
         const SizedBox(height: Space.x3),
-        Text(
-          keepAll(
-            '면접 답변(02:14 ~ 03:05)에서 직접 설명한 내용으로 문장을 구체화했습니다. 새 수치는 넣지 않았습니다.',
-          ),
+        KeepText(
+          '면접 답변(02:14 ~ 03:05)에서 직접 설명한 내용으로 문장을 구체화했습니다. 새 수치는 넣지 않았습니다.',
           style: AppText.caption.copyWith(color: c.textMuted),
         ),
         const SizedBox(height: Space.x4),
@@ -407,8 +405,8 @@ class _ClaimList extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      keepAll(x.text),
+                    KeepText(
+                      x.text,
                       style: AppText.caption.copyWith(color: c.text),
                     ),
                     const SizedBox(height: Space.x1),

@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show InfoTip, SwitchRow;
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/editing/keys.dart';
 import 'package:kari/editing/session.dart';
@@ -180,6 +181,7 @@ void main() {
       ]);
       expect(_shown(d, '파일'), [
         '새 문서 ⌘N',
+        '가져오기…',
         '홈으로',
         'PDF로 내보내기…',
         '인쇄… ⌘P',
@@ -212,7 +214,7 @@ void main() {
       ]);
       expect(_shown(d, '넣기'), [
         '표…',
-        '이미지…',
+        '그림…',
         '링크… ⌘K',
         '탭 정지…',
         '쪽 나누기 ⌘↩',
@@ -352,7 +354,8 @@ void main() {
       expect(_enabled(d, ['서식', '굵게']), isTrue);
       // 설정으로 가면 문서 명령이 다시 꺼진다.
       await _pick(tester, d, ['Kari', '설정…']);
-      expect(find.text('입력하면서 자동 서식'), findsOneWidget);
+      // 설정의 구역 목록.
+      expect(find.text('업데이트와 정보'), findsOneWidget);
       expect(_enabled(d, ['서식', '굵게']), isFalse);
     });
 
@@ -718,12 +721,24 @@ void main() {
     testWidgets('설정의 입력하면서 자동 서식은 켜져 있고 끄면 저장된다', (tester) async {
       final (rig, d) = await _open(tester, doc: false);
       await _pick(tester, d, ['Kari', '설정…']);
+      await tester.tap(find.widgetWithText(InkWell, '문서 편집'));
+      await tester.pumpAndSettle();
       final row = find.ancestor(
         of: find.text('입력하면서 자동 서식'),
-        matching: find.byType(Row),
+        matching: find.byType(SwitchRow),
       );
-      final sw = find.descendant(of: row.first, matching: find.byType(Switch));
+      final sw = find.descendant(of: row, matching: find.byType(Switch));
       expect(tester.widget<Switch>(sw).value, isTrue);
+      // 이름 아래 한 줄이 기본값을, 이름 옆의 ⓘ가 무엇을 바꾸는지 자세히 알린다.
+      expect(tester.widget<SwitchRow>(row).caption, contains('기본값 켬'));
+      expect(
+        tester
+            .widget<InfoTip>(
+              find.descendant(of: row, matching: find.byType(InfoTip)),
+            )
+            .message,
+        allOf(contains('목록과 제목으로'), contains('링크로')),
+      );
       await tester.ensureVisible(sw);
       await tester.tap(sw);
       await tester.pumpAndSettle();

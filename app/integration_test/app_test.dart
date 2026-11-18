@@ -4,7 +4,7 @@
 //   cd app && flutter test integration_test -d macos
 //
 // 자료 폴더: KARI_HOME이 있으면 그 폴더, 없으면 새 임시 폴더를 쓰고 끝나면 지운다. 앱은 샌드박스 안에서 돌아
-// 컨테이너(~/Library/Containers/dev.clonamic.kari/Data) 밖에는 쓰지 못한다. 임시 폴더(Directory.systemTemp)는
+// 컨테이너(~/Library/Containers/dev.clonamic.kari.dev/Data) 밖에는 쓰지 못한다. 임시 폴더(Directory.systemTemp)는
 // 컨테이너 안의 tmp이고, KARI_HOME을 줄 때도 컨테이너 안의 경로여야 한다.
 //
 // 글은 입력 채널 경로로 넣는다(TextInput.updateEditingValue: 입력기가 앱에 값을 줄 때와 같은 호출이고, 종이에
@@ -24,10 +24,14 @@ import 'package:kari/engine/native.dart';
 import 'package:kari/library.dart';
 import 'package:kari/main.dart';
 import 'package:kari/screens/paper.dart';
+import 'package:kari/update.dart' show updates;
 
 /// 앱이 앞으로 나오지 않고 창이 다른 창들 뒤에 있다(KARI_TEST_BACKGROUND=1, MainFlutterWindow.swift).
 /// 창이 보여야만 되는 시험(그려진 프레임을 재는 입력 지연, 문서 창에 붙어 뜨는 인쇄·공유 창)은 건너뛴다.
 final background = Platform.environment['KARI_TEST_BACKGROUND'] == '1';
+
+/// 홈에서 새 글 문서를 만드는 단추: 이력서가 없으면 다음 할 일 카드의 "이력서 쓰기", 있으면 문서 목록의 "새 문서".
+final newDocLabel = RegExp(r'^(새 문서|이력서 쓰기)$');
 
 /// 창이 가려지면(다른 창 뒤, 다른 데스크톱 공간, 전체 화면 앱) macOS가 화면 갱신 신호를 멈추고, 그러면
 /// 실제 앱 시험의 pump가 그 신호를 기다리며 끝나지 않는다. [f]가 300ms 안에 끝나지 않으면 그동안 프레임을
@@ -92,11 +96,14 @@ Future<(Library, int)> newDoc(
   final dir = made
       ? Directory.systemTemp.createTempSync('kari-app-').path
       : home;
+  // 앱(main)처럼 번들 ID를 키 보관의 서비스 이름으로 넘긴다. 시험 앱(Kari Dev)은 배포 앱의 키에 닿지 않는다.
+  await updates.identify();
   final library = Library(
     NativeEngine(),
     dir,
     savePath: savePath ?? pickSavePath,
     openPath: openPath ?? pickOpenPath,
+    service: updates.id.isEmpty ? null : updates.id,
   );
   addTearDown(() async {
     await unstuck(tester.pumpWidget(const SizedBox()));
@@ -106,10 +113,10 @@ Future<(Library, int)> newDoc(
   await unstuck(tester.pumpWidget(App(library: library)));
   await until(
     tester,
-    () async => find.text('새 글 문서').evaluate().isNotEmpty,
+    () async => find.textContaining(newDocLabel).evaluate().isNotEmpty,
     '홈',
   );
-  await tester.tap(find.text('새 글 문서').first);
+  await tester.tap(find.textContaining(newDocLabel).first);
   await until(
     tester,
     () async =>
@@ -222,10 +229,10 @@ void main() {
     await unstuck(tester.pumpWidget(App(library: library)));
     await until(
       tester,
-      () async => find.text('새 글 문서').evaluate().isNotEmpty,
+      () async => find.textContaining(newDocLabel).evaluate().isNotEmpty,
       '홈',
     );
-    await tester.tap(find.text('새 글 문서').first);
+    await tester.tap(find.textContaining(newDocLabel).first);
     PaperView paper() => tester.widget<PaperView>(find.byType(PaperView));
     await until(
       tester,

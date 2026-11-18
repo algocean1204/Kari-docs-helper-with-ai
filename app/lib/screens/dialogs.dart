@@ -52,8 +52,8 @@ class Sheet extends StatelessWidget {
                       ),
                     ),
                     if (subtitle != null)
-                      Text(
-                        keepAll(subtitle!),
+                      KeepText(
+                        subtitle!,
                         style: AppText.body.copyWith(color: c.textMuted),
                       ),
                     if (children.isNotEmpty) const SizedBox(height: Space.x4),
@@ -171,8 +171,8 @@ class _AddPostingDialogState extends State<AddPostingDialog> {
         Row(
           children: [
             Expanded(
-              child: Text(
-                keepAll('채용 사이트에서 자동으로 가져오지 않습니다. 붙여넣은 글만 씁니다.'),
+              child: KeepText(
+                '채용 사이트에서 자동으로 가져오지 않습니다. 붙여넣은 글만 씁니다.',
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
             ),
@@ -196,7 +196,7 @@ class _AddPostingDialogState extends State<AddPostingDialog> {
 }
 
 /// 보내는 내용 보기. 제공사로 나갈 글(연락처를 가린 이력서와 공고), 가린 개수,
-/// 모델과 추론 강도를 보여 준다. 모델을 부르지 않는다. [startable]이면 "시작"을 누르면 true를 돌려준다.
+/// 모델과 생각 깊이를 보여 준다. 모델을 부르지 않는다. [startable]이면 "시작"을 누르면 true를 돌려준다.
 class PreviewDialog extends StatefulWidget {
   const PreviewDialog({
     super.key,
@@ -281,19 +281,17 @@ class _PreviewDialogState extends State<PreviewDialog> {
               )
             else ...[
               if (!ready) ...[
-                Text(
-                  keepAll(
-                    '키가 없는 제공사가 있어 시작할 수 없습니다. 설정의 AI 연결에서 키를 넣거나 그 일의 모델을 바꿉니다.',
-                  ),
+                KeepText(
+                  '키가 없는 제공사가 있어 시작할 수 없습니다. 설정의 AI 연결에서 키를 넣거나 그 일의 모델을 바꿉니다.',
                   style: AppText.label.copyWith(color: c.text),
                 ),
                 const SizedBox(height: Space.x1),
               ],
-              // 일마다 나가는 곳: 일 이름, 판, 실제로 보낼 추론 강도. 키가 없는 제공사면 그렇다고 붙인다.
+              // 일마다 나가는 곳: 일 이름, 판, 실제로 보낼 생각 깊이. 키가 없는 제공사면 그렇다고 붙인다.
               for (final m in models)
                 Text(
                   '${m['name']}: ${m['modelName'] ?? m['model']} · '
-                  '추론 강도 ${efforts[m['effort']] ?? '보내지 않음'}'
+                  '생각 깊이 ${efforts[m['effort']] ?? '보내지 않음'}'
                   '${m['hasKey'] == false ? ' · 키 없음' : ''}',
                   style: AppText.label.copyWith(color: c.text),
                 ),

@@ -61,6 +61,18 @@ jobs:
           app/scripts/package_dmg.sh --src "$GITHUB_WORKSPACE" --out "$RUNNER_TEMP/dist"
           cp "$RUNNER_TEMP"/dist/Kari-*-arm64.dmg "$RUNNER_TEMP/Kari-macos-arm64.dmg"
           cd "$RUNNER_TEMP" && shasum -a 256 Kari-macos-arm64.dmg > Kari-macos-arm64.dmg.sha256
+      - name: 배포 앱의 번들 ID와 이름
+        # 개발 앱(Kari Dev, dev.clonamic.kari.dev)이 섞여 나가면 사용자의 자료·키·업데이트가 배포 앱과 갈린다.
+        run: |
+          cd "$RUNNER_TEMP"
+          mkdir check
+          hdiutil attach -quiet -nobrowse -readonly -noautoopen -mountpoint check Kari-macos-arm64.dmg
+          PLIST=check/Kari.app/Contents/Info.plist
+          ID="$(plutil -extract CFBundleIdentifier raw "$PLIST" || true)"
+          NAME="$(plutil -extract CFBundleName raw "$PLIST" || true)"
+          hdiutil detach -quiet check
+          [ "$ID" = dev.clonamic.kari ] || { echo "::error::앱의 번들 ID가 dev.clonamic.kari가 아니라 '$ID'입니다"; exit 1; }
+          [ "$NAME" = Kari ] || { echo "::error::앱의 이름이 Kari가 아니라 '$NAME'입니다"; exit 1; }
       - name: 산출물(손으로 돌렸을 때)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

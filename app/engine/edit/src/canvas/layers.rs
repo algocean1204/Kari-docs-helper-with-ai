@@ -172,7 +172,7 @@ pub(crate) fn group(
         doc.node(r)
             .is_some_and(|n| matches!(n.kind.as_str(), "page" | "section"))
     }) {
-        return Err("대지와 구역은 묶을 수 없습니다.");
+        return Err("페이지와 구역은 묶을 수 없습니다.");
     }
     let sibs = doc.children(parent.as_deref());
     let kids: Vec<&Node> = sibs
@@ -504,7 +504,7 @@ pub(crate) fn add_board(
         .collect();
     let (w, h, name) = match preset {
         Some(p) => {
-            let (w, h) = board_size(doc, p).ok_or("모르는 대지 크기입니다.")?;
+            let (w, h) = board_size(doc, p).ok_or("모르는 페이지 크기입니다.")?;
             (w, h, p.to_string())
         }
         None => {
@@ -551,7 +551,7 @@ pub(crate) fn add_board(
 /// 노드 종류의 화면 이름(이름을 주지 않은 레이어에 보인다).
 fn kind_label(kind: &str) -> &'static str {
     match kind {
-        "page" => "대지",
+        "page" => "페이지",
         "frame" => "프레임",
         "section" => "구역",
         "group" => "그룹",

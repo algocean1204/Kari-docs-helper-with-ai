@@ -124,7 +124,7 @@ void main() {
     expect(props(nodes, id)!['y'], made['y']);
     expect(s.state!.canRedo, isTrue);
 
-    // 모든 대지 PDF 한 번.
+    // 모든 페이지 PDF 한 번.
     final out = '${tmp.path}/캔버스.pdf';
     final r = await engine.docExportPdf(s.id, out);
     expect(r['pages'], 1);
@@ -184,14 +184,14 @@ void main() {
     expect((await rect())['rotation'], closeTo(90, 1e-6));
     expect((await rect())['x'], 100);
 
-    // 각도 칸이 보내는 값과 정렬(하나면 대지에 맞춘다).
+    // 각도 칸이 보내는 값과 정렬(하나면 페이지에 맞춘다).
     await s.set({'rotation': 45});
     await s.cmd('align', {'to': 'left'});
     await s.settled;
     expect((await rect())['x'], closeTo(20.711, 1e-3));
     expect(s.state!.seq, seq + 3);
 
-    // 복사: 문서는 그대로이고, 글 상자가 없어 클립보드에는 빈 글이 간다. 붙이면 같은 대지에 비켜서 새 노드로.
+    // 복사: 문서는 그대로이고, 글 상자가 없어 클립보드에는 빈 글이 간다. 붙이면 같은 페이지에 비켜서 새 노드로.
     await s.copyNodes();
     await s.settled;
     expect(wrote, ['']);
@@ -344,7 +344,7 @@ void main() {
 
   test('엔진이 거절하면 refused와 알림이 온다', () async {
     final s = await open();
-    // 대지 밖(판의 빈 곳)에는 프레임이 아닌 노드를 놓을 수 없다.
+    // 페이지 밖(판의 빈 곳)에는 프레임이 아닌 노드를 놓을 수 없다.
     s.view(1000, 700, {'bg': '#F5F5F5FF'});
     await s.cmd('create', {'tool': 'rect', 'x': -5000, 'y': -5000});
     await s.settled;
@@ -399,7 +399,7 @@ void main() {
     expect(paragraphs(await engine.docNodes(s.id)), contains('가나다'));
   });
 
-  test('묶기 → 풀기 → 순서 → 숨기기·잠그기 → 프레임 안으로 → 대지 더하기 → PDF → 되돌리기로 처음', () async {
+  test('묶기 → 풀기 → 순서 → 숨기기·잠그기 → 프레임 안으로 → 페이지 더하기 → PDF → 되돌리기로 처음', () async {
     final s = await open();
     // 레이어 패널이 열려 있으면 문서가 바뀌고 잠시 멈춘 뒤 줄을 다시 읽는다(입력의 줄과 따로). 그것까지 기다린다.
     s.showLayers(true);
@@ -444,7 +444,7 @@ void main() {
     expect(row(a).parent, g.id);
     expect(row(a).depth, 2);
 
-    // 풀기: 다시 대지 아래, 같은 차례.
+    // 풀기: 다시 페이지 아래, 같은 차례.
     await s.cmd('ungroup');
     await idle();
     expect(s.state!.selection, hasLength(2));
@@ -495,7 +495,7 @@ void main() {
     expect(props(nodes, b)!['x'], 50);
     expect(props(nodes, b)!['y'], 50);
 
-    // 대지 더하기: A4, 둘째 쪽.
+    // 페이지 더하기: A4, 둘째 쪽.
     await s.cmd('addBoard', {'preset': 'A4'});
     await idle();
     final p2 = s.state!.selection.single;
@@ -512,12 +512,12 @@ void main() {
       (s.state!.selection.single.w, s.state!.selection.single.h),
       (842.0, 595.0),
     );
-    // 숨긴 b는 PDF에서 빠지고, 쪽은 대지마다 하나.
+    // 숨긴 b는 PDF에서 빠지고, 쪽은 페이지마다 하나.
     final out = '${tmp.path}/레이어.pdf';
     final r = await engine.docExportPdf(s.id, out);
     expect(r['pages'], 2);
 
-    // 되돌리기를 끝까지 하면 처음(빈 대지 하나)이다.
+    // 되돌리기를 끝까지 하면 처음(빈 페이지 하나)이다.
     while (s.state!.canUndo) {
       await s.undo();
       await idle();

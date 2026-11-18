@@ -117,6 +117,9 @@ fn lib_open(state: &mut Option<Engine>, a: &Args) -> Res {
     if !dir.is_absolute() {
         return Err(bad("dir는 절대 경로입니다."));
     }
+    // 앱이 자기 번들 ID를 키 보관의 서비스 이름으로 준다. 주지 않으면 배포 앱의 이름 그대로다.
+    // 거절된 열기가 서비스 이름을 바꾸지 않게, 라이브러리를 연 뒤에 정한다.
+    let service = a.maybe("service", Value::as_str)?;
     match state {
         Some(e) if e.dir == dir => {}
         Some(_) => return Err(bad("다른 폴더의 라이브러리가 이미 열려 있습니다.")),
@@ -127,6 +130,9 @@ fn lib_open(state: &mut Option<Engine>, a: &Args) -> Res {
                 docs: HashMap::new(),
             })
         }
+    }
+    if let Some(s) = service {
+        kari_ai::set_service(s).map_err(|e| bad(e.to_string()))?;
     }
     let e = on(state)?;
     let count = e.lib.docs(false)?.len() + e.lib.docs(true)?.len();
@@ -270,11 +276,24 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
         "docs.purge" => {
             let e = on(state)?;
             let id = a.id("id")?;
-            e.lib.purge_doc_keeping(id, &crate::edit::clip_assets())?;
+            e.lib.purge_doc_keeping(id, &crate::edit::kept_assets())?;
             e.docs.remove(&id);
             session::remove(id);
             crate::canvas::orphan_clip(id);
             Ok(Value::Null)
+        }
+        // 앱을 켤 때 오래된 휴지통을 한 번에 비운다. 지우는 것은 `docs.purge`와 같다(문서 밖에서 쓰는 그림은 남긴다, `kept_assets`).
+        "docs.purgeTrashed" => {
+            let e = on(state)?;
+            let ids = e
+                .lib
+                .purge_trashed_before(a.seq("before")?, &crate::edit::kept_assets())?;
+            for id in &ids {
+                e.docs.remove(id);
+                session::remove(*id);
+                crate::canvas::orphan_clip(*id);
+            }
+            Ok(json!({"purged": ids.len()}))
         }
         "doc.open" => {
             let e = on(state)?;

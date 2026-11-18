@@ -79,8 +79,8 @@ class OutlinePanel extends StatelessWidget {
                   : items.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.all(Space.x4),
-                      child: Text(
-                        keepAll('제목 스타일을 쓴 문단이 여기에 보입니다'),
+                      child: KeepText(
+                        '제목 스타일을 쓴 문단이 여기에 보입니다',
                         style: AppText.caption.copyWith(color: c.textMuted),
                       ),
                     )

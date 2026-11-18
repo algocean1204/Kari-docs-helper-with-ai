@@ -220,7 +220,7 @@ fn 대지_밖에는_프레임이_아닌_것을_놓을_수_없다() {
             to: None,
             shift: false,
         });
-        assert_eq!(plan.refused, Some("대지 안에 놓아야 합니다."));
+        assert_eq!(plan.refused, Some("페이지 안에 놓아야 합니다."));
         assert_eq!(t.back.hash(), hash);
     }
     assert_eq!(t.commits, 0);
@@ -364,7 +364,7 @@ fn 도구로_대지_밖을_누르면_거절_이유만_남고_도구는_그대로
     let mut t = base();
     t.cmd(CanvasCmd::Tool(Some(Tool::Rect)));
     let out = t.down(-300.0, -200.0);
-    assert_eq!(out.refused, Some("대지 안에 놓아야 합니다."));
+    assert_eq!(out.refused, Some("페이지 안에 놓아야 합니다."));
     t.up(-300.0, -200.0);
     assert_eq!(t.commits, 0);
     assert_eq!(t.ed.tool(), Some(&Tool::Rect));
@@ -399,7 +399,7 @@ fn 마지막_대지는_지울_수_없고_고른_것이_없으면_할_일이_없�
     let mut t = base();
     t.cmd(CanvasCmd::Select(vec!["n1".into(), "p2".into()]));
     let plan = t.cmd(CanvasCmd::Delete);
-    assert_eq!(plan.refused, Some("마지막 대지는 지울 수 없습니다."));
+    assert_eq!(plan.refused, Some("마지막 페이지는 지울 수 없습니다."));
     assert_eq!(t.commits, 0);
     t.cmd(CanvasCmd::Select(vec!["p2".into()]));
     let plan = t.cmd(CanvasCmd::Delete);
@@ -676,7 +676,7 @@ fn 쓸_수_없는_속성은_거절하고_섞어_고르면_쓸_수_있는_노드�
     }
     // 글 모양은 사각형에 쓸 수 없다
     let plan = t.cmd(set(json!({"fontSize": 30})));
-    assert_eq!(plan.refused, Some("고른 노드에 쓸 수 없는 속성입니다."));
+    assert_eq!(plan.refused, Some("고른 요소에 쓸 수 없는 속성입니다."));
     // 사각형과 타원을 함께 고르고 모서리를 주면 사각형에만
     t.cmd(CanvasCmd::Select(vec![]));
     let e = create(&mut t, Tool::Ellipse, (10.0, 200.0), None, false);

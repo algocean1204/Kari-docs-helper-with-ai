@@ -16,6 +16,7 @@ kari-edit = { path = "../edit" }
 kari-render = { path = "../render" }
 kari-pdf = { path = "../pdf" }
 kari-docx = { path = "../docx" }
+kari-import = { path = "../import" }
 kari-ai = { path = "../ai" }
 kari-interview = { path = "../interview" }
 
@@ -26,5 +27,8 @@ test-hooks = []
 [dev-dependencies]
 # 시험에서 다른 연결로 DB 쓰기 잠금을 잡아 커밋이 디스크를 기다리게 만든다. kari-store와 같은 판이다.
 rusqlite = { version = "0.42", features = ["bundled"] }
-# 가짜 HTTP 서버(app/engine/ai/tests/common)를 같이 쓴다.
+# 가짜 HTTP 서버(app/engine/ai/tests/common)를 같이 쓴다. 가짜 인증 서버의 ID 토큰 서명에 뒤의 셋을 쓴다.
 serde_json = "1"
+num-bigint = "0.4"
+sha2 = "0.11"
+base64 = "0.22"

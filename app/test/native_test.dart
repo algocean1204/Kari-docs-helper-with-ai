@@ -162,6 +162,16 @@ void main() {
       expect(netLane(jsonEncode({'m': 'ai.models', 'a': {}})), isFalse);
       expect(netLane(jsonEncode({'m': 'ai.tasks', 'a': {}})), isFalse);
       expect(netLane('{"m":'), isFalse);
+      // ChatGPT 로그인과 연결 끊기는 이 줄, 기다림을 끊는 것은 기본 줄(기다림 뒤에 서지 않게).
+      for (final m in [
+        'ai.chatgptBegin',
+        'ai.chatgptWait',
+        'ai.chatgptSignOut',
+      ]) {
+        expect(netLane(jsonEncode({'m': m, 'a': {}})), isTrue, reason: m);
+      }
+      final cancel = jsonEncode({'m': 'ai.chatgptCancel', 'a': {}});
+      expect(netLane(cancel) || slowLane(cancel), isFalse);
       final e = NativeEngine(call: _stand);
       final done = <String>[];
       Future<void> go(String m, [Json a = const {}]) async =>

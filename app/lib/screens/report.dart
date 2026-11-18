@@ -188,9 +188,11 @@ class _ReportTabState extends State<ReportTab> {
   }
 }
 
-/// 리포트 본문: 먼저 고칠 것 하나가 큰 카드(주인공)이고, 나머지 개선점은 그 아래 작은 줄,
-/// 바로잡을 것·잘한 점·주장 방어·주제별 깊이·화면 밖 구간은 제목과 개수만 보이는 접힌 묶음이다.
-/// 묶음 안의 내용은 그대로다. 그 아래 다음에 다시 낼 주제, 이번 연습.
+/// 리포트 본문은 요약 → 다시 연습할 것 → 나머지(접힘) 순서다.
+/// 요약(이번 연습): 목표 깊이에 닿은 주제 수, 걸린 시간, 질문 수, 비용.
+/// 다시 연습할 것: 먼저 고칠 것 하나가 큰 카드(주인공)이고, 나머지 개선점은 그 아래 작은 줄, 다음에 다시 낼 주제.
+/// 나머지: 바로잡을 것·잘한 점·주장 방어·주제별 깊이·화면 밖 구간·자세히는 제목과 개수만 보이는 접힌 묶음이다.
+/// 펼친 상태는 이 화면 안에만 둔다.
 class _Report extends StatelessWidget {
   const _Report({
     required this.report,
@@ -232,10 +234,16 @@ class _Report extends StatelessWidget {
     final table = _list('table');
     final again = _list('again');
     final s = report['session'] as Json? ?? const {};
-    Widget heading(String t) => Padding(
-      padding: const EdgeInsets.only(top: Space.x8, bottom: Space.x3),
-      child: Text(t, style: AppText.title.copyWith(color: c.text)),
+    Widget heading(String t, {double top = Space.x8}) => Padding(
+      padding: EdgeInsets.only(top: top, bottom: Space.x3),
+      child: Semantics(
+        header: true,
+        child: Text(t, style: AppText.title.copyWith(color: c.text)),
+      ),
     );
+    final reached = table
+        .where((r) => (r['reach'] as int? ?? 0) >= (r['target'] as int? ?? 0))
+        .length;
     String minutes(Object? ms) => '${((ms as int? ?? 0) / 60000).round()}분';
     // 캐시에서 읽은 입력도 모델이 읽은 글이라 함께 센다.
     int tokens(Json s) => [
@@ -273,9 +281,48 @@ class _Report extends StatelessWidget {
       ),
     );
     final first = fixes.firstOrNull;
+    final summaryPart = <Widget>[
+      heading('이번 연습', top: 0),
+      if (table.isNotEmpty)
+        Text(
+          '주제 ${table.length}개 중 $reached개가 목표 깊이에 닿았습니다',
+          style: AppText.body.copyWith(
+            color: c.text,
+            fontFeatures: AppText.tabular,
+          ),
+        ),
+      Text(
+        [
+          '걸린 시간 ${minutes(s['elapsedMs'])}',
+          '질문 ${s['questions'] ?? 0}개',
+          // 채점이 되풀이해 실패해 채점 없이 넘긴 답. 주제별 깊이에 들지 않는다.
+          if (s['ungraded'] case final int n when n > 0) '채점하지 못한 답 $n개',
+          // 가격표에 없는 판을 쓴 호출이 있으면 비용을 지어내지 않는다.
+          if (s['cost'] case final num cost)
+            '추정 비용 약 ${cost < 0.01 ? cost.toStringAsFixed(4) : cost.toStringAsFixed(2)}달러'
+          else
+            '추정 비용 알 수 없음',
+        ].join(' · '),
+        style: AppText.body.copyWith(
+          color: c.textMuted,
+          fontFeatures: AppText.tabular,
+        ),
+      ),
+      // 실제로 쓴 판: 시작할 때 정해 끝까지 쓴 것.
+      if ((s['models'] as Json?)?.values
+              .map((m) => (m as Json)['model'])
+              .toSet()
+          case final models? when models.isNotEmpty)
+        Text(
+          '쓴 모델 ${models.join(', ')}',
+          style: AppText.caption.copyWith(color: c.textMuted),
+        ),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        ...summaryPart,
+        heading('다시 연습할 것'),
         if (first == null) ...[
           Text(
             '고칠 것으로 고른 것이 없습니다.',
@@ -298,8 +345,8 @@ class _Report extends StatelessWidget {
                 const SizedBox(height: Space.x1),
                 Semantics(
                   header: true,
-                  child: Text(
-                    keepAll('${first['name']} · ${first['faceName']}'),
+                  child: KeepText(
+                    '${first['name']} · ${first['faceName']}',
                     style: AppText.display.copyWith(color: c.text),
                   ),
                 ),
@@ -319,7 +366,15 @@ class _Report extends StatelessWidget {
               child: _Fix(fix: f),
             ),
           ),
-        const SizedBox(height: Space.x4),
+        if (again.isNotEmpty) ...[
+          heading('다음에 다시 낼 주제', top: Space.x6),
+          Wrap(
+            spacing: Space.x2,
+            runSpacing: Space.x2,
+            children: [for (final a in again) StatusPill(a['name'] as String)],
+          ),
+        ],
+        heading('나머지'),
         if (corrections.isNotEmpty)
           fold('바로잡을 것', corrections.length, [
             for (final x in corrections)
@@ -360,11 +415,9 @@ class _Report extends StatelessWidget {
                     ),
                     const SizedBox(width: Space.x2),
                     Expanded(
-                      child: Text(
-                        keepAll(
-                          '${x['name']} · ${x['faceName']}'
-                          '${x['quote'] == null ? '' : ' — “${x['quote']}”'}',
-                        ),
+                      child: KeepText(
+                        '${x['name']} · ${x['faceName']}'
+                        '${x['quote'] == null ? '' : ' — “${x['quote']}”'}',
                         style: AppText.body.copyWith(color: c.text),
                       ),
                     ),
@@ -374,7 +427,7 @@ class _Report extends StatelessWidget {
           ]),
         // 주장 방어: 근거 요구·본인 기여·반박 질문마다 축(입장, 수치, 측정 방법, 한계, 본인 몫)의 판정과 인용.
         if (defense.isNotEmpty)
-          fold('주장 방어', defense.length, [
+          fold('문장 설명', defense.length, [
             for (final x in defense)
               Padding(
                 padding: const EdgeInsets.only(bottom: Space.x3),
@@ -408,9 +461,15 @@ class _Report extends StatelessWidget {
           fold('주제별 깊이', table.length, [
             Padding(
               padding: const EdgeInsets.only(bottom: Space.x2),
-              child: Text(
-                '단계가 높을수록 깊이 물었습니다.',
-                style: AppText.caption.copyWith(color: c.textMuted),
+              child: Row(
+                children: [
+                  Text(
+                    '단계가 높을수록 깊이 물었습니다.',
+                    style: AppText.caption.copyWith(color: c.textMuted),
+                  ),
+                  const SizedBox(width: Space.x1),
+                  const InfoTip(depthInfo, name: '깊이 단계'),
+                ],
               ),
             ),
             for (final row in table) _DepthRow(row: row),
@@ -420,7 +479,7 @@ class _Report extends StatelessWidget {
               runSpacing: Space.x1,
               children: [
                 _legend(context, Icons.check, c.success, '설명함'),
-                _legend(context, Icons.close, c.danger, '설명하지 못함'),
+                _legend(context, Icons.close, c.danger, '설명 못 함'),
                 _legend(context, Icons.remove, c.textMuted, '묻지 않음'),
               ],
             ),
@@ -437,41 +496,6 @@ class _Report extends StatelessWidget {
                 ),
               ),
           ]),
-        if (again.isNotEmpty) ...[
-          heading('다음에 다시 낼 주제'),
-          Wrap(
-            spacing: Space.x2,
-            runSpacing: Space.x2,
-            children: [for (final a in again) StatusPill(a['name'] as String)],
-          ),
-        ],
-        heading('이번 연습'),
-        Text(
-          [
-            '걸린 시간 ${minutes(s['elapsedMs'])}',
-            '질문 ${s['questions'] ?? 0}개',
-            // 채점이 되풀이해 실패해 채점 없이 넘긴 답. 주제별 깊이에 들지 않는다.
-            if (s['ungraded'] case final int n when n > 0) '채점하지 못한 답 $n개',
-            // 가격표에 없는 판을 쓴 호출이 있으면 비용을 지어내지 않는다.
-            if (s['cost'] case final num cost)
-              '추정 비용 약 ${cost < 0.01 ? cost.toStringAsFixed(4) : cost.toStringAsFixed(2)}달러'
-            else
-              '추정 비용 알 수 없음',
-          ].join(' · '),
-          style: AppText.body.copyWith(
-            color: c.textMuted,
-            fontFeatures: AppText.tabular,
-          ),
-        ),
-        // 실제로 쓴 판: 시작할 때 정해 끝까지 쓴 것.
-        if ((s['models'] as Json?)?.values
-                .map((m) => (m as Json)['model'])
-                .toSet()
-            case final models? when models.isNotEmpty)
-          Text(
-            '쓴 모델 ${models.join(', ')}',
-            style: AppText.caption.copyWith(color: c.textMuted),
-          ),
         // 다음 할 일을 알려 주지 않는 수치는 접어 둔다.
         Fold(
           title: '자세히',
@@ -532,10 +556,7 @@ class _Part extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              keepAll(text),
-              style: AppText.body.copyWith(color: c.text),
-            ),
+            child: KeepText(text, style: AppText.body.copyWith(color: c.text)),
           ),
         ],
       ),

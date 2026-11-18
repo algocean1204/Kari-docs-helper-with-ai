@@ -218,7 +218,7 @@ impl Session {
             .ok_or_else(|| Error::Invalid("연차가 없습니다.".into()))?;
         let pressure = s
             .pressure
-            .ok_or_else(|| Error::Invalid("압박 단계가 없습니다.".into()))?;
+            .ok_or_else(|| Error::Invalid("면접 분위기 단계가 없습니다.".into()))?;
         let total: usize = s.paras.iter().map(|p| chars(&p.text)).sum();
         if total > RESUME_MAX {
             return Err(Error::Invalid(format!(

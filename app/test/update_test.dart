@@ -1,14 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
+import 'package:kari/main.dart' show AppRoute;
 import 'package:kari/screens/settings.dart';
 import 'package:kari/update.dart';
 
-import 'design_test.dart' show loadFonts;
+import 'design_test.dart' show loadFonts, pumpApp;
 
 const _channel = MethodChannel('kari/update');
 
@@ -16,6 +18,7 @@ const _channel = MethodChannel('kari/update');
 List<MethodCall> _native(
   WidgetTester tester, {
   Map<String, Object?> start = const {'available': true, 'auto': true},
+  Map<String, Object?> info = const {'id': 'dev.clonamic.kari', 'name': 'Kari'},
 }) {
   final calls = <MethodCall>[];
   var auto = start['auto'];
@@ -25,6 +28,7 @@ List<MethodCall> _native(
     calls.add(c);
     return switch (c.method) {
       'start' => {...start, 'auto': auto},
+      'info' => info,
       'setAuto' => auto = c.arguments,
       'check' => start['available'],
       _ => null,
@@ -86,7 +90,7 @@ void main() {
   setUpAll(loadFonts);
 
   group('업데이트', () {
-    testWidgets('새 판이 오면 판, 빌드, 바뀐 점과 두 단추를 보이고 "지금 업데이트"를 macOS 쪽에 넘긴다', (
+    testWidgets('새 버전이 오면 버전, 빌드, 바뀐 점과 두 단추를 보이고 "지금 업데이트"를 macOS 쪽에 넘긴다', (
       tester,
     ) async {
       final calls = _native(tester);
@@ -99,7 +103,7 @@ void main() {
         'build': '42',
         'notes': '표 붙여넣기를 고침',
       });
-      expect(find.text('새 판이 있습니다'), findsOneWidget);
+      expect(find.text('새 버전이 있습니다'), findsOneWidget);
       expect(
         find.textContaining(keepAll('Kari 0.1.0 (빌드 42)')),
         findsOneWidget,
@@ -109,10 +113,10 @@ void main() {
 
       await tester.tap(find.text('지금 업데이트'));
       await tester.pumpAndSettle();
-      expect(find.text('새 판이 있습니다'), findsNothing);
+      expect(find.text('새 버전이 있습니다'), findsNothing);
       expect(calls.last.method, 'answer');
       expect(calls.last.arguments, isTrue);
-      expect(find.textContaining('새 판을 받는 중입니다'), findsOneWidget);
+      expect(find.textContaining('새 버전을 받는 중입니다'), findsOneWidget);
     });
 
     testWidgets('"나중에"와 바깥 누르기는 설치하지 않는다', (tester) async {
@@ -130,7 +134,7 @@ void main() {
       await _fromNative(tester, 'found', offer);
       await tester.tapAt(const Offset(4, 4));
       await tester.pumpAndSettle();
-      expect(find.text('새 판이 있습니다'), findsNothing);
+      expect(find.text('새 버전이 있습니다'), findsNothing);
       expect(calls.last.method, 'answer');
       expect(calls.last.arguments, isFalse);
       expect(calls.where((c) => c.arguments == true), isEmpty);
@@ -151,7 +155,7 @@ void main() {
       expect(find.byIcon(Icons.error), findsOneWidget);
 
       await _fromNative(tester, 'status', {'kind': 'latest'});
-      expect(find.text('지금 쓰는 판이 최신입니다'), findsOneWidget);
+      expect(find.text('지금 쓰는 버전이 최신입니다'), findsOneWidget);
     });
 
     testWidgets('설치하려고 끄는 요청을 앱이 취소하면 "Kari를 끄면 업데이트가 설치됩니다"와 "다시 시도"를 보인다', (
@@ -171,18 +175,193 @@ void main() {
 
       // 이미 꺼진 경우(installing)에는 다시 시도를 두지 않는다.
       await _fromNative(tester, 'status', {'kind': 'installing'});
-      expect(find.text('새 판을 설치하려고 Kari를 닫습니다'), findsOneWidget);
+      expect(find.text('새 버전을 설치하려고 Kari를 닫습니다'), findsOneWidget);
       expect(find.text('다시 시도'), findsNothing);
     });
 
-    testWidgets('공개 키가 없는 판은 확인을 macOS 쪽에 보내지 않고 받을 곳을 알린다', (tester) async {
+    testWidgets('공개 키가 없는 버전은 확인을 macOS 쪽에 보내지 않고 받을 곳을 알린다', (tester) async {
       final calls = _native(tester, start: {'available': false, 'auto': false});
       final u = await _host(tester);
       expect(u.available, isFalse);
       await u.check();
       await tester.pumpAndSettle();
       expect(calls.map((c) => c.method), ['start']);
-      expect(find.textContaining('이 판은 앱 안에서 업데이트할 수 없습니다'), findsOneWidget);
+      expect(find.textContaining('이 버전은 앱 안에서 업데이트할 수 없습니다'), findsOneWidget);
+    });
+
+    testWidgets('빌드 번호가 숫자가 아닌 개발 빌드는 앱 안 업데이트를 끄고 설정에서 그 까닭을 알린다', (
+      tester,
+    ) async {
+      final calls = _native(
+        tester,
+        start: {
+          'available': true,
+          'auto': true,
+          'version': '0.2.2',
+          'build': '0.2.2',
+        },
+      );
+      final u = await _host(tester);
+      expect(u.devBuild, isTrue);
+      expect(u.available, isFalse);
+      expect(u.auto, isFalse);
+      await u.check();
+      await tester.pumpAndSettle();
+      expect(calls.map((c) => c.method), ['start']);
+      expect(find.textContaining('숫자가 아닌 개발용 빌드'), findsOneWidget);
+
+      // 설정의 업데이트 줄
+      updates
+        ..available = false
+        ..version = '0.2.2'
+        ..build = '0.2.2';
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: const Scaffold(body: SettingsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
+      await tester.pumpAndSettle();
+      expect(find.text(keepAll(updates.unavailableNote)), findsOneWidget);
+      expect(updates.unavailableNote, contains('빌드 번호(0.2.2)'));
+      expect(find.text('지금 확인'), findsNothing);
+      // 숫자 빌드는 그대로 받는다.
+      updates.build = '7';
+      expect(updates.devBuild, isFalse);
+    });
+
+    testWidgets(
+      '개발 앱(Kari Dev)은 빌드 번호가 숫자여도 앱 안 업데이트를 끄고, 설정과 옆 메뉴에 Kari Dev를 보인다',
+      (tester) async {
+        final calls = _native(
+          tester,
+          start: {
+            'available': true,
+            'auto': true,
+            'version': '0.2.2',
+            'build': '42',
+          },
+          info: {'id': 'dev.clonamic.kari.dev', 'name': 'Kari Dev'},
+        );
+        final u = Updates();
+        await u.identify();
+        expect(
+          (u.id, u.name, u.devApp),
+          ('dev.clonamic.kari.dev', 'Kari Dev', true),
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: UpdateHost(
+              updates: u,
+              child: const Scaffold(body: SizedBox()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(u.devBuild, isFalse);
+        expect(u.available, isFalse);
+        expect(u.auto, isFalse);
+        await u.check();
+        await tester.pumpAndSettle();
+        expect(calls.map((c) => c.method), ['info', 'start']);
+        expect(
+          find.textContaining('개발용 앱(Kari Dev)은 앱 안에서 업데이트하지 않습니다'),
+          findsOneWidget,
+        );
+
+        // 배포 앱은 그대로 Kari다.
+        final release = Updates();
+        _native(tester);
+        await release.identify();
+        expect((release.name, release.devApp), ('Kari', false));
+
+        // 설정의 업데이트 줄과 옆 메뉴 맨 위의 앱 이름
+        updates
+          ..id = u.id
+          ..name = u.name
+          ..available = false
+          ..version = '0.2.2'
+          ..build = '42';
+        addTearDown(
+          () => updates
+            ..id = ''
+            ..name = 'Kari'
+            ..version = ''
+            ..build = '',
+        );
+        tester.view.physicalSize = const Size(1200, 2400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildTheme(Brightness.light),
+            home: const Scaffold(body: SettingsScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
+        await tester.pumpAndSettle();
+        expect(find.text('Kari Dev 0.2.2 (빌드 42)'), findsOneWidget);
+        expect(find.text(keepAll(updates.unavailableNote)), findsOneWidget);
+        expect(find.text('지금 확인'), findsNothing);
+
+        await pumpApp(tester, AppRoute.home, const Size(1280, 800));
+        expect(find.text('Kari Dev'), findsOneWidget);
+        expect(find.text('Kari'), findsNothing);
+      },
+    );
+
+    testWidgets('바뀐 점의 마크다운은 제목, 목록, 굵게, 링크로 그리고 링크는 기본 브라우저로 연다', (
+      tester,
+    ) async {
+      _native(tester);
+      final opened = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('kari/files'),
+        (c) async {
+          opened.add(c.arguments);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('kari/files'),
+          null,
+        ),
+      );
+      await _host(tester);
+      await _fromNative(tester, 'found', {
+        'version': '0.2.3',
+        'build': '43',
+        'notes':
+            '## 고친 점\n\n- **표** 붙여넣기를 고침\n  - 안쪽 항목\n1. 첫째\n자세한 것은 [릴리스](https://example.com/r)에서. `코드`는 그대로',
+      });
+      expect(find.text('고친 점'), findsOneWidget);
+      expect(find.textContaining('##'), findsNothing);
+      expect(find.textContaining('**'), findsNothing);
+      expect(find.text('•'), findsNWidgets(2));
+      expect(find.text('1.'), findsOneWidget);
+      expect(find.text('표 붙여넣기를 고침'), findsOneWidget);
+      expect(find.text('자세한 것은 릴리스에서. `코드`는 그대로'), findsOneWidget);
+      // 굵게는 굵은 글, 링크는 누르면 연다.
+      final item = tester.widget<Text>(find.text('표 붙여넣기를 고침'));
+      final bold = (item.textSpan! as TextSpan).children!.first as TextSpan;
+      expect(bold.text, '표');
+      expect(bold.style!.fontWeight, FontWeight.w700);
+      final line = tester.widget<Text>(find.text('자세한 것은 릴리스에서. `코드`는 그대로'));
+      final link = (line.textSpan! as TextSpan).children![1] as TextSpan;
+      expect(link.text, '릴리스');
+      (link.recognizer! as TapGestureRecognizer).onTap!();
+      await tester.pump();
+      expect(opened, [
+        {'url': 'https://example.com/r'},
+      ]);
     });
 
     testWidgets('"업데이트 확인"은 확인을 macOS 쪽에 부탁한다', (tester) async {
@@ -191,7 +370,7 @@ void main() {
       await u.check();
       await tester.pumpAndSettle();
       expect(calls.last.method, 'check');
-      expect(find.text('새 판이 있는지 확인하는 중입니다'), findsOneWidget);
+      expect(find.text('새 버전이 있는지 확인하는 중입니다'), findsOneWidget);
     });
 
     testWidgets('설정의 "자동으로 업데이트 확인"은 기본 켬이고 끄면 macOS 쪽에 저장한다', (tester) async {
@@ -206,6 +385,8 @@ void main() {
           home: const Scaffold(body: SettingsScreen()),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
       await tester.pumpAndSettle();
       final row = find.ancestor(
         of: find.text('자동으로 업데이트 확인'),
@@ -223,7 +404,7 @@ void main() {
       expect(tester.widget<Switch>(toggle).value, isFalse);
     });
 
-    testWidgets('설정의 업데이트 묶음은 지금 판을 보이고 "지금 확인"은 메뉴와 같은 확인을 한다', (
+    testWidgets('설정의 업데이트 묶음은 지금 버전을 보이고 "지금 확인"은 메뉴와 같은 확인을 한다', (
       tester,
     ) async {
       final calls = _native(tester);
@@ -242,6 +423,8 @@ void main() {
           home: const Scaffold(body: SettingsScreen()),
         ),
       );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(InkWell, '업데이트와 정보'));
       await tester.pumpAndSettle();
       expect(find.text('Kari 0.2.1 (빌드 7)'), findsOneWidget);
       await tester.ensureVisible(find.text('지금 확인'));
@@ -270,12 +453,46 @@ void main() {
       final id = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = (\S+)').firstMatch(
         File('macos/Runner/Configs/AppInfo.xcconfig').readAsStringSync(),
       )![1]!;
-      for (final f in ['Release', 'DebugProfile']) {
-        final ent = File('macos/Runner/$f.entitlements').readAsStringSync();
-        expect(ent, contains('<string>$id-spks</string>'), reason: f);
-        expect(ent, contains('<string>$id-spki</string>'), reason: f);
+      expect(id, 'dev.clonamic.kari');
+      final release = File(
+        'macos/Runner/Release.entitlements',
+      ).readAsStringSync();
+      expect(release, contains('<string>$id-spks</string>'));
+      expect(release, contains('<string>$id-spki</string>'));
+      // Debug·Profile 빌드(Kari Dev)는 업데이트하지 않으므로 설치 도구와 이어지는 예외가 없다.
+      final dev = File(
+        'macos/Runner/DebugProfile.entitlements',
+      ).readAsStringSync();
+      expect(dev, isNot(contains('-spks')));
+      expect(dev, isNot(contains('-spki')));
+      for (final ent in [release, dev]) {
         expect(_plist(ent, 'com.apple.security.app-sandbox'), isTrue);
       }
     });
+
+    test(
+      'Debug·Profile은 Kari Dev(dev.clonamic.kari.dev), Release는 Kari(dev.clonamic.kari)다',
+      () {
+        final xc = File(
+          'macos/Runner/Configs/AppInfo.xcconfig',
+        ).readAsStringSync();
+        String? value(String key, [String? config]) => RegExp(
+          '^${RegExp.escape(key)}${config == null ? '' : RegExp.escape('[config=$config]')} = (.+)\$',
+          multiLine: true,
+        ).firstMatch(xc)?[1];
+        expect(value('PRODUCT_NAME'), 'Kari');
+        expect(value('PRODUCT_BUNDLE_IDENTIFIER'), 'dev.clonamic.kari');
+        for (final config in ['Debug', 'Profile']) {
+          expect(value('PRODUCT_NAME', config), 'Kari Dev', reason: config);
+          expect(
+            value('PRODUCT_BUNDLE_IDENTIFIER', config),
+            'dev.clonamic.kari.dev',
+            reason: config,
+          );
+        }
+        // 배포 앱의 이름과 번들 ID(그래서 키체인의 서비스 이름과 자료 컨테이너)는 바꾸지 않는다.
+        expect(xc, isNot(contains('[config=Release]')));
+      },
+    );
   });
 }

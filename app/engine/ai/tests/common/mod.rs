@@ -50,11 +50,22 @@ impl Server {
 
 /// 연결 하나에 응답 하나씩 `responses`를 차례로 돌려준다.
 pub fn serve(responses: Vec<Vec<Step>>) -> Server {
+    let (srv, tx) = serve_later();
+    tx.send(responses).unwrap();
+    srv
+}
+
+/// 주소를 먼저 받고 응답은 나중에 정한다(응답에 주소나 요청에서 얻은 값을 넣을 때). 응답을 보내기 전에 온 연결은 기다린다.
+pub fn serve_later() -> (Server, std::sync::mpsc::Sender<Vec<Vec<Step>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
     let sink = log.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<Vec<Step>>>();
     std::thread::spawn(move || {
+        let Ok(responses) = rx.recv() else {
+            return;
+        };
         for steps in responses {
             let Ok((mut stream, _)) = listener.accept() else {
                 return;
@@ -75,7 +86,7 @@ pub fn serve(responses: Vec<Vec<Step>>) -> Server {
             }
         }
     });
-    Server { url, log }
+    (Server { url, log }, tx)
 }
 
 fn read_request(stream: &mut std::net::TcpStream) -> Option<Recorded> {
@@ -154,7 +165,7 @@ pub fn sse(events: &[&str]) -> Vec<Step> {
     vec![sse_head(), Step::Write(body)]
 }
 
-pub const MSG_START: &str = r#"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-haiku-5-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":7,"cache_creation_input_tokens":3}}}"#;
+pub const MSG_START: &str = r#"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-haiku-5-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":7,"cache_creation_input_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":1}}}}"#;
 pub const MSG_STOP: &str = r#"{"type":"message_stop"}"#;
 
 pub fn msg_delta(reason: &str) -> String {
@@ -189,6 +200,7 @@ pub fn ask(text: &str) -> Request {
         effort: Effort::High,
         max_tokens: None,
         format: None,
+        long_cache: false,
     }
 }
 
@@ -198,3 +210,5 @@ pub fn message(content: &str, stop: &str) -> String {
         r#"{{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","content":{content},"stop_reason":"{stop}","stop_details":null,"usage":{{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":5,"cache_creation_input_tokens":2}}}}"#
     )
 }
+
+pub mod oauth;

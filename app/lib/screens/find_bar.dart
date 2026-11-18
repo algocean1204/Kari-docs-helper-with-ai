@@ -219,6 +219,7 @@ class FindBarState extends State<FindBar> {
         label: label,
         button: true,
         onTap: onPressed,
+        enabled: onPressed != null,
         toggled: on,
         child: ExcludeSemantics(
           child: Material(

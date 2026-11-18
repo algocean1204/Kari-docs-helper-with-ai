@@ -19,6 +19,7 @@
 | `test/`, `integration_test/` | 앱 시험 |
 | `engine/` | Rust 엔진 작업 공간. 크레이트 10개. Rust 판은 `engine/rust-toolchain.toml` |
 | `assets/fonts/` | 앱과 엔진이 함께 쓰는 글꼴 Pretendard(SIL OFL 1.1) |
+| `assets/figma-plugin/` | Figma 플러그인 파일(MIT, 같은 폴더의 `LICENSE`). 설정 → Figma에서 자료 폴더에 쓴다 |
 | `scripts/` | 배포와 검사 스크립트 |
 
 ## 엔진 크레이트
@@ -32,6 +33,7 @@
 | `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그리기, 그림 풀기 |
 | `kari-pdf` | `app/engine/pdf` | 표시 목록을 krilla로 PDF로 |
 | `kari-docx` | `app/engine/docx` | 문서 모델을 Word 문서(DOCX)와 텍스트로 |
+| `kari-import` | `app/engine/import` | 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미)을 붙여넣기 조각으로 |
 | `kari-ai` | `app/engine/ai` | 키 보관, 제공사 어댑터(Anthropic, OpenAI) |
 | `kari-interview` | `app/engine/interview` | 면접 엔진과 지식 팩(`pack/backend/`) |
 | `kari-ffi` | `app/engine/ffi` | 앱과의 경계. 동적 라이브러리 `kari` |
@@ -55,6 +57,7 @@
 | 자동 서식 | `app/engine/edit/src/auto.rs`, 따로 된 묶음으로 잇는 것은 `app/engine/ffi/src/edit.rs`의 `run_auto`, 설정은 `app/lib/screens/settings.dart` |
 | 개요, 쪽으로 가기 | `app/engine/edit/src/outline.rs`, `motion.rs`의 `go_to`, 화면은 `app/lib/screens/navigate.dart` |
 | 메뉴 막대 | `app/lib/screens/app_menu.dart`(캔버스 문서의 메뉴는 `canvasMenus`) |
+| 가져오기 | `app/engine/import/src/`(`docx.rs` Word 문서, `html.rs` HTML과 꾸러미, `xml.rs` XML, `zip.rs` 꾸러미 읽기), HTML은 `app/engine/edit/src/rich.rs`의 `html_import`, 호출은 `app/engine/ffi/src/import.rs`, 화면은 `app/lib/screens/import_dialog.dart` |
 | Word 문서, 텍스트 내보내기 | `app/engine/docx/src/`(`body.rs` 본문·표·목록·머리글, `props.rs` 글자·문단 모양과 스타일, `txt.rs` 텍스트, `zip.rs` 꾸러미), 호출은 `app/engine/ffi/src/docx.rs` |
 | 글자·문단 모양, 서식 지우기 | `app/engine/edit/src/format.rs`, 쪽 나누기는 `text.rs`, 번호 시작 값은 `list.rs`, 사용자 지정 용지는 `page.rs` |
 | 첨자, 자간, 형광펜, 줄 간격의 배치 | `app/engine/layout/src/style.rs`, `para.rs`, `lines.rs` |
@@ -72,8 +75,9 @@
 | 그림 끌기(손잡이, 옮기기) | 명령은 `app/engine/edit/src/image.rs`(`set_image`, `move_image`), 화면에 놓인 상자는 `app/engine/layout/src/layouter.rs`의 `object_rect`, 상태와 `edit.dropAt`은 `app/engine/ffi/src/state.rs`, `edit.rs`, 손잡이 계산은 `app/lib/screens/image_handles.dart`, 끌기는 `app/lib/screens/paper.dart` |
 | 서식 있는 붙여넣기 | HTML 읽기는 `app/engine/edit/src/rich.rs`, 판에서 읽기는 `app/macos/Runner/MainFlutterWindow.swift`의 `pasteRich`와 `app/lib/editing/session.dart`의 `pasteIn` |
 | PDF | `app/engine/pdf/src/lib.rs`, 호출은 `app/engine/ffi/src/pdf.rs` |
-| 엔진 호출 이름 추가 | `app/engine/ffi/src/lib.rs`가 이름의 앞머리(`ai.`, `iv.`, `edit.`, 그 밖)로 모듈을 고르고, 각 모듈(`library.rs`, `edit.rs`, `ai.rs`, `iv.rs`)의 `dispatch`가 이름별로 나눈다. `ai.tasks`, `ai.setTask`, `ai.resetTasks`는 `task.rs`, `doc.exportPdf`는 `pdf.rs`, `doc.exportDocx`, `doc.exportTxt`는 `docx.rs`로 바로 가고, `iv.dashboard`는 `iv.rs`가 `dashboard.rs`로 넘긴다. 앱 쪽은 `app/lib/engine/engine.dart`와 시험용 흉내 `app/lib/engine/fake*.dart` |
+| 엔진 호출 이름 추가 | `app/engine/ffi/src/lib.rs`가 이름의 앞머리(`ai.`, `iv.`, `edit.`, 그 밖)로 모듈을 고르고, 각 모듈(`library.rs`, `edit.rs`, `ai.rs`, `iv.rs`)의 `dispatch`가 이름별로 나눈다. `ai.tasks`, `ai.setTask`, `ai.resetTasks`는 `task.rs`, `ai.place`는 `place.rs`, `doc.exportPdf`는 `pdf.rs`, `doc.exportDocx`, `doc.exportTxt`는 `docx.rs`로 바로 가고, `iv.dashboard`는 `iv.rs`가 `dashboard.rs`로 넘긴다. 앱 쪽은 `app/lib/engine/engine.dart`와 시험용 흉내 `app/lib/engine/fake*.dart` |
 | AI 키와 모델 호출 | 키는 `app/engine/ai/src/secrets.rs`, 공통 틀은 `lib.rs`(`Provider`), `types.rs`, `http.rs`, Anthropic은 `anthropic.rs`, `body.rs`, `stream.rs`, `reply.rs`, OpenAI는 `openai.rs`. 제공사 목록과 키 넣기는 `app/engine/ffi/src/ai.rs`, 화면은 `app/lib/screens/settings.dart`, `ai.dart` |
+| Figma 연결 | 중계 서버는 `app/lib/figma/relay.dart`, 플러그인에 명령을 보내고 답을 받는 쪽은 `client.dart`, 캔버스 → Figma 명령과 자리(AI 답의 검사, 빈 자리, AI 요약)는 `convert.dart`, 상태와 보내기는 `link.dart`, 화면(설정의 구역, 보내기 창)은 `app/lib/screens/figma.dart`, AI에 자리를 묻는 `ai.place`는 `app/engine/ffi/src/place.rs`. 쓰는 법은 [guide/canvas.md](../guide/canvas.md#figma로-보내기) |
 | 일마다의 모델 | `app/engine/ffi/src/task.rs`(일, 기본값, 판 고정), 계열·가장 새 판·가격은 `app/engine/ai/src/anthropic.rs`, `openai.rs`, 화면은 `app/lib/screens/ai_tasks.dart` |
 | 면접의 진행 | `app/engine/interview/src/graph.rs`, `plan.rs`, `pick.rs` |
 | 면접의 프롬프트 | `app/engine/interview/src/prompt.rs`(모든 프롬프트가 여기에 있다) |
@@ -85,7 +89,7 @@
 | 지식 팩 | `app/engine/interview/pack/backend/*.json`, 검사는 `app/engine/interview/src/pack.rs`와 `app/scripts/pack_check.py`. 작성법은 [knowledge-pack-authoring.md](knowledge-pack-authoring.md) |
 | 색과 글자 값 | `app/lib/design/tokens.dart`(대비 검사는 `app/test/design_test.dart`) |
 | 공용 화면 부품 | `app/lib/design/components.dart` |
-| 화면 | `app/lib/screens/`: `home.dart`(홈), `doc.dart`(문서 화면과 위쪽 줄), `name_field.dart`(문서 이름 칸), `paper.dart`(종이), `toolbar.dart`, `style_dialog.dart`(스타일 메뉴와 창), `table_props.dart`, `format_dialogs.dart`, `edit_dialogs.dart`(링크, 탭 정지, 쪽 설정, 그림 크기, 표 넣기 창), `navigate.dart`(개요 패널, 쪽으로 가기 창), `app_menu.dart`(메뉴 막대), `find_bar.dart`(찾기 막대, 상태 줄), `editor.dart`(견본 문서 화면), `versions.dart`, `canvas.dart`(캔버스 문서 화면), `canvas_surface.dart`, `canvas_props.dart`, `canvas_layers.dart`, `print_share.dart`, `interview.dart`, `gaze.dart`, `report.dart`, `settings.dart`, `ai.dart`(키 넣기 창), `ai_tasks.dart`, `dialogs.dart`(공고 추가, 보내는 내용, 이름 바꾸기, 휴지통 창) |
+| 화면 | `app/lib/screens/`: `home.dart`(홈), `doc.dart`(문서 화면과 위쪽 줄), `name_field.dart`(문서 이름 칸), `paper.dart`(종이), `toolbar.dart`, `style_dialog.dart`(스타일 메뉴와 창), `table_props.dart`, `format_dialogs.dart`, `edit_dialogs.dart`(링크, 탭 정지, 쪽 설정, 그림 크기, 표 넣기 창), `navigate.dart`(개요 패널, 쪽으로 가기 창), `app_menu.dart`(메뉴 막대), `find_bar.dart`(찾기 막대, 상태 줄), `editor.dart`(견본 문서 화면), `versions.dart`, `canvas.dart`(캔버스 문서 화면), `canvas_surface.dart`, `canvas_props.dart`, `canvas_layers.dart`, `print_share.dart`, `interview.dart`, `gaze.dart`, `report.dart`, `settings.dart`, `figma.dart`(설정의 Figma 구역, Figma로 보내기 창), `ai.dart`(키 넣기 창), `ai_tasks.dart`, `dialogs.dart`(공고 추가, 보내는 내용, 이름 바꾸기, 휴지통 창) |
 | 엔진 라이브러리를 앱에 싣는 것 | `app/hook/build.dart` |
 | 앱의 권한 | `app/macos/Runner/Release.entitlements`, `DebugProfile.entitlements` |
 

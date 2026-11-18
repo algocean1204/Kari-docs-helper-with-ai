@@ -147,7 +147,7 @@ abstract final class Radii {
   static const double paper = 2;
 }
 
-/// 글자 역할. 크기는 11, 12, 13, 15, 18, 22, 26, 40 여덟 단계다.
+/// 글자 역할. 크기는 11, 13, 14, 15, 20, 22, 26, 40 여덟 단계다.
 /// 역할마다 글꼴을 직접 적는다. 단추처럼 글자 모양을 통째로 바꾸는 부품은 테마의 글꼴을 물려받지 않기 때문이다.
 abstract final class AppText {
   static const family = 'Pretendard';
@@ -179,8 +179,8 @@ abstract final class AppText {
   /// 구역 제목.
   static const title = TextStyle(
     fontFamily: family,
-    fontSize: 18,
-    height: 26 / 18,
+    fontSize: 20,
+    height: 28 / 20,
     fontWeight: FontWeight.w700,
   );
 
@@ -195,8 +195,8 @@ abstract final class AppText {
   /// 화면의 기본 글.
   static const body = TextStyle(
     fontFamily: family,
-    fontSize: 13,
-    height: 20 / 13,
+    fontSize: 14,
+    height: 22 / 14,
     fontWeight: FontWeight.w400,
   );
 
@@ -205,13 +205,13 @@ abstract final class AppText {
     fontFamily: family,
     fontSize: 13,
     height: 18 / 13,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w600,
   );
 
   static const caption = TextStyle(
     fontFamily: family,
-    fontSize: 12,
-    height: 18 / 12,
+    fontSize: 13,
+    height: 20 / 13,
     fontWeight: FontWeight.w400,
   );
 
@@ -247,7 +247,7 @@ abstract final class Motion {
 
 /// 창 너비에 따른 배치 기준.
 abstract final class Breakpoints {
-  /// 이보다 좁으면 옆 메뉴를 아이콘만 남긴다.
+  /// 이보다 좁으면 옆 메뉴를 좁힌다(이름은 남기고, 들어가지 않으면 줄인다).
   static const double wideNav = 1180;
 
   /// 이보다 좁으면 편집기의 개요 패널을 숨긴다.

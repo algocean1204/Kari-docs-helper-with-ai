@@ -86,16 +86,20 @@ const _quickIv = {
 };
 
 /// 오래 걸리는 호출인지: AI 호출(`ai.*`, 네트워크를 기다린다), PDF 내보내기(`doc.exportPdf`, 배치와 파일 쓰기),
+/// 가져오기의 미리 보기(`import.preview`, 큰 파일 읽기),
 /// 면접(`iv.*`. 모델을 부르지 않는 읽기와 취소는 뺀다). 다른 줄에서 실행한다. 읽지 못하는 요청은 기본 줄로 보낸다.
 bool slowLane(String request) {
   try {
     final r = jsonDecode(request);
     if (r is! Map || r['m'] is! String) return false;
     final m = r['m'] as String;
+    // ChatGPT 로그인 기다림을 끊는 것은 그 기다림 뒤에 줄을 서면 안 된다.
+    if (m == 'ai.chatgptCancel') return false;
     return m.startsWith('ai.') ||
         m == 'doc.exportPdf' ||
         m == 'doc.exportDocx' ||
         m == 'doc.exportTxt' ||
+        m == 'import.preview' ||
         m == 'canvas.layers' ||
         (m.startsWith('iv.') && !_quickIv.contains(m));
   } on FormatException {
@@ -105,12 +109,16 @@ bool slowLane(String request) {
 
 /// 모델 목록을 받는 호출인지(`ai.setKey`, `refresh`를 준 `ai.models`). 답하지 않는 서버를 엔진의 한도(30초)까지
 /// 기다릴 수 있어 자기 줄에서 돈다: 앱을 열 때 하는 목록 새로 받기가 내보내기나 면접 호출을 그 뒤에 세우지 않게.
+/// ChatGPT 로그인(`ai.chatgptBegin`, 브라우저를 최대 10분 기다리는 `ai.chatgptWait`, `ai.chatgptSignOut`)도 이 줄이다.
 bool netLane(String request) {
   try {
     final r = jsonDecode(request);
     if (r is! Map) return false;
     final a = r['a'];
     return r['m'] == 'ai.setKey' ||
+        r['m'] == 'ai.chatgptBegin' ||
+        r['m'] == 'ai.chatgptWait' ||
+        r['m'] == 'ai.chatgptSignOut' ||
         (r['m'] == 'ai.models' && a is Map && a['refresh'] == true);
   } on FormatException {
     return false;
@@ -159,6 +167,13 @@ class NativeEngine extends EngineApi {
   Future<CanvasState> canvasOpen(int id) async {
     await _ready();
     return super.canvasOpen(id);
+  }
+
+  /// 가져오기는 새 문서에 붙일 자리를 배치로 찾아 글꼴이 있어야 한다. 홈에서 편집 화면을 열기 전에도 부르므로 먼저 넘긴다.
+  @override
+  Future<Json> importApply(String path, String name, {Json? styles}) async {
+    await _ready();
+    return super.importApply(path, name, styles: styles);
   }
 
   Future<void> _ready() async {

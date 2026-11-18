@@ -311,6 +311,7 @@ mod tests {
                 tokens_in: 0,
                 tokens_out: 0,
                 tokens_cached: 0,
+                tokens_cache_read: 0,
                 cost: None,
                 calls: 0,
                 models: Default::default(),

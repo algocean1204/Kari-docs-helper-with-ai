@@ -410,7 +410,8 @@ class MainFlutterWindow: NSWindow {
 
     // 주소와 파일을 운영체제에 넘기는 채널. `openUrl`은 링크를 기본 브라우저로 연다.
     // 엔진이 이미 검사한 주소지만 여기서도 스킴을 다시 본다. `openFolder`는 폴더를 Finder로 연다. `savePath`는 저장 대화 상자로
-    // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을 고른다.
+    // 고른 경로를 돌려주고, 취소하면 nil. `openPath`는 열기 대화 상자로 넣을 그림(PNG, JPEG)을, `importPath`는 가져올
+    // 파일(DOCX, HTML, zip)을 고른다.
     // `pasteImage`는 붙여넣기 판의 그림을 파일 경로로 준다(캔버스 문서의 그림 붙여넣기). `pasteRich`는 판의 서식 있는 글을
     // HTML 글로 준다(흐름 문서의 붙여넣기).
     // `print`와 `share`는 앱이 만든 PDF를 인쇄 창과 공유 창에 넘기고(Printing.swift), 창이 닫히거나 공유가 끝나면 답한다.
@@ -443,6 +444,34 @@ class MainFlutterWindow: NSWindow {
           return
         }
         result(NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path))
+      case "activate":
+        // 같은 자료 폴더를 쓰는 다른 Kari(엔진이 알려 준 프로세스)를 앞으로 가져온다. 이 앱과 번들 ID가 같은
+        // 다른 프로세스일 때만. 다른 자료 폴더를 쓰는 시험 빌드끼리는 애초에 막히지 않으므로 여기 오지 않는다.
+        guard let n = (call.arguments as? [String: Any])?["pid"] as? Int,
+          let pid = pid_t(exactly: n), pid != getpid(),
+          let app = NSRunningApplication(processIdentifier: pid),
+          app.bundleIdentifier == Bundle.main.bundleIdentifier
+        else {
+          result(false)
+          return
+        }
+        // macOS 14부터 활성은 협조적이라, 활성이 아닌 앱의 요청은 무시될 수 있다. 막 켜진 이 앱을 먼저 활성으로 만든 뒤
+        // 넘겨 주고, app.activate가 돌려주는 값은 "요청함"일 뿐이므로 실제로 활성이 됐는지 짧게 지켜보고 답한다.
+        if #available(macOS 14.0, *) {
+          NSApp.activate()
+          NSApp.yieldActivation(to: app)
+          _ = app.activate(options: [.activateAllWindows])
+        } else {
+          _ = app.activate(options: [.activateAllWindows])
+        }
+        var tries = 0
+        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+          tries += 1
+          if app.isActive || app.isTerminated || tries >= 30 {
+            timer.invalidate()
+            result(app.isActive)
+          }
+        }
       case "savePath":
         guard let self else {
           result(nil)
@@ -465,6 +494,22 @@ class MainFlutterWindow: NSWindow {
         }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.png, .jpeg]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.beginSheetModal(for: self) { response in
+          result(response == .OK ? panel.url?.path : nil)
+        }
+      case "importPath":
+        // 가져올 파일 고르기. Word 문서, HTML, Google Docs의 웹 페이지 꾸러미(zip)만 고를 수 있다. 취소하면 nil.
+        // 파일은 엔진이 읽기만 한다(고른 파일에만 샌드박스의 읽기 허락이 생긴다).
+        guard let self else {
+          result(nil)
+          return
+        }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes =
+          ["docx", "html", "htm", "zip"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

@@ -50,18 +50,21 @@ cd app
 flutter pub get
 flutter analyze
 flutter test
-flutter run -d macos
+flutter run -d macos                                     # 개발 앱(Kari Dev)
+flutter build macos --debug                              # build/macos/Build/Products/Debug/Kari Dev.app
 flutter build macos --release                            # build/macos/Build/Products/Release/Kari.app
 flutter test integration_test/app_test.dart -d macos     # 실제 앱 시험(아래)
 ```
 
+- Debug·Profile 빌드는 배포 앱과 다른 앱 **Kari Dev**(번들 ID `dev.clonamic.kari.dev`)이고, Release 빌드만 배포 앱 Kari(`dev.clonamic.kari`)다(`app/macos/Runner/Configs/AppInfo.xcconfig`). 번들 ID가 달라 자료(샌드박스 컨테이너)와 키체인 항목(서비스 이름 = 번들 ID)을 배포 앱과 따로 쓴다. Kari Dev는 창 제목, 메뉴 막대, 옆 메뉴 맨 위에 `Kari Dev`를 보이고 앱 안에서 업데이트하지 않는다.
+- `app/scripts/dev_app.sh [커밋이나 가지]`는 그 커밋(기본 `HEAD`)을 임시 사본에 꺼내 Profile로 빌드하고 `/Applications/Kari Dev.app`에 바꿔 깐다. 커밋한 것만 들어가고, 빌드 번호는 `dev.<짧은 커밋>`이다. Kari Dev가 켜져 있으면 멈춘다. `--no-install`은 빌드와 확인까지만 한다.
 - `flutter run`, `build`, `test`는 빌드 훅(`app/hook/build.dart`)을 거쳐 `cargo build --profile dist -p kari-ffi --target <대상>`을 부른다. 라이브러리는 `Kari.app/Contents/Frameworks/kari.framework`에 들어간다.
 - `flutter test`의 대부분은 엔진 흉내(`app/lib/engine/fake*.dart`)로 돌고, `app/test/native_test.dart`와 `edit_native_test.dart`는 진짜 라이브러리를 부른다.
 - 빌드 폴더를 지울 때는 `rm -rf build .dart_tool/flutter_build`로 둘을 함께 지운다. `build`만 지우면 엔진을 싣는 단계가 건너뛰어진다.
 
 | 변수 | 값 | 뜻 |
 |---|---|---|
-| `KARI_HOME` | 폴더 | 자료 폴더. 없으면 `~/Library/Application Support/dev.clonamic.kari`(샌드박스 안에서는 앱 컨테이너 안) |
+| `KARI_HOME` | 폴더 | 자료 폴더. 없으면 `~/Library/Application Support/dev.clonamic.kari`(샌드박스 안에서는 앱 컨테이너 안. Kari Dev는 `~/Library/Containers/dev.clonamic.kari.dev/`) |
 | `APP_STATE` | `sample`, `first` | 엔진 대신 견본 자료로 그린다. 저장하지 않는다 |
 | `APP_ROUTE` | `home`, `editor`, `interview`, `report`, `settings` | 처음 띄울 화면 |
 | `APP_THEME` | `light`, `dark` | 테마. 없으면 OS 설정 |

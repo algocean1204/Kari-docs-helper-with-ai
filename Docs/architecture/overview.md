@@ -35,6 +35,7 @@ flowchart LR
 | `kari-render` | `app/engine/render` | 표시 목록을 Skia로 화소 버퍼에 그림, 그림 풀기, 보기 배율과 좌표 | layout |
 | `kari-pdf` | `app/engine/pdf` | 표시 목록을 krilla로 PDF 바이트로 | doc, layout |
 | `kari-docx` | `app/engine/docx` | 문서 모델을 Word 문서(DOCX)와 텍스트 바이트로 | doc, layout |
+| `kari-import` | `app/engine/import` | 다른 앱의 파일(DOCX, HTML, 웹 페이지 꾸러미 zip) 바이트를 붙여넣기 조각과 옮기지 못한 것의 목록으로 | doc, edit |
 | `kari-ai` | `app/engine/ai` | 키 보관, 제공사(Anthropic, OpenAI) 어댑터 | — |
 | `kari-interview` | `app/engine/interview` | 지식 팩, 면접 진행, 채점, 리포트, 홈 대시보드, 시선 기록의 구간 | ai |
 | `kari-ffi` | `app/engine/ffi` | 앱과의 경계. 동적 라이브러리 `kari` | 위 전부 |
@@ -49,12 +50,13 @@ flowchart BT
   render[kari-render] --> layout
   pdf[kari-pdf] --> layout
   docx[kari-docx] --> layout
+  import[kari-import] --> edit
   ai[kari-ai]
   interview[kari-interview] --> ai
-  ffi[kari-ffi] --> store & edit & render & pdf & docx & interview
+  ffi[kari-ffi] --> store & edit & render & pdf & docx & import & interview
 ```
 
-`kari-doc`, `kari-layout`, `kari-edit`, `kari-render`, `kari-pdf`, `kari-docx`는 파일, DB, 스레드를 모른다. 저장은 `kari-store`, 잠금과 스레드는 `kari-ffi`만 다룬다.
+`kari-doc`, `kari-layout`, `kari-edit`, `kari-render`, `kari-pdf`, `kari-docx`, `kari-import`는 파일, DB, 스레드를 모른다. 저장은 `kari-store`, 잠금과 스레드는 `kari-ffi`만 다룬다.
 
 ## 앱과 엔진의 경계
 
@@ -86,8 +88,11 @@ flowchart BT
 | `canvas.*` | `app/engine/ffi/src/canvas.rs` | 캔버스 문서의 편집 세션(`edit.*`과 같은 모양): `canvas.open`, `canvas.close`, `canvas.state`, `canvas.view`(보기 이동·확대·맞추기), `canvas.pointer`(누름·끌기·뗌·두 번 누름·지나감·취소·오른쪽 누름), `canvas.cmd`(이름과 인자로 부르는 만들기·지우기·복제·방향키·속성·뒤집기·맞춤·붙여넣기·글 상자 편집 시작과 끝), `canvas.text`와 `canvas.ime`(글 상자 안 입력과 한글 조합), `canvas.copy`(고른 글이나 고른 노드), `canvas.layers`(레이어 패널의 줄). `canvas.cmd`는 묶기·풀기·쌓임 순서·레이어 끌어 놓기·숨기기·잠그기·대지 더하기도 받는다 → [layout-and-editing.md](layout-and-editing.md#캔버스-고르기와-끌기) |
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
+| `import.preview`, `import.apply` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
+| `ai.chatgpt*` | `app/engine/ffi/src/chatgpt.rs` | ChatGPT로 계속하기(OpenAI의 ChatGPT 플랜) → [ai-connection.md](ai-connection.md#chatgpt-플랜-사용) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
+| `ai.place` | `app/engine/ffi/src/place.rs` | Figma로 보낼 자리를 모델에게 묻는다(크기·개수 요약과 지시 글만) |
 | `iv.*` | `app/engine/ffi/src/iv.rs` | 면접 → [interview-engine.md](interview-engine.md) |
 | `iv.dashboard` | `app/engine/ffi/src/dashboard.rs` | 홈 대시보드 |
 
@@ -95,12 +100,13 @@ Dart 쪽 함수는 `app/lib/engine/engine.dart`(`EngineApi`)에 이름마다 하
 
 ### 호출의 두 줄
 
-`kari_call`은 디스크나 네트워크를 기다릴 수 있어 화면 스레드에서 부르지 않는다. `app/lib/engine/native.dart`의 `NativeEngine`이 요청을 두 줄로 나눈다. 줄마다 전용 아이솔레이트(Dart의 격리된 실행 단위) 하나가 받은 순서대로 실행한다.
+`kari_call`은 디스크나 네트워크를 기다릴 수 있어 화면 스레드에서 부르지 않는다. `app/lib/engine/native.dart`의 `NativeEngine`이 요청을 세 줄로 나눈다. 줄마다 전용 아이솔레이트(Dart의 격리된 실행 단위) 하나가 받은 순서대로 실행한다.
 
 | 줄 | 아이솔레이트 | 요청 |
 |---|---|---|
-| 느린 줄 | `kari-slow` | `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
-| 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
+| 목록 줄 | `kari-net` | 모델 목록을 받는 `ai.setKey`와 `refresh`를 준 `ai.models`, ChatGPT 로그인(`ai.chatgptBegin`, 브라우저를 최대 10분 기다리는 `ai.chatgptWait`, `ai.chatgptSignOut`) |
+| 느린 줄 | `kari-slow` | 목록 줄의 것과 `ai.chatgptCancel`을 뺀 `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, `import.preview`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
+| 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `ai.chatgptCancel`, `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
 
 느린 줄의 요청은 오래 걸리는 동안 명령 잠금을 쥐고 있지 않는다. 그래서 키 확인, PDF 내보내기, 면접 질문을 기다리는 동안에도 편집이 이어진다.
 
@@ -152,6 +158,7 @@ sequenceDiagram
 | `kari/texture` | `create`, `dispose` | 텍스처 만들기와 풀기 |
 | `kari/files` | `savePath` | 저장 대화 상자(PDF, Word 문서, 텍스트. 고를 수 있는 형식은 기본 이름의 확장자를 따른다) |
 | `kari/files` | `openPath` | 열기 대화 상자(PNG, JPEG) |
+| `kari/files` | `importPath` | 가져올 파일의 열기 대화 상자(`.docx`, `.html`, `.htm`, `.zip`). 고른 경로를 엔진의 `import.*`에 넘긴다 |
 | `kari/files` | `pasteImage` | 붙여넣기 판의 그림을 `{path, temp}`로 준다(없으면 null). `temp`는 채널이 쓴 임시 파일인가이다. Finder에서 복사한 파일(`public.file-url`)은 파일 하나가 그림 파일일 때 그 경로이고 아니면 null이다(판에 함께 실리는 아이콘은 쓰지 않는다). 그 밖에는 앱 임시 폴더에 `kari-paste-`로 시작하는 파일로 쓴다: PNG와 JPEG는 바이트 그대로, TIFF는 PNG로 바꿔 쓴다. 20MB와 화소 2,500만을 넘거나 바꾸지 못하면 오류로 답한다. 캔버스 문서의 붙여넣기가 부르고, 엔진에 넘긴 뒤 `temp`인 파일만 지운다 |
 | `kari/files` | `openUrl` | 기본 브라우저로 주소 열기(`http`, `https`, `mailto`, `tel`만) |
 | `kari/files` | `print {path, name}` | 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 실제 크기, 자동 회전 없음, 용지는 첫 쪽의 크기와 방향. 창이 닫히면 답한다(`app/macos/Runner/Printing.swift`) |
@@ -164,7 +171,7 @@ sequenceDiagram
 
 ## 권한
 
-`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`, `network.server`를 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
+`app/macos/Runner/Release.entitlements`: `com.apple.security.app-sandbox`, `network.client`, `network.server`(ChatGPT 로그인이 돌아오는 주소와 Figma 연결의 중계, 둘 다 `127.0.0.1`에만 묶는다), `files.user-selected.read-write`, `device.camera`, `print`. 카메라를 묻는 글은 `Info.plist`의 `NSCameraUsageDescription`이다. 디버그 빌드(`DebugProfile.entitlements`)는 Flutter 개발 도구를 위해 `cs.allow-jit`을 더 가진다. 권한마다의 쓰임은 [../guide/privacy.md](../guide/privacy.md#앱의-권한)에 있다.
 
 ## 엔진을 앱에 싣기
 
@@ -176,15 +183,33 @@ sequenceDiagram
 
 앱은 arm64 전용이고 최소 macOS는 13이다.
 
+## Figma 연결
+
+Figma 쪽의 플러그인(`app/assets/figma-plugin/`, MIT)과 앱은 WebSocket 중계로 잇는다. 코드는 `app/lib/figma/`에 있고 Dart의 `dart:io`만 쓴다.
+
+```mermaid
+flowchart LR
+  K["Kari<br/>figma/client.dart"] -- "ws://127.0.0.1:3055" --> R["중계<br/>figma/relay.dart 또는 이미 켜진 것"]
+  P["Figma 플러그인<br/>ui.html, code.js"] -- "ws://localhost:3055" --> R
+```
+
+- **중계**: 3055에 무엇이 이미 듣고 있으면 그것을 쓰고, 없으면 앱이 127.0.0.1에만 켠다. 채널 규칙은 플러그인의 원래 중계와 같다: `{type: join, channel}`이면 그 채널에 들고 `{type: system, message: {id, result}}`로 답한다. `{type: message}`는 같은 채널의 다른 연결에 `{type: broadcast, message, sender, channel}`로, `progress_update`는 그대로 넘긴다. Origin이 하나이고 없거나 `null`인 업그레이드만 받는다(Figma 플러그인 창이 `null`이다. 다른 프로그램도 같은 모양으로 붙을 수 있어 채널 ID를 아는 것이 들어가는 조건이다). 압축(permessage-deflate)은 받지 않고, 한 연결은 채널 하나에만 들며, 연결은 16개까지다. 메시지는 32MB까지이고, dart:io가 프레임을 다 받은 뒤에 크기를 본다. 3055에 이미 있는 중계를 쓸 때는 그 프로그램의 규칙을 따른다. 원래 중계의 채널마다 줄 세우기는 하지 않는다(앱이 명령을 하나씩 기다려 보낸다).
+- **보내는 쪽**: 요청마다 UUID를 만들어 `{id, type: message, channel, message: {id, command, params: {..., commandId}}}`로 보내고, 답의 `message.id`로 짝을 짓는다. 되돌아온 명령(`message.command`가 있음)은 건너뛰고, `queue_position`과 `progress_update`는 시간 한도를 다시 센다. 들 때는 `join` 뒤에 `ping`으로 플러그인이 있는지 본다. 보낼 수 있는 명령은 `client.dart`의 `allowedCommands`(만들기, `set_*`, `move_node`, `resize_node`, `rotate_node`, `create_page`, 읽기)뿐이다.
+- **옮기기**(`convert.dart`): `doc.nodes`의 노드에 스키마의 기본값을 채워 Figma 명령으로 바꾼다. 만드는 명령에는 늘 `parentId`(페이지나 프레임)를 준다(원래 중계가 요구한다). 그룹은 변환을 곱해 풀고, 돌린 것은 Figma의 왼쪽 위 기준·반시계 방향 각도로 바꿔 `rotate_node` 뒤에 `move_node`로 가운데를 맞춘다.
+- **자리**: 지시와 키가 있으면 `ai.place`로 묻고, 답은 `Placement.parse`가 칸과 범위를 엄격히 본다. 없으면 `get_node_info`(페이지)의 `absoluteBoundingBox`로 빈 자리를 셈한다.
+- **끄기**: 앱을 끌 때(`Library.shutdown`) 연결을 닫고 앱이 켠 중계를 끈다.
+
 ## 자료 폴더
 
 | 경로 | 내용 |
 |---|---|
 | `library.db` | SQLite 라이브러리 DB 하나. 문서, 기록, 스냅샷, 버전, 에셋 정보, 설정, 면접 기록 |
 | `assets/<해시 앞 2자>/<해시>` | 그림 파일. 이름은 내용의 SHA-256 |
+| `figma-plugin/` | 설정 → Figma의 `경로 복사`가 쓰는 플러그인 파일(`manifest.json`, `code.js`, `ui.html`, `LICENSE`) |
 | `backups/library-<ms>.db` | 백업. 라이브러리를 열 때, 편집이 쉬거나 문서를 닫을 때 마지막 백업에서 하루가 지났으면 만든다. 최근 10개를 남긴다 |
 
-- 위치: `~/Library/Application Support/dev.clonamic.kari`. 앱은 샌드박스 안에서 돌아 실제로는 `~/Library/Containers/dev.clonamic.kari/` 아래에 놓인다.
+- 그림 파일은 같은 내용이면 하나만 두고 여러 문서가 함께 쓴다. 문서를 완전히 지우거나 휴지통을 비우거나 가져오기가 실패해 그림을 지울 때는 남은 문서(휴지통 포함)의 노드·기록·스냅샷 어디에도 없고, 엔진이 문서 밖에서 쓰는 것(복사해 둔 조각, 캔버스에서 골라 아직 놓지 않은 그림 도구)도 아닌 것만 지운다. 편집 세션의 변경과 되돌리기는 명령마다 기록에 저장되므로 저장된 문서로 센다.
+- 위치: `~/Library/Application Support/dev.clonamic.kari`. 앱은 샌드박스 안에서 돌아 실제로는 `~/Library/Containers/dev.clonamic.kari/` 아래에 놓인다. 소스에서 만든 개발 앱(Kari Dev, Debug·Profile 빌드)은 `~/Library/Containers/dev.clonamic.kari.dev/` 아래를 쓴다.
 - 환경 변수 `KARI_HOME`을 주면 그 폴더를 쓴다.
 - 표와 규칙 → [document-model.md](document-model.md).
 

@@ -146,10 +146,10 @@ void main() {
       await pump(tester, const Duration(milliseconds: 100));
     }
     expect(flutterKeys, [
-      'Shift Left+shift',
-      'Alt Left+shift+alt',
-      'Meta Left+meta+shift+alt',
-      'Y+meta+shift+alt',
+      'Shift Left|shift',
+      'Alt Left|shift|alt',
+      'Meta Left|meta|shift|alt',
+      'Y|meta|shift|alt',
     ]);
   });
 }

@@ -1,0 +1,462 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../design/components.dart';
+import '../design/tokens.dart';
+import '../engine/engine.dart';
+import '../figma/link.dart';
+import 'dialogs.dart';
+import 'paper.dart' show filesChannel;
+
+/// 설정의 Figma 구역에 들어가는 줄들: 앱, 중계, 플러그인, 채널. [link]가 없으면 견본 상태(연결 안 됨)로 그린다.
+List<Widget> figmaRows(FigmaLink? link) => [
+  _AppRow(link: link),
+  _RelayRow(link: link),
+  _PluginRow(link: link),
+  ChannelRow(link: link),
+];
+
+/// 줄 하나의 틀: 왼쪽에 이름과 설명, 오른쪽에 상태와 단추.
+class _Row extends StatelessWidget {
+  const _Row({
+    required this.label,
+    required this.caption,
+    this.status,
+    this.actions = const [],
+  });
+
+  final String label;
+  final String caption;
+  final Widget? status;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppText.label.copyWith(color: c.text)),
+              const SizedBox(height: 2),
+              KeepText(
+                caption,
+                style: AppText.caption.copyWith(color: c.textMuted),
+              ),
+            ],
+          ),
+        ),
+        if (status != null) ...[const SizedBox(width: Space.x3), status!],
+        for (final a in actions) ...[const SizedBox(width: Space.x2), a],
+      ],
+    );
+  }
+}
+
+class _AppRow extends StatelessWidget {
+  const _AppRow({required this.link});
+  final FigmaLink? link;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = link?.figmaInstalled ?? false;
+    return _Row(
+      label: 'Figma 데스크톱 앱',
+      caption: has
+          ? '응용 프로그램 폴더에 Figma가 있습니다.'
+          : '응용 프로그램 폴더에 Figma가 없습니다. 플러그인은 데스크톱 앱에서만 가져올 수 있습니다.',
+      status: has
+          ? const StatusPill('설치됨', tone: Tone.success)
+          : const StatusPill('없음'),
+      actions: [
+        if (!has) AppButton('Figma 받기', onPressed: () => openFigmaDownload()),
+      ],
+    );
+  }
+}
+
+/// Figma의 내려받기 쪽을 기본 브라우저로 연다.
+Future<void> openFigmaDownload() async {
+  try {
+    await filesChannel.invokeMethod<void>('openUrl', {'url': figmaDownloadUrl});
+  } on PlatformException {
+    // 열지 못하면 아무 일도 없다. 주소는 안내 문서에 있다.
+  } on MissingPluginException {
+    // 채널이 없는 곳(위젯 시험).
+  }
+}
+
+class _RelayRow extends StatelessWidget {
+  const _RelayRow({required this.link});
+  final FigmaLink? link;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = link;
+    final kind = l?.relay ?? RelayKind.off;
+    return _Row(
+      label: '중계',
+      caption: switch (kind) {
+        RelayKind.off =>
+          '플러그인과 Kari를 잇는 중계입니다. 이 맥 안(127.0.0.1:3055)의 연결만 받습니다. Figma에서 플러그인을 실행하기 전에 켭니다.',
+        RelayKind.builtin =>
+          'Kari가 켠 중계를 씁니다(127.0.0.1:3055). Kari를 끄면 함께 꺼집니다.',
+        RelayKind.external =>
+          '3055 자리에 이미 켜진 중계를 씁니다. 그 중계가 받는 주소와 연결 검사는 그것을 켠 프로그램이 정합니다. '
+              'Kari의 중계 규칙(127.0.0.1만 받기, 웹 페이지 거절, 32MB 한도)은 그 중계에는 적용되지 않습니다.',
+        RelayKind.failed => l?.relayError ?? '중계를 켜지 못했습니다.',
+      },
+      status: switch (kind) {
+        RelayKind.off => const StatusPill('꺼짐'),
+        RelayKind.failed => const StatusPill('실패', tone: Tone.danger),
+        _ => const StatusPill('켜짐', tone: Tone.success),
+      },
+      actions: [
+        if (kind == RelayKind.off || kind == RelayKind.failed)
+          AppButton('중계 켜기', onPressed: l == null ? () {} : l.startRelay),
+      ],
+    );
+  }
+}
+
+class _PluginRow extends StatefulWidget {
+  const _PluginRow({required this.link});
+  final FigmaLink? link;
+
+  @override
+  State<_PluginRow> createState() => _PluginRowState();
+}
+
+class _PluginRowState extends State<_PluginRow> {
+  String? _copied;
+  String? _error;
+
+  Future<void> _copy() async {
+    final l = widget.link;
+    if (l == null) return;
+    try {
+      final path = await l.writePlugin();
+      await Clipboard.setData(ClipboardData(text: path));
+      if (mounted) {
+        setState(() {
+          _copied = path;
+          _error = null;
+        });
+      }
+    } on Exception catch (e) {
+      if (mounted) setState(() => _error = '플러그인 파일을 쓰지 못했습니다 · $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Row(
+          label: '플러그인',
+          caption:
+              'Figma → 플러그인 → 개발 → manifest에서 플러그인 가져오기를 누르고, ⇧⌘G로 복사한 경로를 붙여넣습니다.',
+          actions: [AppButton('경로 복사', onPressed: _copy)],
+        ),
+        if (_copied != null || _error != null) ...[
+          const SizedBox(height: Space.x2),
+          SelectableText(
+            _error ?? '복사했습니다 · $_copied',
+            style: AppText.caption.copyWith(
+              color: _error != null ? c.danger : c.textMuted,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 채널 ID 칸, 연결 단추, 상태 한 줄.
+class ChannelRow extends StatefulWidget {
+  const ChannelRow({super.key, required this.link});
+  final FigmaLink? link;
+
+  @override
+  State<ChannelRow> createState() => _ChannelRowState();
+}
+
+class _ChannelRowState extends State<ChannelRow> {
+  late final _text = TextEditingController(
+    text: widget.link?.lastChannel ?? '',
+  );
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final l = widget.link;
+    final status = l?.status ?? LinkStatus.idle;
+    final busy = status == LinkStatus.connecting;
+    final (String line, Tone tone) = switch (status) {
+      LinkStatus.idle => (
+        l?.error == null ? '연결 안 됨' : '연결 안 됨 · ${l!.error}',
+        Tone.neutral,
+      ),
+      LinkStatus.connecting => ('연결 중', Tone.warning),
+      LinkStatus.connected => (
+        l?.pageName == null ? '연결됨' : '연결됨 · ${l!.pageName}',
+        Tone.success,
+      ),
+      LinkStatus.failed => ('실패 · ${l?.error ?? ''}', Tone.danger),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('채널', style: AppText.label.copyWith(color: c.text)),
+        const SizedBox(height: 2),
+        KeepText(
+          'Figma에서 플러그인을 실행하면 보이는 채널 ID를 넣고 연결합니다.',
+          style: AppText.caption.copyWith(color: c.textMuted),
+        ),
+        const SizedBox(height: Space.x2),
+        Row(
+          children: [
+            Expanded(
+              child: HintNamed(
+                TextField(
+                  key: const Key('figma-channel'),
+                  controller: _text,
+                  enabled: !busy,
+                  style: AppText.body.copyWith(color: c.text),
+                  decoration: const InputDecoration(hintText: '채널 ID'),
+                  onSubmitted: (v) => l?.connect(v),
+                ),
+              ),
+            ),
+            const SizedBox(width: Space.x2),
+            if (status == LinkStatus.connected)
+              AppButton('연결 끊기', onPressed: l?.disconnect)
+            else
+              AppButton(
+                '연결',
+                loading: busy,
+                onPressed: busy || l == null
+                    ? null
+                    : () => l.connect(_text.text),
+              ),
+          ],
+        ),
+        const SizedBox(height: Space.x2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Semantics(
+            liveRegion: true,
+            child: StatusPill(line, tone: tone),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 캔버스의 "Figma로 보내기". 받을 페이지를 고르거나 새 페이지 이름을 쓰고, 자리를 정할 지시를 적을 수 있다.
+/// 무엇이 어디로 가는지 먼저 보인다.
+class FigmaSendDialog extends StatefulWidget {
+  const FigmaSendDialog({
+    super.key,
+    required this.link,
+    required this.doc,
+    required this.hasKey,
+  });
+
+  final FigmaLink link;
+  final DocInfo doc;
+
+  /// AI 키가 있는지. 없으면 지시 글은 쓰지 않는다고 알린다.
+  final bool hasKey;
+
+  @override
+  State<FigmaSendDialog> createState() => _FigmaSendDialogState();
+}
+
+class _FigmaSendDialogState extends State<FigmaSendDialog> {
+  static const _new = '';
+  List<FigmaPage>? _pages;
+  String _page = _new;
+  final _name = TextEditingController();
+  final _instruction = TextEditingController();
+  bool _sending = false;
+  (int, int)? _progress;
+  String? _done;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _name.addListener(() => setState(() {}));
+    if (widget.link.connected) _load();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _instruction.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final pages = await widget.link.pages();
+      if (!mounted) return;
+      setState(() {
+        _pages = pages;
+        _page = pages.isEmpty ? _new : pages.first.id;
+      });
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  bool get _ready =>
+      !_sending &&
+      _done == null &&
+      _pages != null &&
+      (_page != _new || _name.text.trim().isNotEmpty);
+
+  Future<void> _send() async {
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      final r = await widget.link.send(
+        docId: widget.doc.id,
+        docName: widget.doc.name,
+        target: _page == _new
+            ? (pageId: null, newPage: _name.text.trim())
+            : (pageId: _page, newPage: null),
+        instruction: _instruction.text,
+        onProgress: (a, b) {
+          if (mounted) setState(() => _progress = (a, b));
+        },
+      );
+      if (mounted) setState(() => _done = r);
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on EngineError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final link = widget.link;
+    final pages = _pages;
+    final pageName = _page == _new
+        ? '새 페이지'
+        : pages?.where((p) => p.id == _page).firstOrNull?.name ?? '';
+    Widget line(String text, {Color? color}) => Padding(
+      padding: const EdgeInsets.only(bottom: Space.x2),
+      child: KeepText(
+        text,
+        style: AppText.body.copyWith(color: color ?? c.text),
+      ),
+    );
+    return Sheet(
+      title: 'Figma로 보내기',
+      maxWidth: 520,
+      actions: [
+        AppButton(
+          _done == null ? '취소' : '닫기',
+          onPressed: _sending ? null : () => Navigator.of(context).pop(),
+        ),
+        if (_done == null)
+          AppButton(
+            '보내기',
+            kind: ButtonKind.primary,
+            loading: _sending,
+            onPressed: _ready ? _send : null,
+          ),
+      ],
+      children: [
+        if (!link.connected)
+          line('Figma에 연결되지 않았습니다. 설정 → Figma에서 채널에 연결한 뒤 다시 엽니다.')
+        else ...[
+          Text('받을 페이지', style: AppText.label.copyWith(color: c.text)),
+          const SizedBox(height: Space.x2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: MoreMenu(
+              key: const Key('figma-page'),
+              label: pages == null ? '페이지를 읽는 중' : pageName,
+              tooltip: '받을 페이지',
+              icon: Icons.unfold_more,
+              checked: {pageName},
+              items: [
+                for (final p in pages ?? const <FigmaPage>[])
+                  (p.name, () => setState(() => _page = p.id)),
+                if (pages != null) ...[
+                  MoreMenu.divider,
+                  ('새 페이지', () => setState(() => _page = _new)),
+                ],
+              ],
+            ),
+          ),
+          if (_page == _new && pages != null) ...[
+            const SizedBox(height: Space.x2),
+            HintNamed(
+              TextField(
+                key: const Key('figma-new-page'),
+                controller: _name,
+                style: AppText.body.copyWith(color: c.text),
+                decoration: const InputDecoration(hintText: '새 페이지 이름'),
+              ),
+            ),
+          ],
+          const SizedBox(height: Space.x4),
+          Text(
+            '자리 지시(비워 두어도 됩니다)',
+            style: AppText.label.copyWith(color: c.text),
+          ),
+          const SizedBox(height: Space.x2),
+          HintNamed(
+            TextField(
+              key: const Key('figma-instruction'),
+              controller: _instruction,
+              maxLength: 2000,
+              minLines: 1,
+              maxLines: 3,
+              style: AppText.body.copyWith(color: c.text),
+              decoration: const InputDecoration(
+                hintText: '예: 디자인 페이지의 맨 오른쪽에 절반 크기로',
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.x2),
+          line(
+            'Figma로 가는 것: 문서 내용(Kari의 페이지는 프레임으로, 도형, 글, 그림)',
+            color: c.textMuted,
+          ),
+          line(
+            widget.hasKey
+                ? 'AI로 가는 것: 크기·개수 요약, Figma 페이지 이름과 지시 글(문서 본문 없음). 지시가 비면 AI에 보내지 않고 빈 자리에 놓습니다.'
+                : 'AI로 가는 것: 없음. AI 키가 없어 지시 글은 쓰지 않고 빈 자리에 놓습니다.',
+            color: c.textMuted,
+          ),
+        ],
+        if (_progress != null && _done == null)
+          line('보내는 중 · ${_progress!.$1}/${_progress!.$2}'),
+        if (_done != null) NoticeText(_done!),
+        if (_error != null) NoticeText(_error!, failed: true),
+      ],
+    );
+  }
+}

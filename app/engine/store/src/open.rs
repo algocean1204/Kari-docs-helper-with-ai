@@ -1,7 +1,8 @@
 //! 열기, 연결 설정, 형식 이전, 손상된 DB를 백업으로 되살리기.
 
-use std::fs::{self, File};
-use std::path::Path;
+use std::fs::{self, File, TryLockError};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode};
@@ -9,6 +10,8 @@ use rusqlite::{Connection, ErrorCode};
 use crate::{now_ms, Durability, Error, Library, Result};
 
 pub(crate) const DB: &str = "library.db";
+/// 한 폴더를 한 프로세스만 쓰게 하는 잠금 파일. 휴지통 비우기나 그림 정리가 다른 프로세스의 문서를 깨지 않게 한다.
+const LOCK: &str = "library.lock";
 /// 라이브러리 DB 형식의 판(`PRAGMA user_version`). 열린 라이브러리는 항상 이 판이다.
 /// 1판: 문서, 기록, 스냅샷, 버전, 에셋, 설정. 2판: 범용 기록 표(`records`).
 pub const VERSION: u32 = 2;
@@ -96,6 +99,31 @@ pub(crate) fn sync_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 폴더를 잠근다. 다른 프로세스가 쥐고 있으면 `Locked`(파일에 적힌 그 프로세스의 id와 함께).
+/// 잠금은 OS가 파일에 거는 것이라 파일을 닫거나 프로세스가 끝나면(강제 종료 포함) 풀린다. 남은 파일은 막지 않는다.
+fn lock(dir: &Path) -> Result<File> {
+    let path = dir.join(LOCK);
+    let mut f = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)?;
+    match f.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            let pid = fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| s.trim().parse().ok());
+            return Err(Error::Locked(pid));
+        }
+        Err(TryLockError::Error(e)) => return Err(e.into()),
+    }
+    f.set_len(0)?;
+    f.write_all(std::process::id().to_string().as_bytes())?;
+    Ok(f)
+}
+
 fn quick_check(conn: &Connection) -> Result<()> {
     let r: String = conn.query_row("PRAGMA quick_check", [], |r| r.get(0))?;
     if r != "ok" {
@@ -114,8 +142,17 @@ impl Library {
     pub fn open_with(dir: impl AsRef<Path>, durability: Durability) -> Result<Library> {
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir)?;
+        let lock = lock(&dir)?;
+        Library::open_locked(dir, durability, lock)
+    }
+
+    fn open_locked(dir: PathBuf, durability: Durability, lock: File) -> Result<Library> {
         let conn = Connection::open(dir.join(DB))?;
-        let mut lib = Library { dir, conn };
+        let mut lib = Library {
+            dir,
+            conn,
+            _lock: lock,
+        };
         let version = lib.setup(durability).map_err(corrupt_if_bad)?;
         lib.migrate(version)?;
         Ok(lib)
@@ -174,6 +211,8 @@ impl Library {
     /// 백업이 성하지 않으면 아무것도 옮기지 않는다.
     pub fn restore_backup(dir: impl AsRef<Path>, backup: impl AsRef<Path>) -> Result<Library> {
         let dir = dir.as_ref();
+        // 파일을 옮기는 동안에도 다른 프로세스가 열지 못하게 끝까지 쥔다.
+        let lock = lock(dir)?;
         let db = dir.join(DB);
         let tmp = dir.join(format!("{DB}.restore"));
         if let Err(e) = fs::copy(backup.as_ref(), &tmp) {
@@ -186,7 +225,9 @@ impl Library {
             let v: u32 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
             // 옛 판의 백업은 되살린 뒤 열 때 올린다.
             if v == 0 || v > VERSION {
-                return Err(Error::Invalid(format!("백업의 형식이 {v}판입니다.")));
+                return Err(Error::Invalid(format!(
+                    "읽을 수 없는 백업입니다(형식 버전 {v})."
+                )));
             }
             drop(c);
             File::open(&tmp)?.sync_all()?;
@@ -206,6 +247,6 @@ impl Library {
         }
         fs::rename(&tmp, &db)?;
         sync_dir(dir)?;
-        Library::open(dir)
+        Library::open_locked(dir.to_path_buf(), Durability::Full, lock)
     }
 }

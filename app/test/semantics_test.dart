@@ -6,9 +6,12 @@
 
 import 'dart:ui' show Tristate;
 
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart';
+import 'package:kari/design/theme.dart';
 import 'package:kari/main.dart';
 
 import 'canvas_layers_test.dart' show openLayers;
@@ -26,6 +29,8 @@ List<String> audit() => [
         final f = d.flagsCollection;
         final name = d.label.isNotEmpty ? d.label : d.tooltip;
         return [
+          // 줄바꿈용 결합 문자(keepAll)는 화면의 글에만 넣는다.
+          if (d.label.contains('\u2060')) '결합 문자가 든 이름 "${d.label}"',
           if (f.isButton && name.isEmpty) '이름 없는 단추 ${n.rect}',
           if (f.isButton &&
               f.isEnabled != Tristate.isFalse &&
@@ -106,10 +111,12 @@ void main() {
       await pumpApp(tester, AppRoute.editor, sizes[1]);
       tester.semantics.tap(find.semantics.byLabel('설정'));
       await tester.pumpAndSettle();
-      expect(find.text('면접에 쓰는 모델'), findsOneWidget);
+      // 설정의 구역 목록.
+      expect(find.text('업데이트와 정보'), findsOneWidget);
       tester.semantics.tap(find.semantics.byLabel('홈'));
       await tester.pumpAndSettle();
-      expect(find.text('면접 연습 시작'), findsOneWidget);
+      // 견본에는 설명하지 못한 문장이 있어 홈의 다음 할 일이 이것이다.
+      expect(find.text('약한 문장 다시 연습'), findsOneWidget);
       h.dispose();
     });
 
@@ -145,6 +152,65 @@ void main() {
       tester.semantics.tap(fold);
       await tester.pumpAndSettle();
       expect(expanded(), isTrue);
+      h.dispose();
+    });
+  });
+
+  group('읽어 주는 이름과 상태', () {
+    testWidgets('줄마다 같은 단추는 대상을 붙여 읽고, 보이는 글은 그대로다', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpApp(tester, AppRoute.settings, sizes[1]);
+      expect(find.semantics.byLabel('Claude 키 바꾸기'), findsOne);
+      expect(find.semantics.byLabel('OpenAI 키 넣기'), findsOne);
+      expect(find.semantics.byLabel('키 넣기'), findsNothing);
+      expect(find.text('키 넣기'), findsOneWidget);
+      h.dispose();
+    });
+
+    testWidgets('꺼진 단추는 꺼짐으로, 메뉴의 켜진 항목은 고른 것으로 알린다', (tester) async {
+      final h = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(
+            body: Row(
+              children: [
+                const AppButton('보내기', onPressed: null),
+                MoreMenu(
+                  tooltip: '보기',
+                  items: [('개요', () {}), ('눈금선', () {})],
+                  checked: const {'개요'},
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(data('보내기').flagsCollection.isEnabled, Tristate.isFalse);
+      await tester.tap(find.byTooltip('보기'));
+      await tester.pumpAndSettle();
+      Tristate selected(String item) => find.semantics
+          .byPredicate((n) => n.label.contains(item))
+          .evaluate()
+          .single
+          .getSemanticsData()
+          .flagsCollection
+          .isSelected;
+      expect(selected('개요'), Tristate.isTrue);
+      expect(selected('눈금선'), isNot(Tristate.isTrue));
+      h.dispose();
+    });
+
+    testWidgets('대화 상자 바깥은 닫기 단추와 다른 이름이다', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpApp(tester, AppRoute.settings, sizes[1]);
+      showDialog<void>(
+        context: tester.element(find.text('업데이트와 정보')),
+        builder: (_) => const Dialog(child: Text('안')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.semantics.byLabel('대화 상자 바깥'), findsOne);
+      expect(find.semantics.byLabel('닫기'), findsNothing);
       h.dispose();
     });
   });

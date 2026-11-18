@@ -16,9 +16,9 @@ class Claim {
 }
 
 enum ClaimStatus {
-  defended('방어함', Tone.success),
-  partial('일부 방어', Tone.warning),
-  failed('방어 못 함', Tone.danger),
+  defended('설명함', Tone.success),
+  partial('일부 설명', Tone.warning),
+  failed('설명 못 함', Tone.danger),
   untested('아직 안 물음', Tone.neutral);
 
   const ClaimStatus(this.label, this.tone);

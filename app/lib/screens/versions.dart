@@ -114,7 +114,7 @@ class _VersionPanelState extends State<VersionPanel> {
       final boards = nodes.where((n) => n['type'] == 'page').length;
       final paras = [
         // 캔버스 문서는 대지와 노드의 수를 먼저 보인다(도형만 있어도 빈 문서로 보이지 않게).
-        if (boards > 0) '대지 $boards개 · 노드 ${nodes.length - boards}개',
+        if (boards > 0) '페이지 $boards개 · 요소 ${nodes.length - boards}개',
         ...paragraphs(nodes),
       ];
       if (mounted && _selected == id) {
@@ -247,8 +247,8 @@ class _VersionPanelState extends State<VersionPanel> {
                     const SizedBox(height: Space.x3),
                   ],
                   if (_versions.isEmpty)
-                    Text(
-                      keepAll('아직 버전이 없습니다. 5분 동안 쉬거나 문서를 닫으면 자동으로 남습니다.'),
+                    KeepText(
+                      '아직 버전이 없습니다. 5분 동안 쉬거나 문서를 닫으면 자동으로 남습니다.',
                       style: AppText.caption.copyWith(color: c.textMuted),
                     ),
                   for (final v in _versions) ..._item(context, v),
@@ -358,8 +358,8 @@ class _VersionPanelState extends State<VersionPanel> {
                   if (p.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: Space.x1),
-                      child: Text(
-                        keepAll(p),
+                      child: KeepText(
+                        p,
                         style: AppText.caption.copyWith(color: c.text),
                       ),
                     ),

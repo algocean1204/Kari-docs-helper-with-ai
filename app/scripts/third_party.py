@@ -12,6 +12,7 @@
 - Skia와 Skia가 품은 라이브러리: app/scripts/licenses/skia-bindings-<판>/skia/에 둔 그 판의 라이선스 글.
 - 글꼴: app/assets/fonts/Pretendard-LICENSE.txt.
 - Sparkle(앱 업데이트): 판은 app/macos/Podfile.lock, 글은 app/scripts/licenses/Sparkle-<판>/에 둔 그 판의 LICENSE.
+- Figma 플러그인: app/assets/figma-plugin/LICENSE(가져온 커밋은 FIGMA_PLUGIN_COMMIT).
 - 지식 팩의 출처: app/engine/interview/pack/의 source 항목.
 """
 
@@ -28,6 +29,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ENGINE, FONTS = HERE.parent / "engine", HERE.parent / "assets/fonts"  # 스크립트 폴더의 옆
 PODS_LOCK = HERE.parent / "macos/Podfile.lock"
+FIGMA_PLUGIN = HERE.parent / "assets/figma-plugin"
+FIGMA_PLUGIN_COMMIT = "c7adf24"  # src/claude_mcp_plugin를 가져온 커밋(2026-04-18)
 ROOT = HERE.parent.parent
 OUT = ROOT / "Docs/THIRD_PARTY_LICENSES.md"
 SELF = f"python3 {(HERE / 'third_party.py').relative_to(ROOT)}"
@@ -232,6 +235,11 @@ def others():
         rows.append({"name": "Sparkle", "version": v, "license": "MIT AND BSD-2-Clause AND Zlib",
                      "url": "https://github.com/sparkle-project/Sparkle", "files": license_files(local),
                      "note": "앱 업데이트(Kari.app/Contents/Frameworks/Sparkle.framework)", "folder": local})
+    # Figma 플러그인(설정 → Figma에서 자료 폴더에 써서 Figma가 가져간다). 앱에 든 판은 그 저장소의 커밋으로 적는다.
+    rows.append({"name": "Claude Talk to Figma 플러그인", "version": FIGMA_PLUGIN_COMMIT, "license": "MIT",
+                 "url": "https://github.com/arinspunk/claude-talk-to-figma-mcp",
+                 "files": [FIGMA_PLUGIN / "LICENSE"],
+                 "note": "app/assets/figma-plugin의 manifest.json, code.js, ui.html", "folder": FIGMA_PLUGIN})
     return rows
 
 
@@ -265,7 +273,7 @@ def cell(s):
 
 def build():
     groups = [("Rust 크레이트(엔진 라이브러리 kari)", rust()), ("Dart 패키지(앱)", dart()),
-              ("글꼴, Skia와 그 안의 라이브러리, Sparkle", others())]
+              ("글꼴, Skia와 그 안의 라이브러리, Sparkle, Figma 플러그인", others())]
     every = [r for _, rows in groups for r in rows]
     for r in every:
         if r.get("why"):  # 앞에서 이유를 정한 것(MPL 부분을 고지로 채운 것)
