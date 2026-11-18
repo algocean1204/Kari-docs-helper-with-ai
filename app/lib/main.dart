@@ -65,7 +65,10 @@ Future<void> main() async {
           : (Library(
               NativeEngine(),
               libraryDir(env, Platform.operatingSystem),
-              service: updates.id.isEmpty ? null : updates.id,
+              // 번들 ID를 못 읽어도 개발 빌드는 배포 앱의 키 보관 항목으로 떨어지지 않는다.
+              service: updates.id.isNotEmpty
+                  ? updates.id
+                  : (kReleaseMode ? null : 'dev.clonamic.kari.dev'),
             )..camera = ChannelGazeCamera()),
     ),
   );
