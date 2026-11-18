@@ -1,7 +1,10 @@
 import 'dart:ffi';
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+
+import '../engine/native.dart' show engineBusy, engineCalls;
 
 /// 엔진이 그린 화소를 Flutter 텍스처로 올리는 macOS 접착(macos/Runner/MainFlutterWindow.swift).
 ///
@@ -65,5 +68,47 @@ class Surface {
     } finally {
       _end();
     }
+  }
+}
+
+/// 텍스처에 그리는 프레임을 바뀔 수 있을 때만 돌린다.
+///
+/// 프레임마다 [draw]를 부르고, [draw]가 [idleFrames]번 잇달아 거짓(그릴 것 없음)이면 멈춘다. 멈춘 동안에는 Flutter
+/// 프레임을 하나도 청하지 않는다. 바뀜 번호는 엔진 호출 안에서만 오르므로 엔진 호출이 나가거나 돌아오면
+/// ([engineCalls]) 깨어나고, 화면이 다른 까닭(스크롤, 새 텍스처)으로 다시 그려야 하면 [wake]를 부른다.
+/// 창이 가려지거나 숨으면 Flutter가 프레임을 멈추고, 다시 보이면 멈춘 동안 깨운 것을 첫 프레임에 그린다.
+class DrawLoop {
+  DrawLoop(TickerProvider vsync, this.draw) {
+    _ticker = vsync.createTicker(_tick);
+    engineCalls.addListener(wake);
+  }
+
+  /// 그릴 것이 없을 때 멈추기 전에 더 기다리는 프레임 수. 편집 호출이 진행 중이면([engineBusy]) 세지 않는다.
+  static const idleFrames = 30;
+
+  /// 그렸거나 다시 해야 하면 참, 그릴 것이 없으면 거짓.
+  final bool Function() draw;
+  late final Ticker _ticker;
+  int _idle = 0;
+
+  /// 프레임을 돌리는 중인지.
+  bool get running => _ticker.isActive;
+
+  void wake() {
+    _idle = 0;
+    if (!_ticker.isActive) _ticker.start();
+  }
+
+  void _tick(Duration _) {
+    if (draw()) {
+      _idle = 0;
+    } else if (engineBusy == 0 && ++_idle >= idleFrames) {
+      _ticker.stop();
+    }
+  }
+
+  void dispose() {
+    engineCalls.removeListener(wake);
+    _ticker.dispose();
   }
 }

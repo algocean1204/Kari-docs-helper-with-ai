@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../design/components.dart';
@@ -58,7 +57,7 @@ final _alts = {LogicalKeyboardKey.altLeft, LogicalKeyboardKey.altRight};
 
 class _CanvasSurfaceState extends State<CanvasSurface>
     with SingleTickerProviderStateMixin {
-  Ticker? _ticker;
+  DrawLoop? _loop;
   Surface? _surface;
   bool _creating = false;
   Size _size = Size.zero;
@@ -99,7 +98,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
     _s.removeListener(_onSession);
     widget.focusNode.removeListener(_onFocus);
     _s.focusChanged(false);
-    _ticker?.dispose();
+    _loop?.dispose();
     if (_surface != null) Surface.dispose();
     super.dispose();
   }
@@ -146,7 +145,7 @@ class _CanvasSurfaceState extends State<CanvasSurface>
         if (!mounted) return;
         setState(() => _surface = s);
         _drawnGen = -1;
-        (_ticker ??= createTicker(_tick)..start());
+        (_loop ??= DrawLoop(this, _draw)).wake();
       }
     } on PlatformException catch (e) {
       // 텍스처를 못 만들면 판이 비어 보인다. 편집은 그대로 된다.
@@ -158,20 +157,21 @@ class _CanvasSurfaceState extends State<CanvasSurface>
     }
   }
 
-  /// 프레임마다 바뀜 번호를 읽고, 바뀌었으면 그린다.
-  void _tick(Duration _) {
+  /// 바뀜 번호를 읽고, 바뀌었으면 그린다([DrawLoop]이 프레임마다 부른다). 그렸거나 다시 해야 하면 참.
+  bool _draw() {
     final s = _surface;
-    if (s == null) return;
+    if (s == null) return false;
     final gen = kariEditGen(_s.id);
-    if (gen == 0 || gen == _drawnGen) return;
+    if (gen == 0 || gen == _drawnGen) return false;
     final drawn = s.frame(
       (p) =>
           kariEditRenderAt(_s.id, p, s.width, s.height, s.stride, _dpr, 0, 0) ==
           0,
     );
-    if (!drawn) return; // 다음 프레임에 다시 그린다.
+    if (!drawn) return true; // 다음 프레임에 다시 그린다.
     _drawnGen = gen;
     CanvasSurface.debugDrawnGen = gen;
+    return true;
   }
 
   bool get _editing => _s.state?.text != null;

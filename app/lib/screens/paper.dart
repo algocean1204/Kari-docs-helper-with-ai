@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../design/tokens.dart';
@@ -83,7 +82,7 @@ class _PaperViewState extends State<PaperView>
 
   /// 가로 스크롤. 배율을 키워 쪽이 영역보다 넓을 때만 움직인다.
   final _hscroll = ScrollController();
-  Ticker? _ticker;
+  DrawLoop? _loop;
   Surface? _surface;
   bool _creating = false;
   Size _size = Size.zero;
@@ -180,7 +179,7 @@ class _PaperViewState extends State<PaperView>
     _s.removeListener(_onSession);
     widget.focusNode.removeListener(_onFocus);
     _blink?.cancel();
-    _ticker?.dispose();
+    _loop?.dispose();
     if (_surface != null) Surface.dispose();
     _scroll.dispose();
     _hscroll.dispose();
@@ -220,6 +219,7 @@ class _PaperViewState extends State<PaperView>
   }
 
   void _onScroll() {
+    _loop?.wake();
     _sendGeometry();
     _refreshMarks();
     setState(() {});
@@ -386,7 +386,7 @@ class _PaperViewState extends State<PaperView>
         if (!mounted) return;
         setState(() => _surface = s);
         _drawnGen = -1;
-        (_ticker ??= createTicker(_tick)..start());
+        (_loop ??= DrawLoop(this, _draw)).wake();
       }
     } on PlatformException catch (e) {
       // 텍스처를 못 만들면 종이가 비어 보인다. 편집은 그대로 된다.
@@ -398,26 +398,27 @@ class _PaperViewState extends State<PaperView>
     }
   }
 
-  /// 프레임마다 바뀜 번호를 읽고, 바뀌었거나 스크롤이 바뀌었으면 그린다.
-  void _tick(Duration _) {
+  /// 바뀜 번호를 읽고, 바뀌었거나 스크롤이 바뀌었으면 그린다([DrawLoop]이 프레임마다 부른다). 그렸거나 다시 해야 하면 참.
+  bool _draw() {
     final s = _surface;
-    if (s == null) return;
+    if (s == null) return false;
     final gen = kariEditGen(_s.id);
     final y = _offset;
     final x = _hOffset;
     if (gen == 0 || (gen == _drawnGen && y == _drawnScroll && x == _drawnX)) {
-      return;
+      return false;
     }
     final drawn = s.frame(
       (p) =>
           kariEditRenderAt(_s.id, p, s.width, s.height, s.stride, _dpr, x, y) ==
           0,
     );
-    if (!drawn) return; // 다음 프레임에 다시 그린다.
+    if (!drawn) return true; // 다음 프레임에 다시 그린다.
     _drawnGen = gen;
     PaperView.debugDrawnGen = gen;
     _drawnScroll = y;
     _drawnX = x;
+    return true;
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
