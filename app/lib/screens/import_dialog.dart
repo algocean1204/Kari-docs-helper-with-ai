@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../design/components.dart';
@@ -81,7 +83,15 @@ class _ImportDialogState extends State<ImportDialog> {
             actions: [
               AppButton(
                 '취소',
-                onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                onPressed: _saving
+                    ? null
+                    : () {
+                        // 아직 읽는 중이면(큰 PDF) 엔진의 읽기도 멈춘다.
+                        if (p == null && error == null) {
+                          unawaited(widget.library.engine.importCancel());
+                        }
+                        Navigator.of(context).pop();
+                      },
               ),
               AppButton(
                 '가져오기',

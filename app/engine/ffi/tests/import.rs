@@ -388,6 +388,8 @@ fn pdf로_내보낸_이력서를_미리_보고_가져오면_제목과_목록이_
     let original = std::fs::read(&out).unwrap();
     let assets = walk(&case.dir.join("assets")).len();
 
+    // 돌고 있는 읽기가 없을 때 멈추기는 아무 일도 하지 않고, 다음 읽기를 막지 않는다.
+    assert_eq!(ok("import.cancel", json!({})), Value::Null);
     let p = ok("import.preview", json!({"path": out}));
     assert_eq!(p["pages"], json!(1), "{p}");
     assert_eq!(

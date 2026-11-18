@@ -1,7 +1,7 @@
 //! 해로운 PDF 꾸러미(P1~P26). 견본은 모두 시험 안에서 바이트로 만든다(암호 견본만 qpdf로, 없으면 실패한다).
 //! 견본마다 이 시험 실행 파일을 자식 프로세스로 다시 띄워 그 안에서 읽힌다. 자식 안에서는 이 실행 파일에만 둔 셈하는
 //! 할당자(realloc 포함)로 최대 힙을 재고, 끝나면 자식의 최대 RSS(`getrusage`)를 부모가 받아 함께 본다. 자식은 하나씩
-//! 돈다. 시간 상한(2초)은 release 기준이라 debug 빌드에서는 힙과 RSS만 본다. P23(두 단 + 머리글·쪽 번호)은 Kari 내보내기
+//! 돈다. PDF 해석은 그 자식이 다시 띄우는 도우미(`kari-import-pdf-helper`)가 하고, 도우미의 최대 메모리도 함께 본다. 시간 상한(2초)은 release 기준이라 debug 빌드에서는 힙과 RSS만 본다. P23(두 단 + 머리글·쪽 번호)은 Kari 내보내기
 //! 왕복이라 `pdf.rs`에 있다.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use kari_import::pdf::{
-    BROKEN, LOCKED, NO_TEXT, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS, UNMAPPED,
+    BROKEN, LOCKED, NO_TEXT, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS, TOO_SLOW, UNMAPPED,
 };
 use kari_import::{import, Imported, EMPTY, TOO_LARGE, TOO_MANY_PARAS};
 
@@ -61,8 +61,14 @@ fn take(pdf: &[u8]) -> Result<Imported, &'static str> {
     let got = import(pdf, (481.9, 728.5), &mut |_| None);
     let took = t.elapsed();
     let peak = PEAK.load(Relaxed) - base;
-    eprintln!("{took:?}, 최대 힙 증가 {}MB", peak >> 20);
+    let helper = kari_import::pdf::last_peak();
+    eprintln!(
+        "{took:?}, 최대 힙 증가 {}MB, 도우미 최대 메모리 {}MB",
+        peak >> 20,
+        helper >> 20
+    );
     assert!(peak < HEAP, "{}MB", peak >> 20);
+    assert!(helper <= HEAP as u64, "도우미 {}MB", helper >> 20);
     assert!(cfg!(debug_assertions) || took < LIMIT, "{took:?}");
     got
 }
@@ -82,20 +88,24 @@ macro_rules! here {
 
 const CHILD: &str = "KARI_PDF_CASE";
 
-/// 자식 안에서 끝날 때 최대 RSS를 적는다.
+/// 자식 안에서 끝날 때 자기의 최대 RSS와, 거둔 도우미들 가운데 가장 큰 최대 RSS를 적는다.
 struct Rss;
 
 impl Drop for Rss {
     fn drop(&mut self) {
-        println!("\nKARI_RSS {}", max_rss());
+        println!(
+            "\nKARI_RSS {} {}",
+            max_rss(libc::RUSAGE_SELF),
+            max_rss(libc::RUSAGE_CHILDREN)
+        );
     }
 }
 
-/// 이 프로세스의 최대 RSS(바이트).
-fn max_rss() -> usize {
+/// 이 프로세스(`RUSAGE_SELF`)나 거둔 자식들(`RUSAGE_CHILDREN`)의 최대 RSS(바이트).
+fn max_rss(who: libc::c_int) -> usize {
     // SAFETY: rusage는 정수 칸뿐이라 0으로 채워도 되고, getrusage는 그 자리에 쓰기만 한다.
     let mut u: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    unsafe { libc::getrusage(who, &mut u) };
     let v = u.ru_maxrss as usize;
     if cfg!(target_os = "macos") {
         v
@@ -108,6 +118,7 @@ fn max_rss() -> usize {
 /// 보고 `None`.
 fn child(name: &str) -> Option<Rss> {
     if std::env::var(CHILD).as_deref() == Ok(name) {
+        kari_import::pdf::set_helper(env!("CARGO_BIN_EXE_kari-import-pdf-helper"));
         return Some(Rss);
     }
     let _l = lock();
@@ -119,19 +130,24 @@ fn child(name: &str) -> Option<Rss> {
     let text = String::from_utf8_lossy(&out.stdout);
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{name}:\n{text}\n{err}");
-    let rss: usize = text
+    let (rss, helper): (usize, usize) = text
         .lines()
-        .find_map(|l| l.split("KARI_RSS ").nth(1)?.trim().parse().ok())
+        .find_map(|l| {
+            let mut v = l.split("KARI_RSS ").nth(1)?.split_whitespace();
+            Some((v.next()?.parse().ok()?, v.next()?.parse().ok()?))
+        })
         .unwrap_or_else(|| panic!("{name}: 자식이 RSS를 적지 않았다\n{text}"));
     eprintln!(
-        "{name}: {}자식 최대 RSS {}MB",
+        "{name}: {} 자식 최대 RSS {}MB, 도우미 최대 RSS {}MB",
         err.lines()
             .filter(|l| l.contains("최대 힙"))
             .collect::<Vec<_>>()
             .join(", "),
-        rss >> 20
+        rss >> 20,
+        helper >> 20
     );
     assert!(rss <= HEAP, "{name}: 자식 최대 RSS {}MB", rss >> 20);
+    assert!(helper <= HEAP, "{name}: 도우미 최대 RSS {}MB", helper >> 20);
     None
 }
 
@@ -932,7 +948,13 @@ fn 원소_400만_개짜리_tj는_그_쪽을_읽지_않는다() {
 
 /// 정수 `ints`개짜리 배열(6번, 카탈로그가 가리킴)과, 같은 자리를 가리키는 상호 참조 항목 `dups`개를 더한 파일.
 fn big_array(ints: usize, dups: usize) -> Vec<u8> {
-    let objs = [
+    array_file(ints, b"", |at| vec![at; dups])
+}
+
+/// 1~5, 7번은 글 쪽 하나, 6번은 정수 `ints`개짜리 배열(카탈로그가 가리킴). `gap`은 6번 앞의 틈에 끼우는 바이트.
+/// `extra(6번의 자리)`는 상호 참조 표에 더하는 항목(뒤 번호)의 자리들.
+fn array_objects(ints: usize) -> [Vec<u8>; 7] {
+    [
         b"<< /Type /Catalog /Pages 2 0 R /Junk 6 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
         b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>"
@@ -941,24 +963,33 @@ fn big_array(ints: usize, dups: usize) -> Vec<u8> {
         b"<< /Font << /F1 7 0 R >> >>".to_vec(),
         format!("[{}]", "0 ".repeat(ints)).into_bytes(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
-    ];
-    let mut out = b"%PDF-1.7\n".to_vec();
+    ]
+}
+
+/// 객체들을 적고 자리들을 돌려준다. `gap`은 6번 앞의 틈.
+fn write_objects(out: &mut Vec<u8>, objs: &[Vec<u8>], gap: &[u8]) -> Vec<usize> {
     let mut at = Vec::new();
     for (i, o) in objs.iter().enumerate() {
+        if i == 5 {
+            out.extend(gap);
+        }
         at.push(out.len());
         out.extend(format!("{} 0 obj\n", i + 1).bytes());
         out.extend(o);
         out.extend(b"\nendobj\n");
     }
-    let n = objs.len() + 1 + dups;
+    at
+}
+
+fn array_file(ints: usize, gap: &[u8], extra: impl Fn(usize) -> Vec<usize>) -> Vec<u8> {
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let at = write_objects(&mut out, &array_objects(ints), gap);
+    let more = extra(at[5]);
+    let n = at.len() + 1 + more.len();
     let xref = out.len();
     out.extend(format!("xref\n0 {n}\n0000000000 65535 f \n").bytes());
-    for a in &at {
+    for a in at.iter().chain(&more) {
         out.extend(format!("{a:010} 00000 n \n").bytes());
-    }
-    // 더한 항목은 모두 6번 객체의 자리를 가리킨다.
-    for _ in 0..dups {
-        out.extend(format!("{:010} 00000 n \n", at[5]).bytes());
     }
     out.extend(format!("trailer\n<< /Size {n} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").bytes());
     out
@@ -997,4 +1028,191 @@ fn 큰_정수_배열을_든_암호_pdf도_읽기_전에_거절한다() {
     ]);
     let pdf = std::fs::read(&out).unwrap();
     refused(take(&pdf));
+}
+
+// 읽기 전 셈을 우회하던 견본 여섯. 셈이 파서와 다르게 바이트를 읽어 큰 것을 숨기거나, 같은 객체를 여러 번 파싱시킨다.
+// 도우미가 메모리·시간 상한에서 끝나거나 거절하고, 이 프로세스(부모)의 힙은 파일 크기 × 4 + 64MB 안이어야 한다.
+
+fn bypass(pdf: &[u8]) {
+    let base = NOW.load(Relaxed);
+    let got = take(pdf);
+    let peak = PEAK.load(Relaxed) - base;
+    eprintln!("{}KB 파일, 부모 힙 증가 {}MB", pdf.len() >> 10, peak >> 20);
+    assert!(
+        peak <= pdf.len() * 4 + (64 << 20),
+        "부모 힙 {}MB",
+        peak >> 20
+    );
+    let e = got.expect_err("거절해야 한다");
+    assert!(e == TOO_BIG || e == TOO_SLOW || e == BROKEN, "{e}");
+}
+
+#[test]
+fn 내용_스트림의_낱말_stream_뒤에_숨긴_400만_원소_tj() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    let tj = format!(
+        "BT /F1 12 Tf 72 700 Td stream [{}(Kari)] TJ ET",
+        "0 ".repeat(4_000_000)
+    );
+    let c = flate("", tj.as_bytes());
+    drop(tj);
+    let pdf = doc(&[c], &[], "", Vec::new());
+    assert!(pdf.len() < 64 << 10, "{}", pdf.len());
+    bypass(&pdf);
+}
+
+#[test]
+fn 객체_사이_틈의_stream_뒤에_숨긴_정수_400만_배열() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    bypass(&array_file(4_000_000, b"stream\n", |_| Vec::new()));
+}
+
+#[test]
+fn 객체_묶음의_틈에_연_괄호로_숨긴_정수_50만_배열_100개() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 머리는 객체 하나(번호 1000)가 자리 2에 있다고 적는다. 자리 0의 `(`는 셈에게는 끝나지 않는 글이다.
+    let head = "1000 2 ";
+    let body = format!("{head}( [{}]", "0 ".repeat(499_990));
+    let packed = zlib(body.as_bytes());
+    drop(body);
+    let more: Vec<Vec<u8>> = (0..100)
+        .map(|_| {
+            stream(
+                &format!(
+                    "/Type /ObjStm /N 1 /First {} /Filter /FlateDecode",
+                    head.len()
+                ),
+                &packed,
+            )
+        })
+        .collect();
+    let pdf = doc(&[page(&text(72, 700, "Kari"))], &[], "", more);
+    assert!(pdf.len() < 1 << 20, "{}", pdf.len());
+    bypass(&pdf);
+}
+
+#[test]
+fn 객체_묶음_머리_400쌍이_모두_같은_자리를_가리킨다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    let head: String = (0..400).map(|i| format!("{} 0 ", 1000 + i)).collect();
+    let body = format!("{head}[{}]", "0 ".repeat(8000));
+    let objstm = stream(
+        &format!(
+            "/Type /ObjStm /N 400 /First {} /Filter /FlateDecode",
+            head.len()
+        ),
+        &zlib(body.as_bytes()),
+    );
+    let pdf = doc(&[page(&text(72, 700, "Kari"))], &[], "", vec![objstm]);
+    assert!(pdf.len() < 4 << 10, "{}", pdf.len());
+    bypass(&pdf);
+}
+
+#[test]
+fn 공백을_덧댄_서로_다른_자리_2000개가_같은_배열을_가리킨다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    // 6번 앞에 공백 2,000개. 더한 항목은 그 공백 안의 서로 다른 자리라 적힌 자리를 견주는 검사는 지나친다.
+    let pdf = array_file(100_000, &[b' '; 2000], |at| {
+        (1..=2000).map(|k| at - k).collect()
+    });
+    assert!(pdf.len() < 256 << 10, "{}", pdf.len());
+    bypass(&pdf);
+}
+
+#[test]
+fn 압축한_상호_참조_스트림의_300항목이_같은_배열을_가리킨다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let at = write_objects(&mut out, &array_objects(100_000), b"");
+    let me = out.len();
+    // 항목: 0번(빈 칸), 1~7번, 8번(이 스트림), 그 뒤 300개는 모두 6번의 자리. W [1 4 1].
+    let row = |kind: u8, off: usize, gen: u8| {
+        let mut r = vec![kind];
+        r.extend((off as u32).to_be_bytes());
+        r.push(gen);
+        r
+    };
+    let mut rows = row(0, 0, 255);
+    for &a in at
+        .iter()
+        .chain([&me])
+        .chain(std::iter::repeat_n(&at[5], 300))
+    {
+        rows.extend(row(1, a, 0));
+    }
+    let n = at.len() + 2 + 300;
+    out.extend(format!("{} 0 obj\n", at.len() + 1).bytes());
+    out.extend(flate(
+        &format!("/Type /XRef /Size {n} /W [1 4 1] /Root 1 0 R"),
+        &rows,
+    ));
+    out.extend(format!("\nendobj\nstartxref\n{me}\n%%EOF\n").bytes());
+    assert!(out.len() < 256 << 10, "{}", out.len());
+    bypass(&out);
+}
+
+/// 이 프로세스에 거두지 않은 자식이 없다(도우미를 끝낸 뒤 좀비를 남기지 않는다).
+fn no_children() {
+    // SAFETY: 상태를 받지 않고 기다리지 않는 조회.
+    let r = unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) };
+    assert_eq!(r, -1, "거두지 않은 자식 {r}");
+}
+
+#[test]
+fn 멈춰_있는_도우미는_시간_상한에서_끝내고_거둔다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    std::env::set_var("KARI_TEST_HELPER_HANG", "1");
+    // 파이프에 다 들어가지 않는 입력(도우미가 읽지 않아 쓰기가 막힌다).
+    let mut pdf = kari();
+    pdf.extend(vec![b' '; 1 << 20]);
+    let t = Instant::now();
+    let e = import(&pdf, (481.9, 728.5), &mut |_| None).unwrap_err();
+    let took = t.elapsed();
+    eprintln!("시간 상한: {took:?}");
+    assert_eq!(e, TOO_SLOW);
+    assert!(
+        took >= kari_import::pdf::MAX_TIME && took < LIMIT,
+        "{took:?}"
+    );
+    no_children();
+}
+
+#[test]
+fn 멈추기는_도우미를_1초_안에_끝낸다() {
+    let Some(_rss) = child(here!()) else {
+        return;
+    };
+    std::env::set_var("KARI_TEST_HELPER_HANG", "1");
+    let mut pdf = kari();
+    pdf.extend(vec![b' '; 1 << 20]);
+    let reading = std::thread::spawn(move || {
+        let got = import(&pdf, (481.9, 728.5), &mut |_| None).map(|_| ());
+        (got, Instant::now())
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let asked = Instant::now();
+    kari_import::pdf::cancel();
+    let (got, done) = reading.join().unwrap();
+    let took = done - asked;
+    eprintln!("멈추기: {took:?}");
+    assert_eq!(got.unwrap_err(), kari_import::pdf::CANCELLED);
+    assert!(took < Duration::from_secs(1), "{took:?}");
+    no_children();
+    // 멈춘 뒤의 읽기는 그대로 된다.
+    std::env::remove_var("KARI_TEST_HELPER_HANG");
+    assert_eq!(texts(&take(&kari()).unwrap()), ["Kari"]);
 }

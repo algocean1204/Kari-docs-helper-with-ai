@@ -199,6 +199,8 @@ class FakeEngine extends EngineApi {
             imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
+      case 'import.cancel':
+        return null;
       case 'import.apply':
         final p =
             imports[a['path']] ??

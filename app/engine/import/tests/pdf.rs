@@ -29,7 +29,24 @@ const META: kari_pdf::Meta = kari_pdf::Meta {
 };
 
 fn run(bytes: &[u8]) -> Result<Imported, &'static str> {
-    import(bytes, BODY, &mut |_| None)
+    pdf::set_helper(env!("CARGO_BIN_EXE_kari-import-pdf-helper"));
+    let t = Instant::now();
+    let got = import(bytes, BODY, &mut |_| None);
+    eprintln!(
+        "{}KB 읽기 {:?}, 도우미 최대 RSS(지금까지) {}MB",
+        bytes.len() >> 10,
+        t.elapsed(),
+        helper_rss() >> 20
+    );
+    got
+}
+
+/// 거둔 도우미들 가운데 가장 큰 최대 RSS(바이트).
+fn helper_rss() -> usize {
+    // SAFETY: rusage는 정수 칸뿐이라 0으로 채워도 되고, getrusage는 그 자리에 쓰기만 한다.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_CHILDREN, &mut u) };
+    u.ru_maxrss as usize * if cfg!(target_os = "macos") { 1 } else { 1024 }
 }
 
 /// 견본의 덩이. 원본 문서를 만들고, 가져온 결과를 같은 꼴로 바꿔 견준다.

@@ -26,6 +26,10 @@ pub const TOO_MANY_SPANS: &str = "글 조각이 너무 많은 PDF는 가져올 �
 pub const NO_TEXT: &str = "스캔한 PDF라 글이 없습니다.";
 pub const UNMAPPED: &str = "글꼴에 글자 표가 없어 글을 읽을 수 없는 PDF입니다.";
 pub const TOO_BIG: &str = "내용이 너무 큰 PDF는 가져올 수 없습니다.";
+pub const TOO_SLOW: &str = "읽는 데 너무 오래 걸리는 PDF는 가져올 수 없습니다.";
+pub const CANCELLED: &str = "PDF 읽기를 멈췄습니다.";
+
+pub use crate::pdfhelper::{cancel, helper_main, last_peak, set_helper, MAX_MEMORY, MAX_TIME};
 
 /// 표의 최대 행·열(붙여넣기와 같다). 행이 넘으면 다음 표로 나눈다.
 const MAX_ROWS: usize = 50;
@@ -103,7 +107,7 @@ impl Ln {
 
 pub(crate) fn read(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<FragPara>, usize), &'static str> {
     catch_unwind(AssertUnwindSafe(|| {
-        let (pages, n) = load(bytes, cx, MAX_SPANS)?;
+        let (pages, n) = load(bytes, cx)?;
         #[cfg(test)]
         if tests::PANIC.get() {
             panic!("시험용 멈춤");
@@ -114,8 +118,9 @@ pub(crate) fn read(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<FragPara>, usize),
 }
 
 /// 쪽마다 글 조각. 그림·도형·글이 없는 쪽·읽지 못한 쪽은 센다. (쪽들, 쪽 수).
-fn load(bytes: &[u8], cx: &mut Ctx, max_spans: usize) -> Result<(Vec<Page>, usize), &'static str> {
-    let read = crate::pdftext::read(bytes, &mut cx.rep, MAX_PAGES, max_spans)?;
+/// 파일 해석은 따로 된 프로세스(`pdfhelper`)에서 한다.
+fn load(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<Page>, usize), &'static str> {
+    let read = crate::pdfhelper::read(bytes, &mut cx.rep)?;
     let n = read.pages.len();
     let mut pages = Vec::with_capacity(n);
     for pt in read.pages {
@@ -1129,7 +1134,6 @@ mod tests {
     use super::*;
     use crate::{import, Imported, Report};
     use std::cell::Cell;
-    use std::collections::HashMap;
 
     thread_local! {
         /// 시험용: 읽은 뒤 멈춘다.
@@ -1358,18 +1362,10 @@ mod tests {
         let pages = vec![""; MAX_PAGES + 1];
         assert_eq!(run(&pdf(&pages)).unwrap_err(), TOO_MANY_PAGES);
         let page = text(72, 700, "A") + &text(72, 600, "B") + &text(72, 500, "C");
-        let mut store = |_: &[u8]| None;
-        let mut cx = Ctx {
-            store: &mut store,
-            images: 0,
-            bytes: 0,
-            rep: Report::default(),
-            body: (481.9, 728.5),
-            seen: HashMap::new(),
-        };
         let b = pdf(&[&page]);
-        assert_eq!(load(&b, &mut cx, 2).err(), Some(TOO_MANY_SPANS));
-        assert!(load(&b, &mut cx, 3).is_ok());
+        let read = |n| crate::pdftext::read(&b, &mut Report::default(), MAX_PAGES, n).map(|_| ());
+        assert_eq!(read(2).err(), Some(TOO_MANY_SPANS));
+        assert!(read(3).is_ok());
     }
 
     #[test]

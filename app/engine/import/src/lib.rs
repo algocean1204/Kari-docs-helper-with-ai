@@ -11,6 +11,7 @@ mod docx;
 mod html;
 mod hwpx;
 pub mod pdf;
+mod pdfhelper;
 mod pdftext;
 mod xml;
 mod zip;

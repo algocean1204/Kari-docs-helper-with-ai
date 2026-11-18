@@ -11,10 +11,17 @@ kari-edit = { path = "../edit" }
 miniz_oxide = "0.9"
 # PDF 파일 구조 읽기(상호 참조, 압축 풀기, 암호 풀기). 기본 기능(rayon 병렬, chrono 시각)은 끈다. 순수 Rust.
 lopdf = { version = "=0.47.0", default-features = false }
+# PDF를 읽는 도우미 프로세스의 메모리 재기(Mach 태스크 정보, /proc)와 CPU 시간 상한. 이미 쓰는 판이라 새로 빌드되는 것은 없다.
+libc = "0.2"
 
 [dev-dependencies]
 # 시험의 견본 PDF를 Kari의 PDF 내보내기로 만든다(작업 공간 안의 크레이트).
 kari-layout = { path = "../layout" }
 kari-pdf = { path = "../pdf" }
-# 해로운 PDF 시험이 자식 프로세스의 최대 RSS를 잰다(getrusage). 이미 쓰는 판이라 새로 빌드되는 것은 없다.
-libc = "0.2"
+
+# 시험이 쓰는 PDF 도우미(앱에서는 앱의 실행 파일이 이 일을 한다).
+[[bin]]
+name = "kari-import-pdf-helper"
+path = "src/bin/pdf_helper.rs"
+test = false
+doc = false

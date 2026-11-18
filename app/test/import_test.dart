@@ -129,6 +129,32 @@ void main() {
     expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
   });
 
+  testWidgets('읽는 중에 취소하면 엔진의 읽기도 멈추고, 다 읽은 뒤의 취소는 멈추지 않는다', (tester) async {
+    final rig = await pumpReal(tester, seed: false);
+    rig.fake.imports[_path] = _preview;
+    rig.importPath = () async => _path;
+    final reading = Completer<void>();
+    rig.fake.waits['import.preview'] = reading.future;
+    await tester.tap(find.text('가져오기…'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ImportDialog), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '취소'));
+    await tester.pump();
+    expect(rig.fake.sent.where((m) => m == 'import.cancel'), hasLength(1));
+    reading.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(ImportDialog), findsNothing);
+
+    rig.fake.waits.remove('import.preview');
+    await tester.tap(find.text('가져오기…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '취소'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.sent.where((m) => m == 'import.cancel'), hasLength(1));
+    expect(rig.fake.docs, isEmpty);
+  });
+
   testWidgets('읽지 못하는 파일은 까닭을 보이고 가져오기가 꺼진다', (tester) async {
     final rig = await _pick(tester, known: false);
     expect(find.text('파일을 읽지 못했습니다. (import)'), findsOneWidget);
