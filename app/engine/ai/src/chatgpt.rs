@@ -136,13 +136,21 @@ pub struct Hints<'a> {
 /// 브라우저를 기다리는 로그인 시도 하나. `url`을 기본 브라우저로 연 뒤 [`Auth::finish`]에 넘긴다.
 pub struct Pending {
     pub url: String,
-    listener: TcpListener,
+    /// [`Auth::finish`]가 끝나면 닫는다(돌아오는 요청은 한 번만 받는다).
+    listener: Option<TcpListener>,
     redirect: String,
     state: String,
     nonce: String,
     verifier: String,
-    /// 다시 로그인이면 저장해 둔 발급 client id. 처음 등록이면 없다.
+    /// 다시 로그인이면 저장해 둔 발급 client id. 처음 등록이면 없다가 돌아온 주소가 준 발급 id로 채운다.
     client_id: Option<String>,
+}
+
+impl Pending {
+    /// 이 시도의 발급 client id. 처음 등록에서 코드 교환이 실패해도(`invalid_grant`) 다음 시도는 이 id로 한다.
+    pub fn client_id(&self) -> Option<&str> {
+        self.client_id.as_deref()
+    }
 }
 
 impl fmt::Debug for Pending {
@@ -236,7 +244,7 @@ impl Auth {
         let url = format!("{}/api/accounts/authorize?{}", self.issuer, query.join("&"));
         Ok(Pending {
             url,
-            listener,
+            listener: Some(listener),
             redirect,
             state,
             nonce,
@@ -249,18 +257,23 @@ impl Auth {
     /// 받은 권한에 ChatGPT 플랜 사용이 없어도 자격을 돌려준다(`plan_allowed`로 본다).
     pub fn finish(
         &self,
-        p: Pending,
+        p: &mut Pending,
         cancel: &AtomicBool,
         timeout: Duration,
     ) -> Result<Creds, AiError> {
-        let (mut stream, query) = wait_callback(&p.listener, &p.state, cancel, timeout)?;
-        let result = self.complete(&p, &query);
+        let listener = p
+            .listener
+            .take()
+            .ok_or_else(|| AiError::SignIn("이미 끝난 로그인 시도다".into()))?;
+        let (mut stream, query) = wait_callback(&listener, &p.state, cancel, timeout)?;
+        drop(listener);
+        let result = self.complete(p, &query);
         let page = if result.is_ok() { DONE_PAGE } else { FAIL_PAGE };
         let _ = respond(&mut stream, 200, page);
         result
     }
 
-    fn complete(&self, p: &Pending, q: &HashMap<String, String>) -> Result<Creds, AiError> {
+    fn complete(&self, p: &mut Pending, q: &HashMap<String, String>) -> Result<Creds, AiError> {
         // state를 먼저 본다(오류로 돌아왔어도).
         if q.get("state") != Some(&p.state) {
             return Err(AiError::SignIn("돌아온 state가 맞지 않는다".into()));
@@ -290,6 +303,7 @@ impl Auth {
                 ))
             }
         };
+        p.client_id = Some(client_id.clone());
         let tok = self.token(&[
             ("grant_type", "authorization_code"),
             ("client_id", &client_id),
@@ -300,15 +314,25 @@ impl Auth {
         ])?;
         let id_token = need(&tok, "id_token")?;
         let claims = self.verify(&id_token, &client_id, &p.nonce)?;
+        // 받은 권한은 토큰 응답의 scope로 본다. 요청과 같으면 빼도 되므로(RFC 6749 5.1) 없으면 돌아온 주소의 scope.
+        let scopes = scopes(&tok["scope"])
+            .or_else(|| scopes(&json!(q.get("scope"))))
+            .unwrap_or_default();
+        // 갱신 토큰(offline_access)은 플랜 사용 쪽 권한이라, 플랜을 허락하지 않았으면 오지 않을 수 있다.
+        let refresh_token = if scopes.iter().any(|s| s == PLAN_SCOPE) {
+            need(&tok, "refresh_token")?
+        } else {
+            tok["refresh_token"].as_str().unwrap_or("").to_string()
+        };
         Ok(Creds {
             client_id,
             subject: claims["sub"].as_str().unwrap_or("").to_string(),
             email: claims["email"].as_str().map(str::to_string),
             id_token,
             access_token: need(&tok, "access_token")?,
-            refresh_token: need(&tok, "refresh_token")?,
-            expires_at: now() + tok["expires_in"].as_u64().unwrap_or(3600),
-            scopes: scopes(&tok).unwrap_or_default(),
+            refresh_token,
+            expires_at: expiry(&tok),
+            scopes,
         })
     }
 
@@ -326,8 +350,8 @@ impl Auth {
         if let Some(r) = tok["refresh_token"].as_str().filter(|r| !r.is_empty()) {
             n.refresh_token = r.to_string();
         }
-        n.expires_at = now() + tok["expires_in"].as_u64().unwrap_or(3600);
-        if let Some(s) = scopes(&tok) {
+        n.expires_at = expiry(&tok);
+        if let Some(s) = scopes(&tok["scope"]) {
             n.scopes = s;
         }
         Ok(n)
@@ -401,6 +425,8 @@ impl Auth {
             | "refresh_token_expired"
             | "refresh_token_invalidated"
             | "refresh_token_reused" => AiError::SignedOut,
+            // 발급 id 자체를 받지 않는다: 같은 id로 다시 로그인해도 같으므로 새로 등록해야 한다.
+            "invalid_client" => AiError::ClientRejected,
             _ if status >= 500 => AiError::Server(status),
             c => AiError::SignIn(format!("토큰 요청이 거절됐다(HTTP {status} {})", short(c))),
         })
@@ -453,23 +479,31 @@ impl Auth {
         if header.get("crit").is_some() {
             return Err(bad("모르는 crit 머리가 있다"));
         }
+        // JWKS는 확인할 때마다 새로 받는다(로그인 때만 하므로 따로 담아 두지 않는다). 그래서 키가 바뀌어도 모르는 kid가 없다.
         let jwks = self.get_json(&self.endpoint(&self.discovery()?, "jwks_uri")?)?;
         let kid = header["kid"].as_str();
-        let key = jwks["keys"]
+        let keys: Vec<&Value> = jwks["keys"]
             .as_array()
             .into_iter()
             .flatten()
-            .find(|k| {
+            .filter(|k| {
                 k["kty"] == "RSA"
                     && (kid.is_none() || k["kid"].as_str() == kid)
                     && (k["use"].is_null() || k["use"] == "sig")
                     && (k["alg"].is_null() || k["alg"] == "RS256")
             })
-            .ok_or_else(|| bad("서명 키를 찾지 못했다"))?;
-        let n = b64(&key["n"]).ok_or_else(|| bad("키를 읽지 못했다"))?;
-        let e = b64(&key["e"]).ok_or_else(|| bad("키를 읽지 못했다"))?;
+            .collect();
+        if keys.is_empty() {
+            return Err(bad("서명 키를 찾지 못했다"));
+        }
         let sig = B64.decode(s).map_err(|_| bad("서명을 읽지 못했다"))?;
-        if !rs256(&n, &e, format!("{h}.{p}").as_bytes(), &sig) {
+        let signed = format!("{h}.{p}");
+        // kid가 없으면 키를 바꾸는 동안 함께 둔 키가 여럿일 수 있어 하나씩 해 본다.
+        let ok = keys.iter().any(|k| match (b64(&k["n"]), b64(&k["e"])) {
+            (Some(n), Some(e)) => rs256(&n, &e, signed.as_bytes(), &sig),
+            _ => false,
+        });
+        if !ok {
             return Err(bad("서명이 맞지 않는다"));
         }
         let c = b64_json(p).ok_or_else(|| bad("내용을 읽지 못했다"))?;
@@ -492,7 +526,7 @@ impl Auth {
             return Err(bad("발급 시각이 없다"));
         }
         match c["exp"].as_u64() {
-            Some(exp) if exp + SKEW > now() => {}
+            Some(exp) if exp.saturating_add(SKEW) > now() => {}
             _ => return Err(bad("만료됐다")),
         }
         if !c["nbf"].is_null() && c["nbf"].as_u64().is_none_or(|nbf| nbf > now() + SKEW) {
@@ -723,11 +757,16 @@ fn need(tok: &Value, k: &str) -> Result<String, AiError> {
         .ok_or_else(|| AiError::Protocol(format!("토큰 응답에 {k}가 없다")))
 }
 
-/// 토큰 응답의 `scope`(빈칸으로 나눔). 없으면 `None`.
-fn scopes(tok: &Value) -> Option<Vec<String>> {
-    tok["scope"]
+/// `scope` 값(빈칸으로 나눔). 없으면 `None`.
+fn scopes(scope: &Value) -> Option<Vec<String>> {
+    scope
         .as_str()
         .map(|s| s.split_whitespace().map(str::to_string).collect())
+}
+
+/// 접근 토큰이 끝나는 때. 받은 때의 이 기기 시계로 센다(서버와 시계가 달라도 된다). 아주 긴 값도 넘치지 않는다.
+fn expiry(tok: &Value) -> u64 {
+    now().saturating_add(tok["expires_in"].as_u64().unwrap_or(3600))
 }
 
 fn fill(b: &mut [u8]) -> Result<(), AiError> {

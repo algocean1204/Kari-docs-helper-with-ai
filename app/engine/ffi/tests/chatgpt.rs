@@ -349,6 +349,105 @@ mod hooked {
         );
     }
 
+    /// 처음 등록에서 코드 교환이 `invalid_grant`면 그 코드는 버리고, 다음 시도는 돌아온 발급 id로 한다(새로 등록하지 않는다).
+    #[test]
+    fn invalid_grant_keeps_the_issued_client() {
+        let _case = start("invalid-grant");
+        let (srv, tx) = serve_later();
+        ok("ai.testBase", json!({"url": srv.url}));
+        let url = ok("ai.chatgptBegin", json!({}))["url"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(param(&url, "client_id").unwrap(), "dynamic_agent_client");
+        tx.send(vec![reply(400, r#"{"error":"invalid_grant"}"#)])
+            .unwrap();
+        let back = callback(&url, &good(&url));
+        let b = thread::spawn(move || browse(&back));
+        let r = call("ai.chatgptWait", json!({"timeoutMs": 10_000}));
+        b.join().unwrap();
+        assert_eq!(r["err"]["code"], "signed_out", "{r}");
+        assert_eq!(openai_row()["plan"]["connected"], false);
+        let url = ok("ai.chatgptBegin", json!({}))["url"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(param(&url, "client_id").unwrap(), CLIENT);
+        assert_eq!(param(&url, "agent_name_hint"), None);
+        ok("ai.chatgptCancel", json!({}));
+    }
+
+    /// 인증 서버가 발급 id를 받지 않으면(`invalid_client`, 갱신이든 코드 교환이든) 그 등록을 잊는다: 다음 시도는
+    /// 그 id와 그 계정의 힌트 없이 처음 등록으로 간다. 호스트 id는 그대로다.
+    #[test]
+    fn invalid_client_forgets_the_registration() {
+        let _case = start("invalid-client");
+        let invalid = || reply(400, r#"{"error":"invalid_client"}"#);
+        // 갱신에서: 401 → 갱신 → invalid_client.
+        let (r, _, first) = sign_in(oauth::SCOPES, good, |_| {
+            vec![
+                reply(401, r#"{"error":{"code":"invalid_api_key"}}"#),
+                invalid(),
+            ]
+        });
+        assert!(r.get("ok").is_some(), "{r}");
+        let host = param(&first, "ext_agent_host_id").unwrap();
+        let e = err(
+            "ai.place",
+            json!({"summary": "{}", "instruction": "오른쪽 빈 곳에"}),
+        );
+        assert_eq!(e["code"], "signin", "{e}");
+        assert_eq!(openai_row()["plan"]["connected"], false);
+        let fresh = |host: &str| {
+            let url = ok("ai.chatgptBegin", json!({}))["url"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(param(&url, "client_id").unwrap(), "dynamic_agent_client");
+            assert_eq!(param(&url, "agent_name_hint").unwrap(), "Kari");
+            assert_eq!(param(&url, "id_token_hint"), None);
+            assert_eq!(param(&url, "login_hint"), None);
+            assert_eq!(param(&url, "ext_agent_host_id").unwrap(), host);
+            ok("ai.chatgptCancel", json!({}));
+        };
+        fresh(&host);
+
+        // 코드 교환에서: 새로 등록해 연결한 뒤, 그 발급 id로 다시 로그인하는데 invalid_client.
+        let (r, _, _) = sign_in(oauth::SCOPES, good, |_| Vec::new());
+        assert!(r.get("ok").is_some(), "{r}");
+        let (srv, tx) = serve_later();
+        ok("ai.testBase", json!({"url": srv.url}));
+        let url = ok("ai.chatgptBegin", json!({}))["url"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(param(&url, "client_id").unwrap(), CLIENT);
+        tx.send(vec![invalid()]).unwrap();
+        let back = callback(&url, &good(&url));
+        let b = thread::spawn(move || browse(&back));
+        let r = call("ai.chatgptWait", json!({"timeoutMs": 10_000}));
+        b.join().unwrap();
+        assert_eq!(r["err"]["code"], "signin", "{r}");
+        assert_eq!(openai_row()["plan"]["connected"], false);
+        fresh(&host);
+    }
+
+    /// 플랜의 입장 단계가 403(`{"detail": …}`, 지역 같은 정책)이면 키의 권한 문제가 아니라 플랜의 제한으로 알린다.
+    #[test]
+    fn plan_admission_403_is_a_plan_error() {
+        let _case = start("forbidden");
+        let (r, _, _) = sign_in(oauth::SCOPES, good, |_| {
+            vec![reply(403, r#"{"detail":"region"}"#)]
+        });
+        assert!(r.get("ok").is_some(), "{r}");
+        let e = err(
+            "ai.place",
+            json!({"summary": "{}", "instruction": "오른쪽 빈 곳에"}),
+        );
+        assert_eq!(e["code"], "plan", "{e}");
+        assert!(!e["message"].as_str().unwrap().contains("키"), "{e}");
+    }
+
     /// 플랜만 연결한 사람의 Figma 자리 정하기도 플랜으로 간다(키가 없다고 실패하지 않는다).
     #[test]
     fn place_uses_the_plan_without_a_key() {
