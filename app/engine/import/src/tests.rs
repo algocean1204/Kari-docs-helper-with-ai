@@ -568,6 +568,14 @@ fn docx_아주_긴_글은_문단_상한에서_나누고_알린다() {
 }
 
 #[test]
+fn 앞부분에_pdf_표시가_든_꾸러미도_꾸러미로_읽는다() {
+    let z = zip(&[("a.html", b"<p>%PDF-1.7 Kari</p>".as_slice(), false)]);
+    let got = run(&z).unwrap();
+    assert_eq!(got.pages, None);
+    assert_eq!(text_of(&got.fragment.paras[0]), "%PDF-1.7 Kari");
+}
+
+#[test]
 fn 너무_크거나_깊은_html은_그_까닭을_알린다() {
     let deep = "<div>".repeat(600) + "글";
     let e = run(deep.as_bytes()).err().unwrap();

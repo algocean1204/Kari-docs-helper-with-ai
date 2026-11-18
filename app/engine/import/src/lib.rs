@@ -3,9 +3,9 @@
 //!
 //! 화면, 파일, DB, 스레드를 모른다. 바이트를 받아 조각과 옮기지 못한 것의 목록을 돌려준다. 그림 바이트는 부르는 쪽이
 //! 검사해 에셋으로 저장하고 해시를 돌려준다. 아무것도 실행하지 않고, 네트워크의 그림을 내려받지 않는다.
-//! 형식은 확장자가 아니라 내용으로 가린다: 처음 1KB에 `%PDF-`가 있으면 PDF, zip이고 `word/document.xml`이 있으면
-//! DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면 웹 페이지 꾸러미, 그 밖은 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가
-//! 걸린 문서(OLE, 암호 표시가 있는 zip 항목)는 읽지 않고 까닭만 알린다.
+//! 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면
+//! 웹 페이지 꾸러미, 처음 1KB에 `%PDF-`가 있으면 PDF, 그 밖은 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린
+//! 문서(OLE, 암호 표시가 있는 zip 항목)는 읽지 않고 까닭만 알린다.
 
 mod docx;
 mod html;
@@ -294,11 +294,8 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         seen: HashMap::new(),
     };
     let mut pages = None;
-    let paras = if pdf::is_pdf(bytes) {
-        let (paras, n) = pdf::read(bytes, &mut cx)?;
-        pages = Some(n);
-        paras
-    } else if zip::is_zip(bytes) {
+    // zip을 먼저 본다(앞 1KB에 `%PDF-`가 든 zip도 있다).
+    let paras = if zip::is_zip(bytes) {
         let z = zip::Zip::open(bytes)?;
         if z.encrypted() {
             return Err(ENCRYPTED);
@@ -310,6 +307,10 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         } else {
             html::read_zip(&z, &mut cx)?
         }
+    } else if pdf::is_pdf(bytes) {
+        let (paras, n) = pdf::read(bytes, &mut cx)?;
+        pages = Some(n);
+        paras
     } else {
         html::read_file(bytes, &mut cx)?
     };

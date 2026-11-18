@@ -5,13 +5,16 @@
 //! 얻는다. 한계: ToUnicode가 없는 두 바이트 글꼴(Identity-H)의 글은 읽지 못해 센다. 두 바이트 글꼴은 글자 코드를 늘
 //! 2바이트로 본다. 표준 14 글꼴처럼 폭 표가 없는 글꼴은 글자 폭을 글자 크기의 절반으로 어림한다. 쪽 돌림은 보지 않는다.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 use lopdf::content::{Content, Operation};
-use lopdf::{Dictionary, Document, Encoding, Object, ObjectId};
+use lopdf::{
+    DecompressError, Dictionary, Document, Encoding, Error, LoadOptions, Object, ObjectId,
+};
 
-use crate::pdf::{Span, BROKEN, LOCKED, TOO_MANY_PAGES, TOO_MANY_SPANS};
+use crate::pdf::{Span, BROKEN, LOCKED, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS};
 use crate::{Look, Report};
 
 /// 스트림 하나를 푼 크기의 상한.
@@ -20,8 +23,119 @@ const MAX_STREAM: usize = 32 << 20;
 const MAX_DEPTH: usize = 8;
 /// 한 쪽에서 펼치는 폼의 수(같은 폼을 여러 번 부르는 폼이 겹쳐 끝없이 늘지 않게).
 const MAX_FORMS: usize = 1000;
-/// ToUnicode 표의 항목 수 상한.
+/// ToUnicode 표의 항목 수와 글꼴 폭 표에 넣는 수의 상한.
 const MAX_CMAP: usize = 100_000;
+/// 글자 하나가 바뀌는 글의 길이 상한(바이트, UTF-16).
+const MAX_DST: usize = 512;
+/// 문서 전체의 작업 예산(바이트): 읽는 동안 푼 객체, 쪽 내용, 폼을 펼칠 때마다 그 내용, 글꼴 표를 뺀다.
+pub(crate) const BUDGET: usize = 64 << 20;
+/// 문서 전체에서 읽는 글자 수 상한.
+const MAX_CHARS: usize = 2_000_000;
+/// 객체 스트림 하나를 푼 크기와, 객체 하나(스트림 밖)의 크기 상한.
+const MAX_OBJSTM: usize = 4 << 20;
+const MAX_OBJECT: usize = 1 << 20;
+/// 글꼴 하나를 읽을 때 예산에서 늘 빼는 몫(글꼴 사전이 아주 많은 파일을 묶는다).
+const FONT_COST: usize = 4 << 10;
+
+thread_local! {
+    /// 파일을 읽는 동안(`keep`) 남은 예산과, 예산을 넘었는지.
+    static LOAD: Cell<(usize, bool)> = const { Cell::new((0, false)) };
+}
+
+/// 객체의 대략의 크기(바이트).
+fn weight(o: &Object, depth: usize) -> usize {
+    match o {
+        Object::String(s, _) => s.len() + 8,
+        Object::Name(n) => n.len() + 8,
+        Object::Array(a) if depth < 64 => {
+            a.iter().map(|x| weight(x, depth + 1)).sum::<usize>() + 16
+        }
+        Object::Dictionary(d) if depth < 64 => {
+            d.iter()
+                .map(|(k, v)| k.len() + weight(v, depth + 1))
+                .sum::<usize>()
+                + 16
+        }
+        Object::Stream(st) => {
+            weight(&Object::Dictionary(st.dict.clone()), depth) + st.content.len()
+        }
+        _ => 16,
+    }
+}
+
+/// 읽는 동안 객체마다 부른다: 객체 스트림은 풀어 본 크기를, 다른 객체는 크기를 예산에서 뺀다. 1MB가 넘는
+/// 객체(스트림 밖)는 버리고, 예산을 넘으면 그 뒤로는 모두 버린다. 스트림의 본문은 파일 안의 바이트라 세지 않는다.
+fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
+    let (left, over) = LOAD.get();
+    if over {
+        return None;
+    }
+    let cost = match &*o {
+        Object::Stream(st) if st.dict.has_type(b"ObjStm") => {
+            match st.get_plain_content_with_limit(MAX_OBJSTM.min(left)) {
+                Ok(c) => c.len(),
+                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => usize::MAX,
+                // 깨진 객체 스트림은 lopdf가 건너뛴다.
+                Err(_) => 0,
+            }
+        }
+        Object::Stream(st) => weight(&Object::Dictionary(st.dict.clone()), 0),
+        other => {
+            let w = weight(other, 0);
+            if w > MAX_OBJECT {
+                return None;
+            }
+            w
+        }
+    };
+    if cost > left {
+        LOAD.set((0, true));
+        return None;
+    }
+    LOAD.set((left - cost, false));
+    // lopdf는 파일 안의 객체에는 넘긴 `o`를 그대로 쓰고, 객체 스트림 안의 객체(스트림일 수 없다)에는 돌려준 것을
+    // 쓴다. 큰 스트림을 복사하지 않게 스트림이면 빈 값을 돌려준다.
+    let back = match o {
+        Object::Stream(_) => Object::Null,
+        other => other.clone(),
+    };
+    Some((id, back))
+}
+
+/// 파일을 읽는다. 쪽 나무가 읽히지 않으면 상호 참조를 처음부터 다시 찾아 한 번 더 읽는다(거르는 함수를 쓰면
+/// lopdf가 스스로 다시 찾지 않는다). (문서, 남은 예산).
+fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> {
+    // 암호가 걸린 파일은 거르는 함수를 거치지 않고 객체 스트림을 푼다. 그 수를 미리 묶는다.
+    // 한계: 객체 스트림이 많은 암호 PDF는 내용이 작아도 받지 않는다.
+    let has = |pat: &[u8]| bytes.windows(pat.len()).filter(|w| *w == pat).count();
+    if has(b"/Encrypt") > 0 && has(b"/ObjStm") > budget / MAX_OBJSTM {
+        return Err(TOO_BIG);
+    }
+    let mut tries = [false, true].into_iter();
+    loop {
+        let force = tries.next().ok_or(BROKEN)?;
+        LOAD.set((budget, false));
+        let opts = LoadOptions {
+            filter: Some(keep),
+            max_decompressed_size: Some(MAX_OBJSTM),
+            force_reconstruct: force,
+            ..LoadOptions::default()
+        };
+        let got = Document::load_mem_with_options(bytes, opts);
+        let (left, over) = LOAD.get();
+        if over {
+            return Err(TOO_BIG);
+        }
+        match got {
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                return Err(TOO_BIG)
+            }
+            Ok(doc) if doc.is_encrypted() || !doc.get_pages().is_empty() => return Ok((doc, left)),
+            _ if force => return Err(BROKEN),
+            _ => {}
+        }
+    }
+}
 
 /// 읽은 문서: 쪽마다 (조각들, 그림 수).
 pub(crate) struct Pages {
@@ -34,7 +148,18 @@ pub(crate) fn read(
     max_pages: usize,
     max_spans: usize,
 ) -> Result<Pages, &'static str> {
-    let doc = Document::load_mem(bytes).map_err(|_| BROKEN)?;
+    read_with(bytes, rep, max_pages, max_spans, BUDGET)
+}
+
+/// `read`에서 작업 예산을 정해 준다.
+pub(crate) fn read_with(
+    bytes: &[u8],
+    rep: &mut Report,
+    max_pages: usize,
+    max_spans: usize,
+    budget: usize,
+) -> Result<Pages, &'static str> {
+    let (doc, budget) = load(bytes, budget)?;
     // 여는 암호 없이 보기 제한만 건 파일은 읽으면서 빈 암호로 풀린다. 풀리지 않으면 암호화된 채로 남는다.
     if doc.is_encrypted() {
         return Err(LOCKED);
@@ -49,20 +174,30 @@ pub(crate) fn read(
     let mut rd = Reader {
         doc: &doc,
         fonts: HashMap::new(),
+        form_data: HashMap::new(),
         spans: Vec::new(),
         total: 0,
         max_spans,
+        chars: 0,
+        budget,
         images: 0,
         forms: 0,
         rep,
     };
     let mut pages = Vec::with_capacity(ids.len());
     for id in ids {
-        let Ok(content) = doc.get_page_content_with_limit(id, MAX_STREAM) else {
-            rd.rep.bad_pages += 1;
-            pages.push((Vec::new(), 0));
-            continue;
+        let content = match doc.get_page_content_with_limit(id, MAX_STREAM.min(rd.budget)) {
+            Ok(c) => c,
+            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                return Err(TOO_BIG)
+            }
+            Err(_) => {
+                rd.rep.bad_pages += 1;
+                pages.push((Vec::new(), 0));
+                continue;
+            }
         };
+        rd.spend(content.len())?;
         let res = page_resources(&doc, id);
         (rd.images, rd.forms) = (0, 0);
         rd.run(&content, &res, IDENTITY, 0)?;
@@ -239,9 +374,12 @@ fn parse_cmap(data: &[u8], font: &mut Font) {
                 i += 1;
             }
             _ if mode == "char" => {
-                if let (Some(src), Some(dst)) =
-                    (hex(&toks[i]), toks.get(i + 1).and_then(|t| hex(t)))
-                {
+                if let (Some(src), Some(dst)) = (
+                    hex(&toks[i]),
+                    toks.get(i + 1)
+                        .and_then(|t| hex(t))
+                        .filter(|d| d.len() <= MAX_DST),
+                ) {
                     font.map
                         .insert(code_of(&src), String::from_utf16_lossy(&utf16(&dst)));
                 }
@@ -260,7 +398,7 @@ fn parse_cmap(data: &[u8], font: &mut Font) {
                         let mut code = lo;
                         while k < toks.len() && toks[k] != "]" {
                             if let Some(d) = hex(&toks[k]) {
-                                if code <= hi {
+                                if code <= hi && d.len() <= MAX_DST {
                                     font.map.insert(code, String::from_utf16_lossy(&utf16(&d)));
                                 }
                                 code = code.saturating_add(1);
@@ -270,7 +408,7 @@ fn parse_cmap(data: &[u8], font: &mut Font) {
                         i = k + 1;
                     }
                     Some(t) => {
-                        if let Some(d) = hex(t).filter(|_| lo <= hi) {
+                        if let Some(d) = hex(t).filter(|d| lo <= hi && d.len() <= MAX_DST) {
                             font.ranges.push((lo, hi, utf16(&d)));
                         }
                         i += 3;
@@ -286,10 +424,16 @@ fn parse_cmap(data: &[u8], font: &mut Font) {
 
 struct Reader<'a, 'r> {
     doc: &'a Document,
-    fonts: HashMap<ObjectId, Rc<Font>>,
+    /// 읽은 글꼴: 글꼴 사전의 주소(문서가 살아 있는 동안 그대로다) → 글꼴. 참조든 직접 사전이든 한 번만 읽는다.
+    fonts: HashMap<usize, Rc<Font>>,
+    /// 푼 폼의 내용(참조 번호마다 한 번만 푼다).
+    form_data: HashMap<ObjectId, Rc<Vec<u8>>>,
     spans: Vec<Span>,
     total: usize,
     max_spans: usize,
+    chars: usize,
+    /// 남은 작업 예산(바이트).
+    budget: usize,
     images: usize,
     forms: usize,
     rep: &'r mut Report,
@@ -309,23 +453,26 @@ struct State {
 }
 
 impl<'a> Reader<'a, '_> {
-    fn font(&mut self, o: &'a Object) -> Option<Rc<Font>> {
-        let id = match o {
-            Object::Reference(id) => Some(*id),
-            _ => None,
-        };
-        if let Some(f) = id.and_then(|id| self.fonts.get(&id)) {
-            return Some(f.clone());
-        }
-        let dict = deref(self.doc, o).as_dict().ok()?;
-        let f = Rc::new(self.load_font(dict));
-        if let Some(id) = id {
-            self.fonts.insert(id, f.clone());
-        }
-        Some(f)
+    fn spend(&mut self, n: usize) -> Result<(), &'static str> {
+        self.budget = self.budget.checked_sub(n).ok_or(TOO_BIG)?;
+        Ok(())
     }
 
-    fn load_font(&mut self, dict: &'a Dictionary) -> Font {
+    fn font(&mut self, o: &'a Object) -> Result<Option<Rc<Font>>, &'static str> {
+        let Ok(dict) = deref(self.doc, o).as_dict() else {
+            return Ok(None);
+        };
+        let key = std::ptr::from_ref(dict) as usize;
+        if let Some(f) = self.fonts.get(&key) {
+            return Ok(Some(f.clone()));
+        }
+        self.spend(FONT_COST)?;
+        let f = Rc::new(self.load_font(dict)?);
+        self.fonts.insert(key, f.clone());
+        Ok(Some(f))
+    }
+
+    fn load_font(&mut self, dict: &'a Dictionary) -> Result<Font, &'static str> {
         let doc = self.doc;
         let get = |d: &'a Dictionary, k: &[u8]| d.get(k).ok().map(|o| deref(doc, o));
         let two = get(dict, b"Subtype").and_then(|o| o.as_name().ok()) == Some(b"Type0");
@@ -369,34 +516,53 @@ impl<'a> Reader<'a, '_> {
             },
         };
         if let Some(Object::Stream(s)) = get(dict, b"ToUnicode") {
-            if let Ok(data) = s.decompressed_content_with_limit(MAX_STREAM) {
-                parse_cmap(&data, &mut font);
+            match s.get_plain_content_with_limit(MAX_STREAM.min(self.budget)) {
+                Ok(data) => {
+                    self.spend(data.len())?;
+                    parse_cmap(&data, &mut font);
+                    self.spend(16 * (font.map.len() + font.ranges.len()))?;
+                }
+                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
+                    return Err(TOO_BIG)
+                }
+                Err(_) => {}
             }
         }
         if let Some(d) = desc_font {
             font.default_w = get(d, b"DW").and_then(num).unwrap_or(1000.0) / 1000.0;
             if let Some(w) = get(d, b"W").and_then(|o| o.as_array().ok()) {
+                // 넣은 수로 묶는다(같은 범위를 되풀이하면 표의 크기는 그대로라 크기로는 묶이지 않는다).
+                let mut room = MAX_CMAP;
                 let mut k = 0;
-                while k + 1 < w.len() && font.widths.len() < MAX_CMAP {
+                while k + 1 < w.len() && room > 0 {
                     let first = num(&w[k]).unwrap_or(0.0) as u32;
                     match deref(doc, &w[k + 1]) {
                         Object::Array(ws) => {
-                            for (j, x) in ws.iter().enumerate().take(MAX_CMAP) {
-                                font.widths
-                                    .insert(first + j as u32, num(x).unwrap_or(0.0) / 1000.0);
+                            for (j, x) in ws.iter().enumerate().take(room) {
+                                if let Some(c) =
+                                    u32::try_from(j).ok().and_then(|j| first.checked_add(j))
+                                {
+                                    font.widths.insert(c, num(x).unwrap_or(0.0) / 1000.0);
+                                }
                             }
+                            room = room.saturating_sub(ws.len());
                             k += 2;
                         }
                         o => {
                             let last = num(o).unwrap_or(0.0) as u32;
                             let x = w.get(k + 2).and_then(num).unwrap_or(0.0) / 1000.0;
-                            for c in first..=last.min(first.saturating_add(MAX_CMAP as u32)) {
+                            let n = (last.saturating_sub(first) as usize)
+                                .saturating_add(1)
+                                .min(room);
+                            for c in (first..=last).take(n) {
                                 font.widths.insert(c, x);
                             }
+                            room -= n;
                             k += 3;
                         }
                     }
                 }
+                self.spend(16 * font.widths.len())?;
             }
         } else {
             // Type3은 글리프 공간이 FontMatrix로 정해진다(대개 1/1000이 아니다).
@@ -408,8 +574,10 @@ impl<'a> Reader<'a, '_> {
             let first = get(dict, b"FirstChar").and_then(num).unwrap_or(0.0) as u32;
             if let Some(ws) = get(dict, b"Widths").and_then(|o| o.as_array().ok()) {
                 for (j, x) in ws.iter().enumerate().take(256) {
-                    font.widths
-                        .insert(first + j as u32, num(deref(doc, x)).unwrap_or(0.0) * scale);
+                    if let Some(c) = first.checked_add(j as u32) {
+                        font.widths
+                            .insert(c, num(deref(doc, x)).unwrap_or(0.0) * scale);
+                    }
                 }
                 font.default_w = descriptor
                     .and_then(|d| get(d, b"MissingWidth"))
@@ -417,7 +585,9 @@ impl<'a> Reader<'a, '_> {
                     .map_or(0.5, |w| w * scale);
             }
             if font.map.is_empty() && font.ranges.is_empty() {
-                let enc: Option<Encoding> = dict.get_font_encoding(doc).ok();
+                let enc: Option<Encoding> = dict
+                    .get_font_encoding_with_limit(doc, MAX_STREAM.min(self.budget))
+                    .ok();
                 font.simple = enc.map(|e| {
                     (0..=255u8)
                         .filter_map(|b| {
@@ -428,7 +598,7 @@ impl<'a> Reader<'a, '_> {
                 });
             }
         }
-        font
+        Ok(font)
     }
 
     /// 내용 스트림 하나를 따라간다. `depth`는 겹친 폼의 깊이.
@@ -472,15 +642,10 @@ impl<'a> Reader<'a, '_> {
                 "Tf" => {
                     if let (Some(Object::Name(n)), Some(size)) = (a.first(), a.get(1).and_then(num))
                     {
-                        // 사전 안의 참조 그대로 찾는다(같은 글꼴을 한 번만 읽게 참조 번호로 기억한다).
-                        let raw = res.iter().find_map(|d| {
-                            deref(self.doc, d.get(b"Font").ok()?)
-                                .as_dict()
-                                .ok()?
-                                .get(n)
-                                .ok()
-                        });
-                        st.font = raw.and_then(|o| self.font(o));
+                        st.font = match resource(self.doc, res, b"Font", n) {
+                            Some(o) => self.font(o)?,
+                            None => None,
+                        };
                         st.size = size;
                     }
                 }
@@ -547,7 +712,16 @@ impl<'a> Reader<'a, '_> {
                     let Some(Object::Name(n)) = a.first() else {
                         continue;
                     };
-                    let Some(Object::Stream(x)) = resource(self.doc, res, b"XObject", n) else {
+                    // 참조 번호(같은 폼을 한 번만 풀게)와 스트림.
+                    let raw = res.iter().find_map(|d| {
+                        let g = deref(self.doc, d.get(b"XObject").ok()?).as_dict().ok()?;
+                        g.get(n).ok()
+                    });
+                    let id = match raw {
+                        Some(Object::Reference(id)) => Some(*id),
+                        _ => None,
+                    };
+                    let Some(Object::Stream(x)) = raw.map(|o| deref(self.doc, o)) else {
                         continue;
                     };
                     match x.dict.get(b"Subtype").and_then(Object::as_name) {
@@ -568,11 +742,28 @@ impl<'a> Reader<'a, '_> {
                                 .and_then(|o| deref(self.doc, o).as_dict().ok());
                             let inner: Vec<&Dictionary> =
                                 own.into_iter().chain(res.iter().copied()).collect();
-                            if let Ok(d) = x.decompressed_content_with_limit(MAX_STREAM) {
-                                self.run(&d, &inner, mul(&m, &st.ctm), depth + 1)?;
-                            } else if x.dict.get(b"Filter").is_err() {
-                                self.run(&x.content, &inner, mul(&m, &st.ctm), depth + 1)?;
-                            }
+                            let cached = id.and_then(|i| self.form_data.get(&i).cloned());
+                            let data = match cached {
+                                Some(d) => d,
+                                None => match x
+                                    .get_plain_content_with_limit(MAX_STREAM.min(self.budget))
+                                {
+                                    Ok(d) => {
+                                        let d = Rc::new(d);
+                                        if let Some(i) = id {
+                                            self.form_data.insert(i, d.clone());
+                                        }
+                                        d
+                                    }
+                                    Err(Error::Decompress(
+                                        DecompressError::MemoryLimitExceeded { .. },
+                                    )) => return Err(TOO_BIG),
+                                    Err(_) => continue,
+                                },
+                            };
+                            // 펼칠 때마다 그 내용을 다시 따라가므로 그때마다 뺀다.
+                            self.spend(data.len())?;
+                            self.run(&data, &inner, mul(&m, &st.ctm), depth + 1)?;
                         }
                         _ => {}
                     }
@@ -628,6 +819,10 @@ impl<'a> Reader<'a, '_> {
             .chars()
             .filter(|c| !c.is_control() || *c == '\t')
             .collect();
+        self.chars += t.chars().count();
+        if self.chars > MAX_CHARS {
+            return Err(TOO_BIG);
+        }
         let (x0, x1) = (x0.min(x1), x0.max(x1));
         if let Some(p) = self.spans.last_mut() {
             let pbase = p.y0 + 0.2 * p.size;
@@ -680,6 +875,162 @@ mod tests {
             format!("trailer\n<< /Size {n} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").bytes(),
         );
         out
+    }
+
+    /// 바이트 객체들(1번부터)로 PDF를 만든다. 1번이 카탈로그다.
+    fn build_bytes(objs: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut at = Vec::new();
+        for (i, o) in objs.iter().enumerate() {
+            at.push(out.len());
+            out.extend(format!("{} 0 obj\n", i + 1).bytes());
+            out.extend(o);
+            out.extend(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).bytes());
+        for a in at {
+            out.extend(format!("{a:010} 00000 n \n").bytes());
+        }
+        let n = objs.len() + 1;
+        out.extend(
+            format!("trailer\n<< /Size {n} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").bytes(),
+        );
+        out
+    }
+
+    /// 압축한 스트림 객체. `dict`는 `<<`와 `>>` 사이에 더 넣을 항목.
+    fn flate(dict: &str, data: &[u8]) -> Vec<u8> {
+        let z = miniz_oxide::deflate::compress_to_vec_zlib(data, 6);
+        let mut o = format!(
+            "<< {dict} /Filter /FlateDecode /Length {} >>\nstream\n",
+            z.len()
+        )
+        .into_bytes();
+        o.extend(z);
+        o.extend(b"\nendstream");
+        o
+    }
+
+    fn plain(dict: &str, data: &str) -> Vec<u8> {
+        format!(
+            "<< {dict} /Length {} >>\nstream\n{data}\nendstream",
+            data.len()
+        )
+        .into_bytes()
+    }
+
+    /// 쪽 하나(내용 4번, 자원 5번)와 그 뒤 객체들. 6번부터 `more`.
+    fn one_page(content: Vec<u8>, resources: &str, more: Vec<Vec<u8>>) -> Vec<u8> {
+        let mut objs = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources 5 0 R /Contents 4 0 R >>".to_vec(),
+            content,
+            resources.as_bytes().to_vec(),
+        ];
+        objs.extend(more);
+        build_bytes(&objs)
+    }
+
+    /// 작업 예산 `budget`으로 읽어 2초 안에 끝나고, 성공했다면 글이 `max_chars`바이트 이하다.
+    fn bounded(pdf: &[u8], max_chars: usize, budget: usize) -> Result<Pages, &'static str> {
+        let mut rep = Report::default();
+        let t = std::time::Instant::now();
+        let got = read_with(pdf, &mut rep, 10, MAX_SPANS_TEST, budget);
+        assert!(t.elapsed().as_secs_f32() < 2.0, "{:?}", t.elapsed());
+        if let Ok(p) = &got {
+            let n: usize = p
+                .pages
+                .iter()
+                .flat_map(|(s, _)| s)
+                .map(|s| s.text.len())
+                .sum();
+            assert!(n <= max_chars, "글 {n}자");
+        }
+        got
+    }
+
+    const MAX_SPANS_TEST: usize = 200_000;
+
+    #[test]
+    fn 글자_하나를_아주_긴_글로_바꾸는_tounicode는_버린다() {
+        let long = "AC00".repeat(500_000);
+        let cmap = format!("1 beginbfchar <0001> <{long}> endbfchar");
+        let glyphs = "0001".repeat(40);
+        let page = format!("BT /F1 10 Tf 10 10 Td <{glyphs}> Tj ET");
+        let font =
+            b"<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /ToUnicode 7 0 R \
+            /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X >>] >>"
+                .to_vec();
+        let pdf = one_page(
+            plain("", &page),
+            "<< /Font << /F1 6 0 R >> >>",
+            vec![font, flate("", cmap.as_bytes())],
+        );
+        // 긴 글로 바뀌는 글자는 읽지 못한 글자로 센다.
+        assert!(bounded(&pdf, 1000, BUDGET).is_ok());
+    }
+
+    #[test]
+    fn 직접_사전_글꼴을_여러_번_골라도_글자_표를_한_번만_읽는다() {
+        let entries: String = (0..100_000u32)
+            .map(|i| format!("<{:04X}> <{:04X}>\n", i % 0xFFFF, 0xAC00 + i % 1000))
+            .collect();
+        let cmap = format!("100000 beginbfchar\n{entries}endbfchar");
+        let page = "BT /F1 10 Tf 10 10 Td <0001> Tj ET ".repeat(200);
+        let res = "<< /Font << /F1 << /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H \
+            /ToUnicode 6 0 R /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X >>] >> >> >>";
+        let pdf = one_page(plain("", &page), res, vec![flate("", cmap.as_bytes())]);
+        // 글자 표(약 1.4MB)를 Tf마다 다시 읽으면 예산 8MB를 넘는다.
+        assert!(bounded(&pdf, 10_000, 8 << 20).is_ok());
+    }
+
+    #[test]
+    fn 자기를_부르는_큰_폼은_작업_예산에서_멈춘다() {
+        let pad = "0 0 m 1 1 l n\n".repeat(20_000);
+        let form = format!("{pad}/X0 Do /X0 Do /X0 Do /X0 Do");
+        let pdf = one_page(
+            plain("", "/X0 Do"),
+            "<< /XObject << /X0 6 0 R >> >>",
+            vec![flate(
+                "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources 5 0 R",
+                form.as_bytes(),
+            )],
+        );
+        // 약 280KB인 폼을 펼칠 때마다 예산에서 빼 1MB에서 멈춘다(실제 예산은 64MB).
+        assert_eq!(bounded(&pdf, 1000, 1 << 20).err(), Some(TOO_BIG));
+    }
+
+    #[test]
+    fn 풀면_아주_큰_객체_스트림은_받지_않는다() {
+        let mut more = Vec::new();
+        for k in 0..3 {
+            let body = format!("({})", "A".repeat(6 << 20));
+            let head = format!("{} 0 ", 100 + k);
+            let data = format!("{head}{body}");
+            more.push(flate(
+                &format!("/Type /ObjStm /N 1 /First {}", head.len()),
+                data.as_bytes(),
+            ));
+        }
+        let pdf = one_page(plain("", "BT ET"), "<< >>", more);
+        assert_eq!(bounded(&pdf, 1000, BUDGET).err(), Some(TOO_BIG));
+    }
+
+    #[test]
+    fn 글꼴_폭_표의_큰_범위가_되풀이돼도_넣는_수를_묶는다() {
+        let w = "0 65535 500 ".repeat(8000);
+        let res = format!(
+            "<< /Font << /F1 << /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H \
+             /DescendantFonts [<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /W [{w}] >>] >> >> >>"
+        );
+        let pdf = one_page(
+            plain("", "BT /F1 10 Tf 10 10 Td <0001> Tj ET"),
+            &res,
+            Vec::new(),
+        );
+        assert!(bounded(&pdf, 1000, BUDGET).is_ok());
     }
 
     #[test]

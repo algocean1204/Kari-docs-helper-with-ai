@@ -25,6 +25,7 @@ pub const TOO_MANY_PAGES: &str = "500쪽이 넘는 PDF는 가져올 수 없습�
 pub const TOO_MANY_SPANS: &str = "글 조각이 너무 많은 PDF는 가져올 수 없습니다.";
 pub const NO_TEXT: &str = "글이 없는 PDF입니다(스캔본은 다음에 지원).";
 pub const UNMAPPED: &str = "글꼴에 글자 표가 없어 글을 읽을 수 없는 PDF입니다.";
+pub const TOO_BIG: &str = "내용이 너무 큰 PDF는 가져올 수 없습니다.";
 
 /// 표의 최대 행·열(붙여넣기와 같다). 행이 넘으면 다음 표로 나눈다.
 const MAX_ROWS: usize = 50;
@@ -194,7 +195,10 @@ fn drop_running(pages: &mut [Page], cx: &mut Ctx) {
             *count.entry(k).or_default() += 1;
         }
     }
-    let running = |k: &str| count.get(k).is_some_and(|&c| c >= 2 && c * 2 >= texty);
+    // 글자(알파벳, 한글 등)가 없는 줄은 짧은 쪽 번호("#/#", "-#-")만 머리글·바닥글로 본다. 긴 것은 기간처럼
+    // 본문일 수 있다(숫자를 `#`로 바꾸면 쪽마다 다른 기간도 열쇠가 같아진다).
+    let page_no = |k: &str| k.chars().any(char::is_alphabetic) || k.chars().count() <= 7;
+    let running = |k: &str| page_no(k) && count.get(k).is_some_and(|&c| c >= 2 && c * 2 >= texty);
     for (p, e) in pages.iter_mut().zip(&ends) {
         for (k, l) in e {
             if running(k) {
@@ -715,7 +719,7 @@ fn col_of(cols: &[(f32, f32)], b: &Chunk) -> Option<usize> {
         .map(|(k, _)| k)
 }
 
-/// `i`번 줄부터 표가 되면 (끝 줄 다음, 표). 같은 수의 덩이가 같은 열에 놓인 줄이 둘 넘게 이어져야 한다.
+/// `i`번 줄부터 표가 되면 (끝 줄 다음, 표). 같은 수의 덩이가 같은 열에 놓인 줄이 두 줄 이상 이어져야 한다.
 /// 첫 열이 빈 줄은 앞 행의 칸이 줄을 바꾼 것으로 본다.
 fn table_at(lines: &[Ln], ch: &[Vec<Chunk>], i: usize, body_w: f64) -> Option<(usize, FragTable)> {
     let n = ch[i].len();
@@ -895,6 +899,56 @@ mod tests {
 
     fn run(b: &[u8]) -> Result<Imported, &'static str> {
         import(b, (481.9, 728.5), &mut |_| None)
+    }
+
+    #[test]
+    fn 상호_참조의_자리가_틀린_파일은_객체를_다시_찾아_읽는다() {
+        let good = pdf(&[&text(72, 700, "Kari")]);
+        let s = String::from_utf8(good).unwrap();
+        let (head, xref) = s.split_at(s.find("xref\n").unwrap());
+        let bad: String = xref
+            .lines()
+            .map(|l| match l.strip_suffix(" 00000 n ") {
+                Some(_) => "0000000001 00000 n ".to_string(),
+                None => l.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let got = run(format!("{head}{bad}\n").as_bytes()).unwrap();
+        let t: String = got.fragment.paras[0]
+            .runs
+            .iter()
+            .filter_map(|r| r["t"].as_str())
+            .collect();
+        assert_eq!(t, "Kari");
+    }
+
+    #[test]
+    fn 쪽_끝의_기간_줄은_남기고_쪽_번호만_뺀다() {
+        let texts = |got: &Imported| -> Vec<String> {
+            got.fragment
+                .paras
+                .iter()
+                .map(|p| p.runs.iter().filter_map(|r| r["t"].as_str()).collect())
+                .collect()
+        };
+        let p1 = text(72, 700, "Kari") + &text(72, 100, "2019.03 - 2021.02");
+        let p2 = text(72, 700, "Rust") + &text(72, 100, "2021.03 - 2024.02");
+        let got = run(&pdf(&[&p1, &p2])).unwrap();
+        assert_eq!(
+            texts(&got),
+            ["Kari", "2019.03 - 2021.02", "Rust", "2021.03 - 2024.02"]
+        );
+        assert!(
+            !got.lost.iter().any(|l| l.contains("머리글")),
+            "{:?}",
+            got.lost
+        );
+        let p1 = text(72, 700, "Kari") + &text(290, 40, "- 1 -");
+        let p2 = text(72, 700, "Rust") + &text(290, 40, "- 2 -");
+        let got = run(&pdf(&[&p1, &p2])).unwrap();
+        assert_eq!(texts(&got), ["Kari", "Rust"]);
+        assert!(got.lost.iter().any(|l| l == "머리글·바닥글(뺌)"));
     }
 
     #[test]
