@@ -6,12 +6,12 @@
 //! 2바이트로 본다. 표준 14 글꼴처럼 폭 표가 없는 글꼴은 글자 폭을 글자 크기의 절반으로 어림한다. 쪽 돌림은 보지 않는다.
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use lopdf::content::{Content, Operation};
 use lopdf::{
-    DecompressError, Dictionary, Document, Encoding, Error, LoadOptions, Object, ObjectId,
+    DecompressError, Dictionary, Document, Encoding, Error, LoadOptions, Object, ObjectId, Stream,
 };
 
 use crate::pdf::{Span, BROKEN, LOCKED, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS};
@@ -19,8 +19,27 @@ use crate::{Look, Report};
 
 /// 스트림 하나를 푼 크기의 상한.
 const MAX_STREAM: usize = 32 << 20;
-/// 겹친 폼(Form XObject)의 깊이.
-const MAX_DEPTH: usize = 8;
+/// 겹친 폼(Form XObject)의 깊이. 넘는 폼은 펼치지 않고 센다.
+const MAX_DEPTH: usize = 12;
+/// 그래픽 상태 저장(`q`)의 겹침과 연산 하나의 피연산자 수. 넘으면 그 쪽을 읽지 못한 쪽으로 센다.
+const MAX_Q: usize = 256;
+const MAX_OPERANDS: usize = 1000;
+/// 쪽 하나에서 모으는 선(표를 찾는 데 쓴다)의 수.
+const MAX_LINES: usize = 20_000;
+/// 풀 수 있는 필터와 사슬 길이. 그림 필터(DCT 등)는 그림 스트림에만 있고 그림은 풀지 않는다.
+const FILTERS: [&[u8]; 10] = [
+    b"FlateDecode",
+    b"Fl",
+    b"LZWDecode",
+    b"LZW",
+    b"ASCIIHexDecode",
+    b"AHx",
+    b"ASCII85Decode",
+    b"A85",
+    b"RunLengthDecode",
+    b"RL",
+];
+const MAX_FILTERS: usize = 4;
 /// 한 쪽에서 펼치는 폼의 수(같은 폼을 여러 번 부르는 폼이 겹쳐 끝없이 늘지 않게).
 const MAX_FORMS: usize = 1000;
 /// ToUnicode 표의 항목 수와 글꼴 폭 표에 넣는 수의 상한.
@@ -185,10 +204,25 @@ fn has_name(bytes: &[u8], name: &[u8]) -> bool {
     false
 }
 
-/// 읽은 문서: 쪽마다 (조각들, 그림 수).
-pub(crate) struct Pages {
-    pub pages: Vec<(Vec<Span>, usize)>,
+/// 쪽 하나에서 읽은 것.
+#[derive(Default)]
+pub(crate) struct PageText {
+    pub spans: Vec<Span>,
+    pub images: usize,
+    /// 글이 없고 그림이 쪽 넓이의 절반 넘게 덮는 쪽.
+    pub scan: bool,
+    /// 표를 찾을 선: 가로 (y, x0, x1), 세로 (x, y0, y1). 보이는 쪽(돌림 반영) 좌표.
+    pub hlines: Vec<(f32, f32, f32)>,
+    pub vlines: Vec<(f32, f32, f32)>,
 }
+
+/// 읽은 문서: 쪽마다.
+pub(crate) struct Pages {
+    pub pages: Vec<PageText>,
+}
+
+/// 쪽 하나를 읽지 못한 것(겹침·피연산자 상한, 모르는 필터). 문서 전체는 거절하지 않는다.
+const BAD_PAGE: &str = "쪽 하나를 읽지 못함";
 
 pub(crate) fn read(
     bytes: &[u8],
@@ -229,31 +263,132 @@ pub(crate) fn read_with(
         chars: 0,
         budget,
         images: 0,
+        covered: 0.0,
         forms: 0,
+        form_stack: Vec::new(),
+        hlines: Vec::new(),
+        vlines: Vec::new(),
+        bad_fonts: HashSet::new(),
         rep,
     };
     let mut pages = Vec::with_capacity(ids.len());
     for id in ids {
-        let content = match doc.get_page_content_with_limit(id, MAX_STREAM.min(rd.budget)) {
+        let bad = |rd: &mut Reader, pages: &mut Vec<PageText>| {
+            rd.rep.bad_pages += 1;
+            pages.push(PageText::default());
+        };
+        let (area, base) = page_box(&doc, id);
+        if area < 1.0 {
+            // 넓이가 0인(또는 깨진) 쪽은 건너뛰고 센다.
+            bad(&mut rd, &mut pages);
+            continue;
+        }
+        let content = match page_content(&doc, id, MAX_STREAM.min(rd.budget)) {
             Ok(c) => c,
-            Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
-                return Err(TOO_BIG)
-            }
+            Err(e) if e == TOO_BIG => return Err(TOO_BIG),
             Err(_) => {
-                rd.rep.bad_pages += 1;
-                pages.push((Vec::new(), 0));
+                bad(&mut rd, &mut pages);
                 continue;
             }
         };
         rd.spend(content.len())?;
         let res = page_resources(&doc, id);
-        (rd.images, rd.forms) = (0, 0);
-        rd.run(&content, &res, IDENTITY, 0)?;
+        (rd.images, rd.covered, rd.forms) = (0, 0.0, 0);
+        match rd.run(&content, &res, base, 0) {
+            Err(BAD_PAGE) => {
+                rd.spans.clear();
+                (rd.hlines, rd.vlines) = (Vec::new(), Vec::new());
+                bad(&mut rd, &mut pages);
+                continue;
+            }
+            r => r?,
+        }
         let mut spans = std::mem::take(&mut rd.spans);
         spans.retain(|s| !s.text.trim().is_empty());
-        pages.push((spans, rd.images));
+        let scan = spans.is_empty() && rd.covered >= 0.5 * area;
+        pages.push(PageText {
+            spans,
+            images: rd.images,
+            scan,
+            hlines: std::mem::take(&mut rd.hlines),
+            vlines: std::mem::take(&mut rd.vlines),
+        });
     }
+    rd.rep.pdf_bad_fonts = rd.bad_fonts.len();
     Ok(Pages { pages })
+}
+
+/// 쪽(또는 물려준 조상)의 값. 쪽 나무가 돌고 돌아도 32단에서 멈춘다.
+fn inherited<'a>(doc: &'a Document, id: ObjectId, key: &[u8]) -> Option<&'a Object> {
+    let mut at = doc.get_dictionary(id).ok()?;
+    for _ in 0..32 {
+        if let Ok(v) = at.get(key) {
+            return Some(deref(doc, v));
+        }
+        at = deref(doc, at.get(b"Parent").ok()?).as_dict().ok()?;
+    }
+    None
+}
+
+/// (쪽 넓이, 쪽 돌림을 반영한 처음 변환 행렬). `/Rotate`는 보일 때 시계 방향으로 돌린다.
+fn page_box(doc: &Document, id: ObjectId) -> (f32, M) {
+    let area = match inherited(doc, id, b"MediaBox").and_then(|o| o.as_array().ok()) {
+        Some(a) => match nums::<4>(a) {
+            Some([x0, y0, x1, y1]) => ((x1 - x0) * (y1 - y0)).abs(),
+            None => 0.0,
+        },
+        None => 612.0 * 792.0,
+    };
+    let turn = inherited(doc, id, b"Rotate")
+        .and_then(num)
+        .map_or(0, |r| (r as i64).rem_euclid(360));
+    let base = match turn {
+        90 => [0.0, -1.0, 1.0, 0.0, 0.0, 0.0],
+        180 => [-1.0, 0.0, 0.0, -1.0, 0.0, 0.0],
+        270 => [0.0, 1.0, -1.0, 0.0, 0.0, 0.0],
+        _ => IDENTITY,
+    };
+    (area, base)
+}
+
+/// 스트림의 필터가 풀 수 있는 것(알려진 것, 4단 이하)인가.
+fn known_filters(st: &Stream) -> bool {
+    match st.dict.get(b"Filter") {
+        Err(_) => true,
+        Ok(Object::Name(n)) => FILTERS.contains(&n.as_slice()),
+        Ok(Object::Array(a)) => {
+            a.len() <= MAX_FILTERS
+                && a.iter()
+                    .all(|f| matches!(f, Object::Name(n) if FILTERS.contains(&n.as_slice())))
+        }
+        Ok(_) => false,
+    }
+}
+
+/// 스트림을 푼다. 모르는 필터나 깨진 스트림은 `BAD_PAGE`, 상한을 넘으면 `TOO_BIG`.
+fn plain(st: &Stream, limit: usize) -> Result<Vec<u8>, &'static str> {
+    if !known_filters(st) {
+        return Err(BAD_PAGE);
+    }
+    st.get_plain_content_with_limit(limit).map_err(|e| match e {
+        Error::Decompress(DecompressError::MemoryLimitExceeded { .. }) => TOO_BIG,
+        _ => BAD_PAGE,
+    })
+}
+
+/// 쪽의 내용 스트림들을 이어 푼다.
+fn page_content(doc: &Document, id: ObjectId, limit: usize) -> Result<Vec<u8>, &'static str> {
+    let mut out = Vec::new();
+    for c in doc.get_page_contents(id) {
+        let st = doc
+            .get_object(c)
+            .and_then(Object::as_stream)
+            .map_err(|_| BAD_PAGE)?;
+        let d = plain(st, limit.saturating_sub(out.len()))?;
+        out.extend_from_slice(&d);
+        out.push(b'\n');
+    }
+    Ok(out)
 }
 
 type M = [f32; 6];
@@ -314,6 +449,8 @@ fn resource<'a>(
 
 /// 글꼴 하나에서 쓰는 것.
 struct Font {
+    /// 글꼴 사전의 주소(읽지 못한 글꼴을 셀 때 쓴다).
+    key: usize,
     two: bool,
     /// ToUnicode 표: 낱개 코드와 범위(시작 코드, 끝 코드, 시작 글).
     map: HashMap<u32, String>,
@@ -483,7 +620,15 @@ struct Reader<'a, 'r> {
     /// 남은 작업 예산(바이트).
     budget: usize,
     images: usize,
+    /// 그림이 덮은 넓이(쪽 좌표).
+    covered: f32,
     forms: usize,
+    /// 지금 펼치고 있는 폼들(자기를 다시 부르면 펼치지 않는다).
+    form_stack: Vec<ObjectId>,
+    hlines: Vec<(f32, f32, f32)>,
+    vlines: Vec<(f32, f32, f32)>,
+    /// 글자 표가 없어 글자를 읽지 못한 글꼴.
+    bad_fonts: HashSet<usize>,
     rep: &'r mut Report,
 }
 
@@ -498,6 +643,19 @@ struct State {
     tz: f32,
     tl: f32,
     rise: f32,
+    /// 글자 그리기 방식(`Tr`). 2(칠과 획)는 굵게 보인다.
+    tr: i64,
+}
+
+/// 만들고 있는 경로: 하위 경로마다 점들(쪽 좌표).
+#[derive(Default)]
+struct Path {
+    subs: Vec<Vec<(f32, f32)>>,
+    curve: bool,
+}
+
+fn apply(m: &M, x: f32, y: f32) -> (f32, f32) {
+    (x * m[0] + y * m[2] + m[4], x * m[1] + y * m[3] + m[5])
 }
 
 impl<'a> Reader<'a, '_> {
@@ -551,6 +709,7 @@ impl<'a> Reader<'a, '_> {
         let lower = name.to_ascii_lowercase();
         let has = |ks: &[&str]| ks.iter().any(|k| lower.contains(k));
         let mut font = Font {
+            key: std::ptr::from_ref(dict) as usize,
             two,
             map: HashMap::new(),
             ranges: Vec::new(),
@@ -564,15 +723,13 @@ impl<'a> Reader<'a, '_> {
             },
         };
         if let Some(Object::Stream(s)) = get(dict, b"ToUnicode") {
-            match s.get_plain_content_with_limit(MAX_STREAM.min(self.budget)) {
+            match plain(s, MAX_STREAM.min(self.budget)) {
                 Ok(data) => {
                     self.spend(data.len())?;
                     parse_cmap(&data, &mut font);
                     self.spend(16 * (font.map.len() + font.ranges.len()))?;
                 }
-                Err(Error::Decompress(DecompressError::MemoryLimitExceeded { .. })) => {
-                    return Err(TOO_BIG)
-                }
+                Err(e) if e == TOO_BIG => return Err(TOO_BIG),
                 Err(_) => {}
             }
         }
@@ -666,10 +823,11 @@ impl<'a> Reader<'a, '_> {
             tz: 1.0,
             tl: 0.0,
             rise: 0.0,
+            tr: 0,
         };
         let mut stack: Vec<State> = Vec::new();
         let (mut tm, mut tlm) = (IDENTITY, IDENTITY);
-        let mut curve = false;
+        let mut path = Path::default();
         for op in Content::decode_iter(data) {
             let Ok(Operation {
                 operator,
@@ -678,8 +836,12 @@ impl<'a> Reader<'a, '_> {
             else {
                 break;
             };
+            if a.len() > MAX_OPERANDS {
+                return Err(BAD_PAGE);
+            }
             match operator.as_str() {
-                "q" if stack.len() < 64 => stack.push(st.clone()),
+                "q" if stack.len() >= MAX_Q => return Err(BAD_PAGE),
+                "q" => stack.push(st.clone()),
                 "Q" => st = stack.pop().unwrap_or(st),
                 "cm" => {
                     if let Some(m) = nums::<6>(&a) {
@@ -702,6 +864,7 @@ impl<'a> Reader<'a, '_> {
                 "Tz" => st.tz = a.first().and_then(num).unwrap_or(100.0) / 100.0,
                 "TL" => st.tl = a.first().and_then(num).unwrap_or(0.0),
                 "Ts" => st.rise = a.first().and_then(num).unwrap_or(0.0),
+                "Tr" => st.tr = a.first().and_then(num).map_or(0, |v| v as i64),
                 "Td" | "TD" => {
                     if let Some([x, y]) = nums::<2>(&a) {
                         if operator == "TD" {
@@ -749,13 +912,44 @@ impl<'a> Reader<'a, '_> {
                         }
                     }
                 }
-                "c" | "v" | "y" => curve = true,
-                "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" => {
-                    if std::mem::take(&mut curve) && operator != "n" {
-                        self.rep.shapes += 1;
+                "m" => {
+                    if let Some([x, y]) = nums::<2>(&a) {
+                        path.subs.push(vec![apply(&st.ctm, x, y)]);
                     }
                 }
-                "BI" => self.images += 1,
+                "l" => {
+                    if let (Some([x, y]), Some(sub)) = (nums::<2>(&a), path.subs.last_mut()) {
+                        sub.push(apply(&st.ctm, x, y));
+                    }
+                }
+                "re" => {
+                    if let Some([x, y, w, h]) = nums::<4>(&a) {
+                        let pts = [(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)];
+                        path.subs.push(
+                            pts.iter()
+                                .map(|(px, py)| apply(&st.ctm, *px, *py))
+                                .collect(),
+                        );
+                    }
+                }
+                "c" | "v" | "y" => path.curve = true,
+                "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" => {
+                    let path = std::mem::take(&mut path);
+                    if operator == "n" {
+                        continue;
+                    }
+                    if path.curve {
+                        self.rep.shapes += 1;
+                    } else {
+                        let stroke =
+                            matches!(operator.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
+                        self.lines(&path, stroke);
+                    }
+                }
+                "BI" => {
+                    self.images += 1;
+                    self.covered += (st.ctm[0] * st.ctm[3] - st.ctm[1] * st.ctm[2]).abs();
+                }
                 "Do" => {
                     let Some(Object::Name(n)) = a.first() else {
                         continue;
@@ -773,8 +967,19 @@ impl<'a> Reader<'a, '_> {
                         continue;
                     };
                     match x.dict.get(b"Subtype").and_then(Object::as_name) {
-                        Ok(b"Image") => self.images += 1,
-                        Ok(b"Form") if depth < MAX_DEPTH && self.forms < MAX_FORMS => {
+                        Ok(b"Image") => {
+                            self.images += 1;
+                            self.covered += (st.ctm[0] * st.ctm[3] - st.ctm[1] * st.ctm[2]).abs();
+                        }
+                        Ok(b"Form")
+                            if depth >= MAX_DEPTH
+                                || self.forms >= MAX_FORMS
+                                || id.is_some_and(|i| self.form_stack.contains(&i)) =>
+                        {
+                            // 너무 깊게 겹치거나 자기를 다시 부르는 폼은 펼치지 않고 센다.
+                            self.rep.pdf_forms += 1;
+                        }
+                        Ok(b"Form") => {
                             self.forms += 1;
                             let m = x
                                 .dict
@@ -793,9 +998,7 @@ impl<'a> Reader<'a, '_> {
                             let cached = id.and_then(|i| self.form_data.get(&i).cloned());
                             let data = match cached {
                                 Some(d) => d,
-                                None => match x
-                                    .get_plain_content_with_limit(MAX_STREAM.min(self.budget))
-                                {
+                                None => match plain(x, MAX_STREAM.min(self.budget)) {
                                     Ok(d) => {
                                         let d = Rc::new(d);
                                         if let Some(i) = id {
@@ -803,15 +1006,21 @@ impl<'a> Reader<'a, '_> {
                                         }
                                         d
                                     }
-                                    Err(Error::Decompress(
-                                        DecompressError::MemoryLimitExceeded { .. },
-                                    )) => return Err(TOO_BIG),
-                                    Err(_) => continue,
+                                    Err(e) if e == TOO_BIG => return Err(TOO_BIG),
+                                    Err(_) => {
+                                        self.rep.pdf_forms += 1;
+                                        continue;
+                                    }
                                 },
                             };
                             // 펼칠 때마다 그 내용을 다시 따라가므로 그때마다 뺀다.
                             self.spend(data.len())?;
-                            self.run(&data, &inner, mul(&m, &st.ctm), depth + 1)?;
+                            self.form_stack.extend(id);
+                            let r = self.run(&data, &inner, mul(&m, &st.ctm), depth + 1);
+                            if id.is_some() {
+                                self.form_stack.pop();
+                            }
+                            r?;
                         }
                         _ => {}
                     }
@@ -841,8 +1050,18 @@ impl<'a> Reader<'a, '_> {
             let end = mul(&mul(&[1.0, 0.0, 0.0, 1.0, 0.0, st.rise], tm), &st.ctm);
             let size = trm[2].hypot(trm[3]);
             match font.text(code) {
-                Some(t) => self.emit(trm[4], end[4], trm[5], size, &t, &font.look)?,
-                None => self.rep.pdf_unknown += 1,
+                Some(t) => {
+                    // 칠과 획을 함께 그린 글(`Tr 2`)은 굵게 보인다.
+                    let look = Look {
+                        bold: font.look.bold || st.tr == 2,
+                        ..font.look.clone()
+                    };
+                    self.emit(trm[4], end[4], trm[5], size, &t, &look)?;
+                }
+                None => {
+                    self.rep.pdf_unknown += 1;
+                    self.bad_fonts.insert(font.key);
+                }
             }
         }
         Ok(())
@@ -863,15 +1082,35 @@ impl<'a> Reader<'a, '_> {
         {
             return Ok(());
         }
-        let t: String = t
-            .chars()
-            .filter(|c| !c.is_control() || *c == '\t')
-            .collect();
+        // 문서에 넣을 수 없는 글자(탭 밖의 제어 문자, 개체 자리 글자, 방향을 바꾸는 글자)는 빼고 센다.
+        let n = t.chars().count();
+        let t: String = t.chars().filter(|c| !unwanted(*c)).collect();
+        self.rep.dropped += n - t.chars().count();
+        if t.is_empty() {
+            return Ok(());
+        }
         self.chars += t.chars().count();
         if self.chars > MAX_CHARS {
             return Err(TOO_BIG);
         }
         let (x0, x1) = (x0.min(x1), x0.max(x1));
+        if t.trim().is_empty() {
+            // 공백 글자는 같은 줄의 앞 조각에 붙인다(띄어쓰기를 파일에 적힌 대로 옮긴다).
+            if let Some(p) = self.spans.last_mut() {
+                let pbase = p.y0 + 0.2 * p.size;
+                // 붙어 있는 공백만(멀리 떨어진 탭은 칸 사이의 틈으로 남긴다).
+                if (pbase - base).abs() < 0.1 * size.max(p.size)
+                    && x0 >= p.x0
+                    && (x0 - p.x1).abs() < 0.6 * size
+                {
+                    if !p.text.ends_with(char::is_whitespace) {
+                        p.text.push(' ');
+                    }
+                    p.x1 = p.x1.max(x1);
+                }
+            }
+            return Ok(());
+        }
         if let Some(p) = self.spans.last_mut() {
             let pbase = p.y0 + 0.2 * p.size;
             if &p.look == look
@@ -898,6 +1137,74 @@ impl<'a> Reader<'a, '_> {
             text: t,
         });
         Ok(())
+    }
+}
+
+/// 문서에 넣지 않는 글자: 탭 밖의 제어 문자, 개체 자리 글자, 글의 방향을 바꾸는 글자.
+fn unwanted(c: char) -> bool {
+    (c.is_control() && c != '\t')
+        || c == '\u{FFFC}'
+        || matches!(c, '\u{200E}' | '\u{200F}' | '\u{061C}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+impl Reader<'_, '_> {
+    /// 칠하거나 그은 경로에서 가로·세로 선을 모은다. 그은 경로는 마디마다, 칠한 경로는 얇은 사각형(3pt 이하)을
+    /// 그 가운데 선으로 본다.
+    fn lines(&mut self, path: &Path, stroke: bool) {
+        for sub in &path.subs {
+            if self.hlines.len() + self.vlines.len() >= MAX_LINES {
+                return;
+            }
+            if stroke {
+                for w in sub.windows(2) {
+                    self.segment(w[0], w[1]);
+                }
+                continue;
+            }
+            let pts: &[(f32, f32)] = match sub.as_slice() {
+                [a, .., z]
+                    if sub.len() == 5 && (a.0 - z.0).abs() < 0.01 && (a.1 - z.1).abs() < 0.01 =>
+                {
+                    &sub[..4]
+                }
+                s if s.len() == 4 => s,
+                _ => continue,
+            };
+            let xs = pts.iter().map(|p| p.0);
+            let ys = pts.iter().map(|p| p.1);
+            let (x0, x1) = (
+                xs.clone().fold(f32::MAX, f32::min),
+                xs.fold(f32::MIN, f32::max),
+            );
+            let (y0, y1) = (
+                ys.clone().fold(f32::MAX, f32::min),
+                ys.fold(f32::MIN, f32::max),
+            );
+            // 축에 나란한 사각형인가(꼭짓점마다 x나 y가 가장자리에 있다).
+            let edge = |p: &(f32, f32)| {
+                ((p.0 - x0).abs() < 0.01 || (p.0 - x1).abs() < 0.01)
+                    && ((p.1 - y0).abs() < 0.01 || (p.1 - y1).abs() < 0.01)
+            };
+            if !pts.iter().all(edge) {
+                continue;
+            }
+            let (w, h) = (x1 - x0, y1 - y0);
+            if h <= 3.0 && w > 2.0 {
+                self.hlines.push(((y0 + y1) / 2.0, x0, x1));
+            } else if w <= 3.0 && h > 2.0 {
+                self.vlines.push(((x0 + x1) / 2.0, y0, y1));
+            }
+        }
+    }
+
+    fn segment(&mut self, a: (f32, f32), b: (f32, f32)) {
+        if (a.1 - b.1).abs() < 0.5 && (a.0 - b.0).abs() > 2.0 {
+            self.hlines
+                .push(((a.1 + b.1) / 2.0, a.0.min(b.0), a.0.max(b.0)));
+        } else if (a.0 - b.0).abs() < 0.5 && (a.1 - b.1).abs() > 2.0 {
+            self.vlines
+                .push(((a.0 + b.0) / 2.0, a.1.min(b.1), a.1.max(b.1)));
+        }
     }
 }
 
@@ -991,7 +1298,7 @@ mod tests {
             let n: usize = p
                 .pages
                 .iter()
-                .flat_map(|(s, _)| s)
+                .flat_map(|p| &p.spans)
                 .map(|s| s.text.len())
                 .sum();
             assert!(n <= max_chars, "글 {n}자");
@@ -1124,11 +1431,10 @@ mod tests {
     }
 
     #[test]
-    fn 자기를_부르는_큰_폼은_작업_예산에서_멈춘다() {
-        let pad = "0 0 m 1 1 l n\n".repeat(20_000);
-        let form = format!("{pad}/X0 Do /X0 Do /X0 Do /X0 Do");
+    fn 큰_폼을_거듭_부르면_작업_예산에서_멈춘다() {
+        let form = "0 0 m 1 1 l n\n".repeat(20_000);
         let pdf = one_page(
-            plain("", "/X0 Do"),
+            plain("", &"/X0 Do ".repeat(8)),
             "<< /XObject << /X0 6 0 R >> >>",
             vec![flate(
                 "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources 5 0 R",
@@ -1171,7 +1477,7 @@ mod tests {
     }
 
     #[test]
-    fn 자기를_거듭_부르는_폼도_정해진_수만큼만_펼친다() {
+    fn 자기를_다시_부르는_폼은_펼치지_않고_센다() {
         let page = "q /X0 Do Q";
         let form = "BT /F1 10 Tf 10 10 Td (A) Tj ET /X0 Do /X0 Do /X0 Do /X0 Do";
         let objs = [
@@ -1188,13 +1494,14 @@ mod tests {
         let t = std::time::Instant::now();
         let got = read(&build(&objs), &mut rep, 10, 1_000_000).unwrap();
         assert!(t.elapsed().as_secs() < 5);
-        // 같은 자리의 A가 겹쳐 한 조각에 이어진다. 펼친 폼 수만큼(상한 1000개)만 있다.
+        // 처음 한 번만 펼치고, 안에서 자기를 부른 네 번은 펼치지 않고 센다.
         let a: usize = got.pages[0]
-            .0
+            .spans
             .iter()
             .map(|s| s.text.matches('A').count())
             .sum();
-        assert_eq!(a, MAX_FORMS);
+        assert_eq!(a, 1);
+        assert_eq!(rep.pdf_forms, 4);
     }
 
     #[test]
@@ -1205,6 +1512,7 @@ mod tests {
             2 beginbfrange <0020> <0022> <AC00> <0030> <0031> [<B098> <B2E4>] endbfrange\n\
             endcmap end end";
         let mut f = Font {
+            key: 0,
             two: true,
             map: HashMap::new(),
             ranges: Vec::new(),

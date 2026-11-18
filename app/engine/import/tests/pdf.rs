@@ -1,7 +1,10 @@
 //! PDF 가져오기 시험. 견본 PDF는 시험 안에서 Kari의 PDF 내보내기로 만들어 다시 읽는다(사람과 회사는 지어낸 것).
-//! 암호를 건 견본은 qpdf로 만든다(PDF 내보내기 시험처럼, 없으면 건너뛰지 않고 실패한다).
+//! 암호를 건 견본은 qpdf로 만든다(PDF 내보내기 시험처럼, 없으면 건너뛰지 않고 실패한다). 시간 상한은 release 기준이라
+//! debug 빌드에서는 돌지 않거나 시간만 보지 않는다.
 
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+use std::time::{Duration, Instant};
 
 use kari_doc::serde_json::{json, Value};
 use kari_doc::{Document, Guard, Kind};
@@ -531,6 +534,24 @@ struct Score {
     cells: (usize, usize),
     chars: f64,
     words: f64,
+    /// 공백을 뺀 글이 같은가.
+    same_text: bool,
+    /// (빠진 공백 + 더한 공백) / 원본 공백 수, 한글 음절 사이에 잘못 든 공백 수.
+    space_err: f64,
+    hangul_gap: usize,
+}
+
+/// 공백 자리: 공백을 뺀 글에서 몇 번째 글자 앞에 공백이 있는가.
+fn gaps(s: &str) -> (Vec<char>, std::collections::BTreeSet<usize>) {
+    let (mut chars, mut at) = (Vec::new(), std::collections::BTreeSet::new());
+    for c in s.chars() {
+        if c.is_whitespace() {
+            at.insert(chars.len());
+        } else {
+            chars.push(c);
+        }
+    }
+    (chars, at)
 }
 
 fn score(want: &[B], got: &[B]) -> Score {
@@ -577,24 +598,48 @@ fn score(want: &[B], got: &[B]) -> Score {
             same += 1;
         }
     }
+    let ((wc, wg), (gc, gg)) = (gaps(&flat(want)), gaps(&flat(got)));
+    let wrong = wg.symmetric_difference(&gg).count();
+    let hangul = |c: char| ('가'..='힣').contains(&c);
+    let hangul_gap = gg
+        .difference(&wg)
+        .filter(|&&i| i > 0 && i < gc.len() && hangul(gc[i - 1]) && hangul(gc[i]))
+        .count();
     Score {
         headings,
         lists,
         cells,
         chars,
         words: same as f64 / ww.len() as f64,
+        same_text: wc == gc,
+        space_err: wrong as f64 / wg.len().max(1) as f64,
+        hangul_gap,
     }
 }
 
+/// 자간을 넓힌 문단(글자 사이 3pt).
+fn spaced() -> (Document, Vec<B>) {
+    let t = "홍길동 백엔드 엔지니어 · 견본상사에서 Kari로 결제 API를 만들었습니다.";
+    let mut d = flow(&[p("x")]);
+    d.apply(
+        &json!([{"op": "set", "id": "b0", "props": {"runs": [{"t": t, "s": {"spacing": 3}}]}}]),
+        Guard::default(),
+    )
+    .unwrap();
+    (d, vec![p(t)])
+}
+
 #[test]
-fn 견본_넷의_정확도를_잰다() {
+fn 견본_다섯의_정확도를_잰다() {
     let (two, two_want) = two_column();
     let (many, many_want) = paged();
+    let (sp, sp_want) = spaced();
     let cases: Vec<(&str, Vec<B>, Vec<u8>)> = vec![
         ("한 단", one_column(), flow_pdf(&flow(&one_column()))),
         ("표", with_tables(), flow_pdf(&flow(&with_tables()))),
         ("두 단", two_want, canvas_pdf(&two)),
         ("여러 쪽(머리글·바닥글)", many_want, flow_pdf(&many)),
+        ("자간 넓힘", sp_want, flow_pdf(&sp)),
     ];
     let pct = |(a, b): (usize, usize)| {
         if b == 0 {
@@ -607,12 +652,15 @@ fn 견본_넷의_정확도를_잰다() {
         let got = shape(&run(&bytes).unwrap().fragment);
         let s = score(&want, &got);
         println!(
-            "품질 {name}: 제목 {}/{} ({:.0}%), 목록 {}/{} ({:.0}%), 표 칸 {}/{} ({:.0}%), 글자 일치율 {:.1}%, 어절 일치율 {:.1}%",
+            "품질 {name}: 제목 {}/{} ({:.0}%), 목록 {}/{} ({:.0}%), 표 칸 {}/{} ({:.0}%), 글자 일치율 {:.1}%, 어절 일치율 {:.1}%, 공백 오류 {:.2}%, 한글 사이 잘못 든 공백 {}",
             s.headings.0, s.headings.1, pct(s.headings),
             s.lists.0, s.lists.1, pct(s.lists),
             s.cells.0, s.cells.1, pct(s.cells),
-            s.chars * 100.0, s.words * 100.0,
+            s.chars * 100.0, s.words * 100.0, s.space_err * 100.0, s.hangul_gap,
         );
+        // 공백 뺀 글 100%, 공백 오류 0.5% 이하, 한글 음절 사이 잘못 든 공백 0.
+        assert!(s.same_text, "{name}");
+        assert!(s.space_err <= 0.005 && s.hangul_gap == 0, "{name}");
         assert!(s.chars >= 0.99 && s.words >= 0.99, "{name}");
         assert_eq!(
             (pct(s.headings), pct(s.lists), pct(s.cells)),
@@ -620,4 +668,224 @@ fn 견본_넷의_정확도를_잰다() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn 자간을_넓힌_글은_글자_사이에_공백을_넣지_않는다() {
+    let (d, want) = spaced();
+    assert_eq!(shape(&run(&flow_pdf(&d)).unwrap().fragment), want);
+}
+
+/// 합친 칸이 있는 표: 첫 행의 앞 칸이 두 열, 둘째 행의 첫 칸이 두 행을 차지한다.
+fn merged() -> Document {
+    let mut d = Document::new(Kind::Flow, "합친 칸").unwrap();
+    let body_w = 595.28 - 2.0 * 56.69;
+    let mut ops = vec![
+        json!({"op": "del", "id": "n1"}),
+        json!({"op": "add", "node": {"id": "t", "type": "table", "parent": "root",
+            "props": {"cols": vec![body_w / 3.0; 3]}}}),
+    ];
+    let cells: [[(Option<&str>, Value); 3]; 3] = [
+        [
+            (Some("기간과 학교"), json!({"span": {"rows": 1, "cols": 2}})),
+            (None, json!({})),
+            (Some("구분"), json!({})),
+        ],
+        [
+            (Some("2016 – 2020"), json!({"span": {"rows": 2, "cols": 1}})),
+            (Some("한국대학교"), json!({})),
+            (Some("졸업"), json!({})),
+        ],
+        [
+            (None, json!({})),
+            (Some("서울고등학교"), json!({})),
+            (Some("졸업"), json!({})),
+        ],
+    ];
+    for (r, row) in cells.iter().enumerate() {
+        ops.push(
+            json!({"op": "add", "node": {"id": format!("r{r}"), "type": "row", "parent": "t"}}),
+        );
+        for (c, (t, props)) in row.iter().enumerate() {
+            let mut props = props.clone();
+            if t.is_none() {
+                props["covered"] = json!(true);
+            }
+            ops.push(json!({"op": "add", "node": {"id": format!("c{r}{c}"), "type": "cell", "parent": format!("r{r}"), "props": props}}));
+            ops.push(json!({"op": "add", "node": {"id": format!("p{r}{c}"), "type": "para", "parent": format!("c{r}{c}"),
+                "props": {"runs": [{"t": t.unwrap_or("")}]}}}));
+        }
+    }
+    d.apply(&Value::Array(ops), Guard::default()).unwrap();
+    d
+}
+
+#[test]
+fn 선으로_그린_표의_합친_칸을_옮긴다() {
+    let got = run(&flow_pdf(&merged())).unwrap();
+    let t = got
+        .fragment
+        .paras
+        .iter()
+        .find_map(|p| p.table.as_ref())
+        .expect("표");
+    let cell = |r: usize, c: usize| {
+        t.rows[r].1[c].as_ref().map(|(props, ps)| {
+            let text: String = ps
+                .iter()
+                .flat_map(|p| &p.runs)
+                .filter_map(|x| x["t"].as_str())
+                .collect();
+            (props.get("span").cloned(), text)
+        })
+    };
+    assert_eq!(
+        cell(0, 0),
+        Some((Some(json!({"rows": 1, "cols": 2})), "기간과 학교".into()))
+    );
+    assert_eq!(cell(0, 1), None);
+    assert_eq!(cell(0, 2), Some((None, "구분".into())));
+    assert_eq!(
+        cell(1, 0),
+        Some((Some(json!({"rows": 2, "cols": 1})), "2016 – 2020".into()))
+    );
+    assert_eq!(cell(1, 1), Some((None, "한국대학교".into())));
+    assert_eq!(cell(2, 0), None);
+    assert_eq!(cell(2, 2), Some((None, "졸업".into())));
+    assert_eq!(got.lost, Vec::<String>::new());
+}
+
+#[test]
+fn 두_단_쪽의_머리글과_쪽_번호는_본문에_넣지_않는다() {
+    // 대지 둘(두 쪽): 같은 자리의 머리글과 쪽 번호, 두 단의 본문.
+    let mut d = Document::new(Kind::Canvas, "두 단 두 쪽").unwrap();
+    let mut ops = vec![json!({"op": "set", "id": "n1", "props": {"w": 595, "h": 842}})];
+    ops.push(
+        json!({"op": "add", "node": {"id": "b2", "type": "page", "parent": null,
+        "props": {"w": 595, "h": 842, "cx": 700, "cy": 0}}}),
+    );
+    let mut n = 0;
+    let mut text = |board: &str, x: f64, y: f64, w: f64, t: &str| {
+        n += 1;
+        json!({"op": "add", "node": {"id": format!("t{n}"), "type": "text", "parent": board, "props": {
+            "x": x, "y": y, "w": w, "autoResize": "HEIGHT", "runs": [{"t": t}],
+            "style": {"font": "Pretendard", "weight": 400, "size": 10.5}}}})
+    };
+    let mut want = Vec::new();
+    for (k, board) in ["n1", "b2"].iter().enumerate() {
+        ops.push(text(board, 40.0, 20.0, 300.0, "홍길동 이력서"));
+        ops.push(text(board, 290.0, 810.0, 40.0, &format!("{}", k + 1)));
+        for i in 0..4 {
+            let t = format!("{}쪽 왼쪽 {i}", k + 1);
+            ops.push(text(board, 40.0, 80.0 + 27.0 * i as f64, 140.0, &t));
+            want.push(p(&t));
+        }
+        // 오른쪽 단의 줄은 길이가 달라(앞 줄이 짧게 끝나) 한 줄씩 문단이다.
+        let right = |i: usize| format!("{}쪽 오른쪽 {i} {}", k + 1, "가".repeat(5 * i));
+        for i in 0..5 {
+            ops.push(text(board, 215.0, 60.0 + 21.0 * i as f64, 340.0, &right(i)));
+        }
+        want.extend((0..5).map(|i| p(right(i).trim_end())));
+    }
+    // 왼쪽 단 넷을 읽은 뒤 오른쪽 단 다섯. 쪽마다 같은 차례.
+    d.apply(&Value::Array(ops), Guard::default()).unwrap();
+    let got = run(&canvas_pdf(&d)).unwrap();
+    assert_eq!(shape(&got.fragment), want);
+    assert_eq!(got.lost, ["머리글·바닥글(뺌)"]);
+}
+
+/// 씨앗을 고정한 xorshift.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n.max(1) as u64) as usize
+    }
+}
+
+/// 이 시험 스레드에서 난 멈춤(panic) 수. 읽기 안의 멈춤은 오류로 바뀌어도 여기에 센다.
+static PANICS: AtomicUsize = AtomicUsize::new(0);
+
+#[test]
+fn 무작위로_바꾼_pdf_64개는_2초_안에_멈춤_없이_끝난다() {
+    let me = std::thread::current().name().map(str::to_string);
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().name().map(str::to_string) == me {
+            PANICS.fetch_add(1, Relaxed);
+        }
+        prev(info);
+    }));
+    let (d, _) = paged();
+    let base = flow_pdf(&d);
+    let mut ok = 0;
+    for seed in 0..64u64 {
+        let mut g = Rng(0x5044_4630 ^ (seed * 0x9E37_79B9 + 1));
+        let mut b = base.clone();
+        for _ in 0..1 + g.below(3) {
+            match g.below(3) {
+                // 자르기
+                0 => b.truncate(g.below(b.len())),
+                // 뒤집기(1~8바이트)
+                1 => {
+                    for _ in 0..1 + g.below(8) {
+                        let at = g.below(b.len());
+                        b[at] ^= 1 << g.below(8);
+                    }
+                }
+                // 덧붙이기
+                _ => b.extend((0..1 + g.below(64)).map(|_| g.next() as u8)),
+            }
+        }
+        let t = Instant::now();
+        let got = run(&b);
+        let took = t.elapsed();
+        assert!(
+            cfg!(debug_assertions) || took < Duration::from_secs(2),
+            "씨앗 {seed}: {took:?}"
+        );
+        if let Ok(g) = got {
+            assert!(g.fragment.paras.len() <= 50_000);
+            ok += 1;
+        }
+    }
+    let _ = std::panic::take_hook();
+    assert_eq!(PANICS.load(Relaxed), 0, "멈춤");
+    eprintln!("받은 견본 {ok}개 / 64");
+}
+
+#[test]
+#[cfg_attr(debug_assertions, ignore = "release에서만 잰다")]
+fn 백_쪽_pdf의_미리_보기는_5초_안이다() {
+    let mut blocks = vec![h(1, "홍길동")];
+    while blocks.len() < 2400 {
+        blocks.push(h(2, "경력"));
+        for _ in 0..20 {
+            blocks.push(bullet(LONG));
+        }
+    }
+    let pdf = flow_pdf(&flow(&blocks));
+    let mut times: Vec<Duration> = (0..3)
+        .map(|_| {
+            let t = Instant::now();
+            let got = run(&pdf).unwrap();
+            assert!(got.pages.unwrap() >= 100, "{:?}", got.pages);
+            summary(&got.fragment);
+            t.elapsed()
+        })
+        .collect();
+    times.sort();
+    eprintln!(
+        "100쪽 넘는 PDF 미리 보기(가운데): {:?}, 쪽 {}",
+        times[1],
+        run(&pdf).unwrap().pages.unwrap()
+    );
+    assert!(times[1] < Duration::from_secs(5), "{:?}", times[1]);
 }

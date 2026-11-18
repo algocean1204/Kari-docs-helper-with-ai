@@ -107,19 +107,22 @@ void main() {
     expect(previews(), before);
   });
 
-  testWidgets('PDF는 쪽 수를 요약 앞에 두고 글이 없는 쪽을 옮기지 못한 것에 보인다', (tester) async {
+  testWidgets('PDF는 쪽 수를 요약 앞에 두고 스캔 쪽을 옮기지 못한 것에 보인다', (tester) async {
     const pdf = '/tmp/kari-test/받은 파일/홍길동 이력서.pdf';
     final rig = await pumpReal(tester, seed: false);
     rig.fake.imports[pdf] = {
       ..._preview,
       'pages': 2,
-      'lost': ['글이 없는 쪽 1개(스캔본은 다음에 지원)'],
+      'lost': ['스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)'],
     };
     rig.importPath = () async => pdf;
     await tester.tap(find.text('가져오기…'));
     await tester.pumpAndSettle();
     expect(find.text('쪽 2개 · 문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
-    expect(find.text(keepAll('· 글이 없는 쪽 1개(스캔본은 다음에 지원)')), findsOneWidget);
+    expect(
+      find.text(keepAll('· 스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)')),
+      findsOneWidget,
+    );
     await tester.tap(find.widgetWithText(TextButton, '가져오기'));
     await tester.pumpAndSettle();
     expect(rig.fake.importCalls.single['path'], pdf);

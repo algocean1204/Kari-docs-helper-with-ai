@@ -70,9 +70,16 @@ pub(crate) struct Report {
     /// 가리킨 글자·문단 모양이 없어 기본 모양으로 둔 곳.
     pub refs: usize,
     pub pdf_images: usize,
+    /// 글이 없고 그림이 덮은 쪽(스캔 쪽).
     pub blank_pages: usize,
     pub bad_pages: usize,
+    /// 글자 표가 없어 읽지 못한 글자와 그 글꼴 수.
     pub pdf_unknown: usize,
+    pub pdf_bad_fonts: usize,
+    /// 펼치지 않은 폼(자기를 다시 부르거나 너무 깊게 겹친 것, 읽지 못한 것).
+    pub pdf_forms: usize,
+    /// 선 없이 열만 맞춘 표(글 문단으로 둠).
+    pub pdf_loose_tables: usize,
 }
 
 /// 글꼴 목록에 적지 않는 이름: 앱의 글꼴과 CSS의 일반 글꼴.
@@ -147,17 +154,18 @@ impl Report {
             ),
             (
                 self.blank_pages,
-                "글이 없는 쪽",
+                "스캔 쪽",
                 "개",
-                "스캔본은 다음에 지원",
+                "글이 없어 뺌. 스캔본은 다음에 지원",
             ),
             (self.bad_pages, "읽지 못한 쪽", "개", "깨져 있어 뺌"),
             (
-                self.pdf_unknown,
-                "글자",
+                self.pdf_forms,
+                "펼치지 못한 그림 묶음(폼)",
                 "개",
-                "글꼴에 글자 표가 없어 읽지 못함",
+                "자기를 다시 부르거나 너무 깊게 겹쳐 뺌",
             ),
+            (self.pdf_loose_tables, "선 없는 표", "개", "글로 둠"),
             (self.notes, "각주·미주", "개", "뺌"),
             (self.comments, "메모", "개", "뺌"),
             (self.math, "수식", "개", "뺌"),
@@ -189,6 +197,12 @@ impl Report {
                 .filter(|(n, ..)| *n > 0)
                 .map(|(n, what, unit, how)| format!("{what} {n}{unit}({how})")),
         );
+        if self.pdf_bad_fonts > 0 {
+            out.push(format!(
+                "글을 읽을 수 없는 글꼴 {}개(글자 {}개를 옮기지 못함)",
+                self.pdf_bad_fonts, self.pdf_unknown
+            ));
+        }
         if self.header_footer {
             out.push("머리글·바닥글(뺌)".into());
         }

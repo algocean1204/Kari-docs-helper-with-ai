@@ -7,7 +7,7 @@
 //! 한계: 여러 쪽에 걸친 문단은 쪽마다 따로 문단이 된다. 굵게·기울임은 글꼴 이름과 글꼴 설명으로만 알아 비스듬히 그린 글은 놓친다.
 //! 글자 크기는 제목을 가리는 데만 쓰고 옮기지 않는다.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use kari_doc::serde_json::{json, Map, Value};
@@ -15,15 +15,15 @@ use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
 use crate::{Ctx, Look, EMPTY, MAX_PARAS, TOO_MANY_PARAS};
 
-pub const MAX_PAGES: usize = 500;
+pub const MAX_PAGES: usize = 300;
 /// 문서 전체의 글 조각 수 상한.
 pub const MAX_SPANS: usize = 200_000;
 
 pub const BROKEN: &str = "PDF를 읽지 못했습니다. 파일이 깨졌을 수 있습니다.";
 pub const LOCKED: &str = "암호가 걸린 PDF는 열 수 없습니다.";
-pub const TOO_MANY_PAGES: &str = "500쪽이 넘는 PDF는 가져올 수 없습니다.";
+pub const TOO_MANY_PAGES: &str = "300쪽이 넘는 PDF는 가져올 수 없습니다.";
 pub const TOO_MANY_SPANS: &str = "글 조각이 너무 많은 PDF는 가져올 수 없습니다.";
-pub const NO_TEXT: &str = "글이 없는 PDF입니다(스캔본은 다음에 지원).";
+pub const NO_TEXT: &str = "스캔한 PDF라 글이 없습니다.";
 pub const UNMAPPED: &str = "글꼴에 글자 표가 없어 글을 읽을 수 없는 PDF입니다.";
 pub const TOO_BIG: &str = "내용이 너무 큰 PDF는 가져올 수 없습니다.";
 
@@ -60,6 +60,8 @@ impl Span {
 
 struct Page {
     spans: Vec<Span>,
+    hlines: Vec<(f32, f32, f32)>,
+    vlines: Vec<(f32, f32, f32)>,
 }
 
 /// 같은 높이의 조각들(왼쪽부터).
@@ -116,13 +118,17 @@ fn load(bytes: &[u8], cx: &mut Ctx, max_spans: usize) -> Result<(Vec<Page>, usiz
     let read = crate::pdftext::read(bytes, &mut cx.rep, MAX_PAGES, max_spans)?;
     let n = read.pages.len();
     let mut pages = Vec::with_capacity(n);
-    for (spans, images) in read.pages {
-        cx.rep.pdf_images += images;
-        // 그림만 있는 쪽은 스캔본으로 본다(아무것도 없는 쪽은 알리지 않는다).
-        if spans.is_empty() && images > 0 {
+    for pt in read.pages {
+        cx.rep.pdf_images += pt.images;
+        // 글이 없고 그림이 쪽의 절반 넘게 덮은 쪽은 스캔 쪽이다(아무것도 없는 쪽은 알리지 않는다).
+        if pt.scan {
             cx.rep.blank_pages += 1;
         }
-        pages.push(Page { spans });
+        pages.push(Page {
+            spans: pt.spans,
+            hlines: pt.hlines,
+            vlines: pt.vlines,
+        });
     }
     if pages.iter().all(|p| p.spans.is_empty()) {
         // 끝 표시(`%%EOF`)가 없으면 잘린 파일이다.
@@ -131,6 +137,8 @@ fn load(bytes: &[u8], cx: &mut Ctx, max_spans: usize) -> Result<(Vec<Page>, usiz
             .any(|w| w == b"%%EOF");
         return Err(match (ended, cx.rep.blank_pages, cx.rep.pdf_unknown) {
             (false, ..) => BROKEN,
+            // 읽지 못한 쪽뿐이면 깨진 파일이다.
+            (true, 0, 0) if cx.rep.bad_pages > 0 => BROKEN,
             (true, 0, 0) => EMPTY,
             (true, 0, _) => UNMAPPED,
             _ => NO_TEXT,
@@ -171,7 +179,7 @@ fn key(l: &Ln) -> String {
         .collect()
 }
 
-/// 여러 쪽의 첫 줄이나 끝 줄로 되풀이되는 글(머리글·바닥글)을 뺀다.
+/// 글이 있는 모든 쪽의 같은 자리(첫 줄이나 끝 줄)에서 되풀이되는 글(머리글·바닥글)을 뺀다.
 fn drop_running(pages: &mut [Page], cx: &mut Ctx) {
     let texty = pages.iter().filter(|p| !p.spans.is_empty()).count();
     if texty < 2 {
@@ -188,17 +196,24 @@ fn drop_running(pages: &mut [Page], cx: &mut Ctx) {
             e.into_iter().map(|l| (key(&l), l)).collect()
         })
         .collect();
-    let mut count: HashMap<&str, usize> = HashMap::new();
+    // 열쇠마다 나온 쪽 수와 그 줄의 높이(가장 낮은 것, 가장 높은 것).
+    let mut seen: HashMap<&str, (usize, f32, f32)> = HashMap::new();
     for e in &ends {
-        let uniq: HashSet<&str> = e.iter().map(|(k, _)| k.as_str()).collect();
-        for k in uniq {
-            *count.entry(k).or_default() += 1;
+        let uniq: HashMap<&str, f32> = e.iter().map(|(k, l)| (k.as_str(), l.y0)).collect();
+        for (k, y) in uniq {
+            let v = seen.entry(k).or_insert((0, y, y));
+            *v = (v.0 + 1, v.1.min(y), v.2.max(y));
         }
     }
     // 글자(알파벳, 한글 등)가 없는 줄은 짧은 쪽 번호("#/#", "-#-")만 머리글·바닥글로 본다. 긴 것은 기간처럼
-    // 본문일 수 있다(숫자를 `#`로 바꾸면 쪽마다 다른 기간도 열쇠가 같아진다).
+    // 본문일 수 있다(숫자를 `#`로 바꾸면 쪽마다 다른 기간도 열쇠가 같아진다). 모든 쪽에서 같은 높이(2pt 안)여야 한다.
     let page_no = |k: &str| k.chars().any(char::is_alphabetic) || k.chars().count() <= 7;
-    let running = |k: &str| page_no(k) && count.get(k).is_some_and(|&c| c >= 2 && c * 2 >= texty);
+    let running = |k: &str| {
+        page_no(k)
+            && seen
+                .get(k)
+                .is_some_and(|&(c, lo, hi)| c == texty && hi - lo <= 2.0)
+    };
     for (p, e) in pages.iter_mut().zip(&ends) {
         for (k, l) in e {
             if running(k) {
@@ -341,6 +356,11 @@ fn chunks(l: &Ln) -> Vec<Chunk> {
 
 fn lone_mark(c: &Chunk) -> bool {
     let t: String = c.spans.iter().map(|s| s.text.as_str()).collect();
+    is_mark(&t)
+}
+
+/// 글 전체가 목록 기호 하나(`1.`, `가.`, `•` 등)인가.
+fn is_mark(t: &str) -> bool {
     let t = t.trim();
     mark(&format!("{t} 가")).is_some_and(|(_, n)| n == t.chars().count())
 }
@@ -374,8 +394,9 @@ impl Runs {
         self.0.iter().map(|(s, _)| s.as_str()).collect()
     }
 
-    /// 덩이 하나를 붙인다. 조각 사이가 띄어 있으면(글자 크기의 15% 넘게) 공백을 넣는다.
-    fn chunk(&mut self, c: &Chunk) {
+    /// 덩이 하나를 붙인다. 조각 사이가 띄어 있으면 공백을 넣는다: 쪽에 공백 글자가 적혀 있으면(`explicit`) 글자
+    /// 크기의 60%, 아니면 15%를 넘는 틈.
+    fn chunk(&mut self, c: &Chunk, explicit: bool) {
         let mut prev: Option<&Span> = None;
         for (i, s) in c.spans.iter().enumerate() {
             let mut t = s.text.as_str();
@@ -387,7 +408,14 @@ impl Runs {
             }
             if let Some(p) = prev {
                 let gap = s.x0 - p.x1;
-                if gap > 0.15 * s.size.min(p.size)
+                // 쪽에 공백 글자가 적혀 있으면 틈은 대개 자간이라, 글자 크기의 60%가 넘는 틈(목록 번호 뒤 등)만
+                // 띄어 쓴다.
+                let min = if explicit && !(i == 1 && is_mark(&p.text)) {
+                    0.6
+                } else {
+                    0.15
+                };
+                if gap > min * s.size.min(p.size)
                     && !self.ends_space()
                     && !t.starts_with(char::is_whitespace)
                 {
@@ -449,6 +477,12 @@ fn mark(text: &str) -> Option<(Mark, usize)> {
     if ('①'..='⑳').contains(&c) && next.is_some() {
         return Some((Mark::Ordered(c as u32 - '①' as u32 + 1), lead + 1));
     }
+    // 가. 나. 다. … 하. (또는 가) 나) …)
+    if let Some(i) = "가나다라마바사아자차카타파하".chars().position(|h| h == c) {
+        if matches!(next, Some('.' | ')')) && it.next().is_some_and(char::is_whitespace) {
+            return Some((Mark::Ordered(i as u32 + 1), lead + 2));
+        }
+    }
     let (open, body) = match t.strip_prefix('(') {
         Some(b) => (true, b),
         None => (false, t),
@@ -485,10 +519,60 @@ struct Para {
     tab_right: bool,
 }
 
+/// 읽는 차례대로 놓인 덩이: 문단으로 이을 줄들(쪽에 공백 글자가 적혀 있는가와 함께), 또는 선으로 그린 표.
+enum Unit {
+    Lines(Vec<Ln>, bool),
+    Grid(Grid, Vec<Vec<Span>>, bool),
+}
+
+/// 쪽 하나 → 덩이들. 선으로 그린 표 안의 글은 표로 가고, 나머지는 표 위·사이·아래로 나눠 단을 찾는다.
+fn units(p: Page, out: &mut Vec<Unit>) {
+    let explicit = p.spans.iter().any(|s| s.text.contains(char::is_whitespace));
+    let mut gs = grids(&p.hlines, &p.vlines);
+    gs.sort_by(|a, b| b.ys[0].total_cmp(&a.ys[0]));
+    let mut cells: Vec<Vec<Vec<Span>>> = gs
+        .iter()
+        .map(|g| vec![Vec::new(); g.groups.len()])
+        .collect();
+    let mut segs: Vec<Vec<Span>> = vec![Vec::new(); gs.len() + 1];
+    'span: for s in p.spans {
+        let (x, y) = ((s.x0 + s.x1) / 2.0, s.cy());
+        for (k, g) in gs.iter().enumerate() {
+            if let Some(i) = g.group_at(x, y) {
+                cells[k][i].push(s);
+                continue 'span;
+            }
+        }
+        // 표의 위쪽 끝보다 아래에 있는 글은 그 표 뒤에 읽는다.
+        let k = gs.iter().filter(|g| g.ys[0] >= y).count();
+        segs[k].push(s);
+    }
+    let mut segs = segs.into_iter();
+    for (g, c) in gs.into_iter().zip(cells) {
+        out.extend(
+            regions(segs.next().unwrap_or_default())
+                .into_iter()
+                .map(|l| Unit::Lines(l, explicit)),
+        );
+        out.push(Unit::Grid(g, c, explicit));
+    }
+    out.extend(segs.flat_map(regions).map(|l| Unit::Lines(l, explicit)));
+}
+
 /// 쪽마다 구역을 나눠 표와 문단을 만들고, 글자 크기의 단계로 제목을 정한다.
 fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str> {
     drop_running(&mut pages, cx);
-    let regions: Vec<Vec<Ln>> = pages.into_iter().flat_map(|p| regions(p.spans)).collect();
+    let mut us: Vec<Unit> = Vec::new();
+    for p in pages {
+        units(p, &mut us);
+    }
+    let regions: Vec<Vec<Ln>> = us
+        .iter()
+        .filter_map(|u| match u {
+            Unit::Lines(l, _) => Some(l.clone()),
+            Unit::Grid(..) => None,
+        })
+        .collect();
     let all: Vec<&Ln> = regions.iter().flatten().collect();
     let pitch = pitches(&regions);
     // 본문 크기: 글자 수가 가장 많은 크기(0.5pt 단위).
@@ -503,9 +587,18 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
         .max_by_key(|(k, n)| (**n, -**k))
         .map_or(20, |(k, _)| *k);
     let mut blocks: Vec<Block> = Vec::new();
-    for lines in &regions {
-        region(lines, &pitch, cx.body.0, &mut blocks);
+    let mut loose = 0;
+    for u in us {
+        match u {
+            Unit::Lines(lines, explicit) => {
+                region(&lines, &pitch, explicit, &mut blocks, &mut loose)
+            }
+            Unit::Grid(g, cells, explicit) => {
+                blocks.push(Block::Table(table(&g, cells, explicit, cx.body.0)))
+            }
+        }
     }
+    cx.rep.pdf_loose_tables += loose;
     // 제목의 단계: 큰 크기부터 제목 1, 2, 3(넷째 크기부터는 3).
     let bodyf = body as f32 / 2.0;
     let mut sizes: Vec<i32> = blocks
@@ -619,15 +712,22 @@ fn pitches(regions: &[Vec<Ln>]) -> HashMap<i32, f32> {
     out
 }
 
-/// 구역 하나의 줄들 → 표와 문단.
-fn region(lines: &[Ln], pitch: &HashMap<i32, f32>, body_w: f64, out: &mut Vec<Block>) {
+/// 구역 하나의 줄들 → 문단. 선 없이 열만 맞춘 표(같은 열에 덩이가 놓인 줄이 두 줄 이상)는 줄마다 문단으로
+/// 두고(칸은 탭) `loose`에 센다.
+fn region(
+    lines: &[Ln],
+    pitch: &HashMap<i32, f32>,
+    explicit: bool,
+    out: &mut Vec<Block>,
+    loose: &mut usize,
+) {
     let right = lines.iter().map(|l| l.x1).fold(f32::MIN, f32::max);
     let ch: Vec<Vec<Chunk>> = lines.iter().map(chunks).collect();
     let marks: Vec<Option<(Mark, usize)>> = ch
         .iter()
         .map(|c| {
             let mut r = Runs::default();
-            r.chunk(&c[0]);
+            r.chunk(&c[0], explicit);
             mark(&r.text())
         })
         .collect();
@@ -639,32 +739,35 @@ fn region(lines: &[Ln], pitch: &HashMap<i32, f32>, body_w: f64, out: &mut Vec<Bl
         .fold(f32::MAX, f32::min);
     let mut cur: Option<Para> = None;
     let mut i = 0;
+    // 이 줄 앞까지는 선 없는 표의 행이라 잇지 않는다.
+    let mut solo = 0;
     while i < lines.len() {
-        if let Some((end, t)) = table_at(lines, &ch, i, body_w) {
-            out.extend(cur.take().map(Block::Para));
-            out.push(Block::Table(t));
-            i = end;
-            continue;
+        if i >= solo {
+            if let Some(end) = table_at(lines, &ch, i) {
+                *loose += 1;
+                solo = end;
+            }
         }
         let l = &lines[i];
         let c = &ch[i];
-        let joins = cur.as_ref().is_some_and(|p| {
-            let base = pitch.get(&half(l.size)).copied().unwrap_or(1.4 * l.size);
-            let d = p.last.1 - l.y0;
-            let indent_ok = match p.mark {
-                Some(_) => l.x0 > p.x0 - 0.5 * l.size && l.x0 < p.x0 + 3.0 * l.size,
-                None => (l.x0 - p.x0).abs() < 3.0 * l.size,
-            };
-            marks[i].is_none()
-                && c.len() == 1
-                && p.last.2 == 1
-                && (half(p.size) - half(l.size)).abs() <= 1
-                && d >= 0.5 * l.size
-                && d <= base * 1.15
-                && p.last.0 >= right - 2.5 * l.size
-                && indent_ok
-                && p.runs.chars() < PARA_CHARS
-        });
+        let joins = i >= solo
+            && cur.as_ref().is_some_and(|p| {
+                let base = pitch.get(&half(l.size)).copied().unwrap_or(1.4 * l.size);
+                let d = p.last.1 - l.y0;
+                let indent_ok = match p.mark {
+                    Some(_) => l.x0 > p.x0 - 0.5 * l.size && l.x0 < p.x0 + 3.0 * l.size,
+                    None => (l.x0 - p.x0).abs() < 3.0 * l.size,
+                };
+                marks[i].is_none()
+                    && c.len() == 1
+                    && p.last.2 == 1
+                    && (half(p.size) - half(l.size)).abs() <= 1
+                    && d >= 0.5 * l.size
+                    && d <= base * 1.15
+                    && p.last.0 >= right - 2.5 * l.size
+                    && indent_ok
+                    && p.runs.chars() < PARA_CHARS
+            });
         if !joins {
             out.extend(cur.take().map(Block::Para));
         }
@@ -684,7 +787,7 @@ fn region(lines: &[Ln], pitch: &HashMap<i32, f32>, body_w: f64, out: &mut Vec<Bl
             if k > 0 {
                 p.runs.push("\t", &chunk.spans[0].look);
             }
-            p.runs.chunk(chunk);
+            p.runs.chunk(chunk, explicit);
         }
         if !joins {
             if let Some((m, n)) = marks[i] {
@@ -719,20 +822,19 @@ fn col_of(cols: &[(f32, f32)], b: &Chunk) -> Option<usize> {
         .map(|(k, _)| k)
 }
 
-/// `i`번 줄부터 표가 되면 (끝 줄 다음, 표). 같은 수의 덩이가 같은 열에 놓인 줄이 두 줄 이상 이어져야 한다.
+/// `i`번 줄부터 선 없는 표가 되면 끝 줄 다음. 같은 수의 덩이가 같은 열에 놓인 줄이 두 줄 이상 이어져야 한다.
 /// 첫 열이 빈 줄은 앞 행의 칸이 줄을 바꾼 것으로 본다.
-fn table_at(lines: &[Ln], ch: &[Vec<Chunk>], i: usize, body_w: f64) -> Option<(usize, FragTable)> {
+fn table_at(lines: &[Ln], ch: &[Vec<Chunk>], i: usize) -> Option<usize> {
     let n = ch[i].len();
     if !(2..=MAX_COLS).contains(&n) {
         return None;
     }
     let mut cols: Vec<(f32, f32)> = ch[i].iter().map(|c| (c.x0, c.x1)).collect();
-    // 행마다 칸마다 덩이들.
-    let mut rows: Vec<Vec<Vec<&Chunk>>> = vec![ch[i].iter().map(|c| vec![c]).collect()];
+    let (mut rows, mut full) = (1, 1);
     let mut j = i + 1;
     // 한 줄에서 보는 줄 수를 묶어 둔다(표가 못 된 긴 줄 묶음을 줄마다 다시 보지 않게).
     let end = lines.len().min(i + 4 * MAX_ROWS);
-    while j < end && rows.len() < MAX_ROWS {
+    while j < end && rows < MAX_ROWS {
         let (a, b) = (&lines[j - 1], &lines[j]);
         if a.y0 - b.y1 > 2.0 * a.size {
             break;
@@ -746,91 +848,277 @@ fn table_at(lines: &[Ln], ch: &[Vec<Chunk>], i: usize, body_w: f64) -> Option<(u
             for (k, x) in c.iter().enumerate() {
                 cols[k] = (cols[k].0.min(x.x0), cols[k].1.max(x.x1));
             }
-            rows.push(c.iter().map(|x| vec![x]).collect());
+            rows += 1;
+            full += 1;
         } else {
             let at: Option<Vec<usize>> = c.iter().map(|x| col_of(&cols, x)).collect();
-            let Some(at) =
-                at.filter(|at| at.len() < n && at[0] > 0 && at.windows(2).all(|w| w[0] < w[1]))
-            else {
+            if !at.is_some_and(|at| at.len() < n && at[0] > 0 && at.windows(2).all(|w| w[0] < w[1]))
+            {
                 break;
-            };
-            let last = rows.last_mut()?;
-            for (k, x) in at.into_iter().zip(c) {
-                last[k].push(x);
             }
         }
         j += 1;
     }
-    let full = rows
+    (rows >= 2 && full >= 2).then_some(j)
+}
+
+/// 선 마디: (자리, 시작, 끝). 가로는 (y, x0, x1), 세로는 (x, y0, y1).
+type Seg = (f32, f32, f32);
+
+/// 선을 모으는 허용 오차(pt).
+const TOL: f32 = 1.5;
+
+/// 선으로 그린 표: 열 경계 x(왼쪽부터), 행 경계 y(위부터), 칸마다 묶음 번호(합친 칸은 같은 번호), 묶음마다
+/// (행, 열, 행 수, 열 수).
+#[derive(Debug)]
+struct Grid {
+    xs: Vec<f32>,
+    ys: Vec<f32>,
+    cell: Vec<usize>,
+    groups: Vec<(usize, usize, usize, usize)>,
+}
+
+impl Grid {
+    fn cols(&self) -> usize {
+        self.xs.len() - 1
+    }
+
+    /// 점 (x, y)가 든 칸의 묶음.
+    fn group_at(&self, x: f32, y: f32) -> Option<usize> {
+        let (n, m) = (self.xs.len(), self.ys.len());
+        if x < self.xs[0] - 1.0
+            || x > self.xs[n - 1] + 1.0
+            || y > self.ys[0] + 1.0
+            || y < self.ys[m - 1] - 1.0
+        {
+            return None;
+        }
+        let c = self.xs[1..n - 1].iter().filter(|v| **v <= x).count();
+        let r = self.ys[1..m - 1].iter().filter(|v| **v >= y).count();
+        Some(self.cell[r * self.cols() + c])
+    }
+}
+
+/// 같은 높이(또는 x)의 선 마디를 잇는다: (자리, 시작, 끝).
+fn merge(mut segs: Vec<(f32, f32, f32)>) -> Vec<(f32, f32, f32)> {
+    segs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out: Vec<(f32, f32, f32)> = Vec::new();
+    let mut at = 0;
+    while at < segs.len() {
+        let pos = segs[at].0;
+        let end = at + segs[at..].iter().take_while(|s| s.0 - pos <= 1.0).count();
+        let mut group = segs[at..end].to_vec();
+        group.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let first = out.len();
+        for g in group {
+            match out[first..].last_mut() {
+                Some(last) if g.1 <= last.2 + TOL => last.2 = last.2.max(g.2),
+                _ => out.push((pos, g.1, g.2)),
+            }
+        }
+        at = end;
+    }
+    out
+}
+
+/// 가까운 값들을 하나로 모은다(차례대로 놓인 값).
+fn cluster(mut v: Vec<f32>) -> Vec<f32> {
+    v.sort_by(f32::total_cmp);
+    let mut out: Vec<f32> = Vec::new();
+    for x in v {
+        if out.last().is_none_or(|l| x - l > TOL) {
+            out.push(x);
+        }
+    }
+    out
+}
+
+/// 마디들이 자리 `pos`에서 [a, b]를 절반 넘게 덮는가.
+fn covered(segs: &[&(f32, f32, f32)], pos: f32, a: f32, b: f32) -> bool {
+    let len: f32 = segs
         .iter()
-        .filter(|r| r.iter().all(|c| !c.is_empty()))
-        .count();
-    if rows.len() < 2 || full < 2 {
-        return None;
+        .filter(|s| (s.0 - pos).abs() <= TOL)
+        .map(|s| (s.2.min(b) - s.1.max(a)).max(0.0))
+        .sum();
+    len >= 0.5 * (b - a)
+}
+
+fn find(p: &mut [usize], mut i: usize) -> usize {
+    while p[i] != i {
+        p[i] = p[p[i]];
+        i = p[i];
     }
-    // 열 폭: 열 사이 틈의 가운데를 경계로 나눠 본문 폭에 맞춘다.
-    let mut edges = vec![cols[0].0];
-    for w in cols.windows(2) {
-        edges.push((w[0].1 + w[1].0) / 2.0);
+    i
+}
+
+/// 가로·세로 선에서 표 격자를 찾는다. 서로 닿은 선끼리 한 표이고, 가로 둘·세로 둘 이상, 칸 둘 이상이어야 한다.
+/// 안쪽 선이 없는 칸 경계는 합친 칸이다. 50행·20열을 넘으면 표로 보지 않는다.
+fn grids(h: &[(f32, f32, f32)], v: &[(f32, f32, f32)]) -> Vec<Grid> {
+    let (h, v) = (merge(h.to_vec()), merge(v.to_vec()));
+    // 선이 아주 많은 쪽(그림을 선으로 그린 것 등)은 표를 찾지 않는다.
+    if h.len() + v.len() > 2000 {
+        return Vec::new();
     }
-    edges.push(cols[n - 1].1);
-    let widths: Vec<f64> = edges
-        .windows(2)
-        .map(|w| f64::from(w[1] - w[0]).max(1.0))
+    let mut parent: Vec<usize> = (0..h.len() + v.len()).collect();
+    for (i, a) in h.iter().enumerate() {
+        for (j, b) in v.iter().enumerate() {
+            let touch =
+                b.0 >= a.1 - TOL && b.0 <= a.2 + TOL && a.0 >= b.1 - TOL && a.0 <= b.2 + TOL;
+            if touch {
+                let (x, y) = (find(&mut parent, i), find(&mut parent, h.len() + j));
+                parent[x] = y;
+            }
+        }
+    }
+    let mut comps: HashMap<usize, (Vec<&Seg>, Vec<&Seg>)> = HashMap::new();
+    for (i, a) in h.iter().enumerate() {
+        let r = find(&mut parent, i);
+        comps.entry(r).or_default().0.push(a);
+    }
+    for (j, b) in v.iter().enumerate() {
+        let r = find(&mut parent, h.len() + j);
+        comps.entry(r).or_default().1.push(b);
+    }
+    let mut out = Vec::new();
+    for (hs, vs) in comps.into_values() {
+        if hs.len() < 2 || vs.len() < 2 {
+            continue;
+        }
+        let xs = cluster(vs.iter().map(|s| s.0).collect());
+        let mut ys = cluster(hs.iter().map(|s| s.0).collect());
+        ys.reverse();
+        let (rows, cols) = (ys.len() - 1, xs.len() - 1);
+        if rows == 0 || cols == 0 || rows * cols < 2 || rows > MAX_ROWS || cols > MAX_COLS {
+            continue;
+        }
+        let mut p: Vec<usize> = (0..rows * cols).collect();
+        for r in 0..rows {
+            for c in 0..cols {
+                if c + 1 < cols && !covered(&vs, xs[c + 1], ys[r + 1], ys[r]) {
+                    let (a, b) = (find(&mut p, r * cols + c), find(&mut p, r * cols + c + 1));
+                    p[a] = b;
+                }
+                if r + 1 < rows && !covered(&hs, ys[r + 1], xs[c], xs[c + 1]) {
+                    let (a, b) = (find(&mut p, r * cols + c), find(&mut p, (r + 1) * cols + c));
+                    p[a] = b;
+                }
+            }
+        }
+        // 묶음마다 차지한 칸의 범위. 사각형이 아닌 묶음이 있으면 합친 칸을 믿지 않는다.
+        let mut ids: HashMap<usize, usize> = HashMap::new();
+        let mut groups: Vec<(usize, usize, usize, usize, usize)> = Vec::new();
+        let mut cell = vec![0; rows * cols];
+        for r in 0..rows {
+            for c in 0..cols {
+                let root = find(&mut p, r * cols + c);
+                let next = groups.len();
+                let g = *ids.entry(root).or_insert(next);
+                if g == next {
+                    groups.push((r, c, r, c, 0));
+                }
+                let e = &mut groups[g];
+                *e = (e.0.min(r), e.1.min(c), e.2.max(r), e.3.max(c), e.4 + 1);
+                cell[r * cols + c] = g;
+            }
+        }
+        let square = groups
+            .iter()
+            .all(|g| (g.2 - g.0 + 1) * (g.3 - g.1 + 1) == g.4);
+        let (cell, groups) = if square {
+            (
+                cell,
+                groups
+                    .iter()
+                    .map(|g| (g.0, g.1, g.2 - g.0 + 1, g.3 - g.1 + 1))
+                    .collect(),
+            )
+        } else {
+            let all: Vec<(usize, usize, usize, usize)> = (0..rows * cols)
+                .map(|i| (i / cols, i % cols, 1, 1))
+                .collect();
+            ((0..rows * cols).collect(), all)
+        };
+        out.push(Grid {
+            xs,
+            ys,
+            cell,
+            groups,
+        });
+    }
+    out
+}
+
+/// 격자와 칸마다의 글 → 표 조각. 열 폭은 본문 폭에 맞추고, 첫 행만 모두 굵으면 머리 행이다.
+fn table(g: &Grid, cells: Vec<Vec<Span>>, explicit: bool, body_w: f64) -> FragTable {
+    let cols = g.cols();
+    let rows = g.ys.len() - 1;
+    let all_bold = |sp: &[Span]| !sp.is_empty() && sp.iter().all(|s| s.look.bold);
+    let first: Vec<usize> = (0..g.groups.len())
+        .filter(|&i| g.groups[i].0 == 0)
         .collect();
+    let rest: Vec<usize> = (0..g.groups.len()).filter(|&i| g.groups[i].0 > 0).collect();
+    let head = first
+        .iter()
+        .all(|&i| cells[i].is_empty() || all_bold(&cells[i]))
+        && first.iter().any(|&i| !cells[i].is_empty())
+        && rest
+            .iter()
+            .any(|&i| !cells[i].is_empty() && !all_bold(&cells[i]));
+    let mut paras: Vec<Vec<FragPara>> = cells
+        .into_iter()
+        .map(|sp| {
+            let ls = lines(sp);
+            let pitch = pitches(std::slice::from_ref(&ls));
+            let (mut blocks, mut loose) = (Vec::new(), 0);
+            region(&ls, &pitch, explicit, &mut blocks, &mut loose);
+            blocks
+                .into_iter()
+                .filter_map(|b| match b {
+                    Block::Para(p) => Some(FragPara {
+                        runs: p.runs.values(false),
+                        props: Map::new(),
+                        table: None,
+                    }),
+                    Block::Table(_) => None,
+                })
+                .collect()
+        })
+        .collect();
+    let mut out: Vec<FragRow> = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let mut row: Vec<Option<FragCell>> = Vec::with_capacity(cols);
+        for c in 0..cols {
+            let i = g.cell[r * cols + c];
+            let (r0, c0, n, m) = g.groups[i];
+            row.push(((r0, c0) == (r, c)).then(|| {
+                let mut props = Map::new();
+                if n * m > 1 {
+                    props.insert("span".into(), json!({"rows": n, "cols": m}));
+                }
+                (props, std::mem::take(&mut paras[i]))
+            }));
+        }
+        out.push((Map::new(), row));
+    }
+    let widths: Vec<f64> =
+        g.xs.windows(2)
+            .map(|w| f64::from(w[1] - w[0]).max(1.0))
+            .collect();
     let sum: f64 = widths.iter().sum();
     let widths: Vec<f64> = widths
         .iter()
         .map(|w| round((w * body_w / sum).max(MIN_COL)))
         .collect();
-    let bold = |r: &Vec<Vec<&Chunk>>| {
-        r.iter()
-            .flatten()
-            .flat_map(|c| &c.spans)
-            .all(|s| s.look.bold)
-    };
-    let head = bold(&rows[0]) && !rows[1..].iter().all(bold);
-    let out: Vec<FragRow> = rows
-        .iter()
-        .map(|r| {
-            let cells = r
-                .iter()
-                .map(|cs| -> Option<FragCell> {
-                    let mut runs = Runs::default();
-                    for c in cs {
-                        if !runs.ends_space() {
-                            runs.push(" ", &c.spans[0].look);
-                        }
-                        runs.chunk(c);
-                    }
-                    let paras = if runs.0.is_empty() {
-                        Vec::new()
-                    } else {
-                        vec![FragPara {
-                            runs: runs.values(false),
-                            props: Map::new(),
-                            table: None,
-                        }]
-                    };
-                    Some((Map::new(), paras))
-                })
-                .collect();
-            (Map::new(), cells)
-        })
-        .collect();
     let mut props = Map::new();
     props.insert("cols".into(), json!(widths));
-    if head {
+    if head && rows > 1 {
         props.insert("headerRows".into(), json!(1));
     }
-    Some((
-        j,
-        FragTable {
-            whole: true,
-            props,
-            rows: out,
-        },
-    ))
+    FragTable {
+        whole: true,
+        props,
+        rows: out,
+    }
 }
 
 #[cfg(test)]
@@ -975,7 +1263,7 @@ mod tests {
         assert_eq!(run(&pdf_with(&[page], TYPE0)).unwrap_err(), UNMAPPED);
         let mut cx_rep = Report::default();
         let got = crate::pdftext::read(&pdf_with(&[page], TYPE0), &mut cx_rep, 10, 10).unwrap();
-        assert!(got.pages[0].0.is_empty());
+        assert!(got.pages[0].spans.is_empty());
         assert_eq!(cx_rep.pdf_unknown, 2);
     }
 
@@ -991,15 +1279,18 @@ mod tests {
             text: t.into(),
         };
         let mut r = Runs::default();
-        r.chunk(&Chunk {
-            x0: 0.0,
-            x1: 60.0,
-            spans: vec![
-                span(0.0, 20.0, "결제"),
-                span(20.5, 40.0, "시스템"),
-                span(43.0, 60.0, "운영"),
-            ],
-        });
+        r.chunk(
+            &Chunk {
+                x0: 0.0,
+                x1: 60.0,
+                spans: vec![
+                    span(0.0, 20.0, "결제"),
+                    span(20.5, 40.0, "시스템"),
+                    span(43.0, 60.0, "운영"),
+                ],
+            },
+            false,
+        );
         assert_eq!(r.text(), "결제시스템 운영");
     }
 
@@ -1012,7 +1303,7 @@ mod tests {
             [
                 "글꼴 Helvetica(Pretendard로 바꿈)",
                 "그림 1개(PDF의 그림은 아직 옮기지 않아 뺌)",
-                "글이 없는 쪽 1개(스캔본은 다음에 지원)",
+                "스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)",
             ]
         );
         assert_eq!(got.pages, Some(3));
@@ -1061,6 +1352,85 @@ mod tests {
         assert_eq!(mark("2016.03 – 2020.02"), None);
         assert_eq!(mark("1.2초에서"), None);
         assert_eq!(mark("·"), None);
+        // 한글 번호와 글머리.
+        assert_eq!(mark("가. 글"), Some((Mark::Ordered(1), 2)));
+        assert_eq!(mark("다) 글"), Some((Mark::Ordered(3), 2)));
+        assert_eq!(mark("가나다"), None);
+        assert_eq!(mark("가.글"), None);
+        assert_eq!(mark("◦ 글"), Some((Mark::Bullet, 1)));
+        assert_eq!(mark("▪글"), Some((Mark::Bullet, 1)));
+        assert_eq!(mark("* 글"), Some((Mark::Bullet, 1)));
+    }
+
+    fn runs_of(got: &Imported) -> Vec<Vec<Value>> {
+        got.fragment.paras.iter().map(|p| p.runs.clone()).collect()
+    }
+
+    #[test]
+    fn 칠과_획으로_그린_글은_굵게다() {
+        let page =
+            "BT 2 Tr /F1 12 Tf 72 700 Td (Bold) Tj ET BT 0 Tr /F1 12 Tf 72 600 Td (Plain) Tj ET";
+        let got = run(&pdf(&[page])).unwrap();
+        assert_eq!(
+            runs_of(&got),
+            [
+                vec![json!({"t": "Bold", "s": {"weight": 700}})],
+                vec![json!({"t": "Plain"})]
+            ]
+        );
+    }
+
+    #[test]
+    fn 모든_쪽_같은_자리에_되풀이될_때만_머리글이다() {
+        // 셋째 쪽에는 머리글이 없다.
+        let head = text(72, 800, "Kari Resume");
+        let pages = [
+            head.clone() + &text(72, 600, "One"),
+            head + &text(72, 600, "Two"),
+            text(72, 600, "Three"),
+        ];
+        let got = run(&pdf(&[&pages[0], &pages[1], &pages[2]])).unwrap();
+        let t: Vec<String> = got
+            .fragment
+            .paras
+            .iter()
+            .map(|p| p.runs.iter().filter_map(|r| r["t"].as_str()).collect())
+            .collect();
+        assert_eq!(t, ["Kari Resume", "One", "Kari Resume", "Two", "Three"]);
+        assert!(!got.lost.iter().any(|l| l.contains("머리글")));
+        // 자리가 다르면 같은 글이어도 머리글이 아니다.
+        let pages = [
+            text(72, 800, "Kari") + &text(72, 600, "One"),
+            text(72, 700, "Kari") + &text(72, 600, "Two"),
+        ];
+        let got = run(&pdf(&[&pages[0], &pages[1]])).unwrap();
+        assert!(
+            !got.lost.iter().any(|l| l.contains("머리글")),
+            "{:?}",
+            got.lost
+        );
+    }
+
+    #[test]
+    fn 선_없이_열만_맞춘_표는_줄마다_문단으로_두고_센다() {
+        let page = text(72, 700, "Name")
+            + &text(300, 700, "Kari")
+            + &text(72, 680, "Mail")
+            + &text(300, 680, "hello");
+        let got = run(&pdf(&[&page])).unwrap();
+        let t: Vec<String> = got
+            .fragment
+            .paras
+            .iter()
+            .map(|p| p.runs.iter().filter_map(|r| r["t"].as_str()).collect())
+            .collect();
+        assert_eq!(t, ["Name\tKari", "Mail\thello"]);
+        assert!(got.fragment.paras.iter().all(|p| p.table.is_none()));
+        assert!(
+            got.lost.contains(&"선 없는 표 1개(글로 둠)".to_string()),
+            "{:?}",
+            got.lost
+        );
     }
 
     #[test]
