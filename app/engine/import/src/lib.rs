@@ -4,7 +4,8 @@
 //! 화면, 파일, DB, 스레드를 모른다. 바이트를 받아 조각과 옮기지 못한 것의 목록을 돌려준다. 그림 바이트는 부르는 쪽이
 //! 검사해 에셋으로 저장하고 해시를 돌려준다. 아무것도 실행하지 않고, 네트워크의 그림을 내려받지 않는다.
 //! 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면
-//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP) 이진 파일은 읽지 않고 안내만 한다.
+//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린 문서(OLE)는 읽지 않고 까닭만
+//! 알린다.
 
 mod docx;
 mod html;
@@ -14,7 +15,7 @@ mod zip;
 
 use std::collections::{BTreeSet, HashMap};
 
-pub use hwpx::HWP_LEGACY;
+pub use hwpx::{ENCRYPTED, HWP_LEGACY, OLD_WORD};
 use kari_doc::serde_json::Value;
 pub use kari_edit::{FragPara, Fragment};
 
@@ -238,8 +239,8 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
     if bytes.len() > MAX_FILE {
         return Err(TOO_LARGE);
     }
-    if hwpx::is_legacy(bytes) {
-        return Err(HWP_LEGACY);
+    if let Some(why) = hwpx::legacy(bytes) {
+        return Err(why);
     }
     let mut cx = Ctx {
         store,

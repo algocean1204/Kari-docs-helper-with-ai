@@ -22,7 +22,7 @@ pub(crate) const MAX_ROWS: usize = 50;
 pub(crate) const MAX_COLS: usize = 20;
 pub(crate) const MIN_COL: f64 = 12.0;
 /// 문단 하나에 담는 글자 수와 run 수(문서의 한 문단 상한 100,000자, 10,000개에 못 미치게 나눈다).
-const PARA_CHARS: usize = 90_000;
+pub(crate) const PARA_CHARS: usize = 90_000;
 const PARA_RUNS: usize = 9_000;
 /// EMU(1/914,400인치) → pt.
 const EMU_PER_PT: f64 = 12_700.0;
@@ -523,27 +523,14 @@ impl Rd<'_, '_, '_, '_> {
     /// 표를 글로 풀어 쓴다: 행마다 문단 하나, 칸은 탭으로 나눈다.
     fn flat(&mut self, t: &El, out: &mut Vec<FragPara>) -> Result<(), &'static str> {
         for tr in t.els().filter(|e| e.name == "w:tr") {
-            let cells: Vec<String> = cells(tr)
-                .map(|tc| {
-                    let mut ps = Vec::new();
-                    tc.find_all("w:p", &mut ps);
-                    ps.iter()
-                        .map(|p| {
-                            let mut ts = Vec::new();
-                            p.find_all("w:t", &mut ts);
-                            ts.iter().map(|t| t.text()).collect::<String>()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect();
             self.spend()?;
-            let text: String = cells
-                .join("\t")
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\t')
-                .take(PARA_CHARS)
-                .collect();
+            let (mut text, mut left) = (String::new(), PARA_CHARS);
+            for (i, tc) in cells(tr).enumerate() {
+                if i > 0 {
+                    xml::gather_push(&mut text, &mut left, '\t');
+                }
+                tc.gather("w:p", "w:t", &mut text, &mut left);
+            }
             out.push(FragPara {
                 runs: if text.is_empty() {
                     Vec::new()
@@ -573,7 +560,8 @@ impl Rd<'_, '_, '_, '_> {
                     .collect()
             })
             .unwrap_or_default();
-        struct Anchor {
+        struct Anchor<'a> {
+            tc: &'a El,
             row: usize,
             col: usize,
             rows: usize,
@@ -633,15 +621,14 @@ impl Rd<'_, '_, '_, '_> {
                 {
                     props.insert("fill".into(), json!(fill));
                 }
-                let mut paras = Vec::new();
-                self.blocks(tc, &mut paras, true)?;
                 anchors.push(Anchor {
+                    tc,
                     row: r,
                     col: c,
                     rows: 1,
                     cols: span,
                     props,
-                    paras,
+                    paras: Vec::new(),
                 });
                 let a = anchors.len() - 1;
                 row.extend(std::iter::repeat_n(Some(a), span));
@@ -651,6 +638,11 @@ impl Rd<'_, '_, '_, '_> {
             }
             open = next;
             owner.push(row);
+        }
+        // 상한을 통과한 표만 칸의 내용을 읽는다(버릴 표의 그림이 저장되거나 보고에 세어지지 않게).
+        for a in &mut anchors {
+            let tc = a.tc;
+            self.blocks(tc, &mut a.paras, true)?;
         }
         let ncols = owner.iter().map(Vec::len).max().unwrap_or(0).max(1);
         let body_w = self.cx.body.0;

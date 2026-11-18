@@ -66,6 +66,27 @@ impl El {
         }
     }
 
+    /// 안의 글을 문서 순서로 한 번씩만 모은다: 이름이 `text`인 요소의 글을 잇고, 이름이 `para`인 요소가 시작할 때
+    /// 이미 모은 글이 있으면 공백 하나로 나눈다. 제어 문자(탭 제외)는 버리고, `left`자를 모으면 멈춘다.
+    /// 문단 안의 표나 상자가 같은 글을 겹쳐 되풀이해 쌓지 않고, 모으는 동안 상한을 지킨다.
+    pub fn gather(&self, para: &str, text: &str, out: &mut String, left: &mut usize) {
+        for e in self.els() {
+            if *left == 0 {
+                return;
+            }
+            if e.name == para && !out.is_empty() && !out.ends_with(['\t', ' ']) {
+                gather_push(out, left, ' ');
+            }
+            if e.name == text {
+                for c in e.text().chars().filter(|c| !c.is_control() || *c == '\t') {
+                    gather_push(out, left, c);
+                }
+            } else {
+                e.gather(para, text, out, left);
+            }
+        }
+    }
+
     /// 자손 가운데 이름이 `name`인 요소들(문서 순서).
     pub fn find_all<'a>(&'a self, name: &str, out: &mut Vec<&'a El>) {
         for e in self.els() {
@@ -74,6 +95,14 @@ impl El {
             }
             e.find_all(name, out);
         }
+    }
+}
+
+/// `gather`의 한 글자 쌓기: 남은 글자 수가 있을 때만.
+pub(crate) fn gather_push(out: &mut String, left: &mut usize, c: char) {
+    if *left > 0 {
+        out.push(c);
+        *left -= 1;
     }
 }
 

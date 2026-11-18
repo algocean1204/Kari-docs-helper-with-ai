@@ -17,8 +17,9 @@ use std::collections::{HashMap, HashSet};
 use kari_doc::serde_json::{json, Map, Value};
 use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
+use crate::docx::PARA_CHARS;
 use crate::docx::{fill_color, xml_of, Line, MAX_COLS, MAX_ROWS, MIN_COL};
-use crate::xml::{El, Kid};
+use crate::xml::{self, El, Kid};
 use crate::zip::Zip;
 use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
 
@@ -30,9 +31,31 @@ const NOT_HWPX: &str = "한글 문서(HWPX)를 읽지 못했습니다.";
 /// 길이 단위(HWPUNIT, 1/7200인치) → pt.
 const UNIT: f64 = 100.0;
 
-/// 옛 한글 파일인가: OLE 복합 문서의 머리(`D0 CF 11 E0`)나 HWP 3.0의 머리 글.
-pub(crate) fn is_legacy(b: &[u8]) -> bool {
-    b.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) || b.starts_with(b"HWP Document File")
+/// 암호가 걸린 Word 문서와 옛 Word(.doc)도 HWP처럼 OLE 복합 문서라, 안에 적힌 흐름 이름으로 가른다.
+pub const ENCRYPTED: &str = "암호가 걸린 문서는 열 수 없습니다.";
+pub const OLD_WORD: &str =
+    "옛 Word(.doc) 형식은 읽지 못합니다. Word에서 .docx로 저장해 가져와 주세요.";
+
+/// OLE 복합 문서의 머리(`D0 CF 11 E0`)나 HWP 3.0의 머리 글이면 읽지 않는 까닭. 그 밖에는 `None`.
+// 한계: OLE의 목록 이름(UTF-16LE)이 `EncryptedPackage`나 `WordDocument`면 그 까닭을, 둘 다 아니면 옛 한글로 본다
+pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
+    if b.starts_with(b"HWP Document File") {
+        return Some(HWP_LEGACY);
+    }
+    if !b.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+        return None;
+    }
+    let has = |name: &str| {
+        let needle: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        b.windows(needle.len()).any(|w| w == needle)
+    };
+    Some(if has("EncryptedPackage") {
+        ENCRYPTED
+    } else if has("WordDocument") {
+        OLD_WORD
+    } else {
+        HWP_LEGACY
+    })
 }
 
 /// HWPX 꾸러미인가: `mimetype`이 `application/hwp+zip`이거나, 머리 파일과 구역 파일이 있다.
@@ -344,6 +367,7 @@ impl Rd<'_, '_, '_, '_> {
                             self.flush(&mut line, &props, out)?;
                         }
                         out.extend(rows);
+                        tables = true;
                     }
                     "hp:tbl" => {
                         if !line.runs.is_empty() || !line.done.is_empty() {
@@ -469,29 +493,14 @@ impl Rd<'_, '_, '_, '_> {
     /// 표를 글로 풀어 쓴다: 행마다 문단 하나, 칸은 탭으로 나눈다.
     fn flat(&mut self, t: &El, out: &mut Vec<FragPara>) -> Result<(), &'static str> {
         for tr in t.els().filter(|e| e.name == "hp:tr") {
-            let cells: Vec<String> = tr
-                .els()
-                .filter(|e| e.name == "hp:tc")
-                .map(|tc| {
-                    let mut ps = Vec::new();
-                    tc.find_all("hp:p", &mut ps);
-                    ps.iter()
-                        .map(|p| {
-                            let mut ts = Vec::new();
-                            p.find_all("hp:t", &mut ts);
-                            ts.iter().map(|t| t.text()).collect::<String>()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect();
             self.spend()?;
-            let text: String = cells
-                .join("\t")
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\t')
-                .take(90_000)
-                .collect();
+            let (mut text, mut left) = (String::new(), PARA_CHARS);
+            for (i, tc) in tr.els().filter(|e| e.name == "hp:tc").enumerate() {
+                if i > 0 {
+                    xml::gather_push(&mut text, &mut left, '\t');
+                }
+                tc.gather("hp:p", "hp:t", &mut text, &mut left);
+            }
             out.push(FragPara {
                 runs: if text.is_empty() {
                     Vec::new()
@@ -521,7 +530,9 @@ impl Rd<'_, '_, '_, '_> {
             props: Map<String, Value>,
             paras: Vec<FragPara>,
         }
-        let mut anchors: Vec<Anchor> = Vec::new();
+        // 첫 패스: 자리만 모아 상한과 겹침을 판정한다. 버릴 표의 칸 안 그림이 저장되거나 보고에 세어지지 않게
+        // 칸의 내용은 통과한 뒤에 읽는다.
+        let mut places: Vec<(&El, usize, usize, usize, usize)> = Vec::new();
         for (r, tr) in trs.iter().enumerate() {
             let mut next = 0;
             for tc in tr.els().filter(|e| e.name == "hp:tc") {
@@ -533,52 +544,56 @@ impl Rd<'_, '_, '_, '_> {
                 let rows = span.and_then(|s| num(s, "rowSpan")).unwrap_or(1).max(1);
                 if col.saturating_add(cols) > MAX_COLS
                     || row.saturating_add(rows) > MAX_ROWS
-                    || anchors.len() >= MAX_ROWS * MAX_COLS
+                    || places.len() >= MAX_ROWS * MAX_COLS
                 {
                     return Ok(None);
                 }
                 next = col + cols;
-                let mut props = Map::new();
-                if let Some(fill) = tc
-                    .attr("borderFillIDRef")
-                    .and_then(|b| self.head.fills.get(b))
-                {
-                    props.insert("fill".into(), json!(fill));
-                }
-                let mut paras = Vec::new();
-                if let Some(sl) = tc.child("hp:subList") {
-                    self.blocks(sl, &mut paras, true)?;
-                }
-                anchors.push(Anchor {
-                    row,
-                    col,
-                    rows,
-                    cols,
-                    width: tc
-                        .child("hp:cellSz")
-                        .and_then(|s| num(s, "width"))
-                        .map(|w| w as f64 / UNIT),
-                    header: tc.attr("header") == Some("1"),
-                    props,
-                    paras,
-                });
+                places.push((tc, row, col, rows, cols));
             }
         }
-        let nrows = anchors.iter().map(|a| a.row + a.rows).max().unwrap_or(0);
-        let ncols = anchors.iter().map(|a| a.col + a.cols).max().unwrap_or(0);
+        let nrows = places.iter().map(|p| p.1 + p.3).max().unwrap_or(0);
+        let ncols = places.iter().map(|p| p.2 + p.4).max().unwrap_or(0);
         if nrows == 0 || ncols == 0 {
             return Ok(None);
         }
         // 칸마다 덮는 닻 번호. 서로 겹치는 칸이 있으면 합친 모양을 믿을 수 없다.
         let mut owner: Vec<Vec<Option<usize>>> = vec![vec![None; ncols]; nrows];
-        for (i, a) in anchors.iter().enumerate() {
-            for row in owner.iter_mut().skip(a.row).take(a.rows) {
-                for slot in row.iter_mut().skip(a.col).take(a.cols) {
+        for (i, &(_, row, col, rows, cols)) in places.iter().enumerate() {
+            for line in owner.iter_mut().skip(row).take(rows) {
+                for slot in line.iter_mut().skip(col).take(cols) {
                     if slot.replace(i).is_some() {
                         return Ok(None);
                     }
                 }
             }
+        }
+        let mut anchors: Vec<Anchor> = Vec::with_capacity(places.len());
+        for (tc, row, col, rows, cols) in places {
+            let mut props = Map::new();
+            if let Some(fill) = tc
+                .attr("borderFillIDRef")
+                .and_then(|b| self.head.fills.get(b))
+            {
+                props.insert("fill".into(), json!(fill));
+            }
+            let mut paras = Vec::new();
+            if let Some(sl) = tc.child("hp:subList") {
+                self.blocks(sl, &mut paras, true)?;
+            }
+            anchors.push(Anchor {
+                row,
+                col,
+                rows,
+                cols,
+                width: tc
+                    .child("hp:cellSz")
+                    .and_then(|s| num(s, "width"))
+                    .map(|w| w as f64 / UNIT),
+                header: tc.attr("header") == Some("1"),
+                props,
+                paras,
+            });
         }
         let body_w = self.cx.body.0;
         let mut widths: Vec<Option<f64>> = vec![None; ncols];

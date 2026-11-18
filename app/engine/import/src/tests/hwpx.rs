@@ -401,3 +401,76 @@ fn 하이퍼링크는_허용한_주소만_링크로_옮기고_나머지는_글�
         .lost
         .contains(&"링크 2개(주소를 쓸 수 없어 글만 둠)".to_string()));
 }
+
+/// 그림 `image1`을 담은 문단.
+fn pic_p() -> String {
+    r#"<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:pic><hp:curSz width="7200" height="3600"/><hc:img binaryItemIDRef="image1"/></hp:pic><hp:t/></hp:run></hp:p>"#.to_string()
+}
+
+#[test]
+fn 버리는_표의_칸_안_그림은_저장하지_않고_글꼴도_세지_않는다() {
+    // 첫 칸에 그림과 글이 있고, 둘째 칸이 열 상한을 넘는다 / 둘째 칸이 첫 칸과 겹친다.
+    let cases = [
+        [
+            tc(Cell(0, 0, 1, 1, 1, 0), &(pic_p() + &hp(0, &[(0, "글")]))),
+            tt(0, 25, 1, 1, 1, 0, "멀리"),
+        ],
+        [
+            tc(Cell(0, 0, 2, 1, 1, 0), &(pic_p() + &hp(0, &[(0, "글")]))),
+            tt(0, 1, 1, 1, 1, 0, "겹침"),
+        ],
+    ];
+    for rows in cases {
+        let z = hwpx(&tbl(&[rows.concat()]), &[]);
+        let mut calls = 0;
+        let got = import(&z, BODY, &mut |b| {
+            calls += 1;
+            store(b)
+        })
+        .unwrap();
+        assert_eq!(calls, 0, "버린 표의 그림을 저장했다");
+        assert_eq!(got.lost, ["큰 표 1개(50행이나 20열을 넘어 글로 풀어 씀)"]);
+        assert_eq!(summary(&got.fragment).images, 0);
+    }
+}
+
+#[test]
+fn 깊이_겹친_표의_글은_한_번만_쌓고_상한에서_멈춘다() {
+    let mut inner = hp(0, &[(0, "L40")]);
+    for k in (1..40).rev() {
+        inner = hp(0, &[(0, &format!("L{k}"))]) + &tbl(&[tc(Cell(0, 0, 1, 1, 1, 0), &inner)]);
+    }
+    let z = hwpx(&tbl(&[tc(Cell(0, 0, 1, 1, 1, 0), &inner)]), &[]);
+    let f = run(&z).unwrap().fragment;
+    let cell = f.paras[0].table.as_ref().unwrap().rows[0].1[0]
+        .as_ref()
+        .unwrap();
+    let text: Vec<String> = cell.1.iter().map(text_of).collect();
+    let want: Vec<String> = (2..=40).map(|k| format!("L{k}")).collect();
+    assert_eq!(text, ["L1".to_string(), want.join(" ")]);
+    // 글이 상한(9만 자)보다 길면 모으는 동안 멈춘다.
+    let long = hp(0, &[(0, &"가".repeat(200_000))]);
+    let inner = tbl(&[tc(Cell(0, 0, 1, 1, 1, 0), &long)]);
+    let z = hwpx(&tbl(&[tc(Cell(0, 0, 1, 1, 1, 0), &inner)]), &[]);
+    let f = run(&z).unwrap().fragment;
+    let cell = f.paras[0].table.as_ref().unwrap().rows[0].1[0]
+        .as_ref()
+        .unwrap();
+    assert_eq!(text_of(&cell.1[0]).chars().count(), 90_000);
+}
+
+#[test]
+fn ole_복합_문서는_안의_이름으로_까닭을_가른다() {
+    let ole = |name: &str| {
+        let mut v = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        v.extend_from_slice(&[0; 300]);
+        v.extend(name.encode_utf16().flat_map(u16::to_le_bytes));
+        v.extend_from_slice(&[0; 300]);
+        v
+    };
+    assert_eq!(run(&ole("EncryptedPackage")).err(), Some(ENCRYPTED));
+    assert_eq!(run(&ole("WordDocument")).err(), Some(OLD_WORD));
+    assert_eq!(run(&ole("FileHeader")).err(), Some(HWP_LEGACY));
+    assert!(ENCRYPTED.contains("암호"));
+    assert!(OLD_WORD.contains(".docx로 저장"));
+}

@@ -444,7 +444,7 @@ sequenceDiagram
 
 ## 가져오기 (`app/engine/import`)
 
-다른 앱의 파일 바이트를 붙여넣기와 같은 조각(`Fragment`)과 옮기지 못한 것의 목록(`lost`, 내보내기와 같은 꼴의 한 줄들)으로 읽는다. 파일, DB, 스레드를 모르고, 그림 바이트는 부르는 쪽이 검사해 에셋으로 저장한 해시를 받는다. 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, `mimetype`이 `application/hwp+zip`인 꾸러미(또는 `Contents/header.xml`과 `Contents/section*.xml`이 있는 꾸러미)면 HWPX, 다른 zip이면 웹 페이지 꾸러미, 아니면 HTML. OLE 머리(`D0 CF 11 E0`)나 HWP 3.0 머리 글의 옛 한글 파일은 읽지 않고 오류 코드 `import_hwp`와 안내(HWPX나 PDF로 저장)를 돌려준다.
+다른 앱의 파일 바이트를 붙여넣기와 같은 조각(`Fragment`)과 옮기지 못한 것의 목록(`lost`, 내보내기와 같은 꼴의 한 줄들)으로 읽는다. 파일, DB, 스레드를 모르고, 그림 바이트는 부르는 쪽이 검사해 에셋으로 저장한 해시를 받는다. 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, `mimetype`이 `application/hwp+zip`인 꾸러미(또는 `Contents/header.xml`과 `Contents/section*.xml`이 있는 꾸러미)면 HWPX, 다른 zip이면 웹 페이지 꾸러미, 아니면 HTML. OLE 머리(`D0 CF 11 E0`)나 HWP 3.0 머리 글의 파일은 읽지 않는다. OLE는 안에 적힌 이름(UTF-16LE)으로 가른다: `EncryptedPackage`면 암호가 걸린 문서, `WordDocument`면 옛 Word(.doc), 둘 다 아니면 옛 한글로 보고 오류 코드 `import_hwp`와 안내(HWPX나 PDF로 저장)를 돌려준다(앞의 둘은 코드 `import`).
 
 | 형식 | 읽는 길 |
 |---|---|
