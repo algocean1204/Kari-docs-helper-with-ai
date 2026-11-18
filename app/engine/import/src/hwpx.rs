@@ -49,6 +49,10 @@ pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
         let needle: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
         b.windows(needle.len()).any(|w| w == needle)
     };
+    // 한글 5.0은 머리 흐름이 이 글로 시작한다. 미리보기 글이나 안에 넣은 개체의 이름에 속지 않게 먼저 본다.
+    if b.windows(17).any(|w| w == b"HWP Document File") {
+        return Some(HWP_LEGACY);
+    }
     Some(if has("EncryptedPackage") {
         ENCRYPTED
     } else if has("WordDocument") {

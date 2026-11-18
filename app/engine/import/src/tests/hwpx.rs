@@ -471,6 +471,10 @@ fn ole_복합_문서는_안의_이름으로_까닭을_가른다() {
     assert_eq!(run(&ole("EncryptedPackage")).err(), Some(ENCRYPTED));
     assert_eq!(run(&ole("WordDocument")).err(), Some(OLD_WORD));
     assert_eq!(run(&ole("FileHeader")).err(), Some(HWP_LEGACY));
+    // 한글 파일의 머리 흐름이 있으면, 미리보기 글이나 안에 넣은 개체에 Word 이름이 있어도 한글로 본다.
+    let mut hwp = ole("WordDocument");
+    hwp.extend_from_slice(b"HWP Document File");
+    assert_eq!(run(&hwp).err(), Some(HWP_LEGACY));
     assert!(ENCRYPTED.contains("암호"));
     assert!(OLD_WORD.contains(".docx로 저장"));
 }
