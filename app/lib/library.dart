@@ -38,7 +38,7 @@ class Library extends ChangeNotifier {
   /// 넣을 그림 파일 고르기(PNG, JPEG). 시험은 바꿔 끼운다.
   final OpenPath openPath;
 
-  /// 가져올 파일 고르기(DOCX, HTML, zip). 시험은 바꿔 끼운다.
+  /// 가져올 파일 고르기(DOCX, DOC, HWPX, HWP, HTML, zip). 시험은 바꿔 끼운다.
   final OpenPath importPath;
 
   /// 같은 자료 폴더를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져오기. 시험은 바꿔 끼운다.
@@ -253,12 +253,13 @@ class Library extends ChangeNotifier {
   }
 
   /// 파일을 새 흐름 문서로 가져온다. {id, lost}. 새 문서의 스타일은 [create]와 같다.
-  /// 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
-  Future<Json> importFile(String path) async {
+  /// [hash]는 미리 보기가 돌려준 값이다. 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
+  Future<Json> importFile(String path, {String? hash}) async {
     final r = await engine.importApply(
       path,
       importName(path),
       styles: newDocStyles,
+      hash: hash,
     );
     await _run(() async {});
     return r;
@@ -302,6 +303,36 @@ class Library extends ChangeNotifier {
     final name = _freeName('제목 없는 캔버스');
     await _run(() async => id = await engine.docsCreate('canvas', name));
     if (id != null) newCanvases.add(id!);
+    return id;
+  }
+
+  /// [base](겹치면 번호를 붙인다) 이름의 새 캔버스 문서에 [ops]를 한 묶음으로 넣고(되돌리기 한 번) id를 돌려준다.
+  /// 새 문서의 처음 대지는 같은 묶음에서 지운다. 넣지 못하면 만든 문서를 지우고 [EngineError]를 던진다.
+  Future<int> createCanvasWith(
+    String base,
+    List<Json> ops,
+    String label,
+  ) async {
+    final id = await engine.docsCreate('canvas', _freeName(base));
+    try {
+      final first = await engine.docNodes(id);
+      await engine.docCommit(id, [
+        ...ops,
+        for (final n in first)
+          if (n['parent'] == null) {'op': 'del', 'id': n['id']},
+      ], label);
+    } on EngineError {
+      try {
+        await engine.docsTrash(id);
+        await engine.docsPurge(id);
+      } on EngineError {
+        // 지우지 못한 빈 문서는 문서 목록에 남는다(사용자가 지울 수 있다).
+      }
+      await _run(() async {});
+      rethrow;
+    }
+    newCanvases.add(id);
+    await _run(() async {});
     return id;
   }
 
@@ -589,7 +620,7 @@ typedef OpenPath = Future<String?> Function();
 Future<String?> pickOpenPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('openPath');
 
-/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
+/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, 한글 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
 Future<String?> pickImportPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('importPath');
 

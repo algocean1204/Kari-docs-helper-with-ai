@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -457,6 +459,232 @@ class _FigmaSendDialogState extends State<FigmaSendDialog> {
         if (_done != null) NoticeText(_done!),
         if (_error != null) NoticeText(_error!, failed: true),
       ],
+    );
+  }
+}
+
+/// "Figma에서 가져오기". 연결을 보고, 페이지를 고르면 무엇이 오는지(요소 수, 옮기지 못한 것)를 먼저 보인 뒤 새 캔버스
+/// 문서로 가져온다. 닫을 때 만든 문서의 id를 돌려준다(만들지 않았으면 null). 연결되지 않았으면 설정의 Figma 구역으로
+/// 안내한다.
+class FigmaImportDialog extends StatefulWidget {
+  const FigmaImportDialog({
+    super.key,
+    required this.link,
+    required this.onOpenSettings,
+  });
+
+  final FigmaLink link;
+  final VoidCallback onOpenSettings;
+
+  @override
+  State<FigmaImportDialog> createState() => _FigmaImportDialogState();
+}
+
+class _FigmaImportDialogState extends State<FigmaImportDialog> {
+  List<FigmaPage>? _pages;
+  FigmaPage? _page;
+  FigmaImport? _plan;
+  bool _reading = false;
+  bool _importing = false;
+  Completer<void> _stop = Completer<void>();
+  (int, int)? _progress;
+  ({int id, String line})? _done;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.link.connected) _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final pages = await widget.link.pages();
+      if (!mounted) return;
+      setState(() => _pages = pages);
+      if (pages.isNotEmpty) await _read(pages.first);
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _read(FigmaPage page) async {
+    setState(() {
+      _page = page;
+      _plan = null;
+      _reading = true;
+      _error = null;
+    });
+    try {
+      final plan = await widget.link.readPage(page.id);
+      if (mounted && _page == page) setState(() => _plan = plan);
+    } on FigmaError catch (e) {
+      if (mounted && _page == page) setState(() => _error = e.message);
+    } finally {
+      if (mounted && _page == page) setState(() => _reading = false);
+    }
+  }
+
+  void _halt() {
+    if (!_stop.isCompleted) _stop.complete();
+  }
+
+  Future<void> _import() async {
+    setState(() {
+      _importing = true;
+      _stop = Completer<void>();
+      _error = null;
+    });
+    try {
+      final r = await widget.link.importPage(
+        _plan!,
+        name: _page!.name,
+        onProgress: (a, b) {
+          if (mounted) setState(() => _progress = (a, b));
+        },
+        stop: _stop.future,
+      );
+      if (mounted) setState(() => _done = r);
+    } on FigmaChanged catch (e) {
+      // 바뀐 페이지를 다시 미리 보고, 무엇이 바뀌었는지 알린다.
+      if (mounted) {
+        setState(() {
+          _importing = false;
+          _progress = null;
+        });
+        await _read(_page!);
+        if (mounted) setState(() => _error = e.message);
+      }
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on EngineError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _importing = false;
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final link = widget.link;
+    final pages = _pages;
+    final plan = _plan;
+    final done = _done;
+    Widget line(String text, {Color? color}) => Padding(
+      padding: const EdgeInsets.only(bottom: Space.x2),
+      child: KeepText(
+        text,
+        style: AppText.body.copyWith(color: color ?? c.text),
+      ),
+    );
+    final ready =
+        plan != null &&
+        plan.tooBig == null &&
+        plan.count > 0 &&
+        !_importing &&
+        done == null;
+    // 가져오는 동안에는 바깥 누르기·Esc로 창이 닫히지 않고 멈추기가 된다(창만 닫히면 가져오기가 뒤에서 이어지고
+    // 문서가 열리지 않는다). 멈춘 뒤에는 닫힌다.
+    return PopScope(
+      canPop: !_importing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _importing) _halt();
+      },
+      child: Sheet(
+        title: 'Figma에서 가져오기',
+        maxWidth: 520,
+        actions: [
+          if (_importing)
+            AppButton('멈추기', onPressed: _halt)
+          else if (done != null)
+            AppButton(
+              '열기',
+              kind: ButtonKind.primary,
+              onPressed: () => Navigator.of(context).pop(done.id),
+            )
+          else ...[
+            AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+            if (!link.connected)
+              AppButton(
+                '설정 열기',
+                kind: ButtonKind.primary,
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  widget.onOpenSettings();
+                },
+              )
+            else
+              AppButton(
+                '가져오기',
+                kind: ButtonKind.primary,
+                onPressed: ready ? _import : null,
+              ),
+          ],
+        ],
+        children: [
+          if (!link.connected)
+            line('Figma에 연결되지 않았습니다. 설정 → Figma에서 플러그인의 채널에 연결한 뒤 다시 엽니다.')
+          else ...[
+            Text('가져올 페이지', style: AppText.label.copyWith(color: c.text)),
+            const SizedBox(height: Space.x2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoreMenu(
+                key: const Key('figma-import-page'),
+                label: pages == null ? '페이지를 읽는 중' : _page?.name ?? '페이지 없음',
+                tooltip: '가져올 페이지',
+                icon: Icons.unfold_more,
+                checked: {?_page?.name},
+                items: [
+                  for (final p in pages ?? const <FigmaPage>[])
+                    (
+                      p.name,
+                      () {
+                        if (!_importing && done == null) _read(p);
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Space.x4),
+            if (_reading) line('페이지를 읽는 중', color: c.textMuted),
+            if (plan != null) ...[
+              line(
+                'Kari로 오는 것: 페이지 ${plan.boards}개, 요소 ${plan.count}개, '
+                '그림 ${plan.images.length}개',
+              ),
+              if (plan.skippedCount > 0)
+                line(
+                  '옮기지 못하는 것(빼고 가져옵니다): ${plan.skippedText}',
+                  color: c.textMuted,
+                ),
+              if (plan.fonts > 0)
+                line(
+                  '글 상자 ${plan.fonts}개의 글꼴은 Pretendard로 바뀝니다',
+                  color: c.textMuted,
+                ),
+              if (plan.tooBig != null) NoticeText(plan.tooBig!, failed: true),
+              if (plan.count == 0 && plan.tooBig == null)
+                line('이 페이지의 최상위에 프레임이 없어 가져올 것이 없습니다', color: c.textMuted),
+            ],
+            line(
+              '최상위 프레임은 Kari의 페이지가 되고, 새 캔버스 문서 하나로 들어옵니다(되돌리기 한 번으로 비웁니다). '
+              'Figma 파일은 읽기만 하고 바꾸지 않습니다.',
+              color: c.textMuted,
+            ),
+          ],
+          if (_progress != null)
+            line('그림을 받는 중 · ${_progress!.$1}/${_progress!.$2}'),
+          if (done != null) NoticeText(done.line),
+          if (_error != null) NoticeText(_error!, failed: true),
+        ],
+      ),
     );
   }
 }

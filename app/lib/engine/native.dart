@@ -4,7 +4,7 @@ import 'dart:ffi';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:flutter/services.dart' show rootBundle;
 
 import 'engine.dart';
@@ -23,6 +23,15 @@ external int _kariFontAdd(Pointer<Uint8> data, int len);
 /// 문서의 바뀜 번호. 그릴 것이 달라질 때마다 오른다. 편집 세션이 없으면 0.
 @Native<Uint64 Function(Int64)>(symbol: 'kari_edit_gen', isLeaf: true)
 external int kariEditGen(int doc);
+
+/// 엔진 호출이 나갈 때와 돌아올 때마다 오른다. 바뀜 번호는 엔진 호출 안에서만 오르므로, 그리는 화면은 이것을 듣고
+/// 깨어나 바뀜 번호를 본다(바뀜이 없을 때 프레임을 돌리지 않으려고).
+final engineCalls = ValueNotifier<int>(0);
+
+/// 편집 줄(기본 줄)에서 아직 답이 오지 않은 호출 수. 그리는 화면은 이것이 0보다 크면 멈추지 않는다: 편집 호출은
+/// 답하기 전에(저장 전에) 바뀜 번호를 올리므로, 줄이 밀려 오래 걸려도 올린 그때 그린다. 네트워크·느린 줄은 세지
+/// 않는다(로그인 기다림처럼 몇 분 걸리는 호출이 프레임을 계속 돌리지 않게).
+int engineBusy = 0;
 
 /// 문서를 화소 버퍼(BGRA, 미리 곱한 알파)에 그린다. [scale]은 논리 화소당 화소, [scrollY]는 논리 화소.
 /// 0 성공, 1 틀린 인자, 2 세션 없음, 3 엔진 안의 오류.
@@ -148,13 +157,22 @@ class NativeEngine extends EngineApi {
   bool get readsRichBoard => true;
 
   @override
-  Future<String> send(String request) =>
-      (netLane(request)
-              ? _net
-              : slowLane(request)
-              ? _slow
-              : _main)
-          .send(request);
+  Future<String> send(String request) {
+    // 보낼 때도 깨운다: 엔진은 답을 돌려주기 전에(저장하기 전에) 바뀜 번호를 올리므로, 답을 기다리면 그만큼 늦게 그린다.
+    engineCalls.value++;
+    final edit = !netLane(request) && !slowLane(request);
+    if (edit) engineBusy++;
+    return (netLane(request)
+            ? _net
+            : slowLane(request)
+            ? _slow
+            : _main)
+        .send(request)
+        .whenComplete(() {
+          if (edit) engineBusy--;
+          engineCalls.value++;
+        });
+  }
 
   /// 편집 세션은 글꼴이 있어야 연다. 처음 열 때 앱의 글꼴 바이트를 한 번 넘긴다.
   @override
@@ -171,9 +189,14 @@ class NativeEngine extends EngineApi {
 
   /// 가져오기는 새 문서에 붙일 자리를 배치로 찾아 글꼴이 있어야 한다. 홈에서 편집 화면을 열기 전에도 부르므로 먼저 넘긴다.
   @override
-  Future<Json> importApply(String path, String name, {Json? styles}) async {
+  Future<Json> importApply(
+    String path,
+    String name, {
+    Json? styles,
+    String? hash,
+  }) async {
     await _ready();
-    return super.importApply(path, name, styles: styles);
+    return super.importApply(path, name, styles: styles, hash: hash);
   }
 
   Future<void> _ready() async {

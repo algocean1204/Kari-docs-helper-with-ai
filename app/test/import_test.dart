@@ -69,6 +69,27 @@ void main() {
     expect(find.text('홍길동 이력서'), findsOneWidget);
   });
 
+  testWidgets('미리 본 뒤 파일이 바뀌면 안내를 보이고 다시 미리 본 뒤 가져온다', (tester) async {
+    final rig = await _pick(tester);
+    // 미리 본 뒤 원본이 바뀐다.
+    rig.fake.importHashes[_path] = 'h1';
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    // 미리 본 해시(h0)를 넘겼고, 거절되어 문서가 만들어지지 않았고, 창이 남아 안내를 보인다.
+    expect(rig.fake.importCalls.single['hash'], 'h0');
+    expect(rig.fake.docs, isEmpty);
+    expect(find.byType(ImportDialog), findsOneWidget);
+    expect(find.textContaining('파일이 바뀌었습니다. 다시 미리 봅니다.'), findsOneWidget);
+    // 자동으로 다시 읽어 새 해시로 이어서 가져올 수 있다.
+    expect(rig.fake.sent.where((m) => m == 'import.preview'), hasLength(2));
+    expect(button(tester, '가져오기').onPressed, isNotNull);
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.last['hash'], 'h1');
+    expect(find.byType(ImportDialog), findsNothing);
+    expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
+  });
+
   testWidgets('취소하면 문서를 만들지 않고, 파일을 고르지 않으면 창을 띄우지 않는다', (tester) async {
     final rig = await _pick(tester);
     await tester.tap(find.widgetWithText(TextButton, '취소'));
@@ -89,6 +110,44 @@ void main() {
   testWidgets('읽지 못하는 파일은 까닭을 보이고 가져오기가 꺼진다', (tester) async {
     final rig = await _pick(tester, known: false);
     expect(find.text('파일을 읽지 못했습니다. (import)'), findsOneWidget);
+    expect(button(tester, '가져오기').onPressed, isNull);
+    expect(rig.fake.docs, isEmpty);
+  });
+
+  testWidgets('한글 문서(HWPX)는 확장자를 뗀 이름으로 미리 보고 가져온다', (tester) async {
+    const hwpx = '/tmp/kari-test/받은 파일/견본 계획서.hwpx';
+    final rig = await _pick(tester, path: hwpx);
+    expect(find.textContaining(keepAll('"견본 계획서" 글 문서를')), findsOneWidget);
+    expect(find.text('문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.single['path'], hwpx);
+    expect(rig.fake.docs.values.single['name'], '견본 계획서');
+  });
+
+  testWidgets('옛 한글 파일(HWP)은 HWPX나 PDF로 저장하라는 안내를 보이고 가져오기가 꺼진다', (
+    tester,
+  ) async {
+    final rig = await _pick(
+      tester,
+      path: '/tmp/kari-test/옛 계획서.hwp',
+      known: false,
+    );
+    expect(find.textContaining('한글에서 HWPX나 PDF로 저장해 가져와 주세요.'), findsOneWidget);
+    expect(find.textContaining('(import_hwp)'), findsOneWidget);
+    expect(button(tester, '가져오기').onPressed, isNull);
+    expect(rig.fake.docs, isEmpty);
+  });
+
+  testWidgets('옛 Word 파일(.doc)은 .docx로 저장하라는 안내를 보이고 가져오기가 꺼진다', (
+    tester,
+  ) async {
+    final rig = await _pick(
+      tester,
+      path: '/tmp/kari-test/옛 이력서.doc',
+      known: false,
+    );
+    expect(find.textContaining('Word에서 .docx로 저장해 가져와 주세요.'), findsOneWidget);
     expect(button(tester, '가져오기').onPressed, isNull);
     expect(rig.fake.docs, isEmpty);
   });
@@ -124,26 +183,33 @@ void main() {
     expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
   });
 
-  test('파일 메뉴의 가져오기는 새 문서 다음에 있고 앱의 가져오기를 부른다', () {
-    var called = 0;
+  test('파일 메뉴의 가져오기와 Figma에서 가져오기는 새 문서 다음에 있고 앱의 일을 부른다', () {
+    var called = 0, figma = 0;
     final menus = appMenus(
       app: (
         newDoc: () {},
         importDoc: () => called++,
+        figmaImport: () => figma++,
         home: () {},
         settings: () {},
       ),
       doc: null,
     );
     final file = menus.firstWhere((m) => m.label == '파일').children!;
-    expect([for (final e in file.take(3)) e.label], ['새 문서', '가져오기…', '홈으로']);
+    expect(
+      [for (final e in file.take(4)) e.label],
+      ['새 문서', '가져오기…', 'Figma에서 가져오기…', '홈으로'],
+    );
     file[1].run!();
     expect(called, 1);
+    file[2].run!();
+    expect(figma, 1);
     // 대화 상자가 떠 있으면 꺼진다.
     final modal = appMenus(
       app: (
         newDoc: () {},
         importDoc: () => called++,
+        figmaImport: () {},
         home: () {},
         settings: () {},
       ),

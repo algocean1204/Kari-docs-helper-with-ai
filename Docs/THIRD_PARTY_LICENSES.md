@@ -3,6 +3,8 @@
 Kari는 MIT 라이선스로 배포됩니다. 앱에는 아래의 제3자 코드와 글꼴이 들어 있습니다.
 이 파일은 `python3 app/scripts/third_party.py`가 만듭니다. 손으로 고치지 마세요.
 
+ChatGPT와 ChatGPT 로고는 OpenAI의 상표입니다. 설정의 "ChatGPT로 계속하기" 단추는 OpenAI가 Sign in with ChatGPT용으로 배포한 로고 파일(`app/assets/siwc/`)을 고치지 않고 씁니다.
+
 ## 확인이 필요한 것
 
 MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이선스를 알 수 없는 것:
@@ -245,7 +247,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | zlib(Chromium 판) | skia-bindings에 포함 | Zlib | https://chromium.googlesource.com/chromium/src/third_party/zlib | 엔진 라이브러리에 링크됨 | [5cf19a34d1](#t-5cf19a34d1) |
 | Wuffs | skia-bindings에 포함 | Apache-2.0 | https://github.com/google/wuffs | 엔진 라이브러리에 링크됨 | [1114467852](#t-1114467852) |
 | Sparkle | 2.9.6 | MIT AND BSD-2-Clause AND Zlib | https://github.com/sparkle-project/Sparkle | 앱 업데이트(Kari.app/Contents/Frameworks/Sparkle.framework) | [1a2f7476dd](#t-1a2f7476dd) |
-| Claude Talk to Figma 플러그인 | c7adf24 | MIT | https://github.com/arinspunk/claude-talk-to-figma-mcp | app/assets/figma-plugin의 manifest.json, code.js, ui.html | [144792a906](#t-144792a906) |
+| Claude Talk to Figma 플러그인 | c7adf24 | MIT | https://github.com/arinspunk/claude-talk-to-figma-mcp | app/assets/figma-plugin의 manifest.json, code.js, ui.html(code.js의 get_node_info가 노드의 절대 변환·크기·벡터 경로를 더해 주게 고침) | [144792a906](#t-144792a906) |
 
 ## 면접 지식 팩의 출처
 

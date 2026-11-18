@@ -72,6 +72,7 @@ impl<'a> Zip<'a> {
             return Err("압축 파일 안의 항목이 너무 많아 가져오지 않았습니다.");
         }
         let mut entries = Vec::with_capacity(count);
+        let mut names = std::collections::HashSet::with_capacity(count);
         let mut at = start;
         for _ in 0..count {
             if u32_at(bytes, at) != Some(0x0201_4B50) {
@@ -91,6 +92,10 @@ impl<'a> Zip<'a> {
             let name = String::from_utf8_lossy(name).into_owned();
             if unsafe_name(&name) {
                 return Err(UNSAFE_PATH);
+            }
+            // 이름이 같은 항목이 둘이면 어느 것을 읽을지 읽는 앱마다 달라진다.
+            if !names.insert(name.clone()) {
+                return Err(OVERLAP);
             }
             if [packed, size, local].contains(&u32::MAX) {
                 return Err(BROKEN);
@@ -130,6 +135,11 @@ impl<'a> Zip<'a> {
             spent: Cell::new(0),
             failed: RefCell::new(HashMap::new()),
         })
+    }
+
+    /// 암호가 걸린 항목이 있는가.
+    pub fn encrypted(&self) -> bool {
+        self.entries.iter().any(|e| e.method == u16::MAX)
     }
 
     pub fn has(&self, name: &str) -> bool {

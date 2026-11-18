@@ -12,28 +12,26 @@ use std::collections::{HashMap, HashSet};
 use kari_doc::serde_json::{json, Map, Value};
 use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
-use crate::xml::{self, El, BAD_XML};
+use crate::xml::{self, El};
 use crate::zip::Zip;
 use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
 
 const NOT_DOCX: &str = "Word 문서(DOCX)를 읽지 못했습니다.";
 /// 표의 최대 행·열(붙여넣기와 같다). 넘으면 글로 풀어 쓴다.
-const MAX_ROWS: usize = 50;
-const MAX_COLS: usize = 20;
-const MIN_COL: f64 = 12.0;
+pub(crate) const MAX_ROWS: usize = 50;
+pub(crate) const MAX_COLS: usize = 20;
+pub(crate) const MIN_COL: f64 = 12.0;
 /// 문단 하나에 담는 글자 수와 run 수(문서의 한 문단 상한 100,000자, 10,000개에 못 미치게 나눈다).
-const PARA_CHARS: usize = 90_000;
+pub(crate) const PARA_CHARS: usize = 90_000;
 const PARA_RUNS: usize = 9_000;
 /// EMU(1/914,400인치) → pt.
 const EMU_PER_PT: f64 = 12_700.0;
 
-fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
+pub(crate) fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
     let Some(bytes) = z.read(name)? else {
         return Ok(None);
     };
-    let b = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
-    let s = std::str::from_utf8(b).map_err(|_| BAD_XML)?;
-    xml::parse(s).map(Some)
+    xml::parse_bytes(bytes).map(Some)
 }
 
 /// 문단 스타일 하나.
@@ -98,12 +96,14 @@ fn apply(look: &mut Look, rpr: &El, size: bool) {
 /// 같은 모양의 글을 이어 붙이며 문단 하나를 만든다. 문단 상한(`PARA_CHARS`, `PARA_RUNS`)에 닿으면 끊어 `done`에
 /// 쌓고 이어지는 글로 다음 문단을 시작한다.
 #[derive(Default)]
-struct Line {
-    runs: Vec<(String, Look, Option<String>, Option<Value>)>,
-    chars: usize,
+pub(crate) struct Line {
+    pub runs: Vec<(String, Look, Option<String>, Option<Value>)>,
+    pub chars: usize,
     /// 굵기와 크기를 문단 스타일에 맡기는 제목 문단인가.
-    heading: bool,
-    done: Vec<Vec<Value>>,
+    pub heading: bool,
+    pub done: Vec<Vec<Value>>,
+    /// 문서에 넣을 수 없어 지운 글자 수(탭과 줄바꿈 밖의 제어 문자, 개체 자리 U+FFFC).
+    pub dropped: usize,
 }
 
 impl Line {
@@ -114,12 +114,11 @@ impl Line {
         }
     }
 
-    fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
-        // 제어 문자는 문서에 넣을 수 없다(탭과 줄바꿈만).
-        let t: String = t
-            .chars()
-            .filter(|c| !c.is_control() || *c == '\t' || *c == '\n')
-            .collect();
+    pub fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
+        // 제어 문자(탭과 줄바꿈 밖)와 개체 자리 글자는 글 run에 넣을 수 없다.
+        let keep = |c: &char| (!c.is_control() && *c != '\u{FFFC}') || matches!(c, '\t' | '\n');
+        self.dropped += t.chars().filter(|c| !keep(c)).count();
+        let t: String = t.chars().filter(keep).collect();
         let mut rest = t.as_str();
         while !rest.is_empty() {
             self.room();
@@ -142,14 +141,14 @@ impl Line {
         }
     }
 
-    fn obj(&mut self, o: Value) {
+    pub fn obj(&mut self, o: Value) {
         self.room();
         self.chars += 1;
         self.runs
             .push(("\u{FFFC}".into(), Look::default(), None, Some(o)));
     }
 
-    fn take(&mut self) -> Vec<Value> {
+    pub fn take(&mut self) -> Vec<Value> {
         self.chars = 0;
         let heading = self.heading;
         std::mem::take(&mut self.runs)
@@ -320,6 +319,7 @@ impl Rd<'_, '_, '_, '_> {
             ..Line::default()
         };
         self.inline(p, &base, None, &mut line);
+        self.cx.rep.dropped += line.dropped;
         let last = line.take();
         let mut pieces = std::mem::take(&mut line.done);
         if !pieces.is_empty() {
@@ -523,27 +523,14 @@ impl Rd<'_, '_, '_, '_> {
     /// 표를 글로 풀어 쓴다: 행마다 문단 하나, 칸은 탭으로 나눈다.
     fn flat(&mut self, t: &El, out: &mut Vec<FragPara>) -> Result<(), &'static str> {
         for tr in t.els().filter(|e| e.name == "w:tr") {
-            let cells: Vec<String> = cells(tr)
-                .map(|tc| {
-                    let mut ps = Vec::new();
-                    tc.find_all("w:p", &mut ps);
-                    ps.iter()
-                        .map(|p| {
-                            let mut ts = Vec::new();
-                            p.find_all("w:t", &mut ts);
-                            ts.iter().map(|t| t.text()).collect::<String>()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect();
             self.spend()?;
-            let text: String = cells
-                .join("\t")
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\t')
-                .take(PARA_CHARS)
-                .collect();
+            let (mut text, mut left) = (String::new(), PARA_CHARS);
+            for (i, tc) in cells(tr).enumerate() {
+                if i > 0 {
+                    xml::gather_push(&mut text, &mut left, '\t');
+                }
+                tc.gather("w:p", "w:t", &mut text, &mut left, &mut self.cx.rep.dropped);
+            }
             out.push(FragPara {
                 runs: if text.is_empty() {
                     Vec::new()
@@ -573,7 +560,8 @@ impl Rd<'_, '_, '_, '_> {
                     .collect()
             })
             .unwrap_or_default();
-        struct Anchor {
+        struct Anchor<'a> {
+            tc: &'a El,
             row: usize,
             col: usize,
             rows: usize,
@@ -633,15 +621,14 @@ impl Rd<'_, '_, '_, '_> {
                 {
                     props.insert("fill".into(), json!(fill));
                 }
-                let mut paras = Vec::new();
-                self.blocks(tc, &mut paras, true)?;
                 anchors.push(Anchor {
+                    tc,
                     row: r,
                     col: c,
                     rows: 1,
                     cols: span,
                     props,
-                    paras,
+                    paras: Vec::new(),
                 });
                 let a = anchors.len() - 1;
                 row.extend(std::iter::repeat_n(Some(a), span));
@@ -651,6 +638,11 @@ impl Rd<'_, '_, '_, '_> {
             }
             open = next;
             owner.push(row);
+        }
+        // 상한을 통과한 표만 칸의 내용을 읽는다(버릴 표의 그림이 저장되거나 보고에 세어지지 않게).
+        for a in &mut anchors {
+            let tc = a.tc;
+            self.blocks(tc, &mut a.paras, true)?;
         }
         let ncols = owner.iter().map(Vec::len).max().unwrap_or(0).max(1);
         let body_w = self.cx.body.0;
@@ -718,7 +710,7 @@ fn cells(tr: &El) -> impl Iterator<Item = &El> {
 }
 
 /// 칸 바탕(`w:shd w:fill`) → `#RRGGBBFF`. `auto`와 흰색은 바탕 없음.
-fn fill_color(v: &str) -> Option<String> {
+pub(crate) fn fill_color(v: &str) -> Option<String> {
     let v = v.trim();
     if v.len() != 6 || v.eq_ignore_ascii_case("FFFFFF") || !v.bytes().all(|c| c.is_ascii_hexdigit())
     {

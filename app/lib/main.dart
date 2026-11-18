@@ -19,6 +19,7 @@ import 'screens/import_dialog.dart';
 import 'screens/canvas.dart';
 import 'screens/doc.dart';
 import 'screens/editor.dart';
+import 'screens/figma.dart' show FigmaImportDialog;
 import 'screens/home.dart';
 import 'screens/interview.dart';
 import 'screens/dialogs.dart';
@@ -556,6 +557,21 @@ class _ShellState extends State<Shell> {
     if (id != null && mounted) _show(id);
   }
 
+  /// 연결된 Figma 파일의 페이지 하나를 새 캔버스 문서로 가져와 연다. 연결되지 않았으면 창이 설정의 Figma 구역으로
+  /// 안내한다. 견본 상태에서는 하지 않는다.
+  Future<void> _figmaImport() async {
+    final lib = widget.library;
+    if (lib == null || !await _leave() || !mounted) return;
+    final id = await showDialog<int>(
+      context: context,
+      builder: (_) => FigmaImportDialog(
+        link: lib.figma,
+        onOpenSettings: () => _go(AppRoute.settings, area: SettingsArea.figma),
+      ),
+    );
+    if (id != null && mounted) _show(id);
+  }
+
   /// 견본 이력서로 새 문서를 만들고 바로 연다. 견본 상태는 견본 문서 화면으로 간다.
   Future<void> _createSample() async {
     if (widget.library == null) {
@@ -781,6 +797,7 @@ class _ShellState extends State<Shell> {
       app: (
         newDoc: _create,
         importDoc: _import,
+        figmaImport: _figmaImport,
         home: () => _go(AppRoute.home),
         settings: () => _go(AppRoute.settings),
       ),

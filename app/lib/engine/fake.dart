@@ -40,6 +40,15 @@ class FakeEngine extends EngineApi {
   /// 받은 호출의 이름(받은 순서). 시험이 무엇을 불렀는지 볼 때 쓴다.
   final List<String> sent = [];
 
+  /// 받은 `doc.commit`의 인자(받은 순서). 시험용.
+  final List<Json> commits = [];
+
+  /// `asset.put`으로 넣은 파일 경로(받은 순서). 시험용.
+  final List<String> assetsPut = [];
+
+  /// `asset.dropUnused`로 받은 에셋 이름(받은 순서). 시험용.
+  final List<String> assetsDropped = [];
+
   /// `doc.exportPdf`로 쓴 경로. 시험용.
   final List<String> exported = [];
 
@@ -51,6 +60,9 @@ class FakeEngine extends EngineApi {
 
   /// 있으면 [imports]에 없는 경로도 이 요약으로 읽는다(경로를 미리 알 수 없는 견본 만들기 시험용).
   Json? importAny;
+
+  /// `import.preview`가 돌려줄 파일 해시(경로 → 해시, 없으면 `h0`). 미리 본 뒤 파일이 바뀐 것은 이 값을 바꿔 흉내 낸다. 시험용.
+  final Map<String, String> importHashes = {};
 
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
@@ -170,14 +182,33 @@ class FakeEngine extends EngineApi {
         }
         return {'id': id};
       case 'import.preview':
-        return imports[a['path']] ??
+        // 진짜 엔진처럼 옛 한글(HWP)과 옛 Word(.doc) 파일은 안내만 한다.
+        if ((a['path'] as String).endsWith('.hwp')) {
+          throw const EngineError(
+            'import_hwp',
+            '옛 이진 형식의 파일(한글 HWP 등)은 읽지 못합니다. 한글에서 HWPX나 PDF로 저장해 가져와 주세요.',
+          );
+        }
+        if ((a['path'] as String).endsWith('.doc')) {
+          throw const EngineError(
+            'import',
+            '옛 Word(.doc) 형식은 읽지 못합니다. Word에서 .docx로 저장해 가져와 주세요.',
+          );
+        }
+        final shown =
+            imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
+        return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
       case 'import.apply':
         final p =
             imports[a['path']] ??
             importAny ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         importCalls.add(a);
+        if (a['hash'] != null &&
+            a['hash'] != (importHashes[a['path']] ?? 'h0')) {
+          throw const EngineError('import_changed', '파일이 바뀌었습니다. 다시 미리 봅니다.');
+        }
         final id = _add('flow', _name(a), _initial('flow'), null);
         return {'id': id, 'lost': p['lost'] ?? const []};
       case 'docs.rename':
@@ -231,6 +262,47 @@ class FakeEngine extends EngineApi {
         return null;
       case 'doc.nodes':
         return doc()['nodes'];
+      case 'doc.commit':
+        // 흉내: 더하기와 지우기만 한 묶음으로 받는다(값 검사는 하지 않는다).
+        final d = doc();
+        final nodes = d['nodes'] as List;
+        for (final op in a['ops'] as List) {
+          final o = op as Map;
+          if (o['op'] == 'add') {
+            final node = (o['node'] as Map).cast<String, Object?>();
+            nodes.add({'z': 'a0', 'props': <String, Object?>{}, ...node});
+          } else if (o['op'] == 'del') {
+            final gone = {o['id']};
+            for (var grew = true; grew;) {
+              final before = gone.length;
+              for (final n in nodes) {
+                if (gone.contains((n as Map)['parent'])) gone.add(n['id']);
+              }
+              grew = gone.length > before;
+            }
+            nodes.removeWhere((n) => gone.contains((n as Map)['id']));
+          } else {
+            throw EngineError('bad_request', '흉내 내지 않는 연산입니다: ${o['op']}');
+          }
+        }
+        commits.add(a);
+        d['seq'] = (d['seq'] as int) + 1;
+        return {'seq': d['seq']};
+      case 'asset.dropUnused':
+        assetsDropped.addAll((a['hashes'] as List).cast<String>());
+        return null;
+      case 'asset.put':
+        // 흉내: PNG 머리가 아니면 거절하고, 받으면 파일 길이로 64자 이름을 짓는다.
+        final bytes = File(a['path'] as String).readAsBytesSync();
+        if (bytes.length < 8 || bytes[0] != 0x89 || bytes[1] != 0x50) {
+          return {'refused': '그림 파일이 아닙니다.'};
+        }
+        assetsPut.add(a['path'] as String);
+        return {
+          'asset': bytes.length.toRadixString(16).padLeft(64, '0'),
+          'w': 1,
+          'h': 1,
+        };
       case 'doc.versions':
         doc();
         return [
