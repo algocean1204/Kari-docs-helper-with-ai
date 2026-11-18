@@ -379,6 +379,8 @@ fn run(bytes: &[u8], body: (f64, f64)) -> Result<Vec<u8>, &'static str> {
         let status = child.wait();
         (stop, status, out.unwrap_or_default())
     });
+    // macOS에서는 여기서 도우미의 task 포트를 놓는다(Memory의 Drop). 다른 OS에서는 놓을 것이 없다.
+    #[allow(clippy::drop_non_drop)]
     drop(watch);
     forget(ticket);
     if let Some(why) = stop {
