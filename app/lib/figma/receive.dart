@@ -71,8 +71,12 @@ class FigmaImport {
   /// 읽은 Figma 페이지의 id([FigmaLink.readPage]가 채운다). 있으면 적용할 때 같은 페이지를 다시 읽어 견준다.
   String? pageId;
 
-  /// 읽은 페이지 나무의 지문([fingerprintOf]). 적용할 때 다시 읽은 것과 다르면 페이지가 바뀐 것이다.
+  /// 옮긴 결과의 지문([fingerprintOf]): 만들 노드, Figma id, 그림 참조(imageRef), 옮기지 못한 것의 셈. 적용할 때
+  /// 다시 읽어 옮긴 것과 다르면 페이지가 바뀐 것이다. 옮기지 않는 칸(Figma가 읽을 때마다 바꿀 수 있는 것)은 들지 않는다.
   int fingerprint = 0;
+
+  /// 그림으로 받을 노드마다 그 그림 칠의 참조(Figma의 imageRef). 같은 노드의 그림이 바뀌었는지 보는 데만 쓴다.
+  final _imageRefs = <String, Object?>{};
 
   /// 한도를 넘어 가져오지 않는 까닭.
   String? tooBig;
@@ -364,7 +368,7 @@ String? _name(Object? v) {
 // 한계: 벡터(곧은 선 하나는 선으로), 불리언, 별·다각형, 그라디언트, 효과, 글자별 모양, 자동 배치, 제약은 옮기지 않는다.
 // 글꼴은 늘 Pretendard다. 돌린 최상위 프레임은 그 경계 상자의 대지가 된다.
 FigmaImport fromFigma(Object? page) {
-  final out = FigmaImport._()..fingerprint = fingerprintOf(page);
+  final out = FigmaImport._();
   var read = 0, next = 0;
   final seen = <String>{};
   String newId() => 'fg${(next++).toRadixString(36)}';
@@ -478,6 +482,12 @@ FigmaImport fromFigma(Object? page) {
         'fills': <Object?>[],
       }, figmaId);
       out.images.add((figmaId: figmaId, props: props));
+      final fills = n['fills'];
+      out._imageRefs[figmaId] = [
+        if (fills is List)
+          for (final p in fills)
+            if (p is Map && p['type'] == 'IMAGE') p['imageRef'],
+      ];
       return;
     }
     if (fills != null && fills.image) out._skip(skipImageFill);
@@ -622,6 +632,14 @@ FigmaImport fromFigma(Object? page) {
       if (c is Map) walk(c, id, a, 1);
     }
   }
+  out.fingerprint = fingerprintOf({
+    'ops': out.ops,
+    'figma': out.figmaOf,
+    'images': out._imageRefs,
+    'skipped': out.skipped,
+    'fonts': out.fonts,
+    'read': read,
+  });
   if (read > maxReadNodes) {
     out.tooBig = 'Figma 페이지의 노드가 $maxReadNodes개를 넘어 가져오지 않습니다';
   } else if (out.count > maxImportNodes) {

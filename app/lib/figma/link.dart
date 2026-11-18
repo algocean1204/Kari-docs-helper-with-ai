@@ -364,7 +364,9 @@ class FigmaLink extends ChangeNotifier {
           'nodeId': pageId,
         }, timeout: const Duration(seconds: 120)),
       );
-      if (fingerprintOf(now) != plan.fingerprint) throw const FigmaChanged();
+      if (fromFigma(now).fingerprint != plan.fingerprint) {
+        throw const FigmaChanged();
+      }
     }
     final got = <(FigmaImage, List<int>)>[];
     var total = 0, missed = 0;

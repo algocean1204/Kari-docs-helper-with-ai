@@ -2640,6 +2640,111 @@ void main() {
       await plugin.close();
     });
 
+    test('바뀜 지문은 옮긴 결과로 센다: 옮기지 않는 칸만 다르면 같고, 글·색·크기·자리·그림 참조가 바뀌면 다르다', () {
+      int fp(Json Function(Json frame) change) {
+        final p = samplePage();
+        final frame = (p['children'] as List).first as Json;
+        (p['children'] as List)[0] = change(frame);
+        return fromFigma(p).fingerprint;
+      }
+
+      Json kid(Json f, int i, Json Function(Json) f2) => {
+        ...f,
+        'children': [
+          for (final (j, k) in (f['children'] as List).indexed)
+            j == i ? f2(k as Json) : k,
+        ],
+      };
+      final base = fp((f) => f);
+      // (a) 옮기지 않는 칸: 플러그인이나 Figma가 읽을 때마다 바꿀 수 있는 것.
+      expect(
+        fp(
+          (f) => {
+            ...kid(
+              f,
+              0,
+              (k) => {...k, 'exportSettings': [], 'pluginData': '1'},
+            ),
+            'lastModified': '2026-11-19T00:00:01Z',
+            'localPosition': {'x': 3, 'y': 4},
+          },
+        ),
+        base,
+      );
+      // (b) 옮기는 값이 바뀌면 다르다.
+      for (final (what, change) in <(String, Json Function(Json))>[
+        (
+          '색',
+          (f) => kid(
+            f,
+            0,
+            (k) => {
+              ...k,
+              'fills': [solid(0, 0, 1)],
+            },
+          ),
+        ),
+        (
+          '크기',
+          (f) => kid(
+            f,
+            0,
+            (k) => {
+              ...k,
+              'size': {'x': 51, 'y': 50},
+            },
+          ),
+        ),
+        (
+          '자리',
+          (f) => kid(
+            f,
+            0,
+            (k) => {
+              ...k,
+              'absoluteTransform': [
+                [1, 0, 11],
+                [0, 1, 10],
+              ],
+            },
+          ),
+        ),
+        (
+          '그림 참조',
+          (f) => kid(
+            f,
+            1,
+            (k) => {
+              ...k,
+              'fills': [
+                {'type': 'IMAGE', 'imageRef': 'other', 'scaleMode': 'FILL'},
+              ],
+            },
+          ),
+        ),
+        (
+          '글',
+          (f) => {
+            ...f,
+            'children': [
+              ...(f['children'] as List),
+              figmaNode(
+                '1:9',
+                'TEXT',
+                x: 0,
+                y: 0,
+                w: 10,
+                h: 10,
+                extra: {'characters': '새 글'},
+              ),
+            ],
+          },
+        ),
+      ]) {
+        expect(fp(change), isNot(base), reason: what);
+      }
+    });
+
     test('페이지 지문은 칸 차례에 매이지 않고 값이 바뀌면 달라진다', () {
       expect(
         fingerprintOf({
