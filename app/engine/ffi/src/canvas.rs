@@ -15,7 +15,7 @@ use kari_doc::serde_json::{json, Value};
 use kari_doc::{strip_revs, Document, Guard, Kind};
 use kari_edit::{
     boards, follow_groups, group_offset, label_rect, watch_groups, CanvasEditor, End, Phase,
-    Pointer, TextCmd,
+    Pointer, TextCmd, Tool,
 };
 use kari_layout::{Layouter, Scene};
 use kari_render::{
@@ -201,6 +201,18 @@ fn get(id: DocId) -> Option<Arc<CSession>> {
 
 pub(crate) fn remove(id: DocId) {
     with_sessions(|m| m.remove(&id));
+}
+
+/// 세션마다 골라 둔 그림 도구의 에셋. 도구를 고를 때 저장하고 놓을 때 문서에 들어가므로, 그사이에는 어느 문서에도 없다.
+/// 명령 잠금 안에서 부른다: 세션 목록을 짧게 잡아 복사한 뒤 앞 사본을 하나씩 잡는다(잠금 순서가 그리기와 같다).
+pub(crate) fn tool_assets() -> Vec<String> {
+    let all: Vec<_> = with_sessions(|m| m.values().cloned().collect());
+    all.iter()
+        .filter_map(|s| match lock(&s.front).ed.tool() {
+            Some(Tool::Image { asset, .. }) => Some(asset.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// 라이브러리를 닫거나 새로 열 때: 세션과, 그 라이브러리의 문서에서 복사해 둔 노드 조각을 버린다.

@@ -164,8 +164,8 @@ pub(crate) fn apply(state: &mut Option<Engine>, a: &Args) -> Res {
     match res {
         Ok(got) => Ok(json!({"id": id, "lost": got.lost})),
         Err(f) => {
-            // 만든 문서와 이번에 넣은 그림을 지운다(다른 문서나 복사해 둔 조각이 쓰는 그림은 남는다).
-            let keep = crate::edit::clip_assets();
+            // 만든 문서와 이번에 넣은 그림을 지운다(다른 문서, 복사해 둔 조각, 골라 둔 그림 도구가 쓰는 그림은 남는다).
+            let keep = crate::edit::kept_assets();
             let _ = e.lib.trash_doc(id, now_ms());
             let _ = e.lib.purge_doc_keeping(id, &keep);
             stored.retain(|h| !keep.contains(h));

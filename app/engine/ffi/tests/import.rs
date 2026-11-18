@@ -231,6 +231,49 @@ fn 읽지_못하는_파일은_문서와_그림을_남기지_않는다() {
         .is_empty());
 }
 
+/// 가져오기가 실패하면 이번에 넣은 그림을 지우되, 열린 세션이 쓰는 그림은 남긴다: 캔버스에서 골라 아직 놓지 않은
+/// 그림 도구, 글 문서에 넣은 그림, 되돌려 기록에만 남은 그림. 아무도 쓰지 않으면 지운다.
+#[test]
+fn 가져오기가_실패해도_열린_세션이_쓰는_그림은_남는다() {
+    let case = Case::new("import-keep-live");
+    let photo_path = format!(
+        "{}/../render/tests/data/photo.png",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let many = case.dir.join("너무 긴 글.html");
+    let body: String = (0..50_001).map(|_| "<p>줄</p>").collect();
+    let img = format!("<img src=\"data:image/png;base64,{}\">", base64(&photo()));
+    std::fs::write(&many, img + &body).unwrap();
+    let fail = || {
+        err("import.apply", json!({"path": many, "name": "너무 긴 글"}));
+        walk(&case.dir.join("assets")).len()
+    };
+    let canvas = ok("docs.create", json!({"kind": "canvas", "name": "캔버스"}))["id"].clone();
+    ok("doc.open", json!({"id": canvas}));
+    ok("canvas.open", json!({"id": canvas}));
+    let tool = |t: Value| {
+        ok(
+            "canvas.cmd",
+            json!({"id": canvas, "name": "tool", "tool": t, "path": photo_path}),
+        )
+    };
+    tool(json!("image"));
+    assert_eq!(fail(), 1, "고른 그림 도구");
+    tool(json!("select"));
+    assert_eq!(fail(), 0, "쓰는 곳이 없으면 지운다");
+    let id = new_session();
+    ok(
+        "edit.insertImage",
+        json!({"id": id, "path": photo_path, "now": 0}),
+    );
+    assert_eq!(fail(), 1, "글 문서에 넣은 그림");
+    ok("edit.undo", json!({"id": id}));
+    assert!(!ok("doc.nodes", json!({"id": id}))
+        .to_string()
+        .contains("\"asset\""));
+    assert_eq!(fail(), 1, "되돌려 기록에만 남은 그림");
+}
+
 /// 폴더 아래의 파일(없으면 빈 목록).
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let Ok(rd) = std::fs::read_dir(dir) else {

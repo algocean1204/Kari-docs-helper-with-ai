@@ -627,6 +627,58 @@ fn 그림은_파일을_에셋으로_넣어_채운_사각형으로_놓고_받을_
     assert!(red > 100, "빨간 화소 {red}");
 }
 
+/// 그림 도구를 고르면 그림을 에셋으로 저장하지만 놓기 전에는 어느 문서에도 없다. 그사이 같은 그림을 쓰던 문서를
+/// 완전히 지워도(하나씩, 휴지통 비우기) 파일이 남는다. 도구를 내려놓은 뒤에는 정리가 지운다.
+#[test]
+fn 고른_그림_도구의_에셋은_놓기_전에_같은_그림의_문서를_지워도_남는다() {
+    let c = Case::new("canvas-tool-keep");
+    let mut hash = String::new();
+    let gone: Vec<i64> = (0..2)
+        .map(|_| {
+            let o = new_canvas();
+            let s = cmd(
+                o,
+                "create",
+                json!({"tool": "image", "path": data("photo.png"), "x": 100, "y": 100}),
+            );
+            hash = node(o, &sel(&s)[0])["fills"][0]["asset"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            ok("doc.close", json!({"id": o}));
+            ok("docs.trash", json!({"id": o}));
+            o
+        })
+        .collect();
+    let file = c.dir.join("assets").join(&hash[..2]).join(&hash);
+    let id = new_canvas();
+    cmd(
+        id,
+        "tool",
+        json!({"tool": "image", "path": data("photo.png")}),
+    );
+    ok("docs.purge", json!({"id": gone[0]}));
+    assert!(file.is_file(), "하나씩 지울 때");
+    ok("docs.purgeTrashed", json!({"before": u64::MAX / 2}));
+    assert!(file.is_file(), "휴지통을 비울 때");
+    // 놓으면 그 그림이 그려진다.
+    pointer(id, "down", 100.0, 100.0);
+    pointer(id, "up", 100.0, 100.0);
+    let (px, r) = render(id, 1000, 700, 1.0, 0.0);
+    assert_eq!(r, 0);
+    assert!(
+        px.chunks(4)
+            .filter(|p| p[2] > 180 && p[1] < 90 && p[0] < 90)
+            .count()
+            > 100
+    );
+    // 문서를 닫으면(세션과 도구가 사라진다) 쓰는 곳이 없어 완전히 지울 때 지워진다.
+    ok("doc.close", json!({"id": id}));
+    ok("docs.trash", json!({"id": id}));
+    ok("docs.purge", json!({"id": id}));
+    assert!(!file.exists(), "쓰는 곳이 없으면 지운다");
+}
+
 #[test]
 fn 글을_치면_화면이_바뀌고_커서와_선택이_덧그려진다() {
     let _c = Case::new("canvas-render");

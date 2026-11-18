@@ -182,7 +182,7 @@ impl Library {
         self.purge_doc_keeping(id, &BTreeSet::new())
     }
 
-    /// `purge_doc`과 같되, `keep`의 에셋은 남은 문서가 쓰지 않아도 지우지 않는다(앱이 기억하는 복사 조각의 그림).
+    /// `purge_doc`과 같되, `keep`의 에셋은 남은 문서가 쓰지 않아도 지우지 않는다(앱이 문서 밖에서 쓰는 그림: 복사 조각, 골라 둔 그림 도구).
     // 한계: 남긴 에셋을 끝내 붙이지 않으면 파일이 남는다, 쌓이면 열 때 쓰지 않는 에셋을 훑어 지운다
     pub fn purge_doc_keeping(&mut self, id: DocId, keep: &BTreeSet<String>) -> Result<()> {
         self.exists(id)?;

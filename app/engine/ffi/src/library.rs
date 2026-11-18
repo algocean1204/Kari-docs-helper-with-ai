@@ -276,18 +276,18 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
         "docs.purge" => {
             let e = on(state)?;
             let id = a.id("id")?;
-            e.lib.purge_doc_keeping(id, &crate::edit::clip_assets())?;
+            e.lib.purge_doc_keeping(id, &crate::edit::kept_assets())?;
             e.docs.remove(&id);
             session::remove(id);
             crate::canvas::orphan_clip(id);
             Ok(Value::Null)
         }
-        // 앱을 켤 때 오래된 휴지통을 한 번에 비운다. 지우는 것은 `docs.purge`와 같다(복사 조각의 그림은 남긴다).
+        // 앱을 켤 때 오래된 휴지통을 한 번에 비운다. 지우는 것은 `docs.purge`와 같다(문서 밖에서 쓰는 그림은 남긴다, `kept_assets`).
         "docs.purgeTrashed" => {
             let e = on(state)?;
             let ids = e
                 .lib
-                .purge_trashed_before(a.seq("before")?, &crate::edit::clip_assets())?;
+                .purge_trashed_before(a.seq("before")?, &crate::edit::kept_assets())?;
             for id in &ids {
                 e.docs.remove(id);
                 session::remove(*id);
