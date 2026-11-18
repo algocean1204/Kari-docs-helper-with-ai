@@ -118,6 +118,19 @@ void main() {
     expect(rig.fake.docs, isEmpty);
   });
 
+  testWidgets('옛 Word 파일(.doc)은 .docx로 저장하라는 안내를 보이고 가져오기가 꺼진다', (
+    tester,
+  ) async {
+    final rig = await _pick(
+      tester,
+      path: '/tmp/kari-test/옛 이력서.doc',
+      known: false,
+    );
+    expect(find.textContaining('Word에서 .docx로 저장해 가져와 주세요.'), findsOneWidget);
+    expect(button(tester, '가져오기').onPressed, isNull);
+    expect(rig.fake.docs, isEmpty);
+  });
+
   testWidgets('같은 이름의 문서가 있으면 번호를 붙여 만든다', (tester) async {
     final rig = await pumpReal(tester, seed: false);
     await rig.library.create();

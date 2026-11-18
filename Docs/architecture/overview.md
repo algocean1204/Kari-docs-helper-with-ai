@@ -158,7 +158,7 @@ sequenceDiagram
 | `kari/texture` | `create`, `dispose` | 텍스처 만들기와 풀기 |
 | `kari/files` | `savePath` | 저장 대화 상자(PDF, Word 문서, 텍스트. 고를 수 있는 형식은 기본 이름의 확장자를 따른다) |
 | `kari/files` | `openPath` | 열기 대화 상자(PNG, JPEG) |
-| `kari/files` | `importPath` | 가져올 파일의 열기 대화 상자(`.docx`, `.hwpx`, `.hwp`, `.html`, `.htm`, `.zip`). 고른 경로를 엔진의 `import.*`에 넘긴다 |
+| `kari/files` | `importPath` | 가져올 파일의 열기 대화 상자(`.docx`, `.doc`, `.hwpx`, `.hwp`, `.html`, `.htm`, `.zip`. `.doc`과 `.hwp`는 저장해 가져오라는 안내를 보이려고 고를 수 있게 둔다). 고른 경로를 엔진의 `import.*`에 넘긴다 |
 | `kari/files` | `pasteImage` | 붙여넣기 판의 그림을 `{path, temp}`로 준다(없으면 null). `temp`는 채널이 쓴 임시 파일인가이다. Finder에서 복사한 파일(`public.file-url`)은 파일 하나가 그림 파일일 때 그 경로이고 아니면 null이다(판에 함께 실리는 아이콘은 쓰지 않는다). 그 밖에는 앱 임시 폴더에 `kari-paste-`로 시작하는 파일로 쓴다: PNG와 JPEG는 바이트 그대로, TIFF는 PNG로 바꿔 쓴다. 20MB와 화소 2,500만을 넘거나 바꾸지 못하면 오류로 답한다. 캔버스 문서의 붙여넣기가 부르고, 엔진에 넘긴 뒤 `temp`인 파일만 지운다 |
 | `kari/files` | `openUrl` | 기본 브라우저로 주소 열기(`http`, `https`, `mailto`, `tel`만) |
 | `kari/files` | `print {path, name}` | 앱이 만든 PDF를 인쇄 창(문서 창에 붙는 시트)에 넘긴다. 실제 크기, 자동 회전 없음, 용지는 첫 쪽의 크기와 방향. 창이 닫히면 답한다(`app/macos/Runner/Printing.swift`) |

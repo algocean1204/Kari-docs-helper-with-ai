@@ -31,13 +31,21 @@ const NOT_HWPX: &str = "한글 문서(HWPX)를 읽지 못했습니다.";
 /// 길이 단위(HWPUNIT, 1/7200인치) → pt.
 const UNIT: f64 = 100.0;
 
-/// 암호가 걸린 Word 문서와 옛 Word(.doc)도 HWP처럼 OLE 복합 문서라, 안에 적힌 흐름 이름으로 가른다.
+/// 암호가 걸린 문서와 옛 Word(.doc)도 HWP처럼 OLE 복합 문서라, 안에 적힌 흐름 이름으로 가른다.
 pub const ENCRYPTED: &str = "암호가 걸린 문서는 열 수 없습니다.";
 pub const OLD_WORD: &str =
     "옛 Word(.doc) 형식은 읽지 못합니다. Word에서 .docx로 저장해 가져와 주세요.";
+/// OLE 복합 문서인데 한글, Word, 암호 문서의 흐름이 보이지 않는다.
+pub const UNREADABLE: &str = "읽을 수 없는 형식의 문서입니다.";
+const TOO_MANY_SECTIONS: &str = "한글 문서의 구역이 1,000개를 넘어 가져오지 않았습니다.";
+
+/// 구역 파일 수의 상한.
+const MAX_SECTIONS: usize = 1000;
+/// `header.xml`에서 읽는 글자 모양과 문단 모양 각각의 수 상한. 넘는 것을 가리키면 기본 모양이 된다.
+const MAX_SHAPES: usize = 60_000;
 
 /// OLE 복합 문서의 머리(`D0 CF 11 E0`)나 HWP 3.0의 머리 글이면 읽지 않는 까닭. 그 밖에는 `None`.
-// 한계: OLE의 목록 이름(UTF-16LE)이 `EncryptedPackage`나 `WordDocument`면 그 까닭을, 둘 다 아니면 옛 한글로 본다
+// 한계: OLE의 목록을 따라가지 않고 흐름 이름(UTF-16LE)과 한글의 머리 글이 바이트 안에 있는지만 본다
 pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
     if b.starts_with(b"HWP Document File") {
         return Some(HWP_LEGACY);
@@ -49,8 +57,8 @@ pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
         let needle: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
         b.windows(needle.len()).any(|w| w == needle)
     };
-    // 한글 5.0은 머리 흐름이 이 글로 시작한다. 미리보기 글이나 안에 넣은 개체의 이름에 속지 않게 먼저 본다.
-    if b.windows(17).any(|w| w == b"HWP Document File") {
+    // 한글 5.0은 머리 흐름(`FileHeader`)이 이 글로 시작한다. 미리보기 글이나 안에 넣은 개체의 이름에 속지 않게 먼저 본다.
+    if b.windows(17).any(|w| w == b"HWP Document File") || has("FileHeader") {
         return Some(HWP_LEGACY);
     }
     Some(if has("EncryptedPackage") {
@@ -58,17 +66,18 @@ pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
     } else if has("WordDocument") {
         OLD_WORD
     } else {
-        HWP_LEGACY
+        UNREADABLE
     })
 }
 
-/// HWPX 꾸러미인가: `mimetype`이 `application/hwp+zip`이거나, 머리 파일과 구역 파일이 있다.
+/// HWPX 꾸러미인가: `mimetype`이 `application/hwp+zip`이거나 구역 파일(`Contents/section<번호>.xml`)이 있다.
+/// `mimetype`이 압축됐거나 맨 앞이 아니거나 값이 틀려도 구역 파일로 알아본다.
 pub(crate) fn is_hwpx(z: &Zip) -> bool {
     z.read("mimetype")
         .ok()
         .flatten()
         .is_some_and(|m| m.starts_with(b"application/hwp+zip"))
-        || (z.has("Contents/header.xml") && z.entries.iter().any(|e| section(&e.name).is_some()))
+        || z.entries.iter().any(|e| section(&e.name).is_some())
 }
 
 /// `Contents/section<번호>.xml`의 번호.
@@ -149,7 +158,7 @@ fn read_head(z: &Zip) -> Result<Head, &'static str> {
             }
         }
     }
-    for pp in all("hh:paraPr") {
+    for pp in all("hh:paraPr").into_iter().take(MAX_SHAPES) {
         let Some(id) = pp.attr("id") else { continue };
         let mut out = Pp {
             align: match pp.child("hh:align").and_then(|a| a.attr("horizontal")) {
@@ -179,7 +188,7 @@ fn read_head(z: &Zip) -> Result<Head, &'static str> {
         }
         h.paras.insert(id.to_string(), out);
     }
-    for c in all("hh:charPr") {
+    for c in all("hh:charPr").into_iter().take(MAX_SHAPES) {
         let Some(id) = c.attr("id") else { continue };
         let look = Look {
             bold: c.child("hh:bold").is_some(),
@@ -320,12 +329,24 @@ impl Rd<'_, '_, '_, '_> {
         Ok(())
     }
 
+    /// `id`가 가리키는 모양. 가리켰는데 없으면(없는 번호, 음수, 상한 밖) 센 뒤 기본 모양.
+    fn shape<T: Clone + Default>(
+        rep: &mut crate::Report,
+        map: &HashMap<String, T>,
+        id: Option<&str>,
+    ) -> T {
+        match id.map(|i| map.get(i)) {
+            Some(Some(v)) => v.clone(),
+            Some(None) => {
+                rep.refs += 1;
+                T::default()
+            }
+            None => T::default(),
+        }
+    }
+
     fn para(&mut self, p: &El, out: &mut Vec<FragPara>, in_cell: bool) -> Result<(), &'static str> {
-        let pp = p
-            .attr("paraPrIDRef")
-            .and_then(|i| self.head.paras.get(i))
-            .cloned()
-            .unwrap_or_default();
+        let pp = Self::shape(&mut self.cx.rep, &self.head.paras, p.attr("paraPrIDRef"));
         let mut props = Map::new();
         if let Some(b) = pp.block {
             props.insert("style".into(), json!(b));
@@ -348,11 +369,7 @@ impl Rd<'_, '_, '_, '_> {
         // 지금 열려 있는 링크의 주소(`hp:fieldBegin`부터 `hp:fieldEnd`까지).
         let mut href: Option<String> = None;
         for run in p.els().filter(|e| e.name == "hp:run") {
-            let cp = run
-                .attr("charPrIDRef")
-                .and_then(|i| self.head.chars.get(i))
-                .cloned()
-                .unwrap_or_default();
+            let cp = Self::shape(&mut self.cx.rep, &self.head.chars, run.attr("charPrIDRef"));
             for c in run.els() {
                 match c.name.as_str() {
                     "hp:t" => {
@@ -410,12 +427,20 @@ impl Rd<'_, '_, '_, '_> {
                                         self.cx.rep.links += 1;
                                     }
                                 }
+                                "hp:fieldBegin" if k.attr("type") == Some("MEMO") => {
+                                    self.cx.rep.comments += 1
+                                }
                                 "hp:fieldEnd" => href = None,
                                 _ => {}
                             }
                         }
                     }
                     "hp:secPr" => {}
+                    // OLE 개체, 동영상, 양식 개체.
+                    "hp:ole" | "hp:video" | "hp:btn" | "hp:radioBtn" | "hp:checkBtn"
+                    | "hp:comboBox" | "hp:listBox" | "hp:edit" | "hp:scrollBar" => {
+                        self.cx.rep.objects += 1
+                    }
                     // 도형 종류. 글 상자는 도형 안의 `hp:drawText`로 알아본다.
                     n if n.starts_with("hp:") => {
                         let mut tb = Vec::new();
@@ -430,6 +455,7 @@ impl Rd<'_, '_, '_, '_> {
                 }
             }
         }
+        self.cx.rep.dropped += line.dropped;
         // 표만 있던 문단은 빈 문단을 하나 더 남기지 않는다.
         if !tables || !line.runs.is_empty() || !line.done.is_empty() {
             self.flush(&mut line, &props, out)?;
@@ -707,6 +733,17 @@ pub(crate) fn read(z: &Zip, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str>
     if secs.is_empty() {
         return Err(NOT_HWPX);
     }
+    if secs.len() > MAX_SECTIONS {
+        return Err(TOO_MANY_SECTIONS);
+    }
+    // 암호를 건 한글 문서는 목록(`META-INF/manifest.xml`)에 암호 정보를 적고 구역 파일을 암호로 바꿔 담는다.
+    if z.read("META-INF/manifest.xml")
+        .ok()
+        .flatten()
+        .is_some_and(|m| m.windows(15).any(|w| w == b"encryption-data"))
+    {
+        return Err(ENCRYPTED);
+    }
     secs.sort_unstable();
     let head = read_head(z)?;
     let (manifest, dir) = read_manifest(z)?;
@@ -721,7 +758,15 @@ pub(crate) fn read(z: &Zip, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str>
     };
     let mut out = Vec::new();
     for (_, name) in secs {
-        let sec = xml_of(z, name)?.ok_or(NOT_HWPX)?;
+        let raw = z.read(name)?.ok_or(NOT_HWPX)?;
+        // XML 글로 시작하지 않는 구역 파일은 암호로 바뀐 것으로 본다.
+        if !matches!(
+            raw.first(),
+            Some(b'<' | b' ' | b'\t' | b'\r' | b'\n' | 0 | 0xEF | 0xFE | 0xFF)
+        ) {
+            return Err(ENCRYPTED);
+        }
+        let sec = xml::parse_bytes(&raw)?;
         rd.blocks(&sec, &mut out, false)?;
     }
     Ok(out)

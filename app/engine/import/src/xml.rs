@@ -7,8 +7,8 @@
 
 /// 겹침의 최대 단 수.
 const MAX_DEPTH: usize = 256;
-/// 요소와 글 조각의 최대 수.
-const MAX_NODES: usize = 4_000_000;
+/// 요소와 글 조각의 최대 수. 노드 하나가 70바이트 남짓이라, 한 요소 아래에 모두 늘어놓아도 나무가 200MB 안에 든다.
+const MAX_NODES: usize = 2_000_000;
 
 pub(crate) const BAD_XML: &str = "문서의 XML을 읽지 못했습니다.";
 
@@ -67,7 +67,7 @@ impl El {
     }
 
     /// 안의 글을 문서 순서로 한 번씩만 모은다: 이름이 `text`인 요소의 글을 잇고, 이름이 `para`인 요소가 시작할 때
-    /// 이미 모은 글이 있으면 공백 하나로 나눈다. 제어 문자(탭 제외)는 버리고, `left`자를 모으면 멈춘다.
+    /// 이미 모은 글이 있으면 공백 하나로 나눈다. 제어 문자(탭 제외)와 개체 자리 글자(U+FFFC)는 버리고, `left`자를 모으면 멈춘다.
     /// 문단 안의 표나 상자가 같은 글을 겹쳐 되풀이해 쌓지 않고, 모으는 동안 상한을 지킨다.
     pub fn gather(&self, para: &str, text: &str, out: &mut String, left: &mut usize) {
         for e in self.els() {
@@ -78,7 +78,11 @@ impl El {
                 gather_push(out, left, ' ');
             }
             if e.name == text {
-                for c in e.text().chars().filter(|c| !c.is_control() || *c == '\t') {
+                for c in e
+                    .text()
+                    .chars()
+                    .filter(|&c| !c.is_control() && c != '\u{FFFC}' || c == '\t')
+                {
                     gather_push(out, left, c);
                 }
             } else {
@@ -106,7 +110,8 @@ pub(crate) fn gather_push(out: &mut String, left: &mut usize, c: char) {
     }
 }
 
-/// `&…;`를 푼다. 모르는 엔티티는 글 그대로 둔다.
+/// `&…;`를 푼다. 모르는 엔티티는 글 그대로 둔다. 글자가 아닌 숫자 참조(서로게이트 반쪽 등)는 NUL로 풀어, 글로 넣는 쪽이
+/// 제어 문자로 지우고 센다.
 fn unescape(s: &str) -> String {
     if !s.contains('&') {
         return s.to_string();
@@ -133,7 +138,7 @@ fn unescape(s: &str) -> String {
                 .or_else(|| name.strip_prefix("#X"))
                 .and_then(|h| u32::from_str_radix(h, 16).ok())
                 .or_else(|| name.strip_prefix('#').and_then(|d| d.parse().ok()))
-                .and_then(char::from_u32),
+                .map(|n| char::from_u32(n).unwrap_or('\0')),
         };
         match c {
             Some(c) => {
@@ -148,6 +153,39 @@ fn unescape(s: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// XML 바이트 → 뿌리 요소. UTF-8(BOM 있음·없음)과 UTF-16(BOM이나 첫 `<`로 바이트 순서를 가림)만 읽는다.
+/// 선언의 `encoding`은 보지 않는다.
+pub(crate) fn parse_bytes(b: &[u8]) -> Result<El, &'static str> {
+    let utf16 = |b: &[u8], be: bool| {
+        if !b.len().is_multiple_of(2) {
+            return Err(BAD_XML);
+        }
+        let units: Vec<u16> = b
+            .chunks_exact(2)
+            .map(|c| [c[0], c[1]])
+            .map(|c| {
+                if be {
+                    u16::from_be_bytes(c)
+                } else {
+                    u16::from_le_bytes(c)
+                }
+            })
+            .collect();
+        String::from_utf16(&units).map_err(|_| BAD_XML)
+    };
+    let s = match b {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, false)?,
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, true)?,
+        [b'<', 0, ..] => utf16(b, false)?,
+        [0, b'<', ..] => utf16(b, true)?,
+        _ => {
+            let b = b.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(b);
+            return parse(std::str::from_utf8(b).map_err(|_| BAD_XML)?);
+        }
+    };
+    parse(&s)
 }
 
 /// XML 글 → 뿌리 요소.

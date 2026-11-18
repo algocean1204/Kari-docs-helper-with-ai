@@ -4,8 +4,8 @@
 //! 화면, 파일, DB, 스레드를 모른다. 바이트를 받아 조각과 옮기지 못한 것의 목록을 돌려준다. 그림 바이트는 부르는 쪽이
 //! 검사해 에셋으로 저장하고 해시를 돌려준다. 아무것도 실행하지 않고, 네트워크의 그림을 내려받지 않는다.
 //! 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면
-//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린 문서(OLE)는 읽지 않고 까닭만
-//! 알린다.
+//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린 문서(OLE, 암호 표시가 있는 zip
+//! 항목)는 읽지 않고 까닭만 알린다.
 
 mod docx;
 mod html;
@@ -15,7 +15,7 @@ mod zip;
 
 use std::collections::{BTreeSet, HashMap};
 
-pub use hwpx::{ENCRYPTED, HWP_LEGACY, OLD_WORD};
+pub use hwpx::{ENCRYPTED, HWP_LEGACY, OLD_WORD, UNREADABLE};
 use kari_doc::serde_json::Value;
 pub use kari_edit::{FragPara, Fragment};
 
@@ -61,6 +61,10 @@ pub(crate) struct Report {
     pub nested: usize,
     pub big: usize,
     pub split: usize,
+    /// 지운 제어 문자와 개체 자리 글자.
+    pub dropped: usize,
+    /// 가리킨 글자·문단 모양이 없어 기본 모양으로 둔 곳.
+    pub refs: usize,
 }
 
 /// 글꼴 목록에 적지 않는 이름: 앱의 글꼴과 CSS의 일반 글꼴.
@@ -138,6 +142,18 @@ impl Report {
                 "긴 문단",
                 "개",
                 "한 문단의 글자 수 상한을 넘어 여러 문단으로 나눔",
+            ),
+            (
+                self.dropped,
+                "넣을 수 없는 글자",
+                "자",
+                "제어 문자 등이라 뺌",
+            ),
+            (
+                self.refs,
+                "글자·문단 모양",
+                "곳",
+                "가리킨 모양이 없어 기본 모양으로 둠",
             ),
         ];
         out.extend(
@@ -252,6 +268,9 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
     };
     let paras = if zip::is_zip(bytes) {
         let z = zip::Zip::open(bytes)?;
+        if z.encrypted() {
+            return Err(ENCRYPTED);
+        }
         if z.has("word/document.xml") {
             docx::read(&z, &mut cx)?
         } else if hwpx::is_hwpx(&z) {

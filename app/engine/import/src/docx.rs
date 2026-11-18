@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use kari_doc::serde_json::{json, Map, Value};
 use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
-use crate::xml::{self, El, BAD_XML};
+use crate::xml::{self, El};
 use crate::zip::Zip;
 use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
 
@@ -31,9 +31,7 @@ pub(crate) fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
     let Some(bytes) = z.read(name)? else {
         return Ok(None);
     };
-    let b = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
-    let s = std::str::from_utf8(b).map_err(|_| BAD_XML)?;
-    xml::parse(s).map(Some)
+    xml::parse_bytes(&bytes).map(Some)
 }
 
 /// 문단 스타일 하나.
@@ -104,6 +102,8 @@ pub(crate) struct Line {
     /// 굵기와 크기를 문단 스타일에 맡기는 제목 문단인가.
     pub heading: bool,
     pub done: Vec<Vec<Value>>,
+    /// 문서에 넣을 수 없어 지운 글자 수(탭과 줄바꿈 밖의 제어 문자, 개체 자리 U+FFFC).
+    pub dropped: usize,
 }
 
 impl Line {
@@ -115,11 +115,10 @@ impl Line {
     }
 
     pub fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
-        // 제어 문자는 문서에 넣을 수 없다(탭과 줄바꿈만).
-        let t: String = t
-            .chars()
-            .filter(|c| !c.is_control() || *c == '\t' || *c == '\n')
-            .collect();
+        // 제어 문자(탭과 줄바꿈 밖)와 개체 자리 글자는 글 run에 넣을 수 없다.
+        let keep = |c: &char| (!c.is_control() && *c != '\u{FFFC}') || matches!(c, '\t' | '\n');
+        self.dropped += t.chars().filter(|c| !keep(c)).count();
+        let t: String = t.chars().filter(keep).collect();
         let mut rest = t.as_str();
         while !rest.is_empty() {
             self.room();
@@ -320,6 +319,7 @@ impl Rd<'_, '_, '_, '_> {
             ..Line::default()
         };
         self.inline(p, &base, None, &mut line);
+        self.cx.rep.dropped += line.dropped;
         let last = line.take();
         let mut pieces = std::mem::take(&mut line.done);
         if !pieces.is_empty() {

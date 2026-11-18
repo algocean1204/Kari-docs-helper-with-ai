@@ -232,7 +232,7 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
         ("BinData/image1.png", &png),
     ]);
     let path = case.dir.join("이력서.hwpx");
-    std::fs::write(&path, z).unwrap();
+    std::fs::write(&path, &z).unwrap();
     let before = doc_count();
 
     let p = ok("import.preview", json!({"path": path}));
@@ -256,11 +256,22 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
     assert_eq!(nodes(id, "cell").len(), 2);
     assert_eq!(walk(&case.dir.join("assets")).len(), 1);
     assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+    // 묶음 하나, 되돌리기 한 번이면 빈 문서로, 다시 하기면 같은 상태로 돌아온다. 원본 파일은 읽기만 한다.
+    let applied = back_hash(id);
+    let h = ok("doc.history", json!({"id": id, "limit": 10}));
+    assert_eq!(h.as_array().unwrap().len(), 1, "{h}");
+    ok("doc.undo", json!({"id": id, "actor": "user"}));
+    assert_eq!(texts(id), [""]);
+    assert!(nodes(id, "table").is_empty());
+    ok("doc.redo", json!({"id": id, "actor": "user"}));
+    assert_eq!(back_hash(id), applied);
+    assert_eq!(std::fs::read(&path).unwrap(), z);
 
     // 옛 한글(HWP) 이진 파일은 문서를 만들지 않고 안내와 따로 가를 수 있는 코드를 돌려준다.
     let hwp = case.dir.join("옛 이력서.hwp");
     let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
     ole.extend_from_slice(&[0; 1024]);
+    ole.extend("FileHeader".encode_utf16().flat_map(u16::to_le_bytes));
     std::fs::write(&hwp, ole).unwrap();
     let docs = doc_count();
     for m in ["import.preview", "import.apply"] {
@@ -271,7 +282,91 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
             "{e}"
         );
     }
+    // 옛 Word(.doc)와 흐름을 알 수 없는 OLE 파일은 각자의 안내만 하고 문서를 만들지 않는다.
+    let ole = |name: &str| {
+        let mut v = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        v.extend_from_slice(&[0; 512]);
+        v.extend(name.encode_utf16().flat_map(u16::to_le_bytes));
+        v
+    };
+    for (file, bytes, says) in [
+        ("옛 이력서.doc", ole("WordDocument"), ".docx로 저장"),
+        ("알 수 없음.hwp", ole("Nothing"), "읽을 수 없는 형식"),
+    ] {
+        let f = case.dir.join(file);
+        std::fs::write(&f, bytes).unwrap();
+        for m in ["import.preview", "import.apply"] {
+            let e = err(m, json!({"path": f, "name": "x"}));
+            assert_eq!(e["code"], json!("import"), "{e}");
+            assert!(e["message"].as_str().unwrap().contains(says), "{e}");
+        }
+    }
     assert_eq!(doc_count(), docs);
+}
+
+/// 그림은 이름이 아니라 내용으로 가리고(PNG라는 이름의 JPEG는 받고, 깨진 것은 센다), 넣을 수 없는 글자는 빼서 검사를
+/// 통과하는 문서가 된다. 그림을 넣은 뒤 실패하면 문서와 그림을 남기지 않는다.
+#[test]
+fn hwpx의_그림은_내용으로_가리고_넣을_수_없는_글자는_빼며_실패하면_남기지_않는다() {
+    let case = Case::new("import-hwpx-odd");
+    let jpeg = std::fs::read(format!(
+        "{}/../render/tests/data/photo.jpg",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let pic = |id: &str| {
+        format!(
+            r#"<hp:run><hp:pic><hp:curSz width="7200" height="7200"/><hc:img binaryItemIDRef="{id}"/></hp:pic></hp:run>"#
+        )
+    };
+    let hwpx = |body: &str| {
+        let sec = format!(r#"<hs:sec xmlns:hs="s" xmlns:hp="p" xmlns:hc="c">{body}</hs:sec>"#);
+        stored_zip(&[
+            ("mimetype", b"application/hwp+zip"),
+            ("Contents/section0.xml", sec.as_bytes()),
+            ("BinData/a.png", &jpeg),
+            ("BinData/b.png", b"\x89PNG\r\n\x1a\nbroken"),
+        ])
+    };
+    let body = format!(
+        "<hp:p><hp:run><hp:t>가\u{1}나\u{FFFC}&#xD800;다</hp:t></hp:run>{}{}</hp:p>",
+        pic("a"),
+        pic("b")
+    );
+    let path = case.dir.join("견본.hwpx");
+    std::fs::write(&path, hwpx(&body)).unwrap();
+    let p = ok("import.preview", json!({"path": path}));
+    assert_eq!(p["images"], json!(1), "{p}");
+    assert_eq!(
+        p["lost"],
+        json!([
+            "그림 1개(읽지 못했거나 PNG·JPEG가 아니라 뺌)",
+            "넣을 수 없는 글자 3자(제어 문자 등이라 뺌)"
+        ])
+    );
+    let id = ok("import.apply", json!({"path": path, "name": "견본"}))["id"]
+        .as_i64()
+        .unwrap();
+    ok("doc.open", json!({"id": id}));
+    assert_eq!(texts(id), ["가나다\u{FFFC}"]);
+    assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+    assert_eq!(walk(&case.dir.join("assets")).len(), 1);
+
+    // 그림을 넣은 뒤 문단 상한에 걸려 실패하면 이번에 넣은 그림과 문서를 지운다.
+    let many = case.dir.join("너무 긴 글.hwpx");
+    let paras: String = (0..50_001)
+        .map(|_| "<hp:p><hp:run><hp:t>줄</hp:t></hp:run></hp:p>")
+        .collect();
+    let jpeg_pic = format!("<hp:p>{}</hp:p>", pic("a"));
+    std::fs::write(&many, hwpx(&(jpeg_pic + &paras))).unwrap();
+    let (docs, assets) = (doc_count(), walk(&case.dir.join("assets")).len());
+    let e = err("import.apply", json!({"path": many, "name": "너무 긴 글"}));
+    assert_eq!(
+        e["message"],
+        json!("문단이 5만 개를 넘어 가져올 수 없습니다.")
+    );
+    assert_eq!(doc_count(), docs);
+    assert_eq!(walk(&case.dir.join("assets")).len(), assets);
 }
 
 #[test]
@@ -425,4 +520,120 @@ fn 가져오는_중에_엔진이_멈춰도_문서와_그림을_남기지_않는�
     let r = ok("import.apply", json!({"path": path, "name": "멈춤"}));
     assert!(r["id"].is_i64());
     assert_eq!(doc_count(), before + 1);
+}
+
+/// 20번 잰 시간의 p95(밀리초).
+fn p95(mut f: impl FnMut()) -> u128 {
+    let mut ms: Vec<u128> = (0..20)
+        .map(|_| {
+            let t = std::time::Instant::now();
+            f();
+            t.elapsed().as_millis()
+        })
+        .collect();
+    ms.sort_unstable();
+    ms[18]
+}
+
+/// 열 쪽짜리 한글 문서 견본(쪽마다 제목 하나, 글자 모양이 섞인 문단 20개, 5행 4열 표 하나, 두 쪽마다 그림 하나)의
+/// 미리 보기 300ms, 가져오기 500ms(p95)와 문단 5만 개의 미리 보기 3초. 시간은 release 기준이라 기본 시험에서는 뺐다:
+/// `cargo test --release -p kari-ffi --test import -- --ignored --nocapture`
+#[test]
+#[ignore = "측정: release에서 --ignored로 돈다"]
+fn hwpx_열_쪽의_미리_보기와_가져오기_시간() {
+    let case = Case::new("import-hwpx-speed");
+    let head = r##"<hh:head xmlns:hh="h" xmlns:hc="c"><hh:refList><hh:charProperties><hh:charPr id="0" height="1000" textColor="#000000"/><hh:charPr id="1" height="1200" textColor="#2255AA"><hh:bold/></hh:charPr></hh:charProperties><hh:paraProperties><hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/></hh:paraPr><hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties></hh:refList></hh:head>"##;
+    let run = |c: u32, t: &str| format!(r#"<hp:run charPrIDRef="{c}"><hp:t>{t}</hp:t></hp:run>"#);
+    let line =
+        "견본상사에서 백엔드 개발을 맡아 주문 처리와 정산 흐름을 다시 짰고 응답 시간을 줄였다. ";
+    let mut body = String::new();
+    for page in 0..10 {
+        body += &format!(
+            r#"<hp:p paraPrIDRef="1">{}</hp:p>"#,
+            run(0, &format!("{}쪽 경력", page + 1))
+        );
+        for i in 0..20 {
+            body += &format!(
+                r#"<hp:p paraPrIDRef="0">{}{}{}</hp:p>"#,
+                run(0, line),
+                run(1, "굵은 낱말"),
+                run(0, &format!("{line}{i}"))
+            );
+        }
+        let cell = |r: usize, c: usize| {
+            format!(
+                r#"<hp:tc header="{}"><hp:subList><hp:p paraPrIDRef="0">{}</hp:p></hp:subList><hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="3000" height="900"/></hp:tc>"#,
+                u8::from(r == 0),
+                run(0, "칸의 글")
+            )
+        };
+        let trs: String = (0..5)
+            .map(|r| {
+                format!(
+                    "<hp:tr>{}</hp:tr>",
+                    (0..4).map(|c| cell(r, c)).collect::<String>()
+                )
+            })
+            .collect();
+        body += &format!(
+            r#"<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="5" colCnt="4">{trs}</hp:tbl></hp:run></hp:p>"#
+        );
+        if page % 2 == 0 {
+            body += &format!(
+                r#"<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:pic><hp:curSz width="14400" height="14400"/><hc:img binaryItemIDRef="p{page}"/></hp:pic></hp:run></hp:p>"#
+            );
+        }
+    }
+    let sec = |b: &str| format!(r#"<hs:sec xmlns:hs="s" xmlns:hp="p" xmlns:hc="c">{b}</hs:sec>"#);
+    let png = photo();
+    let names: Vec<String> = (0..10)
+        .step_by(2)
+        .map(|p| format!("BinData/p{p}.png"))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![
+        ("mimetype", b"application/hwp+zip"),
+        ("Contents/header.xml", head.as_bytes()),
+    ];
+    let s0 = sec(&body);
+    files.push(("Contents/section0.xml", s0.as_bytes()));
+    for n in &names {
+        files.push((n, &png));
+    }
+    let path = case.dir.join("열 쪽.hwpx");
+    std::fs::write(&path, stored_zip(&files)).unwrap();
+    let preview = p95(|| {
+        ok("import.preview", json!({"path": path}));
+    });
+    let apply = p95(|| {
+        ok("import.apply", json!({"path": path, "name": "열 쪽"}));
+    });
+    let many: String = (0..50_000)
+        .map(|i| {
+            format!(
+                r#"<hp:p paraPrIDRef="0">{}</hp:p>"#,
+                run(0, &format!("줄 {i}"))
+            )
+        })
+        .collect();
+    let s1 = sec(&many);
+    let big = case.dir.join("문단 5만.hwpx");
+    std::fs::write(
+        &big,
+        stored_zip(&[
+            ("mimetype", b"application/hwp+zip"),
+            ("Contents/header.xml", head.as_bytes()),
+            ("Contents/section0.xml", s1.as_bytes()),
+        ]),
+    )
+    .unwrap();
+    let t = std::time::Instant::now();
+    assert_eq!(
+        ok("import.preview", json!({"path": big}))["paras"],
+        json!(50_000)
+    );
+    let long = t.elapsed().as_millis();
+    eprintln!(
+        "열 쪽 미리 보기 p95 {preview}ms, 가져오기 p95 {apply}ms, 문단 5만 미리 보기 {long}ms"
+    );
+    assert!(preview <= 300 && apply <= 500 && long <= 3000);
 }
