@@ -43,8 +43,10 @@ const MAX_RSS: u64 = 448 << 20;
 const RSS_EVERY: usize = 4 << 20;
 /// 부모가 지켜보는 도우미 메모리(phys footprint)의 상한. 힙 상한 밖의 몫(코드, 스택)을 넣어 둔 둘째 방어다.
 pub const MAX_MEMORY: u64 = 448 << 20;
-/// 도우미에 주는 시간(띄우기부터). 끝내고 거두는 시간까지 2초 안에 들게 조금 낮게 둔다.
-pub const MAX_TIME: Duration = Duration::from_millis(1750);
+/// 도우미에 주는 시간(띄우기부터). 끝내고 거두는 시간까지 2초 안에 들게 조금 낮게 둔다. 디버그 빌드(최적화 없음)는
+/// 몇 배 느려 시간 상한이 다른 상한보다 먼저 걸리므로 늘려 둔다(배포·개발 앱은 최적화 빌드라 1.75초).
+pub const MAX_TIME: Duration =
+    Duration::from_millis(if cfg!(debug_assertions) { 16_000 } else { 1750 });
 /// 도우미 결과(JSON)의 크기 상한. 크기 예산(`MAX_WEIGHT`)과 글자 수 상한 안의 결과는 이보다 작다.
 const MAX_OUT: usize = 16 << 20;
 /// 문서 전체의 글자 수 상한(읽을 때의 상한과 같다).
@@ -55,7 +57,7 @@ const LOST_CHARS: usize = 512;
 /// 메모리·시간·멈추기를 보는 틈. 도우미가 끝나거나 결과를 다 쓰면 기다리지 않고 바로 깬다.
 const POLL: Duration = Duration::from_millis(10);
 /// 부모가 먼저 죽어 지켜보는 쪽이 없을 때도 끝나게 도우미 스스로 거는 CPU 시간 상한(초).
-const CPU_SECONDS: u64 = 4;
+const CPU_SECONDS: u64 = if cfg!(debug_assertions) { 32 } else { 4 };
 /// 도우미의 끝 코드: 힙 상한에 닿음, 앱이 엔진 라이브러리를 열지 못함(Swift `pdfHelper`).
 const EXIT_TOO_BIG: i32 = 86;
 const EXIT_NO_ENGINE: i32 = 2;

@@ -53,6 +53,9 @@ static A: Counting = Counting;
 /// 시간 상한(벽시계). CI 러너는 CPU가 모자라 거절과 거두기가 늦을 수 있어 두 배로 본다. 메모리 단언은 할당자 상한이라
 /// 부하와 무관하게 그대로 본다.
 fn limit() -> Duration {
+    if cfg!(debug_assertions) {
+        return kari_import::pdf::MAX_TIME + Duration::from_secs(4);
+    }
     Duration::from_secs(if std::env::var_os("CI").is_some() {
         4
     } else {

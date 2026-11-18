@@ -129,10 +129,15 @@ fn run_child(name: &str) {
             "{name}: {p} {r}"
         );
     } else {
+        // 디버그 빌드의 도우미는 느려서 크기 예산에 닿기 전에 시간 상한에 걸릴 수 있다. 어느 쪽이든 까닭과 함께 거절한다.
+        let ok: &[&str] = if cfg!(debug_assertions) {
+            &[kari_import::pdf::TOO_BIG, kari_import::pdf::TOO_SLOW]
+        } else {
+            &[kari_import::pdf::TOO_BIG]
+        };
         for v in [&p, &r] {
-            assert_eq!(
-                v["err"]["message"],
-                json!(kari_import::pdf::TOO_BIG),
+            assert!(
+                ok.iter().any(|m| v["err"]["message"] == json!(m)),
                 "{name}: {v}"
             );
         }
