@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -23,6 +24,7 @@ class Library extends ChangeNotifier {
     this.openPath = pickOpenPath,
     this.importPath = pickImportPath,
     this.showOther = showOtherKari,
+    this.quit = quitApp,
     this.service,
     String? outDir,
   }) : _now = now ?? DateTime.now,
@@ -41,6 +43,9 @@ class Library extends ChangeNotifier {
 
   /// 같은 자료 폴더를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져오기. 시험은 바꿔 끼운다.
   final ShowOther showOther;
+
+  /// 앞의 Kari를 앞으로 가져왔을 때 이 두 번째 Kari를 끈다. 끄는 중이면 참. 시험은 바꿔 끼운다.
+  final Future<bool> Function() quit;
 
   /// 인쇄·공유에 넘길 PDF를 잠깐 두는 폴더. 앱의 임시 폴더 안에 앱이 만든 하위 폴더 하나다.
   /// 공유가 끝났는지 알 수 없는 경우가 있어 앱을 켤 때 비운다. 시험은 바꿔 끼운다.
@@ -135,11 +140,12 @@ class Library extends ChangeNotifier {
         // 백업을 읽지 못하면 되살리기를 보이지 않는다.
       }
     }
-    // 다른 Kari가 이 자료를 쓰고 있으면 그 창을 앞으로 가져온다. 이 창에는 까닭과 다시 시도가 남는다.
+    // 다른 Kari가 이 자료를 쓰고 있으면 그 창을 앞으로 가져오고, 가져왔으면 저장할 것이 없는 이 Kari는 조용히 끈다.
+    // 가져오지 못하면 이 창에 까닭과 다시 시도가 남는다.
     final detail = e.detail;
     if (e.code == 'in_use' && detail is Map && detail['pid'] is int) {
       try {
-        await showOther(detail['pid'] as int);
+        if (await showOther(detail['pid'] as int) && await quit()) return;
       } on PlatformException {
         // 가져오지 못해도 안내는 그대로 보인다.
       } on MissingPluginException {
@@ -561,13 +567,20 @@ Future<String?> pickSavePath(String name) => const MethodChannel(
   'kari/files',
 ).invokeMethod<String>('savePath', {'name': name});
 
-/// 같은 자료를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져온다.
-typedef ShowOther = Future<void> Function(int pid);
+/// 같은 자료를 쓰는 다른 Kari(프로세스 id)를 앞으로 가져온다. 가져오라고 요청했으면 참.
+typedef ShowOther = Future<bool> Function(int pid);
 
-/// `kari/files`의 `activate`. macOS 쪽은 같은 번들 ID의 앱일 때만 앞으로 가져온다.
-Future<void> showOtherKari(int pid) => const MethodChannel(
-  'kari/files',
-).invokeMethod<void>('activate', {'pid': pid});
+/// `kari/files`의 `activate`. macOS 쪽은 같은 번들 ID의 앱일 때만 앞으로 가져오고, 못 찾으면 거짓이다.
+Future<bool> showOtherKari(int pid) async =>
+    await const MethodChannel(
+      'kari/files',
+    ).invokeMethod<bool>('activate', {'pid': pid}) ==
+    true;
+
+/// 앱을 끄는 보통 길(⌘Q와 같다: 끄기 요청이 `_onExit`을 지난다). 끄는 중이면 참, 취소됐으면 거짓.
+Future<bool> quitApp() async =>
+    await ServicesBinding.instance.exitApplication(AppExitType.cancelable) ==
+    AppExitResponse.exit;
 
 /// 열 파일을 고른다. 고르면 절대 경로, 취소하면 null.
 typedef OpenPath = Future<String?> Function();
