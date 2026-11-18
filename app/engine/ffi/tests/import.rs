@@ -679,8 +679,8 @@ fn 실제_한글_문서_꾸러미를_가져와_본다() {
             .collect();
         let s = |k: &str| runs.iter().filter(|r| r["s"].get(k).is_some()).count();
         eprintln!(
-            "{}: 문단 {} 표 {} 그림 {} 글자 {} 제목 {:?} | 문서: 글머리표 {} 번호 {} 가운데 {} 칸 {} 합친 칸 {} 제목 행 {:?} 칸 바탕 {} 링크 {:?} 굵게 {} 기울임 {} | lost {}",
-            format!("견본 {}", i + 1),
+            "견본 {}: 문단 {} 표 {} 그림 {} 글자 {} 제목 {:?} | 문서: 글머리표 {} 번호 {} 가운데 {} 칸 {} 합친 칸 {} 제목 행 {:?} 칸 바탕 {} 링크 {:?} 굵게 {} 기울임 {} | lost {}",
+            i + 1,
             p["paras"], p["tables"], p["images"], p["chars"], styles,
             count(&|p| p["props"]["pf"]["list"]["kind"] == "BULLET"),
             count(&|p| p["props"]["pf"]["list"]["kind"] == "ORDERED"),
