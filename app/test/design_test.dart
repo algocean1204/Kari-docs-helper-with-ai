@@ -41,7 +41,7 @@ Future<ByteData> _file(String path) async {
 
 Future<void> loadFonts() async {
   final text = FontLoader(AppText.family);
-  for (final w in ['Regular', 'Bold']) {
+  for (final w in ['Regular', 'SemiBold', 'Bold']) {
     text.addFont(_file('assets/fonts/Pretendard-$w.ttf'));
   }
   await text.load();
@@ -741,6 +741,32 @@ void main() {
     );
     expect(normal, const Duration(milliseconds: 150));
     expect(reduced, Duration.zero);
+  });
+
+  test('글자 역할의 굵기마다 그 굵기의 글꼴 파일이 pubspec에 등록돼 있다', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final registered = {
+      for (final m in RegExp(
+        r'asset: (assets/fonts/Pretendard-\w+\.ttf)\s+weight: (\d+)',
+      ).allMatches(pubspec))
+        int.parse(m[2]!): m[1]!,
+    };
+    const styles = [
+      AppText.figure,
+      AppText.question,
+      AppText.display,
+      AppText.title,
+      AppText.reading,
+      AppText.body,
+      AppText.label,
+      AppText.caption,
+      AppText.dense,
+    ];
+    for (final s in styles) {
+      final file = registered[s.fontWeight!.value];
+      expect(file, isNotNull, reason: '굵기 ${s.fontWeight!.value}');
+      expect(File(file!).existsSync(), isTrue, reason: file);
+    }
   });
 
   test('어절 줄바꿈: 공백이 아닌 글자 사이에만 결합 문자를 넣는다', () {
