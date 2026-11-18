@@ -96,6 +96,13 @@ pub(crate) fn ai_fail(e: AiError, keys: &[&str]) -> Fail {
             return fail("declined", "ChatGPT 플랜 사용을 허락받지 못했습니다.")
         }
         AiError::Plan(ref c) => return fail("plan", plan_message(c)),
+        // 엔진이 그 등록을 이미 잊었다. 화면의 로그인 실패 안내(다시 시도)가 그대로 맞는다.
+        AiError::ClientRejected => {
+            return fail(
+                "signin",
+                "OpenAI가 이 기기의 ChatGPT 앱 등록을 받지 않습니다. 다시 연결하면 새로 등록합니다.",
+            )
+        }
         AiError::SignIn(_) => "signin",
         AiError::Canceled => "canceled",
         AiError::Network(_) => "network",
@@ -124,6 +131,7 @@ fn plan_message(code: &str) -> String {
         "subscription_sharing_unsupported_capability" => {
             "ChatGPT 플랜으로는 이 요청의 기능이나 모델을 쓸 수 없습니다."
         }
+        "forbidden" => "ChatGPT 플랜의 정책이나 권한(쓸 수 있는 지역 등)이 이 요청을 막았습니다.",
         "subscription_sharing_invalid_user" => {
             "ChatGPT 계정을 확인하지 못했습니다. 계속되면 연결을 끊고 다시 로그인합니다."
         }

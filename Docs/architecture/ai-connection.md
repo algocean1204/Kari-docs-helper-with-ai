@@ -208,10 +208,10 @@ sequenceDiagram
 **돌아온 뒤**
 
 1. `state`가 맞는 요청만 받는다(오류로 돌아왔어도 먼저 본다). `error=access_denied`면 거절(`declined`)로 멈추고 코드를 바꾸지 않는다.
-2. `POST https://auth.openai.com/api/accounts/oauth/token`(폼): `grant_type=authorization_code`, 발급 id, 코드, PKCE 검증값, 같은 돌아올 주소, `resource`. `invalid_grant`면 그 코드를 버리고 처음부터 다시 로그인한다.
-3. ID 토큰: OIDC 문서(`/.well-known/openid-configuration`, 발급자가 정확히 `https://auth.openai.com`이어야 함)의 `jwks_uri`(발급자와 같은 곳만)에서 받은 공개 키로 RS256 서명을 확인한다(2048비트 미만의 키, 3 미만이거나 짝수인 공개 지수, 키 길이와 다른 서명, n 이상의 서명 값, 다른 서명 방식, `crit` 머리는 받지 않는다). `iss`, `aud`(발급 id. 받는 쪽이 여럿이거나 `azp`가 있으면 `azp`도 발급 id), `exp`·`nbf`(5초 봐줌), `iat`, `nonce`, `sub`를 본다.
+2. `POST https://auth.openai.com/api/accounts/oauth/token`(폼): `grant_type=authorization_code`, 발급 id, 코드, PKCE 검증값, 같은 돌아올 주소, `resource`. `invalid_grant`면 그 코드를 버리고 처음부터 다시 로그인한다. 처음 등록이었으면 돌아온 발급 id를 설정에 남겨 다음 시도를 그 id로 한다(새로 등록하지 않는다).
+3. ID 토큰: OIDC 문서(`/.well-known/openid-configuration`, 발급자가 정확히 `https://auth.openai.com`이어야 함)의 `jwks_uri`(발급자와 같은 곳만)에서 받은 공개 키로 RS256 서명을 확인한다(2048비트 미만이거나 8192비트를 넘는 키, 3 미만이거나 짝수인 공개 지수, 키 길이와 다른 서명, n 이상의 서명 값, 다른 서명 방식, `crit` 머리는 받지 않는다). JWKS는 확인할 때마다 새로 받고, 머리에 `kid`가 없으면 맞는 키를 앞의 8개까지 하나씩 해 본다. `iss`, `aud`(발급 id. 받는 쪽이 여럿이거나 `azp`가 있으면 `azp`도 발급 id), `exp`·`nbf`(5초 봐줌), `iat`, `nonce`, `sub`를 본다.
 4. 같은 발급 id인데 전에 확인한 `sub`와 다르면 자격을 바꾸지 않고 등록을 잊는다(다음 시도는 새로 등록).
-5. 토큰 응답의 권한에 `chatgpt.tokens.use.direct`가 없으면 계정과 발급 id만 남기고 연결하지 않는다(`declined`).
+5. 토큰 응답의 권한(`scope`. 응답에 없으면 돌아온 주소의 `scope`)에 `chatgpt.tokens.use.direct`가 없으면 계정과 발급 id만 남기고 연결하지 않는다(`declined`). 이때는 갱신 토큰이 없어도 된다(`offline_access`는 플랜 사용 쪽 권한이다). 플랜을 허락했는데 갱신 토큰이 없으면 읽을 수 없는 응답으로 본다.
 6. 그 계정의 모델 목록을 받아(실패하면 빈 목록, 코드의 기본 판을 쓴다) 연결한다. 처음 연결이면 `welcome`이 참이고 앱이 안내를 한 번 보인다.
 
 **보관과 갱신**
@@ -221,9 +221,10 @@ sequenceDiagram
 | 접근·갱신·ID 토큰, 발급 id, 확인한 `sub`·전자우편, 권한, 만료 | 키체인 계정 `openai-chatgpt`(JSON 하나). 오류 문구, `Debug`, 설정, 로그에 넣지 않는다 |
 | 호스트 id, 발급 id, `sub`, 전자우편, 연결 여부, 모델 목록과 받은 시각, 거절했는지, 처음 안내를 보였는지, 키와 무엇을 쓸지(`use`) | 설정 `ai.chatgpt` |
 
-- 접근 토큰이 5분 안에 끝나면 부르기 전에 갱신한다(`grant_type=refresh_token`, 발급 id, `resource`, `scope`는 보내지 않음). 접근 토큰, 만료, 권한, 바뀐 갱신 토큰을 함께 바꾼다. 갱신은 한 번에 하나만 한다.
+- 접근 토큰이 5분 안에 끝나면 부르기 전에 갱신한다(`grant_type=refresh_token`, 발급 id, `resource`, `scope`는 보내지 않음). 접근 토큰, 만료, 권한, 바뀐 갱신 토큰을 함께 바꾼다. 갱신은 한 번에 하나만 한다. 로그인 뒤 자격을 키체인에 쓰는 것도 갱신과 같은 잠금 안에서 한다.
 - 모델 호출이 401이면 한 번 갱신하고 다시 부른다. 그래도 401이면 `signed_out`(자격은 지우지 않는다).
-- 갱신이 `invalid_grant`, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, `refresh_token_reused`면 접근·갱신 토큰을 지우고 연결을 끊는다(`signed_out`). ID 토큰은 다시 로그인의 힌트로 남긴다. 네트워크 오류와 5xx에는 지우지 않는다. 로그인 뒤 자격을 키체인에 쓰는 것도 갱신과 같은 잠금 안에서 한다.
+- 갱신이 `invalid_grant`, `invalid_refresh_token`, `token_expired`, `refresh_token_expired`, `refresh_token_invalidated`, `refresh_token_reused`면 접근·갱신 토큰을 지우고 연결을 끊는다(`signed_out`). ID 토큰은 다시 로그인의 힌트로 남긴다. 네트워크 오류와 5xx에는 지우지 않는다.
+- 갱신이나 코드 교환이 `invalid_client`(인증 서버가 발급 id를 받지 않음)면 같은 id로는 다시 로그인해도 같으므로 그 등록을 잊는다: 키체인의 자격(ID 토큰 힌트 포함)과 설정의 발급 id·`sub`·전자우편을 지우고 연결을 끊는다. 호스트 id는 남긴다. 다음 `ChatGPT로 계속하기`는 처음 등록(`dynamic_agent_client`)으로 간다(`signin`).
 - `ai.chatgptSignOut`: OIDC 문서의 `revocation_endpoint`에 갱신 토큰을 보내 세션을 끝내고(네트워크 오류와 5xx는 0.5초, 2초 뒤 두 번 더), 키체인의 토큰을 지운다. 끝내기를 확인하지 못해도 이 기기에서는 끊고 `revoked: false`로 알린다.
 
 **고르는 순서**: OpenAI를 고른 일은 ChatGPT 플랜이 연결돼 있으면 플랜으로, 아니면 API 키로 부른다. 둘 다 있을 때 사용자가 키를 고르면(`ai.chatgptUse {use: key}`) 키로 부른다. `ai.providers`의 OpenAI 줄에 `plan`(연결 여부, 전자우편, 받은 시각, 거절했는지, `use`)과 `via`(`plan`, `key`, 없으면 null)가 있다. 키가 있는지(`hasKey`)는 API 키만 본다. 일마다의 모델(`ai.tasks`)과 판 고르기는 `via`가 `plan`이면 플랜의 모델 목록을 쓴다.
@@ -249,8 +250,10 @@ sequenceDiagram
 | 로그인 실패(state, ID 토큰, 코드 교환) | `signin` | 처음부터 다시 로그인 |
 | 거절, 플랜 권한 없음 | `declined` | 다음 시도에 동의를 다시 묻는다 |
 | 쓸 수 없는 갱신 토큰, 갱신 뒤에도 401 | `signed_out` | 다시 로그인 |
+| `invalid_client`(갱신, 코드 교환) | `signin` | 그 등록을 잊는다. 다시 연결하면 새로 등록한다 |
+| 코드 없는 403(입장 단계의 정책·권한 확인. 쓸 수 있는 지역 등) | `plan`(`forbidden`) | 다시 보내지 않는다. 키의 권한이 아니라 플랜의 제한으로 알린다 |
 
-**시험 빌드**: `test-hooks`에서는 `ai.testBase`로 준 주소가 인증 서버(발급자)이자 API 주소다. 시험은 메르센 소수 두 개로 만든 시험용 RSA 키로 ID 토큰에 서명하고, 브라우저 대신 돌아올 주소에 직접 GET을 보낸다(`app/engine/ai/tests/chatgpt.rs`, `app/engine/ffi/tests/chatgpt.rs`, `iv.rs`의 `chatgpt_plan_runs_the_interview`).
+**시험 빌드**: `test-hooks`에서는 `ai.testBase`로 준 주소가 인증 서버(발급자)이자 API 주소다. 보안 저장소는 메모리이고, `ai.chatgptTestStored`가 ChatGPT 자격이 있는지만 알린다(토큰은 돌려주지 않는다). 시험은 메르센 소수 두 개로 만든 시험용 RSA 키로 ID 토큰에 서명하고, 브라우저 대신 돌아올 주소에 직접 GET을 보낸다(`app/engine/ai/tests/chatgpt.rs`, `app/engine/ffi/tests/chatgpt.rs`, `iv.rs`의 `chatgpt_plan_runs_the_interview`).
 
 ## 보내는 글과 지시 주입 막기
 

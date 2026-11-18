@@ -140,6 +140,26 @@ fn forget() {
     let _ = with_lib(disconnect);
 }
 
+/// 인증 서버가 발급 id `id`를 받지 않는다(`invalid_client`): 그 등록을 잊는다. 그 id의 자격(토큰과 다시 로그인의 ID
+/// 토큰 힌트)을 지우고 설정의 발급 id, 계정, 전자우편을 비워 다음 로그인은 처음 등록으로 간다. 호스트 id는 남긴다.
+/// REFRESH 잠금을 쥔 채 부른다.
+fn drop_client(id: &str) {
+    if load().ok().flatten().is_none_or(|c| c.client_id == id) {
+        let _ = secrets().delete(ACCOUNT);
+    }
+    let _ = with_lib(|lib| {
+        let mut r = record(lib)?;
+        if r["clientId"] != id {
+            return Ok(());
+        }
+        for k in ["clientId", "subject", "email"] {
+            r[k] = Value::Null;
+        }
+        save(lib, &r)?;
+        disconnect(lib)
+    });
+}
+
 fn load() -> Result<Option<Creds>, AiError> {
     secrets()
         .get(ACCOUNT)?
@@ -171,6 +191,10 @@ fn token(force: bool) -> Result<String, AiError> {
             forget();
             Err(AiError::SignedOut)
         }
+        Err(AiError::ClientRejected) => {
+            drop_client(&c.client_id);
+            Err(AiError::ClientRejected)
+        }
         // 잠깐의 실패(네트워크, 5xx)에는 자격을 지우지 않는다.
         Err(e) => Err(e),
     }
@@ -178,6 +202,7 @@ fn token(force: bool) -> Result<String, AiError> {
 
 /// ChatGPT 플랜으로 부르는 어댑터. 키 자리의 값은 쓰지 않고, 부를 때마다 보안 저장소의 접근 토큰을 쓴다.
 /// 401이면 한 번 갱신하고 다시 부른다. 그래도 401이면 다시 로그인해야 한다(자격은 지우지 않는다).
+/// 코드 없는 403은 입장 단계의 정책·권한 확인(지역 등)이라 키의 권한 문제(`forbidden`)가 아닌 플랜 오류로 돌려준다.
 #[derive(Debug)]
 pub(crate) struct Plan(OpenAi);
 
@@ -190,11 +215,15 @@ impl Plan {
         &self,
         mut f: impl FnMut(&OpenAi, &str) -> Result<T, AiError>,
     ) -> Result<T, AiError> {
-        match f(&self.0, &token(false)?) {
+        let r = match f(&self.0, &token(false)?) {
             Err(AiError::Unauthorized) => match f(&self.0, &token(true)?) {
                 Err(AiError::Unauthorized) => Err(AiError::SignedOut),
                 r => r,
             },
+            r => r,
+        };
+        match r {
+            Err(AiError::Forbidden) => Err(AiError::Plan("forbidden".into())),
             r => r,
         }
     }
@@ -287,7 +316,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
         // 브라우저가 돌아오기를 기다려 토큰을 받고 확인한 뒤 저장한다. 처음 연결이면 welcome이 참이다(앱이 안내를 한 번 보인다).
         "ai.chatgptWait" => {
             let cancel = Arc::new(AtomicBool::new(false));
-            let p = {
+            let mut p = {
                 let mut pending = lock(&PENDING);
                 let p = pending
                     .take()
@@ -299,7 +328,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 .maybe("timeoutMs", Value::as_u64)?
                 .map_or(WAIT, Duration::from_millis)
                 .min(WAIT);
-            let got = auth().and_then(|auth| auth.finish(p, &cancel, timeout));
+            let got = auth().and_then(|auth| auth.finish(&mut p, &cancel, timeout));
             {
                 let mut w = lock(&WAITING);
                 if w.as_ref().is_some_and(|c| Arc::ptr_eq(c, &cancel)) {
@@ -315,6 +344,21 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                             r["declined"] = json!(true);
                             save(lib, &r)
                         });
+                    }
+                    // 처음 등록의 코드 교환이 invalid_grant: 코드는 버리고 다음 시도는 돌아온 발급 id로 한다(새로 등록하지 않게).
+                    if let (AiError::SignedOut, Some(id)) = (&e, p.client_id()) {
+                        let _ = with_lib(|lib| {
+                            let mut r = record(lib)?;
+                            if r["clientId"].is_null() {
+                                r["clientId"] = json!(id);
+                                save(lib, &r)?;
+                            }
+                            Ok(())
+                        });
+                    }
+                    if let (AiError::ClientRejected, Some(id)) = (&e, p.client_id()) {
+                        let _one = lock(&REFRESH);
+                        drop_client(id);
                     }
                     return Err(ai_fail(e, &[]));
                 }
@@ -425,6 +469,9 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 status(lib)
             })
         }
+        // 시험 빌드: 보안 저장소(메모리)에 ChatGPT 자격이 있는지. 토큰은 돌려주지 않는다.
+        #[cfg(feature = "test-hooks")]
+        "ai.chatgptTestStored" => Ok(json!(load().map_err(|e| ai_fail(e, &[]))?.is_some())),
         _ => Err(bad(format!("모르는 이름입니다: {m}"))),
     }
 }

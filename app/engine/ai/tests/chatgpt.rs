@@ -51,22 +51,38 @@ fn sign_in(
     edit: impl FnOnce(&mut Value),
     query: impl FnOnce(&str) -> String,
 ) -> (Result<Creds, AiError>, (String, String), Server, String) {
+    sign_in_with(
+        client,
+        edit,
+        |c| oauth::token_body(&oauth::id_token(c), scope),
+        oauth::jwks(),
+        query,
+    )
+}
+
+/// [`sign_in`]에서 토큰 응답(`body`가 확인할 클레임으로 만든다)과 JWKS도 고른다.
+fn sign_in_with(
+    client: Option<&str>,
+    edit: impl FnOnce(&mut Value),
+    body: impl FnOnce(&Value) -> String,
+    jwks: String,
+    query: impl FnOnce(&str) -> String,
+) -> (Result<Creds, AiError>, (String, String), Server, String) {
     let (srv, tx) = serve_later();
     let auth = Auth::with_issuer(&srv.url);
-    let p = auth.begin(HOST, client, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, client, Hints::default(), false).unwrap();
     let url = p.url.clone();
     let mut claims = oauth::claims(&srv.url, &param(&url, "nonce").unwrap());
     edit(&mut claims);
-    let token = oauth::token_body(&oauth::id_token(&claims), scope);
     tx.send(vec![
-        json(200, &token),
+        json(200, &body(&claims)),
         json(200, &oauth::discovery(&srv.url)),
-        json(200, &oauth::jwks()),
+        json(200, &jwks),
     ])
     .unwrap();
     let back = callback(&url, &query(&url));
     let browser = thread::spawn(move || browse(&back));
-    let r = auth.finish(p, &never(), WAIT);
+    let r = auth.finish(&mut p, &never(), WAIT);
     (r, browser.join().unwrap(), srv, url)
 }
 
@@ -185,6 +201,112 @@ fn plan_scope_missing_is_reported_not_hidden() {
     assert!(!r.unwrap().plan_allowed());
 }
 
+/// 플랜 사용을 허락하지 않고 로그인만 마치면 갱신 토큰이 오지 않을 수 있다(`offline_access`는 플랜 사용 쪽 권한이다).
+/// 그래도 계정을 확인하고 플랜 없음으로 돌려준다. 플랜을 허락했는데 갱신 토큰이 없으면 쓸 수 없는 응답이다.
+#[test]
+fn identity_only_grant_needs_no_refresh_token() {
+    let body = |scope: &'static str| {
+        move |c: &Value| {
+            json!({"access_token": oauth::ACCESS, "id_token": oauth::id_token(c),
+                "token_type": "Bearer", "expires_in": 3600, "scope": scope})
+            .to_string()
+        }
+    };
+    let (r, ..) = sign_in_with(
+        None,
+        |_| {},
+        body("openid profile email"),
+        oauth::jwks(),
+        good,
+    );
+    let c = r.unwrap();
+    assert!(!c.plan_allowed());
+    assert_eq!(
+        (c.client_id.as_str(), c.subject.as_str()),
+        (CLIENT, oauth::SUB)
+    );
+    let (r, ..) = sign_in_with(None, |_| {}, body(oauth::SCOPES), oauth::jwks(), good);
+    assert!(matches!(r, Err(AiError::Protocol(_))), "{r:?}");
+}
+
+/// 토큰 응답에 `scope`가 없으면(요청과 같으면 빼도 된다, RFC 6749 5.1) 돌아온 주소의 `scope`를 쓴다.
+/// 둘 다 없으면 플랜 없음으로 본다.
+#[test]
+fn granted_scopes_fall_back_to_the_callback() {
+    let no_scope = |c: &Value| {
+        let mut t: Value =
+            serde_json::from_str(&oauth::token_body(&oauth::id_token(c), "")).unwrap();
+        t.as_object_mut().unwrap().remove("scope");
+        t.to_string()
+    };
+    let (r, ..) = sign_in_with(None, |_| {}, no_scope, oauth::jwks(), good);
+    assert!(r.unwrap().plan_allowed());
+    let bare = |u: &str| {
+        format!(
+            "code=c0de&state={}&client_id={CLIENT}",
+            param(u, "state").unwrap()
+        )
+    };
+    let (r, ..) = sign_in_with(None, |_| {}, no_scope, oauth::jwks(), bare);
+    assert!(!r.unwrap().plan_allowed());
+}
+
+/// 키를 바꾸는 동안 JWKS에 키가 여럿이고 ID 토큰 머리에 `kid`가 없으면, 맞는 키를 찾아 확인한다.
+#[test]
+fn id_token_without_kid_tries_every_key() {
+    let mut jwks: Value = serde_json::from_str(&oauth::jwks()).unwrap();
+    let mut other = jwks["keys"][0].clone();
+    let mut n = B64.decode(other["n"].as_str().unwrap()).unwrap();
+    *n.last_mut().unwrap() ^= 0x02;
+    other["n"] = json!(B64.encode(n));
+    other["kid"] = json!("old-key");
+    jwks["keys"] = json!([other, jwks["keys"][0]]);
+    let no_kid = |c: &Value| {
+        oauth::token_body(
+            &oauth::sign(&json!({"alg": "RS256", "typ": "JWT"}), c),
+            oauth::SCOPES,
+        )
+    };
+    let (r, ..) = sign_in_with(None, |_| {}, no_kid, jwks.to_string(), good);
+    assert!(r.is_ok(), "{r:?}");
+    // 어느 키로도 맞지 않으면 받지 않는다.
+    let (r, ..) = sign_in_with(
+        None,
+        |_| {},
+        no_kid,
+        json!({"keys": [jwks["keys"][0]]}).to_string(),
+        good,
+    );
+    assert!(sign_in_err(&r.unwrap_err()).contains("서명"));
+    // 해 보는 키는 앞의 8개까지다: 맞는 키가 9번째에 있으면 받지 않고, 8번째에 있으면 받는다.
+    let (wrong, right) = (&jwks["keys"][0], &jwks["keys"][1]);
+    for (before, want_ok) in [(8, false), (7, true)] {
+        let mut keys = vec![wrong.clone(); before];
+        keys.push(right.clone());
+        let (r, ..) = sign_in_with(
+            None,
+            |_| {},
+            no_kid,
+            json!({ "keys": keys }).to_string(),
+            good,
+        );
+        assert_eq!(r.is_ok(), want_ok, "{before}: {r:?}");
+    }
+}
+
+/// 아주 긴 만료(`expires_in`, ID 토큰의 `exp`)도 넘치지 않는다.
+#[test]
+fn very_long_lifetimes_do_not_overflow() {
+    let srv = serve(vec![json(
+        200,
+        &format!(r#"{{"access_token":"a","expires_in":{}}}"#, u64::MAX),
+    )]);
+    let n = Auth::with_issuer(&srv.url).refresh(&creds(0)).unwrap();
+    assert!(!n.expires_within(3000));
+    let (r, ..) = sign_in(None, oauth::SCOPES, |c| c["exp"] = json!(u64::MAX), good);
+    assert!(r.is_ok(), "{r:?}");
+}
+
 /// 돌아온 주소가 틀리면 코드를 바꾸지 않는다(토큰 끝점을 부르지 않는다). 브라우저에는 실패 쪽을 보인다.
 #[test]
 fn callback_errors_stop_before_the_exchange() {
@@ -235,7 +357,7 @@ fn callback_errors_stop_before_the_exchange() {
 fn wrong_state_is_answered_and_the_attempt_keeps_waiting() {
     let (srv, tx) = serve_later();
     let auth = Auth::with_issuer(&srv.url);
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let jwt = oauth::id_token(&oauth::claims(&srv.url, &param(&p.url, "nonce").unwrap()));
     tx.send(vec![
         json(200, &oauth::token_body(&jwt, oauth::SCOPES)),
@@ -266,7 +388,7 @@ fn wrong_state_is_answered_and_the_attempt_keeps_waiting() {
         std::io::Read::read_to_string(&mut junk, &mut out).unwrap();
         (seen, out, browse(&right))
     });
-    let r = auth.finish(p, &never(), WAIT);
+    let r = auth.finish(&mut p, &never(), WAIT);
     let (seen, junk, (status, page)) = b.join().unwrap();
     for s in &seen {
         assert!(s.contains("400"), "{seen:?}");
@@ -281,11 +403,11 @@ fn wrong_state_is_answered_and_the_attempt_keeps_waiting() {
     );
 
     // 틀린 state만 오면 정한 시간까지 기다리다 끝낸다.
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let wrong = callback(&p.url, &good(&p.url).replace("&state=", "&state=x"));
     let b = thread::spawn(move || browse(&wrong));
     let e = auth
-        .finish(p, &never(), Duration::from_millis(500))
+        .finish(&mut p, &never(), Duration::from_millis(500))
         .unwrap_err();
     assert!(b.join().unwrap().0.contains("400"));
     assert!(sign_in_err(&e).contains("시간"), "{e:?}");
@@ -295,7 +417,7 @@ fn wrong_state_is_answered_and_the_attempt_keeps_waiting() {
 #[test]
 fn a_stalled_connection_does_not_delay_cancel() {
     let auth = Auth::with_issuer("http://127.0.0.1:9");
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let redirect = param(&p.url, "redirect_uri").unwrap();
     let addr = redirect
         .strip_prefix("http://")
@@ -314,7 +436,7 @@ fn a_stalled_connection_does_not_delay_cancel() {
     });
     let t = Instant::now();
     assert_eq!(
-        auth.finish(p, &cancel, WAIT).unwrap_err(),
+        auth.finish(&mut p, &cancel, WAIT).unwrap_err(),
         AiError::Canceled
     );
     assert!(
@@ -435,7 +557,7 @@ fn id_token_signature_and_header() {
     for (want, change) in cases {
         let (srv, tx) = serve_later();
         let auth = Auth::with_issuer(&srv.url);
-        let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+        let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
         let jwt = oauth::id_token(&oauth::claims(&srv.url, &param(&p.url, "nonce").unwrap()));
         tx.send(vec![
             json(200, &oauth::token_body(&change(&jwt), oauth::SCOPES)),
@@ -445,7 +567,7 @@ fn id_token_signature_and_header() {
         .unwrap();
         let back = callback(&p.url, &good(&p.url));
         let b = thread::spawn(move || browse(&back));
-        let m = sign_in_err(&auth.finish(p, &never(), WAIT).unwrap_err());
+        let m = sign_in_err(&auth.finish(&mut p, &never(), WAIT).unwrap_err());
         b.join().unwrap();
         assert!(m.contains(want), "{want}: {m}");
     }
@@ -464,7 +586,7 @@ fn discovery_must_match_the_issuer() {
     ] {
         let (srv, tx) = serve_later();
         let auth = Auth::with_issuer(&srv.url);
-        let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+        let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
         let jwt = oauth::id_token(&oauth::claims(&srv.url, &param(&p.url, "nonce").unwrap()));
         tx.send(vec![
             json(200, &oauth::token_body(&jwt, oauth::SCOPES)),
@@ -473,7 +595,7 @@ fn discovery_must_match_the_issuer() {
         .unwrap();
         let back = callback(&p.url, &good(&p.url));
         let b = thread::spawn(move || browse(&back));
-        let e = auth.finish(p, &never(), WAIT).unwrap_err();
+        let e = auth.finish(&mut p, &never(), WAIT).unwrap_err();
         b.join().unwrap();
         assert!(sign_in_err(&e).contains("OIDC"), "{e:?}");
     }
@@ -496,26 +618,31 @@ fn exchange_errors() {
     ] {
         let (srv, tx) = serve_later();
         let auth = Auth::with_issuer(&srv.url);
-        let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+        let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
         tx.send(vec![json(status, body)]).unwrap();
         let back = callback(&p.url, &good(&p.url));
         let b = thread::spawn(move || browse(&back));
-        assert_eq!(auth.finish(p, &never(), WAIT).unwrap_err(), want);
+        assert_eq!(auth.finish(&mut p, &never(), WAIT).unwrap_err(), want);
         b.join().unwrap();
+        // 처음 등록에서 돌아온 발급 id는 이 시도에 남는다(다음 시도를 그 id로 하려고).
+        assert_eq!(p.client_id(), Some(CLIENT));
     }
     let (srv, tx) = serve_later();
     let auth = Auth::with_issuer(&srv.url);
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     tx.send(vec![json(
         400,
-        r#"{"error":"invalid_client","error_description":"SECRET"}"#,
+        r#"{"error":"unauthorized_client","error_description":"SECRET"}"#,
     )])
     .unwrap();
     let back = callback(&p.url, &good(&p.url));
     let b = thread::spawn(move || browse(&back));
-    let m = sign_in_err(&auth.finish(p, &never(), WAIT).unwrap_err());
+    let m = sign_in_err(&auth.finish(&mut p, &never(), WAIT).unwrap_err());
     b.join().unwrap();
-    assert!(m.contains("invalid_client") && !m.contains("SECRET"), "{m}");
+    assert!(
+        m.contains("unauthorized_client") && !m.contains("SECRET"),
+        "{m}"
+    );
 }
 
 /// 돌아올 주소: 다른 경로는 404로 답하고 계속 기다린다. 정한 시간이 지나거나 취소하면 끝난다.
@@ -523,7 +650,7 @@ fn exchange_errors() {
 fn listener_waits_for_the_callback_only() {
     let (srv, tx) = serve_later();
     let auth = Auth::with_issuer(&srv.url);
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let redirect = param(&p.url, "redirect_uri").unwrap();
     let other = redirect.replace("/auth/callback", "/favicon.ico");
     let wrong_path = redirect.replace("/auth/callback", "/callback");
@@ -540,23 +667,23 @@ fn listener_waits_for_the_callback_only() {
         let c = browse(&wrong_path);
         (a, c, browse(&back))
     });
-    let r = auth.finish(p, &never(), WAIT);
+    let r = auth.finish(&mut p, &never(), WAIT);
     let (a, c, done) = b.join().unwrap();
     assert!(a.0.contains("404") && c.0.contains("404"), "{a:?} {c:?}");
     assert!(done.1.contains("마쳤습니다"));
     assert!(r.is_ok(), "{r:?}");
 
     // 정한 시간.
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let t = Instant::now();
     let e = auth
-        .finish(p, &never(), Duration::from_millis(200))
+        .finish(&mut p, &never(), Duration::from_millis(200))
         .unwrap_err();
     assert!(sign_in_err(&e).contains("시간"));
     assert!(t.elapsed() < Duration::from_secs(3));
 
     // 취소.
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let cancel = Arc::new(AtomicBool::new(false));
     let c2 = cancel.clone();
     thread::spawn(move || {
@@ -564,14 +691,14 @@ fn listener_waits_for_the_callback_only() {
         c2.store(true, Ordering::Relaxed);
     });
     assert_eq!(
-        auth.finish(p, &cancel, WAIT).unwrap_err(),
+        auth.finish(&mut p, &cancel, WAIT).unwrap_err(),
         AiError::Canceled
     );
 
     // 한 번만 받는다: 끝난 시도의 돌아올 주소는 닫혀 있다.
-    let p = auth.begin(HOST, None, Hints::default(), false).unwrap();
+    let mut p = auth.begin(HOST, None, Hints::default(), false).unwrap();
     let redirect = param(&p.url, "redirect_uri").unwrap();
-    drop(auth.finish(p, &never(), Duration::from_millis(10)));
+    drop(auth.finish(&mut p, &never(), Duration::from_millis(10)));
     let addr = redirect
         .strip_prefix("http://")
         .unwrap()
@@ -640,6 +767,10 @@ fn refresh_replaces_tokens_together() {
         let e = Auth::with_issuer(&srv.url).refresh(&creds(0)).unwrap_err();
         assert_eq!(e, AiError::SignedOut, "{code}");
     }
+    // 발급 id를 받지 않으면 새로 등록해야 한다.
+    let srv = serve(vec![json(401, r#"{"error":"invalid_client"}"#)]);
+    let e = Auth::with_issuer(&srv.url).refresh(&creds(0)).unwrap_err();
+    assert_eq!(e, AiError::ClientRejected);
     // 잠깐의 서버 오류는 로그아웃이 아니다.
     let srv = serve(vec![json(502, "{}")]);
     let e = Auth::with_issuer(&srv.url).refresh(&creds(0)).unwrap_err();
