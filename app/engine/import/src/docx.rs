@@ -31,7 +31,7 @@ pub(crate) fn xml_of(z: &Zip, name: &str) -> Result<Option<El>, &'static str> {
     let Some(bytes) = z.read(name)? else {
         return Ok(None);
     };
-    xml::parse_bytes(&bytes).map(Some)
+    xml::parse_bytes(bytes).map(Some)
 }
 
 /// 문단 스타일 하나.
@@ -529,7 +529,7 @@ impl Rd<'_, '_, '_, '_> {
                 if i > 0 {
                     xml::gather_push(&mut text, &mut left, '\t');
                 }
-                tc.gather("w:p", "w:t", &mut text, &mut left);
+                tc.gather("w:p", "w:t", &mut text, &mut left, &mut self.cx.rep.dropped);
             }
             out.push(FragPara {
                 runs: if text.is_empty() {

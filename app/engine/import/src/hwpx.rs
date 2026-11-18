@@ -45,7 +45,8 @@ const MAX_SECTIONS: usize = 1000;
 const MAX_SHAPES: usize = 60_000;
 
 /// OLE 복합 문서의 머리(`D0 CF 11 E0`)나 HWP 3.0의 머리 글이면 읽지 않는 까닭. 그 밖에는 `None`.
-// 한계: OLE의 목록을 따라가지 않고 흐름 이름(UTF-16LE)과 한글의 머리 글이 바이트 안에 있는지만 본다
+// 한계: OLE의 섹터 사슬을 따라가지 않는다. 512바이트 머리 뒤의 128바이트 칸마다 디렉터리 항목의 꼴(UTF-16LE 이름,
+// 그 길이 필드, 저장소·흐름 종류)과 맞는 이름만 보고, 한글의 머리 글은 64바이트 경계(작은 흐름의 칸)에서만 본다
 pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
     if b.starts_with(b"HWP Document File") {
         return Some(HWP_LEGACY);
@@ -53,17 +54,23 @@ pub(crate) fn legacy(b: &[u8]) -> Option<&'static str> {
     if !b.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
         return None;
     }
-    let has = |name: &str| {
-        let needle: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
-        b.windows(needle.len()).any(|w| w == needle)
+    let entry = |name: &str| {
+        let n: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let len = (n.len() as u16 + 2).to_le_bytes();
+        b.chunks_exact(128)
+            .skip(4)
+            .any(|e| e.starts_with(&n) && e[64..66] == len && matches!(e[66], 1 | 2))
     };
-    // 한글 5.0은 머리 흐름(`FileHeader`)이 이 글로 시작한다. 미리보기 글이나 안에 넣은 개체의 이름에 속지 않게 먼저 본다.
-    if b.windows(17).any(|w| w == b"HWP Document File") || has("FileHeader") {
-        return Some(HWP_LEGACY);
-    }
-    Some(if has("EncryptedPackage") {
+    // 한글 5.0의 머리 흐름(`FileHeader`)은 이 글로 시작한다. 본문 글이나 안에 넣은 개체의 이름에 속지 않게 먼저 본다.
+    let sig = b
+        .chunks(64)
+        .skip(8)
+        .any(|c| c.starts_with(b"HWP Document File"));
+    Some(if sig || entry("FileHeader") {
+        HWP_LEGACY
+    } else if entry("EncryptedPackage") {
         ENCRYPTED
-    } else if has("WordDocument") {
+    } else if entry("WordDocument") {
         OLD_WORD
     } else {
         UNREADABLE
@@ -529,7 +536,13 @@ impl Rd<'_, '_, '_, '_> {
                 if i > 0 {
                     xml::gather_push(&mut text, &mut left, '\t');
                 }
-                tc.gather("hp:p", "hp:t", &mut text, &mut left);
+                tc.gather(
+                    "hp:p",
+                    "hp:t",
+                    &mut text,
+                    &mut left,
+                    &mut self.cx.rep.dropped,
+                );
             }
             out.push(FragPara {
                 runs: if text.is_empty() {
@@ -766,7 +779,7 @@ pub(crate) fn read(z: &Zip, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str>
         ) {
             return Err(ENCRYPTED);
         }
-        let sec = xml::parse_bytes(&raw)?;
+        let sec = xml::parse_bytes(raw)?;
         rd.blocks(&sec, &mut out, false)?;
     }
     Ok(out)

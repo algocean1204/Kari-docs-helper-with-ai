@@ -129,3 +129,31 @@ fn 노드_폭탄은_2초_안에_320mb_안의_힙으로_거절한다() {
     assert!(peak < HEAP, "{}MB", peak >> 20);
     assert!(cfg!(debug_assertions) || took < LIMIT, "{took:?}");
 }
+
+#[test]
+fn 속성_폭탄은_2초_안에_320mb_안의_힙으로_거절한다() {
+    let _l = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    // 한 요소에 빈 속성 1,000만 개(60MB, 푼 파일 상한 64MB 안).
+    let sec = ["<hs:sec><a", &" x=\"\"".repeat(10_000_000), "/></hs:sec>"].concat();
+    let (why, took, peak) = refused(sec.as_bytes());
+    drop(sec);
+    assert!(why.contains("너무 크거나 깊어"), "{why}");
+    assert!(peak < HEAP, "{}MB", peak >> 20);
+    assert!(cfg!(debug_assertions) || took < LIMIT, "{took:?}");
+}
+
+#[test]
+fn utf_16_노드_폭탄은_320mb_안의_힙으로_거절한다() {
+    let _l = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    // UTF-16LE로 64MB에 가까운 빈 요소 800만 개.
+    let text = ["<hs:sec>", &"<a/>".repeat(8_000_000), "</hs:sec>"].concat();
+    let mut sec = vec![0xFF, 0xFE];
+    sec.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    drop(text);
+    assert!(sec.len() < 64 << 20);
+    let (why, took, peak) = refused(&sec);
+    drop(sec);
+    assert!(why.contains("너무 크거나 깊어"), "{why}");
+    assert!(peak < HEAP, "{}MB", peak >> 20);
+    assert!(cfg!(debug_assertions) || took < LIMIT, "{took:?}");
+}

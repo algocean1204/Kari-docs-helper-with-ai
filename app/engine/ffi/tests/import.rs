@@ -267,12 +267,19 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
     assert_eq!(back_hash(id), applied);
     assert_eq!(std::fs::read(&path).unwrap(), z);
 
+    // OLE 복합 문서: 512바이트 머리와 디렉터리 항목 하나(128바이트: UTF-16LE 이름, 길이 필드, 흐름 종류).
+    let ole = |name: &str| {
+        let mut v = vec![0u8; 640];
+        v[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+        let n: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        v[512..512 + n.len()].copy_from_slice(&n);
+        v[576..578].copy_from_slice(&(n.len() as u16 + 2).to_le_bytes());
+        v[578] = 2;
+        v
+    };
     // 옛 한글(HWP) 이진 파일은 문서를 만들지 않고 안내와 따로 가를 수 있는 코드를 돌려준다.
     let hwp = case.dir.join("옛 이력서.hwp");
-    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-    ole.extend_from_slice(&[0; 1024]);
-    ole.extend("FileHeader".encode_utf16().flat_map(u16::to_le_bytes));
-    std::fs::write(&hwp, ole).unwrap();
+    std::fs::write(&hwp, ole("FileHeader")).unwrap();
     let docs = doc_count();
     for m in ["import.preview", "import.apply"] {
         let e = err(m, json!({"path": hwp, "name": "옛 이력서"}));
@@ -283,12 +290,6 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
         );
     }
     // 옛 Word(.doc)와 흐름을 알 수 없는 OLE 파일은 각자의 안내만 하고 문서를 만들지 않는다.
-    let ole = |name: &str| {
-        let mut v = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-        v.extend_from_slice(&[0; 512]);
-        v.extend(name.encode_utf16().flat_map(u16::to_le_bytes));
-        v
-    };
     for (file, bytes, says) in [
         ("옛 이력서.doc", ole("WordDocument"), ".docx로 저장"),
         ("알 수 없음.hwp", ole("Nothing"), "읽을 수 없는 형식"),
@@ -536,10 +537,9 @@ fn p95(mut f: impl FnMut()) -> u128 {
 }
 
 /// 열 쪽짜리 한글 문서 견본(쪽마다 제목 하나, 글자 모양이 섞인 문단 20개, 5행 4열 표 하나, 두 쪽마다 그림 하나)의
-/// 미리 보기 300ms, 가져오기 500ms(p95)와 문단 5만 개의 미리 보기 3초. 시간은 release 기준이라 기본 시험에서는 뺐다:
-/// `cargo test --release -p kari-ffi --test import -- --ignored --nocapture`
+/// 미리 보기 300ms, 가져오기 500ms(p95)와 문단 5만 개의 미리 보기 3초. 시간 상한은 release 기준이라 debug 빌드에서는
+/// 돌기만 하고 시간은 보지 않는다: `cargo test --release -p kari-ffi --test import hwpx_열_쪽 -- --nocapture`
 #[test]
-#[ignore = "측정: release에서 --ignored로 돈다"]
 fn hwpx_열_쪽의_미리_보기와_가져오기_시간() {
     let case = Case::new("import-hwpx-speed");
     let head = r##"<hh:head xmlns:hh="h" xmlns:hc="c"><hh:refList><hh:charProperties><hh:charPr id="0" height="1000" textColor="#000000"/><hh:charPr id="1" height="1200" textColor="#2255AA"><hh:bold/></hh:charPr></hh:charProperties><hh:paraProperties><hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/></hh:paraPr><hh:paraPr id="1"><hh:heading type="OUTLINE" idRef="0" level="0"/></hh:paraPr></hh:paraProperties></hh:refList></hh:head>"##;
@@ -635,5 +635,65 @@ fn hwpx_열_쪽의_미리_보기와_가져오기_시간() {
     eprintln!(
         "열 쪽 미리 보기 p95 {preview}ms, 가져오기 p95 {apply}ms, 문단 5만 미리 보기 {long}ms"
     );
-    assert!(preview <= 300 && apply <= 500 && long <= 3000);
+    assert!(cfg!(debug_assertions) || (preview <= 300 && apply <= 500 && long <= 3000));
+}
+
+/// 폴더 `KARI_HWPX_CORPUS`의 한글 문서(`.hwpx`)를 모두 미리 보고 가져와 본다. 변수가 없으면 건너뛴다. 파일 내용은 찍지
+/// 않고 수만 찍는다.
+#[test]
+fn 실제_한글_문서_꾸러미를_가져와_본다() {
+    let Some(dir) = std::env::var_os("KARI_HWPX_CORPUS") else {
+        return;
+    };
+    let case = Case::new("import-hwpx-corpus");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "hwpx"))
+        .collect();
+    files.sort();
+    assert!(!files.is_empty(), "한글 문서가 없다");
+    for path in files {
+        let p = ok("import.preview", json!({"path": path}));
+        let id = ok("import.apply", json!({"path": path, "name": "견본"}))["id"]
+            .as_i64()
+            .unwrap();
+        ok("doc.open", json!({"id": id}));
+        assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
+        let paras = nodes(id, "para");
+        let runs: Vec<Value> = paras
+            .iter()
+            .flat_map(|p| p["props"]["runs"].as_array().cloned().unwrap_or_default())
+            .collect();
+        let count = |f: &dyn Fn(&Value) -> bool| paras.iter().filter(|p| f(p)).count();
+        let styles: Vec<&str> = top(id)
+            .iter()
+            .filter_map(|p| p["props"]["style"].as_str())
+            .map(|s| match s {
+                "h1" => "h1",
+                "h2" => "h2",
+                "h3" => "h3",
+                _ => "기타",
+            })
+            .collect();
+        let s = |k: &str| runs.iter().filter(|r| r["s"].get(k).is_some()).count();
+        eprintln!(
+            "{}: 문단 {} 표 {} 그림 {} 글자 {} 제목 {:?} | 문서: 글머리표 {} 번호 {} 가운데 {} 칸 {} 합친 칸 {} 제목 행 {:?} 칸 바탕 {} 링크 {:?} 굵게 {} 기울임 {} | lost {}",
+            path.file_name().unwrap().to_string_lossy(),
+            p["paras"], p["tables"], p["images"], p["chars"], styles,
+            count(&|p| p["props"]["pf"]["list"]["kind"] == "BULLET"),
+            count(&|p| p["props"]["pf"]["list"]["kind"] == "ORDERED"),
+            count(&|p| p["props"]["pf"]["align"] == "CENTER"),
+            nodes(id, "cell").len(),
+            nodes(id, "cell").iter().filter(|c| c["props"]["span"].is_object()).map(|c| c["props"]["span"].to_string()).collect::<Vec<_>>().join(" "),
+            nodes(id, "table").iter().map(|t| t["props"]["headerRows"].clone()).collect::<Vec<_>>(),
+            nodes(id, "cell").iter().filter(|c| c["props"]["fill"].is_string()).count(),
+            runs.iter().filter_map(|r| r["link"].as_str()).collect::<Vec<_>>(),
+            s("weight"),
+            s("italic"),
+            p["lost"],
+        );
+    }
+    drop(case);
 }

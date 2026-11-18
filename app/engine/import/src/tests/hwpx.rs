@@ -13,6 +13,7 @@ const HEAD: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><h
 <hh:charPr id="0" height="1000" textColor="#000000"><hh:fontRef hangul="0" latin="0"/><hh:underline type="NONE"/><hh:strikeout shape="NONE"/></hh:charPr>
 <hh:charPr id="1" height="1500" textColor="#FF0000"><hh:fontRef hangul="1" latin="0"/><hh:bold/><hh:italic/><hh:underline type="BOTTOM"/><hh:strikeout shape="CONTINUOUS"/></hh:charPr>
 <hh:charPr id="2" height="800" textColor="#000000"><hh:fontRef hangul="0" latin="0"/><hh:supscript/></hh:charPr>
+<hh:charPr id="3" height="800" textColor="#000000"><hh:fontRef hangul="0" latin="0"/><hh:subscript/></hh:charPr>
 </hh:charProperties>
 <hh:numberings><hh:numbering id="1"><hh:paraHead level="1" start="3" numFormat="DIGIT">^1.</hh:paraHead></hh:numbering></hh:numberings>
 <hh:paraProperties>
@@ -22,6 +23,10 @@ const HEAD: &str = r##"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><h
 <hh:paraPr id="3"><hh:align horizontal="LEFT"/><hh:heading type="OUTLINE" idRef="0" level="1"/></hh:paraPr>
 <hh:paraPr id="4"><hh:align horizontal="LEFT"/><hh:heading type="NUMBER" idRef="1" level="0"/></hh:paraPr>
 <hh:paraPr id="5"><hh:align horizontal="RIGHT"/><hh:heading type="BULLET" idRef="1" level="1"/></hh:paraPr>
+<hh:paraPr id="6"><hh:heading type="OUTLINE" idRef="0" level="2"/></hh:paraPr>
+<hh:paraPr id="7"><hh:heading type="OUTLINE" idRef="0" level="3"/></hh:paraPr>
+<hh:paraPr id="8"><hh:heading type="OUTLINE" idRef="0" level="4"/></hh:paraPr>
+<hh:paraPr id="9"><hh:heading type="OUTLINE" idRef="0" level="5"/></hh:paraPr>
 </hh:paraProperties></hh:refList></hh:head>"##;
 
 const MANIFEST: &str = r#"<?xml version="1.0"?><opf:package xmlns:opf="http://www.idpf.org/2007/opf/"><opf:manifest><opf:item id="header" href="Contents/header.xml" media-type="application/xml"/><opf:item id="image1" href="BinData/image1.png" media-type="image/png" isEmbeded="1"/><opf:item id="image2" href="BinData/image2.bmp" media-type="image/bmp" isEmbeded="1"/><opf:item id="gone" href="BinData/gone.png" media-type="image/png" isEmbeded="1"/></opf:manifest></opf:package>"#;
@@ -284,23 +289,38 @@ fn 옮기지_못한_것은_센다() {
     );
 }
 
+/// OLE 복합 문서: 512바이트 머리와 이름마다 디렉터리 항목(128바이트: UTF-16LE 이름, 길이 필드, 흐름 종류) 하나.
+fn ole(names: &[&str]) -> Vec<u8> {
+    let mut v = vec![0u8; 512];
+    v[..8].copy_from_slice(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]);
+    for n in names {
+        let mut e = [0u8; 128];
+        let name: Vec<u8> = n.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        e[..name.len()].copy_from_slice(&name);
+        e[64..66].copy_from_slice(&(name.len() as u16 + 2).to_le_bytes());
+        e[66] = 2;
+        v.extend_from_slice(&e);
+    }
+    v
+}
+
 #[test]
 fn 옛_한글_이진_파일은_읽지_않고_안내한다() {
-    // 한글 5.0의 머리 흐름 이름만 있고 뒤가 잘린 OLE 파일도 깨짐 오류가 아니라 옛 한글 안내다.
-    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-    ole.extend_from_slice(&[0; 600]);
-    ole.extend("FileHeader".encode_utf16().flat_map(u16::to_le_bytes));
-    assert_eq!(run(&ole).err(), Some(HWP_LEGACY));
+    // 한글 5.0의 머리 흐름 항목만 있고 뒤가 잘린 OLE 파일도 깨짐 오류가 아니라 옛 한글 안내다.
+    assert_eq!(
+        run(&ole(&["Root Entry", "FileHeader"])).err(),
+        Some(HWP_LEGACY)
+    );
     assert_eq!(run(b"HWP Document File V3.00 \x1a").err(), Some(HWP_LEGACY));
     assert!(HWP_LEGACY.contains("HWPX나 PDF로 저장"));
 }
 
 #[test]
 fn 흐름이_없는_ole_파일은_한글이나_word로_안내하지_않는다() {
-    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-    ole.extend_from_slice(&[0; 600]);
-    assert_eq!(run(&ole).err(), Some(UNREADABLE));
-    assert_eq!(run(&ole[..8]).err(), Some(UNREADABLE));
+    let mut empty = ole(&[]);
+    empty.extend_from_slice(&[0; 600]);
+    assert_eq!(run(&empty).err(), Some(UNREADABLE));
+    assert_eq!(run(&empty[..8]).err(), Some(UNREADABLE));
 }
 
 #[test]
@@ -471,20 +491,37 @@ fn 깊이_겹친_표의_글은_한_번만_쌓고_상한에서_멈춘다() {
 
 #[test]
 fn ole_복합_문서는_안의_이름으로_까닭을_가른다() {
-    let ole = |name: &str| {
-        let mut v = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-        v.extend_from_slice(&[0; 300]);
-        v.extend(name.encode_utf16().flat_map(u16::to_le_bytes));
-        v.extend_from_slice(&[0; 300]);
-        v
-    };
-    assert_eq!(run(&ole("EncryptedPackage")).err(), Some(ENCRYPTED));
-    assert_eq!(run(&ole("WordDocument")).err(), Some(OLD_WORD));
-    assert_eq!(run(&ole("FileHeader")).err(), Some(HWP_LEGACY));
-    // 한글 파일의 머리 흐름이 있으면, 미리보기 글이나 안에 넣은 개체에 Word 이름이 있어도 한글로 본다.
-    let mut hwp = ole("WordDocument");
+    assert_eq!(
+        run(&ole(&["Root Entry", "EncryptedPackage"])).err(),
+        Some(ENCRYPTED)
+    );
+    assert_eq!(
+        run(&ole(&["Root Entry", "WordDocument"])).err(),
+        Some(OLD_WORD)
+    );
+    assert_eq!(
+        run(&ole(&["Root Entry", "FileHeader"])).err(),
+        Some(HWP_LEGACY)
+    );
+    // 한글 파일의 머리 흐름이 있으면, 안에 넣은 개체에 Word 이름이 있어도 한글로 본다.
+    let mut hwp = ole(&["Root Entry", "WordDocument"]);
+    assert_eq!(hwp.len() % 64, 0, "머리 글은 작은 흐름의 칸 처음에 놓인다");
     hwp.extend_from_slice(b"HWP Document File");
     assert_eq!(run(&hwp).err(), Some(HWP_LEGACY));
+    // Word 본문 글에 든 "FileHeader"와 한글의 머리 글(디렉터리 항목이나 흐름의 칸이 아닌 자리)에는 속지 않는다.
+    let mut doc = ole(&["Root Entry", "WordDocument", "1Table"]);
+    doc.extend_from_slice(b"x");
+    doc.extend("FileHeader".encode_utf16().flat_map(u16::to_le_bytes));
+    doc.extend_from_slice(b" HWP Document File");
+    doc.resize(doc.len().next_multiple_of(128), 0);
+    let mut aligned = [0u8; 128];
+    let name: Vec<u8> = "FileHeader"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    aligned[..name.len()].copy_from_slice(&name); // 길이 필드와 종류가 없는 본문 글
+    doc.extend_from_slice(&aligned);
+    assert_eq!(run(&doc).err(), Some(OLD_WORD));
     assert!(ENCRYPTED.contains("암호"));
     assert!(OLD_WORD.contains(".docx로 저장"));
 }
@@ -556,13 +593,26 @@ fn 견본_명세의_모든_항목이_문서_모델과_그대로_같다() {
         tt(0, 0, 1, 1, 1, 1, "이름") + &tt(0, 1, 1, 1, 1, 1, "회사"),
         tt(1, 0, 2, 1, 2, 0, "홍길동"),
     ]);
+    // 칸 폭의 합(600pt)이 본문 폭(481.9pt)을 넘는 표: 열 폭을 같은 비율로 줄인다.
+    let wide_tc = |c: u32| {
+        format!(
+            r#"<hp:tc borderFillIDRef="1"><hp:subList>{}</hp:subList><hp:cellAddr colAddr="{c}" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="30000" height="1000"/></hp:tc>"#,
+            hp(0, &[(0, "넓음")])
+        )
+    };
+    let wide = tbl(&[wide_tc(0) + &wide_tc(1)]);
     let body = [
         hp(2, &[(1, "홍길동")]),
-        r#"<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>견본상사<hp:tab/>백엔드<hp:lineBreak/>2024</hp:t></hp:run><hp:run charPrIDRef="1"><hp:t>굵게</hp:t></hp:run><hp:run charPrIDRef="2"><hp:t>2</hp:t></hp:run></hp:p>"#.to_string(),
+        r#"<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>견본상사<hp:tab/>백엔드<hp:lineBreak/>2024</hp:t></hp:run><hp:run charPrIDRef="1"><hp:t>굵게</hp:t></hp:run><hp:run charPrIDRef="2"><hp:t>2</hp:t></hp:run><hp:run charPrIDRef="3"><hp:t>i</hp:t></hp:run></hp:p>"#.to_string(),
+        hp(6, &[(0, "셋")]),
+        hp(7, &[(0, "넷")]),
+        hp(8, &[(0, "다섯")]),
+        hp(9, &[(3, "여섯")]),
         hp(4, &[(0, "첫째")]),
         hp(5, &[(0, "글머리")]),
         format!(r#"<hp:p paraPrIDRef="1"><hp:run charPrIDRef="0"><hp:t>누리집 </hp:t></hp:run>{link}<hp:run charPrIDRef="0"><hp:pic><hp:curSz width="7200" height="3600"/><hc:img binaryItemIDRef="image1"/></hp:pic></hp:run></hp:p>"#),
         table,
+        wide,
     ]
     .concat();
     let got = run(&hwpx(&body, &[])).unwrap();
@@ -587,8 +637,17 @@ fn 견본_명세의_모든_항목이_문서_모델과_그대로_같다() {
                 {"t": "견본상사\t백엔드\n2024", "s": size10},
                 {"t": "굵게", "s": {"weight": 700, "italic": true, "underline": true, "strike": true, "color": "#FF0000FF", "size": 15.0}},
                 {"t": "2", "s": {"size": 8.0, "vertical": "SUPER"}},
+                {"t": "i", "s": {"size": 8.0, "vertical": "SUB"}},
             ]),
             json!({"pf": {"align": "JUSTIFIED"}}),
+        ),
+        fp(json!([{"t": "셋"}]), json!({"style": "h3"})),
+        fp(json!([{"t": "넷"}]), json!({"style": "h4"})),
+        fp(json!([{"t": "다섯"}]), json!({"style": "h5"})),
+        // 제목 안에서도 첨자는 남는다(크기만 문단 스타일에 맡긴다).
+        fp(
+            json!([{"t": "여섯", "s": {"vertical": "SUB"}}]),
+            json!({"style": "h6"}),
         ),
         fp(
             json!([{"t": "첫째", "s": size10}]),
@@ -625,6 +684,24 @@ fn 견본_명세의_모든_항목이_문서_모델과_그대로_같다() {
                     ),
                     (Map::new(), vec![Some((fill, vec![cell_p("홍길동")])), None]),
                 ],
+            }),
+        },
+        FragPara {
+            runs: Vec::new(),
+            props: Map::new(),
+            table: Some(kari_edit::FragTable {
+                whole: true,
+                props: json!({"cols": [240.95, 240.95]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                rows: vec![(
+                    Map::new(),
+                    vec![
+                        Some((Map::new(), vec![cell_p("넓음")])),
+                        Some((Map::new(), vec![cell_p("넓음")])),
+                    ],
+                )],
             }),
         },
     ];
@@ -851,6 +928,12 @@ fn 제어_문자와_개체_자리_글자와_서로게이트_참조는_지우고_
     let rows = [tc_raw("0", "0", "30", "1", "가\u{FFFC}\u{1}나")];
     let got = run(&hwpx(&tbl(&rows), &[])).unwrap();
     assert_eq!(text_of(&got.fragment.paras[0]), "가나");
+    assert!(
+        got.lost
+            .contains(&"넣을 수 없는 글자 2자(제어 문자 등이라 뺌)".to_string()),
+        "{:?}",
+        got.lost
+    );
     check_frag(&got.fragment.paras);
 }
 
