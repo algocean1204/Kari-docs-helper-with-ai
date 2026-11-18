@@ -638,8 +638,8 @@ fn hwpx_열_쪽의_미리_보기와_가져오기_시간() {
     assert!(cfg!(debug_assertions) || (preview <= 300 && apply <= 500 && long <= 3000));
 }
 
-/// 폴더 `KARI_HWPX_CORPUS`의 한글 문서(`.hwpx`)를 모두 미리 보고 가져와 본다. 변수가 없으면 건너뛴다. 파일 내용은 찍지
-/// 않고 수만 찍는다.
+/// 폴더 `KARI_HWPX_CORPUS`의 한글 문서(`.hwpx`)를 모두 미리 보고 가져와 본다. 변수가 없으면 건너뛴다. 파일 이름과 내용은
+/// 찍지 않고 번호와 수만 찍는다.
 #[test]
 fn 실제_한글_문서_꾸러미를_가져와_본다() {
     let Some(dir) = std::env::var_os("KARI_HWPX_CORPUS") else {
@@ -654,7 +654,7 @@ fn 실제_한글_문서_꾸러미를_가져와_본다() {
         .collect();
     files.sort();
     assert!(!files.is_empty(), "한글 문서가 없다");
-    for path in files {
+    for (i, path) in files.iter().enumerate() {
         let p = ok("import.preview", json!({"path": path}));
         let id = ok("import.apply", json!({"path": path, "name": "견본"}))["id"]
             .as_i64()
@@ -680,7 +680,7 @@ fn 실제_한글_문서_꾸러미를_가져와_본다() {
         let s = |k: &str| runs.iter().filter(|r| r["s"].get(k).is_some()).count();
         eprintln!(
             "{}: 문단 {} 표 {} 그림 {} 글자 {} 제목 {:?} | 문서: 글머리표 {} 번호 {} 가운데 {} 칸 {} 합친 칸 {} 제목 행 {:?} 칸 바탕 {} 링크 {:?} 굵게 {} 기울임 {} | lost {}",
-            path.file_name().unwrap().to_string_lossy(),
+            format!("견본 {}", i + 1),
             p["paras"], p["tables"], p["images"], p["chars"], styles,
             count(&|p| p["props"]["pf"]["list"]["kind"] == "BULLET"),
             count(&|p| p["props"]["pf"]["list"]["kind"] == "ORDERED"),
