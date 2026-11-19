@@ -267,6 +267,21 @@ class Library extends ChangeNotifier {
     return r;
   }
 
+  /// PDF를 쪽마다 페이지 하나인 새 캔버스 문서로 가져온다. {id, lost}. [ticket]으로 진행을 보고 멈춘다. 실패는
+  /// [EngineError]로 던진다(엔진이 만든 문서와 넣은 그림을 지운다).
+  Future<Json> importCanvas(String path, {String? hash, int? ticket}) async {
+    final r = await engine.importApply(
+      path,
+      importName(path),
+      hash: hash,
+      canvas: true,
+      ticket: ticket,
+    );
+    newCanvases.add(r['id'] as int);
+    await _run(() async {});
+    return r;
+  }
+
   /// 견본 이력서(지어낸 인물)로 새 글 문서를 만들고 그 id를 돌려준다. 실패하면 null([error]에 남는다).
   /// 파일 가져오기와 같은 길(HTML)로 넣는다. 잠깐 쓰는 파일은 부를 때마다 새 폴더에 두고 폴더째 지운다
   /// (빠르게 두 번 눌러도 서로의 파일을 지우지 않는다).

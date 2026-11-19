@@ -10,5 +10,8 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_secs(60));
         }
     }
-    std::process::exit(kari_import::pdf::helper_main());
+    // 쪽 그림은 시험용 화가가 그린다(앱에서는 macOS의 PDF 그리기와 글자 인식).
+    std::process::exit(kari_import::pdf::helper_main_with(Some(
+        kari_import::pdf::fake_paint,
+    )));
 }

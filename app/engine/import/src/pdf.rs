@@ -23,7 +23,7 @@ pub const BROKEN: &str = "PDF를 읽지 못했습니다. 파일이 깨졌을 수
 pub const LOCKED: &str = "암호가 걸린 PDF는 열 수 없습니다.";
 pub const TOO_MANY_PAGES: &str = "300쪽이 넘는 PDF는 가져올 수 없습니다.";
 pub const TOO_MANY_SPANS: &str = "글 조각이 너무 많은 PDF는 가져올 수 없습니다.";
-pub const NO_TEXT: &str = "스캔한 PDF라 글이 없습니다.";
+pub const NO_TEXT: &str = "스캔한 PDF라 글이 없습니다. 캔버스로 가져오면 글자를 읽습니다.";
 pub const UNMAPPED: &str = "글꼴에 글자 표가 없어 글을 읽을 수 없는 PDF입니다.";
 pub const TOO_BIG: &str = "내용이 너무 큰 PDF는 가져올 수 없습니다.";
 pub const TOO_SLOW: &str = "읽는 데 너무 오래 걸리는 PDF는 가져올 수 없습니다.";
@@ -32,7 +32,9 @@ pub const CANCELLED: &str = "PDF 읽기를 멈췄습니다.";
 pub const NO_HELPER: &str = "PDF를 읽는 도우미를 띄우지 못했습니다. 앱을 다시 설치해 주세요.";
 
 pub use crate::pdfhelper::{
-    cancel, helper_main, last_peak, set_helper, with_ticket, Capped, MAX_MEMORY, MAX_TIME,
+    cancel, canvas_layout, canvas_shot, fake_paint, helper_main, helper_main_with, is_cancelled,
+    last_peak, ocr_korean, set_helper, with_ticket, Capped, Paint, MAX_MEMORY, MAX_TIME,
+    NO_PICTURE, PAGE_MEMORY, PAGE_TIME,
 };
 
 /// 크기 예산은 모든 형식이 같이 쓴다. PDF는 넘으면 `TOO_BIG`.
@@ -93,13 +95,13 @@ struct Page {
 
 /// 같은 높이의 조각들(왼쪽부터).
 #[derive(Clone, Debug)]
-struct Ln {
-    spans: Vec<Span>,
-    x0: f32,
-    x1: f32,
-    y0: f32,
-    y1: f32,
-    size: f32,
+pub(crate) struct Ln {
+    pub spans: Vec<Span>,
+    pub x0: f32,
+    pub x1: f32,
+    pub y0: f32,
+    pub y1: f32,
+    pub size: f32,
 }
 
 impl Ln {
@@ -175,7 +177,7 @@ fn load(bytes: &[u8], cx: &mut Ctx) -> Result<(Vec<Page>, usize), &'static str> 
 }
 
 /// 위에서 아래로 줄을 묶는다. 세로로 반 넘게 겹치면 같은 줄이다.
-fn lines(mut spans: Vec<Span>) -> Vec<Ln> {
+pub(crate) fn lines(mut spans: Vec<Span>) -> Vec<Ln> {
     spans.sort_by(|a, b| b.cy().total_cmp(&a.cy()));
     let mut out: Vec<Ln> = Vec::new();
     for s in spans {
@@ -216,7 +218,7 @@ fn key(l: &Ln) -> String {
 }
 
 /// 줄(또는 덩이)에 공백 글자가 적혀 있는가. 적혀 있으면 조각 사이의 틈은 대개 자간이다.
-fn explicit(spans: &[Span]) -> bool {
+pub(crate) fn explicit(spans: &[Span]) -> bool {
     spans.iter().any(|s| s.text.contains(char::is_whitespace))
 }
 
@@ -370,13 +372,13 @@ fn regions(spans: Vec<Span>) -> Vec<Vec<Ln>> {
 
 /// 줄 안에서 큰 틈(글자 크기만큼 넘게)으로 떨어진 덩이.
 #[derive(Clone, Debug)]
-struct Chunk {
-    x0: f32,
-    x1: f32,
-    spans: Vec<Span>,
+pub(crate) struct Chunk {
+    pub x0: f32,
+    pub x1: f32,
+    pub spans: Vec<Span>,
 }
 
-fn chunks(l: &Ln) -> Vec<Chunk> {
+pub(crate) fn chunks(l: &Ln) -> Vec<Chunk> {
     let mut out: Vec<Chunk> = Vec::new();
     for s in &l.spans {
         match out.last_mut() {
@@ -408,7 +410,7 @@ fn is_mark(t: &str) -> bool {
 
 /// 글과 모양의 조각들. 같은 모양은 이어 붙인다.
 #[derive(Default, Debug)]
-struct Runs(Vec<(String, Look)>);
+pub(crate) struct Runs(pub Vec<(String, Look)>);
 
 impl Runs {
     fn push(&mut self, t: &str, look: &Look) {
@@ -437,7 +439,7 @@ impl Runs {
 
     /// 덩이 하나를 붙인다. 조각 사이가 띄어 있으면 공백을 넣는다: 그 줄에 공백 글자가 적혀 있으면(`explicit`) 글자
     /// 크기의 60%, 아니면 15%를 넘는 틈.
-    fn chunk(&mut self, c: &Chunk, explicit: bool) {
+    pub fn chunk(&mut self, c: &Chunk, explicit: bool) {
         let mut prev: Option<&Span> = None;
         for (i, s) in c.spans.iter().enumerate() {
             let mut t = s.text.as_str();
@@ -1382,7 +1384,7 @@ mod tests {
             [
                 "글꼴 Helvetica(Pretendard로 바꿈)",
                 "그림 1개(PDF의 그림은 아직 옮기지 않아 뺌)",
-                "스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)",
+                "스캔 쪽 1개(글이 없어 뺌. 캔버스로 가져오면 글자를 읽음)",
             ]
         );
         assert_eq!(got.pages, Some(3));

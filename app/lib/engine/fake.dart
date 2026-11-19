@@ -71,6 +71,13 @@ class FakeEngine extends EngineApi {
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
 
+  /// `as: canvas`인 `import.preview`가 돌려줄 요약(경로 → 요약). 없는 경로는 읽지 못한 파일로 답한다. 시험용.
+  final Map<String, Json> canvasImports = {};
+
+  /// `import.progress`가 돌려줄 진행(표 → {done, total}). 없는 표는 [progressAny]. 시험용.
+  final Map<int, Json> progress = {};
+  Json? progressAny;
+
   /// `import.aiPlan`이 보일 덩어리(가린 글)와 `import.aiRun`이 돌려줄 답. 받은 `import.aiRun`의 인자(받은 순서). 시험용.
   List<Json> aiChunks = [
     {'id': 0, 'text': '홍길동', 'hint': 'h1'},
@@ -219,9 +226,13 @@ class FakeEngine extends EngineApi {
           );
         }
         final shown =
-            imports[a['path']] ??
+            (a['as'] == 'canvas'
+                ? canvasImports[a['path']]
+                : imports[a['path']]) ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
+      case 'import.progress':
+        return progress[a['ticket']] ?? progressAny;
       case 'import.aiPlan':
         final t = ai.task('structure');
         if (t['hasKey'] != true) {
@@ -245,8 +256,9 @@ class FakeEngine extends EngineApi {
         importCancels.add(a['ticket'] as int);
         return null;
       case 'import.apply':
+        final canvas = a['as'] == 'canvas';
         final p =
-            imports[a['path']] ??
+            (canvas ? canvasImports[a['path']] : imports[a['path']]) ??
             importAny ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         importCalls.add(a);
@@ -254,8 +266,9 @@ class FakeEngine extends EngineApi {
             a['hash'] != (importHashes[a['path']] ?? 'h0')) {
           throw const EngineError('import_changed', '파일이 바뀌었습니다. 다시 미리 봅니다.');
         }
-        final id = _add('flow', _name(a), _initial('flow'), null);
-        return {'id': id, 'lost': p['lost'] ?? const []};
+        final kind = canvas ? 'canvas' : 'flow';
+        final id = _add(kind, _name(a), _initial(kind), null);
+        return {'id': id, 'lost': p['applied'] ?? p['lost'] ?? const []};
       case 'docs.rename':
         final d = doc();
         final name = _name(a);

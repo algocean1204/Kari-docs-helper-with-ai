@@ -215,7 +215,7 @@ cd .. && flutter pub get && flutter test && flutter run -d macos
 - Apple Silicon 맥과 macOS 13 이상에서만 돌아간다.
 - 화면과 문서는 한국어다.
 - 면접 연습은 백엔드 개발 직무를 다루며 글로 진행한다.
-- 다른 앱의 파일은 Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip), PDF만 가져온다. 옛 한글 파일(HWP)은 HWPX나 PDF로 저장해야 한다. 스캔한 PDF와 그 밖의 형식은 아직 가져오지 않고, PDF의 그림은 옮기지 않는다.
+- 다른 앱의 파일은 Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip), PDF만 가져온다. 옛 한글 파일(HWP)은 HWPX나 PDF로 저장해야 한다. 그 밖의 형식은 아직 가져오지 않는다. 글 문서로 가져오면 PDF의 그림과 스캔 쪽은 옮기지 않는다(캔버스로 가져오면 쪽 그림을 바탕에 두고 스캔 쪽은 이 맥 안에서 글자를 읽는다).
 - 글꼴은 앱에 포함된 Pretendard로 쓰고 그린다. 이 글꼴에 없는 글자(한자, 이모지 등)는 빈 네모로 보이며, 문서 화면에 그 글자 수를 알린다.
 - Word 문서로 내보낼 때 글꼴은 포함하지 않는다.
 

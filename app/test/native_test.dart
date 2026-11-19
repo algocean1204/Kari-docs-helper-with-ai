@@ -295,6 +295,14 @@ void main() {
       expect(slow('import.aiPlan'), isTrue);
       expect(slow('import.aiRun'), isTrue);
       expect(slow('import.cancel'), isFalse);
+      // PDF를 캔버스로 가져오기는 쪽마다 그리고 글자를 읽어 느린 줄로, 그 진행 묻기는 기본 줄로. 글 문서로는 그대로다.
+      String apply(Object? as) => jsonEncode({
+        'm': 'import.apply',
+        'a': {'path': '/a.pdf', 'as': ?as},
+      });
+      expect(slowLane(apply('canvas')), isTrue);
+      expect(slowLane(apply(null)), isFalse);
+      expect(slow('import.progress'), isFalse);
       for (final m in [
         'iv.start',
         'iv.answer',

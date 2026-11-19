@@ -21,9 +21,9 @@ use crate::pdf::{Span, BROKEN, LOCKED, TOO_BIG, TOO_MANY_PAGES, TOO_MANY_SPANS};
 use crate::{Look, Report};
 
 /// 스트림 하나를 푼 크기의 상한.
-const MAX_STREAM: usize = 32 << 20;
+pub(crate) const MAX_STREAM: usize = 32 << 20;
 /// 겹친 폼(Form XObject)의 깊이. 넘는 폼은 펼치지 않고 센다.
-const MAX_DEPTH: usize = 12;
+pub(crate) const MAX_DEPTH: usize = 12;
 /// 그래픽 상태 저장(`q`)의 겹침과 연산 하나의 피연산자 수. 넘으면 그 쪽을 읽지 못한 쪽으로 센다.
 const MAX_Q: usize = 256;
 const MAX_OPERANDS: usize = 1000;
@@ -44,7 +44,7 @@ const FILTERS: [&[u8]; 10] = [
 ];
 const MAX_FILTERS: usize = 4;
 /// 한 쪽에서 펼치는 폼의 수(같은 폼을 여러 번 부르는 폼이 겹쳐 끝없이 늘지 않게).
-const MAX_FORMS: usize = 1000;
+pub(crate) const MAX_FORMS: usize = 1000;
 /// ToUnicode 표의 항목 수와 글꼴 폭 표에 넣는 수의 상한.
 const MAX_CMAP: usize = 100_000;
 /// 글자 하나가 바뀌는 글의 길이 상한(바이트, UTF-16).
@@ -66,9 +66,9 @@ const MAX_ARRAY_CONTENT: usize = 50_000;
 
 /// PDF 문법 바이트의 셈.
 #[derive(Debug, Default, PartialEq)]
-struct Count {
+pub(crate) struct Count {
     /// 읽으면 `Object` 하나가 되는 토큰 수.
-    tokens: usize,
+    pub tokens: usize,
     /// 배열 하나의 가장 많은 원소 수.
     max_array: usize,
     /// 맨 위에서 연산자 없이 이어진 피연산자의 가장 긴 수(내용 스트림에서 쓴다).
@@ -88,7 +88,7 @@ fn find_from(b: &[u8], at: usize, pat: &[u8]) -> Option<usize> {
 
 /// PDF 문법 바이트를 훑어 센다. 문자열 `(…)`·`<…>`와 주석은 하나로 세거나 건너뛰고, `stream`…`endstream`과 인라인
 /// 그림 `ID`…`EI`의 바이트는 건너뛴다(읽지 않는다).
-fn count(b: &[u8]) -> Count {
+pub(crate) fn count(b: &[u8]) -> Count {
     let mut c = Count::default();
     // 열린 배열(참)·사전(거짓)과 그 원소 수.
     let mut stack: Vec<(bool, usize)> = Vec::new();
@@ -328,7 +328,7 @@ fn keep(id: ObjectId, o: &mut Object) -> Option<(ObjectId, Object)> {
 
 /// 파일을 읽는다. 쪽 나무가 읽히지 않으면 상호 참조를 처음부터 다시 찾아 한 번 더 읽는다(거르는 함수를 쓰면
 /// lopdf가 스스로 다시 찾지 않는다). (문서, 남은 예산).
-fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> {
+pub(crate) fn load(bytes: &[u8], budget: usize) -> Result<(Document, usize), &'static str> {
     // 암호가 걸린 파일은 lopdf가 거르는 함수를 거치지 않고, 상호 참조가 가리키는 객체 묶음을 `/Type`을 보지 않고
     // 푼다. 그래서 묶음 하나를 푸는 크기를 예산 ÷ 파일 안 스트림 수로 묶는다(묶음도 스트림이고, `endstream`은
     // 이름처럼 탈출해 쓸 수 없다). 푼 바이트는 읽으면 객체로 늘어나므로(두 바이트가 `Object` 하나) 예산을 그
@@ -428,11 +428,18 @@ pub(crate) struct PageText {
     /// 표를 찾을 선: 가로 (y, x0, x1), 세로 (x, y0, y1). 보이는 쪽(돌림 반영) 좌표.
     pub hlines: Vec<(f32, f32, f32)>,
     pub vlines: Vec<(f32, f32, f32)>,
+    /// 보이는 쪽의 상자(CropBox, 없으면 MediaBox를 돌림 반영 좌표로): x0, y0, x1, y1.
+    pub frame: [f32; 4],
+    /// 보이지 않게 그린 글자(`Tr` 3·7, 스캔 위에 얹은 인식 글 등)와 글자 표가 없어 읽지 못한 글자의 수.
+    pub invisible: usize,
+    pub unknown: usize,
 }
 
 /// 읽은 문서: 쪽마다.
 pub(crate) struct Pages {
     pub pages: Vec<PageText>,
+    /// 보기 제한 암호를 풀어 읽은 파일(원본 바이트는 암호화된 채다).
+    pub encrypted: bool,
 }
 
 /// 쪽 하나를 읽지 못한 것(겹침·피연산자 상한, 모르는 필터). 문서 전체는 거절하지 않는다.
@@ -478,6 +485,7 @@ pub(crate) fn read_with(
         budget,
         images: 0,
         covered: 0.0,
+        invisible: 0,
         forms: 0,
         form_stack: Vec::new(),
         hlines: Vec::new(),
@@ -487,11 +495,15 @@ pub(crate) fn read_with(
     };
     let mut pages = Vec::with_capacity(ids.len());
     for id in ids {
+        let (area, base) = page_box(&doc, id);
+        let frame = page_frame(&doc, id, &base);
         let bad = |rd: &mut Reader, pages: &mut Vec<PageText>| {
             rd.rep.bad_pages += 1;
-            pages.push(PageText::default());
+            pages.push(PageText {
+                frame,
+                ..PageText::default()
+            });
         };
-        let (area, base) = page_box(&doc, id);
         if area < 1.0 {
             // 넓이가 0인(또는 깨진) 쪽은 건너뛰고 센다.
             bad(&mut rd, &mut pages);
@@ -507,7 +519,8 @@ pub(crate) fn read_with(
         };
         rd.spend(content.len())?;
         let res = page_resources(&doc, id);
-        (rd.images, rd.covered, rd.forms) = (0, 0.0, 0);
+        (rd.images, rd.covered, rd.forms, rd.invisible) = (0, 0.0, 0, 0);
+        let unknown = rd.rep.pdf_unknown;
         match rd.run(&content, &res, base, 0) {
             Err(BAD_PAGE) => {
                 rd.spans.clear();
@@ -526,10 +539,16 @@ pub(crate) fn read_with(
             scan,
             hlines: std::mem::take(&mut rd.hlines),
             vlines: std::mem::take(&mut rd.vlines),
+            frame,
+            invisible: rd.invisible,
+            unknown: rd.rep.pdf_unknown - unknown,
         });
     }
     rd.rep.pdf_bad_fonts = rd.bad_fonts.len();
-    Ok(Pages { pages })
+    Ok(Pages {
+        pages,
+        encrypted: doc.was_encrypted(),
+    })
 }
 
 /// 쪽(또는 물려준 조상)의 값. 쪽 나무가 돌고 돌아도 32단에서 멈춘다.
@@ -565,6 +584,42 @@ fn page_box(doc: &Document, id: ObjectId) -> (f32, M) {
     (area, base)
 }
 
+/// 보이는 쪽의 상자: CropBox(MediaBox와 겹친 곳, 없으면 MediaBox)의 네 꼭짓점을 돌림 행렬 `base`로 옮긴 경계.
+/// 상자가 없거나 깨졌으면 US Letter.
+fn page_frame(doc: &Document, id: ObjectId, base: &M) -> [f32; 4] {
+    let rect = |key: &[u8]| {
+        let [a, b, c, d] = nums::<4>(inherited(doc, id, key)?.as_array().ok()?)?;
+        Some([a.min(c), b.min(d), a.max(c), b.max(d)])
+    };
+    let media = rect(b"MediaBox").unwrap_or([0.0, 0.0, 612.0, 792.0]);
+    let r = match rect(b"CropBox") {
+        Some(c) => {
+            let r = [
+                c[0].max(media[0]),
+                c[1].max(media[1]),
+                c[2].min(media[2]),
+                c[3].min(media[3]),
+            ];
+            if r[2] > r[0] && r[3] > r[1] {
+                r
+            } else {
+                media
+            }
+        }
+        None => media,
+    };
+    let pts =
+        [(r[0], r[1]), (r[2], r[1]), (r[0], r[3]), (r[2], r[3])].map(|(x, y)| apply(base, x, y));
+    let xs = pts.map(|p| p.0);
+    let ys = pts.map(|p| p.1);
+    [
+        xs.into_iter().fold(f32::MAX, f32::min),
+        ys.into_iter().fold(f32::MAX, f32::min),
+        xs.into_iter().fold(f32::MIN, f32::max),
+        ys.into_iter().fold(f32::MIN, f32::max),
+    ]
+}
+
 /// 스트림의 필터가 풀 수 있는 것(알려진 것, 4단 이하)인가.
 fn known_filters(st: &Stream) -> bool {
     match st.dict.get(b"Filter") {
@@ -580,7 +635,7 @@ fn known_filters(st: &Stream) -> bool {
 }
 
 /// 스트림을 푼다. 모르는 필터나 깨진 스트림은 `BAD_PAGE`, 상한을 넘으면 `TOO_BIG`.
-fn plain(st: &Stream, limit: usize) -> Result<Vec<u8>, &'static str> {
+pub(crate) fn plain(st: &Stream, limit: usize) -> Result<Vec<u8>, &'static str> {
     if !known_filters(st) {
         return Err(BAD_PAGE);
     }
@@ -591,7 +646,11 @@ fn plain(st: &Stream, limit: usize) -> Result<Vec<u8>, &'static str> {
 }
 
 /// 쪽의 내용 스트림들을 이어 푼다.
-fn page_content(doc: &Document, id: ObjectId, limit: usize) -> Result<Vec<u8>, &'static str> {
+pub(crate) fn page_content(
+    doc: &Document,
+    id: ObjectId,
+    limit: usize,
+) -> Result<Vec<u8>, &'static str> {
     let mut out = Vec::new();
     for c in doc.get_page_contents(id) {
         let st = doc
@@ -644,7 +703,7 @@ fn page_resources(doc: &Document, id: ObjectId) -> Vec<&Dictionary> {
         .collect()
 }
 
-fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
+pub(crate) fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
     doc.dereference(o).map_or(o, |(_, o)| o)
 }
 
@@ -836,6 +895,8 @@ struct Reader<'a, 'r> {
     images: usize,
     /// 그림이 덮은 넓이(쪽 좌표).
     covered: f32,
+    /// 이 쪽에서 보이지 않게 그린 글자 수.
+    invisible: usize,
     forms: usize,
     /// 지금 펼치고 있는 폼들(자기를 다시 부르면 펼치지 않는다).
     form_stack: Vec<ObjectId>,
@@ -1270,6 +1331,9 @@ impl<'a> Reader<'a, '_> {
             let size = trm[2].hypot(trm[3]);
             match font.text(code) {
                 Some(t) => {
+                    if matches!(st.tr, 3 | 7) {
+                        self.invisible += 1;
+                    }
                     // 칠과 획을 함께 그린 글(`Tr 2`)은 굵게 보인다.
                     let look = Look {
                         bold: font.look.bold || st.tr == 2,
