@@ -20,6 +20,7 @@ mod pdf;
 mod place;
 mod session;
 mod state;
+mod structure;
 mod styles;
 mod task;
 
@@ -74,10 +75,16 @@ fn handle(request: Option<&str>) -> Res {
     if m == "import.preview" {
         return import::preview(&Args(a));
     }
-    // 표(`ticket`)를 단 PDF 미리 보기를 멈춘다(돌고 있으면 도우미를 끝내고, 줄 서 있으면 시작하자마자 멈춘다).
-    // 미리 보기 창의 `취소`가 부른다. 잠금을 잡지 않는다.
+    // AI로 구조 잡기: 보낼 내용 보기와 보내기. 모델을 기다리는 동안 명령 잠금을 잡지 않는다.
+    if matches!(m, "import.aiPlan" | "import.aiRun") {
+        return structure::dispatch(m, &Args(a));
+    }
+    // 표(`ticket`)를 단 PDF 미리 보기나 AI 구조 잡기를 멈춘다(돌고 있으면 도우미를 끝내거나 요청을 끊고, 줄 서 있으면
+    // 시작하자마자 멈춘다). 미리 보기 창의 `취소`와 `멈추기`가 부른다. 잠금을 잡지 않는다.
     if m == "import.cancel" {
-        kari_import::pdf::cancel(Args(a).seq("ticket")?);
+        let ticket = Args(a).seq("ticket")?;
+        kari_import::pdf::cancel(ticket);
+        structure::cancel(ticket);
         return Ok(Value::Null);
     }
     let mut state = library::engine();

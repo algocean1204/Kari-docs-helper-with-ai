@@ -58,7 +58,7 @@ flowchart LR
 
 ### 일마다의 모델
 
-면접의 모델 호출은 네 가지 일로 나뉘고, 일마다 제공사, 계열, 추론 강도를 따로 고른다. 고른 값은 설정 `ai.task.<일>` = `{provider, family, effort}`에 둔다.
+면접의 모델 호출은 네 가지 일로 나뉘고, 가져오기의 구조 잡기가 다섯째 일이다. 일마다 제공사, 계열, 추론 강도를 따로 고른다. 고른 값은 설정 `ai.task.<일>` = `{provider, family, effort}`에 둔다.
 
 | 일 | id | Claude 기본값(`CLAUDE`) | OpenAI 기본값(`OPENAI`) |
 |---|---|---|---|
@@ -66,9 +66,10 @@ flowchart LR
 | 채용공고 나누기 | `posting` | `haiku`, `medium` | `luna`, `low` |
 | 질문 만들기 | `ask` | `haiku`, `medium` | `luna`, `low` |
 | 답변 채점 | `grade` | `haiku`, `high` | `luna`, `medium` |
+| 가져올 때 구조 잡기 | `structure` | `haiku`, `low` | `luna`, `low` |
 
 - **기본값**: 저장한 값이 없는 일은 Claude 키가 있거나 키가 하나도 없으면 Claude 기본값, OpenAI 키만 있으면 OpenAI 기본값을 쓴다.
-- **호출**: `ai.tasks`는 일마다 고른 값, 지금 정해지는 판(id와 이름), 그 판이 지원하는 강도, 실제로 보낼 강도(`sent`), 그 제공사의 키가 있는지(`hasKey`), 기본값에서 바꿨는지(`custom`)를 돌려준다. `ai.setTask {task, provider, family, effort}`는 그 제공사의 계열만 받아 저장한다. `ai.resetTasks`는 네 일의 저장한 값을 지운다.
+- **호출**: `ai.tasks`는 일마다 고른 값, 지금 정해지는 판(id와 이름), 그 판이 지원하는 강도, 실제로 보낼 강도(`sent`), 그 제공사의 키가 있는지(`hasKey`), 기본값에서 바꿨는지(`custom`)를 돌려준다. `ai.setTask {task, provider, family, effort}`는 그 제공사의 계열만 받아 저장한다. `ai.resetTasks`는 다섯 일의 저장한 값을 지운다. 면접을 시작할 수 있는지(`ready`)와 세션에 박는 판은 면접의 네 일만 본다.
 - **고정**: 세션을 시작할 때 일마다의 (제공사, 판, 강도)를 세션 상태의 `models`에 적고, 이어 가기를 포함해 세션이 끝날 때까지 그 값으로 부른다. 한 세션 안에서 일마다 다른 제공사를 쓸 수 있다. 리포트의 `이번 연습`에 이 판들이 실린다.
 - **키 확인**: 모델을 부르는 `iv.*`(`iv.start`, `iv.answer`, `iv.resume` 등)는 세션이 쓰는 제공사마다 확인된 키가 있는지 보고, 없으면 `no_key`로 멈춘다. 다른 제공사로 넘어가지 않는다. `iv.preview`는 일마다의 제공사, 판, 실제로 보낼 강도, 키가 있는지와 모두 갖춰졌는지(`ready`)를 돌려준다.
 
@@ -78,6 +79,16 @@ flowchart LR
 
 - 보내는 글은 앱이 만든 요약(대지의 크기와 노드 수, 종류마다의 수, Figma 페이지 이름, 빈 자리)과 지시 글뿐이다. 요약은 20,000자, 지시는 2,000자까지 받는다.
 - 받을 모양 `{page, newPage, x, y, scale, frameName}`을 구조화된 출력으로 함께 보낸다. 답 글은 그대로 돌려주고, 칸과 값의 범위는 앱(`app/lib/figma/convert.dart`의 `Placement.parse`)이 본다.
+
+### 가져오기의 구조 잡기
+
+`app/engine/ffi/src/structure.rs`와 `app/engine/import/src/structure.rs`. `import.aiPlan {path, hash}`는 파일을 다시 읽어(규칙) 문단마다 덩어리 하나로 나누고(표 칸 안 문단도 하나씩), 일 `structure`의 제공사·판과 가린 덩어리 글을 돌려준다. 보내지 않고, 키가 없으면 보안 저장소를 열기 전에 `no_key`로 멈춘다. `import.aiRun {path, hash, ticket}`이 보낸다.
+
+- 보내는 것: 덩어리 `[id, 가린 글, 힌트]`를 면접과 같은 자료 구역(`kari_interview::prompt::user`)에 JSON으로. 가리기는 면접과 같은 `Mask`, 힌트는 규칙이 본 모양(제목·목록 단계, 굵게, 크기, 원래 표의 칸 자리). 그림 자리, 파일 바이트, 파일 이름, 경로는 넣지 않는다. 도구는 주지 않고, 받을 모양을 구조화된 출력으로 함께 보낸다.
+- 받는 것: `{blocks: [{kind, level, numbered, ids, rows}]}`. `kind`는 `heading`(1~6), `para`, `item`(1~9, 번호 여부), `table`(`rows`: 행마다 칸 `{ids, rows, cols}`). 글 칸은 없다. 코드가 확인한다: 모르는 칸과 빠진 칸 거절, 모든 id가 정확히 한 번 작은 것부터 차례대로(차례를 바꾸면 거절), 표의 너비와 합친 칸, 답 512KB까지, 만든 조각의 크기 예산, 빈 새 문서에 붙여 op 확인·문서 검사·글 같음(문서의 문단 글 = 덩어리 원래 글을 정해진 대로 이은 것).
+- 틀리면 까닭(id와 칸 이름만)을 붙여 한 번 더 묻는다. 또 틀리거나 오류·거절·출력 한도·60초가 지나면 `{fallback, reason}`을 돌려주고 앱이 규칙 결과로 가져온다. 어댑터의 자동 다시 보내기는 끄므로(`credential_with(…, false)`) 요청은 많아야 2번이다.
+- `import.cancel {ticket}`이 그 호출을 끊는다(시작 전에 온 멈추기도 듣는다). 기다리는 동안 명령 잠금을 잡지 않는다.
+- `import.apply`에 받은 `structure`를 주면 같은 확인을 다시 하고 그 구조로 넣는다. 사본에 적용한 뒤 글 같음과 문서 검사를 한 번 더 보고, 맞지 않으면 만든 문서와 그림을 지우고 실패한다.
 
 ### 추정 비용
 

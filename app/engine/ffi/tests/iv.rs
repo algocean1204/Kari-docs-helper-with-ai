@@ -782,7 +782,8 @@ mod hooked {
         let t = ok("ai.tasks", json!({}));
         let list = t.as_array().unwrap();
         let names: Vec<&str> = list.iter().map(|x| x["task"].as_str().unwrap()).collect();
-        assert_eq!(names, ["claims", "posting", "ask", "grade"]);
+        // 가져오기의 구조 잡기가 다섯째 일로 붙는다(면접의 네 일은 그대로).
+        assert_eq!(names, ["claims", "posting", "ask", "grade", "structure"]);
         for x in list {
             assert_eq!(x["model"], "claude-haiku-5-5", "{x}");
             assert_eq!(x["hasKey"], true);
@@ -881,7 +882,11 @@ mod hooked {
             .iter()
             .map(|x| x["effort"].as_str().unwrap())
             .collect();
-        assert_eq!(efforts, ["low", "low", "low", "medium"], "OpenAI 기본 강도");
+        assert_eq!(
+            efforts,
+            ["low", "low", "low", "medium", "low"],
+            "OpenAI 기본 강도"
+        );
         assert_eq!(ok("iv.dashboard", json!({}))["hasKey"], true);
         let g = ok(
             "ai.setTask",

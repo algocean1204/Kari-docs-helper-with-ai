@@ -82,7 +82,7 @@ Future<void> tap(WidgetTester tester, Finder f) async {
 Future<void> openArea(WidgetTester tester, String label) =>
     tap(tester, find.widgetWithText(InkWell, label));
 
-/// 설정의 "AI 모델" 구역(면접에 쓰는 모델)을 연다.
+/// 설정의 "AI 모델" 구역(일마다 쓰는 모델)을 연다.
 Future<void> openModels(WidgetTester tester) => openArea(tester, 'AI 모델');
 
 /// 설정의 ChatGPT 플랜 줄 안의 글(Figma 구역에도 "연결 안 됨"이 있어 줄로 좁힌다).
@@ -172,7 +172,7 @@ void main() {
       expectKeyOnlyInSecrets(rig, {'openai': openaiKey});
       expect(find.text('키 없음'), findsOneWidget, reason: 'Claude 줄만');
       await openModels(tester);
-      expect(find.text('Luna · 생각 깊이 낮음 · 지금 GPT-6 Luna'), findsNWidgets(3));
+      expect(find.text('Luna · 생각 깊이 낮음 · 지금 GPT-6 Luna'), findsNWidgets(4));
       expect(find.text('키 없음'), findsNothing, reason: '일마다의 줄에는 없다');
 
       // Claude 키를 더하면 기본은 Claude로 돌아간다.

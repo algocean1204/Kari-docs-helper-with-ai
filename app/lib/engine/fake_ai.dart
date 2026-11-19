@@ -51,6 +51,7 @@ class FakeAi {
     ('posting', '채용공고 나누기', ('haiku', 'medium'), ('luna', 'low')),
     ('ask', '질문 만들기', ('haiku', 'medium'), ('luna', 'low')),
     ('grade', '답변 채점', ('haiku', 'high'), ('luna', 'medium')),
+    ('structure', '가져올 때 구조 잡기', ('haiku', 'low'), ('luna', 'low')),
   ];
 
   /// 그 제공사를 부를 수 있는지(진짜 엔진의 `has_key`): 키가 있거나, OpenAI는 ChatGPT 플랜이 연결돼 있다.
@@ -74,8 +75,12 @@ class FakeAi {
   String placeReply = '';
   final List<Json> placeCalls = [];
 
-  /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다(진짜 엔진의 `iv.dashboard`의 `hasKey`).
-  bool get ready => tasks.every((t) => hasKey(_choice(t.$1).$1));
+  /// 면접을 시작할 수 있는지: 면접의 네 가지 일이 고른 제공사마다 키가 있다(진짜 엔진의 `iv.dashboard`의 `hasKey`).
+  bool get ready => ivTasks.every((t) => hasKey(_choice(t).$1));
+
+  /// 면접의 네 일(가져오기의 구조 잡기는 뺀다. 진짜 엔진의 `kari_interview::TASKS`).
+  static Iterable<String> get ivTasks =>
+      tasks.map((t) => t.$1).where((t) => t != 'structure');
 
   /// 지금 키로 정해지는 기본값: Claude 키가 있거나 키가 없으면 Claude, OpenAI 키만 있으면 OpenAI.
   (String, String, String) _default(String id) {

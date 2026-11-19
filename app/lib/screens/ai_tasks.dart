@@ -48,7 +48,7 @@ String taskSummary(Json t) =>
     '${familyNames[t['family']] ?? t['family']} · 생각 깊이 ${efforts[t['sent']] ?? '없음'} · '
     '지금 ${t['modelName'] ?? t['model']}';
 
-/// 접힌 묶음 "면접에 쓰는 모델"의 한 줄 요약.
+/// 접힌 묶음 "일마다 쓰는 모델"의 한 줄 요약.
 String tasksSummary(List<Json> tasks, {required bool anyKey}) {
   if (!anyKey) return '키를 넣으면 고를 수 있습니다';
   final n = tasks.where((t) => t['custom'] == true).length;
@@ -62,6 +62,7 @@ final List<Json> sampleTasks = [
     ('posting', '채용공고 나누기', 'medium'),
     ('ask', '질문 만들기', 'medium'),
     ('grade', '답변 채점', 'high'),
+    ('structure', '가져올 때 구조 잡기', 'low'),
   ])
     {
       'task': t,

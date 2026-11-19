@@ -598,7 +598,11 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                 // ready: 쓰는 제공사마다 확인된 키(저장한 모델 목록)가 있다.
                 let mut models = Vec::new();
                 let mut ready = true;
-                for (t, name) in task::TASKS {
+                // 면접의 네 일만(가져오기의 구조 잡기는 면접에 쓰지 않는다).
+                let tasks = task::TASKS
+                    .into_iter()
+                    .filter(|(t, _)| kari_interview::TASKS.contains(t));
+                for (t, name) in tasks {
                     let (c, m) = task::resolve(lib, t)?;
                     let has = crate::ai::has_key(lib, &c.provider)?;
                     ready &= has;

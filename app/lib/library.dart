@@ -253,13 +253,15 @@ class Library extends ChangeNotifier {
   }
 
   /// 파일을 새 흐름 문서로 가져온다. {id, lost}. 새 문서의 스타일은 [create]와 같다.
-  /// [hash]는 미리 보기가 돌려준 값이다. 실패는 [EngineError]로 던진다(미리 보기 창이 그 자리에서 알린다).
-  Future<Json> importFile(String path, {String? hash}) async {
+  /// [hash]는 미리 보기가 돌려준 값, [structure]는 AI로 구조 잡기가 돌려준 구조다. 실패는 [EngineError]로 던진다(미리 보기 창이
+  /// 그 자리에서 알린다).
+  Future<Json> importFile(String path, {String? hash, Json? structure}) async {
     final r = await engine.importApply(
       path,
       importName(path),
       styles: newDocStyles,
       hash: hash,
+      structure: structure,
     );
     await _run(() async {});
     return r;
@@ -419,9 +421,15 @@ class Library extends ChangeNotifier {
   /// 어느 제공사든 키가 있는지(ChatGPT 플랜 연결도 센다).
   bool get anyKey => providers.any((p) => p['hasKey'] == true) || planConnected;
 
-  /// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 키가 있다.
-  bool get connected =>
-      tasks.isNotEmpty && tasks.every((t) => t['hasKey'] == true);
+  /// 면접을 시작할 수 있는지: 면접의 네 가지 일이 고른 제공사마다 키가 있다(가져오기의 구조 잡기는 보지 않는다).
+  bool get connected {
+    final iv = tasks.where((t) => t['task'] != structureTask);
+    return iv.isNotEmpty && iv.every((t) => t['hasKey'] == true);
+  }
+
+  /// 가져오기의 구조 잡기에 쓰는 일(`ai.tasks`의 한 줄). 없으면 null.
+  Json? get structureModel =>
+      tasks.where((t) => t['task'] == structureTask).firstOrNull;
 
   Future<void> _loadIv() async {
     postings = await engine.ivPostings();
@@ -662,6 +670,9 @@ enum Setting {
   final String key;
   final Object fallback;
 }
+
+/// 가져오기의 AI 구조 잡기에 쓰는 일의 이름(엔진의 `ai.tasks`).
+const structureTask = 'structure';
 
 /// 생각 깊이(엔진의 effort)의 단계와 화면 이름. 엔진이 일마다 저장하고 그 버전이 받는 값으로 맞춘다.
 const efforts = {

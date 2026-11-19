@@ -62,7 +62,7 @@ final _minutesNote =
     '연습 한 번의 길이. 면접 준비와 같은 값입니다. 기본값 ${optionLabel(minuteOptions, Setting.ivMinutes.fallback as int)}.';
 final _pressureLine =
     '면접관의 말투, 반박, 힌트 수. 면접 준비와 같은 값입니다. 기본값 ${optionLabel(pressureOptions, Setting.ivPressure.fallback as String)}.';
-const _modelsNote = '면접의 일마다 제공사, 모델, 생각 깊이를 고릅니다.';
+const _modelsNote = '면접과 가져오기의 일마다 제공사, 모델, 생각 깊이를 고릅니다.';
 
 /// 모델 창의 설명(ai_tasks.dart의 `모델`, `생각 깊이`)과 계열마다의 기본값([familyNotes])을 줄인 것.
 const _modelsInfo =
@@ -126,7 +126,7 @@ final List<SettingEntry> settingEntries = [
   (
     area: SettingsArea.models,
     id: 'models',
-    name: '면접에 쓰는 모델',
+    name: '일마다 쓰는 모델',
     note: _modelsNote,
   ),
   (area: SettingsArea.interview, id: 'years', name: '연차', note: _yearsNote),
@@ -761,11 +761,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   children: [
                     Text(
-                      '면접에 쓰는 모델',
+                      '일마다 쓰는 모델',
                       style: AppText.label.copyWith(color: c.text),
                     ),
                     const SizedBox(width: Space.x1),
-                    const InfoTip(_modelsInfo, name: '면접에 쓰는 모델'),
+                    const InfoTip(_modelsInfo, name: '일마다 쓰는 모델'),
                     const Spacer(),
                     Text(
                       tasksSummary(

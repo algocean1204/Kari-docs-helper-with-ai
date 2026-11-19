@@ -291,6 +291,10 @@ void main() {
       // 레이어 패널의 줄(수만 노드에서 수십 ms)은 캔버스 입력 앞에 서지 않게 느린 줄로.
       expect(slow('canvas.layers'), isTrue);
       expect(slow('canvas.cmd'), isFalse);
+      // 가져오기의 AI 구조 잡기는 모델을 기다리므로 느린 줄로, 그 멈추기는 기본 줄로(기다림 뒤에 서지 않게).
+      expect(slow('import.aiPlan'), isTrue);
+      expect(slow('import.aiRun'), isTrue);
+      expect(slow('import.cancel'), isFalse);
       for (final m in [
         'iv.start',
         'iv.answer',
