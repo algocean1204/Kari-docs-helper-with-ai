@@ -141,6 +141,17 @@ final class AppUpdater: NSObject, SPUUserDriver {
       ])
   }
 
+  /// 새 판 알림이 떠 있는데 "업데이트 확인…"을 다시 누르면 Sparkle이 부른다. 알림은 Kari 창 안의 대화 상자라,
+  /// 창이 다른 앱 뒤에 있거나 내려가 있으면 보이지 않는다. 앱을 앞으로 가져오고 창을 펼쳐 알림이 보이게 한다.
+  func showUpdateInFocus() {
+    guard !MainFlutterWindow.background else { return }
+    if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+    if let w = NSApp.windows.first(where: { $0 is MainFlutterWindow }) {
+      if w.isMiniaturized { w.deminiaturize(nil) }
+      w.makeKeyAndOrderFront(nil)
+    }
+  }
+
   func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {}
 
   func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {}
