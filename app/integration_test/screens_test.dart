@@ -355,6 +355,10 @@ void main() {
           pdfOf(latin1.encode('BT /F1 24 Tf 72 700 Td (Kari) Tj ET')),
         );
       final engine = _HeldEngine();
+      // 시험이 중간에 실패해도 붙잡아 둔 가져오기를 풀어 정리와 부딪히지 않게 한다.
+      addTearDown(() {
+        if (!engine.hold.isCompleted) engine.hold.complete();
+      });
       final library = await nativeLibrary(
         tester,
         engine: engine,
@@ -397,6 +401,7 @@ void main() {
             library.docs.any((d) => d.kind == 'canvas'),
         '캔버스 문서를 만들고 연다',
       );
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('설정의 AI 연결($theme): ChatGPT로 계속하기 단추', (tester) async {
