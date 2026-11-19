@@ -141,6 +141,12 @@ void main() {
         }
       }
 
+      // 사용자의 실제 라이브러리에 시험 문서를 만들지 않게, 자료 폴더를 바꿔 둔 환경에서는 돌리지 않는다.
+      expect(
+        Platform.environment['KARI_HOME'],
+        isNull,
+        reason: 'KARI_HOME 없이 돌린다(새 임시 자료 폴더를 쓴다)',
+      );
       final library = await nativeLibrary(tester);
       await library.open();
       expect(library.phase, LibraryPhase.ready, reason: '${library.error}');
@@ -157,6 +163,10 @@ void main() {
       final before = await plugin.pages();
       final now = DateTime.now().toIso8601String().substring(0, 19);
       final pageName = 'Kari QA (지워도 됨) $now';
+      // 정리가 실패해도 남은 페이지를 이름으로 찾아 지울 수 있게 먼저 알린다.
+      debugPrint('시험 페이지: $pageName');
+      // 같은 이름의 페이지가 이미 있으면 보내기가 그 페이지에 쓰게 되므로 멈춘다.
+      expect(before.any((p) => p.$2 == pageName), isFalse, reason: pageName);
       addTearDown(() async {
         final sw = Stopwatch()..start();
         final known = {for (final p in before) p.$1};
