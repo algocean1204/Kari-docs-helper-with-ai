@@ -634,6 +634,8 @@ pub fn fake_shot(flags: u32, scale: f64) -> Vec<u8> {
                 let p = libc::malloc(16 << 20).cast::<u8>();
                 if !p.is_null() {
                     std::ptr::write_bytes(p, 1, 16 << 20);
+                    // 최적화 빌드가 쓰지 않는 할당을 지우지 않게 한다.
+                    std::hint::black_box(p);
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
