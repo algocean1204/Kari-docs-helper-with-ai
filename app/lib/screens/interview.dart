@@ -930,18 +930,21 @@ class _SessionState extends State<_Session> {
                               meta: true,
                             ): _send,
                           },
-                          child: TextField(
-                            controller: _answer,
-                            onChanged: (_) => _gaze.typed(),
-                            enabled: canAnswer,
-                            minLines: 5,
-                            maxLines: 10,
-                            keyboardType: TextInputType.multiline,
-                            style: AppText.reading.copyWith(color: c.text),
-                            decoration: InputDecoration(
-                              hintText: canAnswer
-                                  ? '답을 쓰고 ⌘Enter로 냅니다. Enter는 줄바꿈입니다.'
-                                  : null,
+                          child: Semantics(
+                            label: '답변',
+                            child: TextField(
+                              controller: _answer,
+                              onChanged: (_) => _gaze.typed(),
+                              enabled: canAnswer,
+                              minLines: 5,
+                              maxLines: 10,
+                              keyboardType: TextInputType.multiline,
+                              style: AppText.reading.copyWith(color: c.text),
+                              decoration: InputDecoration(
+                                hintText: canAnswer
+                                    ? '답을 쓰고 ⌘Enter로 냅니다. Enter는 줄바꿈입니다.'
+                                    : null,
+                              ),
                             ),
                           ),
                         ),
