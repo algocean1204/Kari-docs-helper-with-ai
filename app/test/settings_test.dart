@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kari/design/components.dart' show InfoTip, Segmented;
+import 'package:kari/design/components.dart'
+    show InfoTip, Segmented, StatusPill;
 import 'package:kari/library.dart' show Setting;
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart';
@@ -132,6 +133,17 @@ void main() {
       expect(findSettings('분위기').map((e) => e.id), ['pressure']);
       expect(findSettings('  '), isEmpty);
       expect(findSettings('없는설정'), isEmpty);
+    });
+
+    testWidgets('좁은 창의 AI 연결 줄: 설명 글과 상태 표시 사이에 틈이 있다', (tester) async {
+      await pumpAi(tester, connected: true, size: small);
+      final company = find.bySemanticsLabel(RegExp('^Anthropic API 키'));
+      expect(company, findsOneWidget);
+      final pill = find.byType(StatusPill).first;
+      expect(
+        tester.getRect(company).right + Space.x3,
+        lessThanOrEqualTo(tester.getRect(pill).left + 0.5),
+      );
     });
 
     testWidgets('찾은 항목을 구역별로 보이고, 누르면 그 구역의 그 항목으로 가서 잠깐 강조한다', (tester) async {

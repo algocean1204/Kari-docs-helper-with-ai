@@ -1362,7 +1362,8 @@ class _Provider extends StatelessWidget {
                     InfoTip(info!, name: name),
                   ],
                 ),
-              Text(
+              // 설명은 띄어쓰기에서 줄을 바꾼다(좁은 창에서 낱말 가운데가 끊기지 않게).
+              KeepText(
                 company,
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
@@ -1374,6 +1375,7 @@ class _Provider extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(width: Space.x3),
         status,
         const SizedBox(width: Space.x3),
         SizedBox(
