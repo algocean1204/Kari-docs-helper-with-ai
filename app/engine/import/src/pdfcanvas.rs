@@ -3,21 +3,20 @@
 //!
 //! 쪽마다 셋 가운데 하나다.
 //! - 글 쪽(`Text`): 글을 보이지 않게 바꾼(`Tr` 3·7) PDF로 바탕을 그려 글 상자와 두 번 보이지 않는다.
-//! - 그대로 쪽(`Kept`): 보이지 않는 글(인식 글을 얹은 스캔)이나 읽지 못한 글꼴이 있는 쪽, 보기 제한 암호를 푼 파일.
+//! - 그대로 쪽(`Kept`): 보이지 않는 글(인식 글을 얹은 스캔), 읽지 못한 글꼴, 펼치지 못한 폼, Type3 글꼴의 글이 있는 쪽,
+//!   보기 제한 암호를 푼 파일.
 //!   바탕을 그대로 그리고 읽은 글은 숨긴 묶음 "인식한 글"에 둔다.
 //! - 스캔 쪽(`Ocr`): 읽은 글이 없는 쪽. 바탕을 그대로 그리고 기기 안의 글자 인식이 읽은 줄을 숨긴 묶음에 둔다.
 //!
 //! 해석(줄 덩이, 글 지우기)은 PDF 도우미 프로세스 안에서 하고, 쪽 그림과 글자 인식은 그 도우미가 앱의 기능
 //! (`Paint`)을 불러 한다. 부모는 받은 것을 믿지 않고 꼴과 크기를 다시 확인한다.
 
-use std::collections::HashSet;
-
 use kari_doc::serde_json::{self, json, Map, Value};
 use lopdf::content::Content;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::Object;
 
 use crate::pdf::{chunks, explicit, lines, Runs, Span, MAX_PAGES, MAX_SPANS};
-use crate::pdftext::{self, count, deref, page_content, plain, BUDGET, MAX_DEPTH, MAX_FORMS};
+use crate::pdftext::{self, count, page_content, plain, BUDGET};
 use crate::{Report, MAX_IMAGE};
 
 /// 페이지 하나의 글 상자 수 상한. 넘으면 이웃한 줄을 한 상자로 묶는다.
@@ -125,7 +124,10 @@ pub fn layout(bytes: &[u8]) -> Result<Layout, &'static str> {
         let (w, h) = (f64::from(fx1 - fx0), f64::from(fy1 - fy0));
         let mode = if pt.spans.is_empty() {
             Mode::Ocr
-        } else if pt.invisible > 0 || pt.unknown > 0 || read.encrypted {
+        } else if pt.invisible > 0
+            || !safe(pt.unknown, pt.skipped_forms, pt.type3)
+            || read.encrypted
+        {
             Mode::Kept
         } else {
             Mode::Text
@@ -217,24 +219,33 @@ pub fn cap(boxes: Vec<TextBox>) -> Vec<TextBox> {
         .collect()
 }
 
-/// 글 쪽의 글을 보이지 않게 바꾼 PDF. 쪽 `index`(0부터)의 내용과 그 쪽이 부르는 폼(겹친 것까지)의 `Tr`를 3(보이지
-/// 않음)이나 7(보이지 않고 자르기)로 바꾸고, 내용 맨 앞에 `3 Tr`을 둔다. 자르기는 그대로라 글로 자른 그림은 남는다.
-/// 바꿀 수 없으면(읽지 못하는 내용, 너무 큰 내용) None: 바탕을 그대로 그린다. `layout`처럼 도우미 안에서만 부른다.
-/// 한계: Type3 글꼴과 무늬(패턴) 안의 글, 주석의 모양 글은 바꾸지 않는다.
+/// 글 쪽의 글을 보이지 않게 바꾼 PDF. 쪽 `index`(0부터)의 내용과, 글을 읽을 때 그 쪽에서 실제로 펼친 폼 모두의 `Tr`를
+/// 3(보이지 않음)이나 7(보이지 않고 자르기)로 바꾸고, 내용 맨 앞에 `3 Tr`을 둔다. 자르기는 그대로라 글로 자른 그림은 남는다.
+/// 글이 바탕에 남을 수 있으면 None이다(바탕을 그대로 그리고 글 상자는 숨긴 묶음에 둔다): 바꾸지 못한 내용·폼이 하나라도
+/// 있음(끝까지 읽지 못함, 너무 큼), 펼치지 못한 폼(겹침·개수 상한, 자기 부름), Type3 글꼴의 글(글리프를 `Tr`과 상관없이
+/// 그리는 그리기 프로그램이 있다), 읽지 못한 글자, 보기 제한 암호를 푼 파일. `layout`처럼 도우미 안에서만 부른다.
+/// 한계: 무늬(패턴) 안의 글은 읽지도 바꾸지도 않는다(바탕에 한 번 보인다).
 pub fn strip(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
-    let (mut doc, _) = pdftext::load(bytes, BUDGET).ok()?;
+    let (mut doc, budget) = pdftext::load(bytes, BUDGET).ok()?;
     if doc.is_encrypted() || doc.was_encrypted() {
         return None;
     }
     let id = *doc.get_pages().values().nth(index)?;
+    let mut rep = Report::default();
+    let read = pdftext::read_doc(&doc, budget, &mut rep, MAX_PAGES, MAX_SPANS, Some(index)).ok()?;
+    let pt = read.pages.into_iter().nth(index)?;
+    if !safe(pt.unknown, pt.skipped_forms, pt.type3) || rep.bad_pages > 0 {
+        return None;
+    }
     let content = page_content(&doc, id, pdftext::MAX_STREAM).ok()?;
     let new = invisible(&content, true)?;
-    let forms = forms(&doc, id);
-    doc.change_page_content(id, new).ok()?;
-    for f in forms {
+    let mut forms = Vec::with_capacity(pt.forms.len());
+    for f in pt.forms {
         let st = doc.get_object(f).ok()?.as_stream().ok()?;
-        let data = plain(st, pdftext::MAX_STREAM).ok()?;
-        let data = invisible(&data, false)?;
+        forms.push((f, invisible(&plain(st, pdftext::MAX_STREAM).ok()?, false)?));
+    }
+    doc.change_page_content(id, new).ok()?;
+    for (f, data) in forms {
         doc.get_object_mut(f)
             .ok()?
             .as_stream_mut()
@@ -244,6 +255,11 @@ pub fn strip(bytes: &[u8], index: usize) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     doc.save_to(&mut out).ok()?;
     Some(out)
+}
+
+/// 글을 뺀 바탕을 만들 수 있는 쪽인가: 읽지 못한 글자, 펼치지 못한 폼, Type3 글꼴의 글이 없다.
+fn safe(unknown: usize, skipped_forms: usize, type3: bool) -> bool {
+    unknown == 0 && skipped_forms == 0 && !type3
 }
 
 /// 내용 스트림의 `Tr`를 보이지 않는 방식으로 바꾼다. `lead`면 맨 앞에 `3 Tr`을 둔다. 끝까지 읽지 못하는 내용(그 뒤의
@@ -263,57 +279,6 @@ fn invisible(data: &[u8], lead: bool) -> Option<Vec<u8>> {
     let mut out = if lead { b"3 Tr\n".to_vec() } else { Vec::new() };
     out.extend(c.encode().ok()?);
     Some(out)
-}
-
-/// 쪽이 부르는 폼(겹친 것까지, 한 번씩).
-fn forms(doc: &Document, page: ObjectId) -> Vec<ObjectId> {
-    fn walk(
-        doc: &Document,
-        res: &Dictionary,
-        depth: usize,
-        out: &mut Vec<ObjectId>,
-        seen: &mut HashSet<ObjectId>,
-    ) {
-        let Some(xs) = res
-            .get(b"XObject")
-            .ok()
-            .and_then(|o| deref(doc, o).as_dict().ok())
-        else {
-            return;
-        };
-        for (_, o) in xs.iter() {
-            let Object::Reference(id) = o else { continue };
-            if out.len() >= MAX_FORMS || depth >= MAX_DEPTH || !seen.insert(*id) {
-                continue;
-            }
-            let Ok(st) = doc.get_object(*id).and_then(Object::as_stream) else {
-                continue;
-            };
-            if st.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Form") {
-                continue;
-            }
-            out.push(*id);
-            if let Some(r) = st
-                .dict
-                .get(b"Resources")
-                .ok()
-                .and_then(|o| deref(doc, o).as_dict().ok())
-            {
-                walk(doc, r, depth + 1, out, seen);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    if let Ok((own, inherited)) = doc.get_page_resources(page) {
-        for r in own
-            .into_iter()
-            .chain(inherited.iter().filter_map(|i| doc.get_dictionary(*i).ok()))
-        {
-            walk(doc, r, 0, &mut out, &mut seen);
-        }
-    }
-    out
 }
 
 /// 도우미가 돌려주는 쪽들: `{"err"}` 또는 `{"lost", "pages": [{"w", "h", "m", "b": [[x, y, 너비, 크기, [[글, 굵게 1|기울임 2,
@@ -491,14 +456,51 @@ pub(crate) fn decode_shot(b: &[u8], max: usize) -> Option<Shot> {
     if chars > crate::pdfhelper::MAX_CHARS {
         return None;
     }
+    // 그림 머리에 적힌 크기가 머리 JSON과 같아야 한다(크기는 상한 안).
+    let px = (side("w")?, side("h")?);
+    if image_size(&image)? != px {
+        return None;
+    }
     Some(Shot {
         image,
-        px: (side("w")?, side("h")?),
+        px,
         scale: finite(head.get("scale")?, 0.0001, 100.0)?,
         stripped: stripped == 1,
         ocr,
         lines,
     })
+}
+
+/// PNG(IHDR)나 JPEG(SOF 표지)의 머리에 적힌 화소 크기. 꼴을 모르면 None.
+pub(crate) fn image_size(b: &[u8]) -> Option<(u32, u32)> {
+    let be32 = |i: usize| Some(u32::from_be_bytes(b.get(i..i + 4)?.try_into().ok()?));
+    let be16 = |i: usize| {
+        Some(u32::from(u16::from_be_bytes(
+            b.get(i..i + 2)?.try_into().ok()?,
+        )))
+    };
+    if b.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return (b.get(12..16)? == b"IHDR").then(|| Some((be32(16)?, be32(20)?)))?;
+    }
+    if !b.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut i = 2;
+    // 표지마다 길이가 있어 몇 번 만에 SOF에 닿는다. 깨진 파일이 끝없이 돌지 않게 횟수를 묶는다.
+    for _ in 0..1000 {
+        while *b.get(i)? == 0xFF && b.get(i + 1) == Some(&0xFF) {
+            i += 1;
+        }
+        if *b.get(i)? != 0xFF {
+            return None;
+        }
+        let m = *b.get(i + 1)?;
+        if (0xC0..=0xCF).contains(&m) && !matches!(m, 0xC4 | 0xC8 | 0xCC) {
+            return Some((be16(i + 7)?, be16(i + 5)?));
+        }
+        i += 2 + usize::try_from(be16(i + 2)?).ok()?;
+    }
+    None
 }
 
 /// 인식한 줄들 → 페이지(`w`×`h` pt)의 글 상자. 글자 크기는 줄 상자 높이로 어림하고, 상자는 줄 상자의 세로 가운데에 둔다.
@@ -617,9 +619,26 @@ pub fn page_ops(
 }
 
 /// 시험과 엔진 밖 도우미가 쓰는 견본 화가: 2×2 흰 PNG를 돌려주고, 인식하라고 하면 한 줄 "인식한 글 견본"을 읽은
-/// 것으로 한다. 환경 변수 `KARI_TEST_NO_KOREAN`이 있으면 한국어를 읽지 못하는 macOS인 척한다.
+/// 것으로 한다. 환경 변수 `KARI_TEST_NO_KOREAN`이 있으면 한국어를 읽지 못하는 macOS인 척하고, `KARI_TEST_PAINT_MS`면
+/// 그만큼 기다리고, `KARI_TEST_PAINT_MB`면 Rust 할당자 밖(malloc)에서 그만큼 잡아 쓴다(그리기 프로그램처럼).
 #[doc(hidden)]
 pub fn fake_shot(flags: u32, scale: f64) -> Vec<u8> {
+    let num = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<usize>().ok());
+    if let Some(ms) = num("KARI_TEST_PAINT_MS") {
+        std::thread::sleep(std::time::Duration::from_millis(ms as u64));
+    }
+    if let Some(mb) = num("KARI_TEST_PAINT_MB") {
+        for _ in 0..mb / 16 {
+            // SAFETY: 잡은 자리를 채우기만 하고 놓지 않는다(시험용 도우미는 곧 끝난다).
+            unsafe {
+                let p = libc::malloc(16 << 20).cast::<u8>();
+                if !p.is_null() {
+                    std::ptr::write_bytes(p, 1, 16 << 20);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
     const PNG: [u8; 71] = [
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
         0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xFD,
@@ -663,6 +682,134 @@ mod tests {
         assert!(invisible(b"BT (a Tj", false).is_none());
     }
 
+    /// 객체들(1번부터)로 PDF를 만든다. 1 카탈로그, 2 쪽 나무, 3 쪽, 4 쪽 내용, 5 Helvetica.
+    fn one_page(content: &str, res: &str, more: &[(usize, String)]) -> Vec<u8> {
+        let stream = |d: &str, extra: &str| {
+            format!("<< /Length {} {extra} >>\nstream\n{d}\nendstream", d.len())
+        };
+        let mut objs: std::collections::BTreeMap<usize, String> = [
+            (1, "<< /Type /Catalog /Pages 2 0 R >>".to_string()),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into()),
+            (3, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources {res} /Contents 4 0 R >>")),
+            (4, stream(content, "")),
+            (5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into()),
+        ]
+        .into_iter()
+        .collect();
+        for (i, o) in more {
+            objs.insert(*i, o.replace("STREAM:", ""));
+        }
+        let n = *objs.keys().max().unwrap();
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut at = Vec::new();
+        for i in 1..=n {
+            at.push(out.len());
+            let o = objs.get(&i).cloned().unwrap_or_else(|| "null".into());
+            out.extend(format!("{i} 0 obj\n{o}\nendobj\n").bytes());
+        }
+        let x = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", n + 1).bytes());
+        for a in at {
+            out.extend(format!("{a:010} 00000 n \n").bytes());
+        }
+        out.extend(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n",
+                n + 1
+            )
+            .bytes(),
+        );
+        out
+    }
+
+    fn form(body: &str, res: &str) -> String {
+        format!(
+            "<< /Length {} /Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources {res} >>\nstream\n{body}\nendstream",
+            body.len()
+        )
+    }
+
+    const TEXT: &str = "BT /F1 36 Tf 0 Tr 72 700 Td (DOUBLED HELLO TEXT) Tj ET";
+
+    /// 글을 뺀 PDF를 다시 읽으면 읽는 글자가 모두 보이지 않게 그려진다.
+    fn all_hidden(pdf: &[u8]) -> bool {
+        let out = strip(pdf, 0).expect("글을 뺀 PDF");
+        let mut rep = Report::default();
+        let p = pdftext::read(&out, &mut rep, MAX_PAGES, MAX_SPANS)
+            .unwrap()
+            .pages
+            .remove(0);
+        let chars: usize = p
+            .spans
+            .iter()
+            .map(|s| s.text.chars().filter(|c| !c.is_whitespace()).count())
+            .sum();
+        chars > 0 && p.invisible >= chars
+    }
+
+    #[test]
+    fn 글을_뺀_바탕은_실제로_펼친_폼을_모두_바꾼다() {
+        // 깊이: 쪽 자원에 먼저 적힌 A1→…→A11→X 사슬과, 쪽이 바로 부르는 X→Y(글).
+        let mut more = Vec::new();
+        for k in 0..11 {
+            let next = if k < 10 {
+                format!("/N {} 0 R", 11 + k)
+            } else {
+                "/X 30 0 R".into()
+            };
+            let body = if k < 10 { "/N Do" } else { "/X Do" };
+            more.push((10 + k, form(body, &format!("<< /XObject << {next} >> >>"))));
+        }
+        more.push((30, form("/Y Do", "<< /XObject << /Y 31 0 R >> >>")));
+        more.push((31, form(TEXT, "<< /Font << /F1 5 0 R >> >>")));
+        let depth = one_page(
+            "/X Do",
+            "<< /Font << /F1 5 0 R >> /XObject << /A 10 0 R /X 30 0 R >> >>",
+            &more,
+        );
+        assert!(all_hidden(&depth));
+        // 개수: 쪽 자원에 먼저 적힌 빈 폼 1,000개와, 쪽이 부르는 글 폼.
+        let mut more = Vec::new();
+        let mut names = String::new();
+        for k in 0..1000 {
+            more.push((10 + k, form("", "<< >>")));
+            names.push_str(&format!("/E{k} {} 0 R ", 10 + k));
+        }
+        more.push((2000, form(TEXT, "<< /Font << /F1 5 0 R >> >>")));
+        let count = one_page(
+            "/T Do",
+            &format!("<< /Font << /F1 5 0 R >> /XObject << {names} /T 2000 0 R >> >>"),
+            &more,
+        );
+        assert!(all_hidden(&count));
+        let l = layout(&count).unwrap();
+        assert_eq!(l.pages[0].mode, Mode::Text);
+    }
+
+    #[test]
+    fn type3_글이나_펼치지_못한_폼이_있는_쪽은_바탕을_그대로_둔다() {
+        let t3 = vec![
+            (6, "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs 7 0 R /Encoding << /Type /Encoding /Differences [65 /g] >> /FirstChar 65 /LastChar 65 /Widths [1000] /Resources << >> >>".to_string()),
+            (7, "<< /g 8 0 R >>".to_string()),
+            (8, "<< /Length 33 >>\nstream\n1000 0 0 0 750 750 d1 0 0 750 750 re f\nendstream".to_string()),
+        ];
+        let pdf = one_page(
+            "BT /F3 24 Tf 72 700 Td (AAAA) Tj ET",
+            "<< /Font << /F3 6 0 R >> >>",
+            &t3,
+        );
+        assert!(strip(&pdf, 0).is_none());
+        assert_eq!(layout(&pdf).unwrap().pages[0].mode, Mode::Kept);
+        // 자기를 다시 부르는 폼(펼치지 못함)과 글.
+        let self_ref = one_page(
+            &format!("{TEXT} /S Do"),
+            "<< /Font << /F1 5 0 R >> /XObject << /S 10 0 R >> >>",
+            &[(10, form("/S Do", "<< /XObject << /S 10 0 R >> >>"))],
+        );
+        assert!(strip(&self_ref, 0).is_none());
+        assert_eq!(layout(&self_ref).unwrap().pages[0].mode, Mode::Kept);
+    }
+
     #[test]
     fn 상자가_많으면_이웃한_줄을_묶는다() {
         let b = |i: usize| TextBox {
@@ -684,6 +831,26 @@ mod tests {
         assert_eq!(cap(vec![b(1)]), vec![b(1)]);
     }
 
+    /// 견본 화가의 2×2 PNG.
+    fn png() -> Vec<u8> {
+        let v = fake_shot(0, 1.0);
+        let n = u32::from_le_bytes(v[..4].try_into().unwrap()) as usize;
+        v[4 + n..].to_vec()
+    }
+
+    #[test]
+    fn 그림_머리의_크기를_읽는다() {
+        assert_eq!(image_size(&png()), Some((2, 2)));
+        // APP0 하나 뒤의 SOF0(높이 3, 너비 5).
+        let jpeg = [
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00,
+            0x03, 0x00, 0x05, 0x01, 0x01, 0x11, 0x00,
+        ];
+        assert_eq!(image_size(&jpeg), Some((5, 3)));
+        assert_eq!(image_size(&jpeg[..12]), None);
+        assert_eq!(image_size(b"GIF89a"), None);
+    }
+
     #[test]
     fn 쪽_그림_결과는_꼴과_크기를_확인한다() {
         let mut ok = vec![1u8];
@@ -698,13 +865,17 @@ mod tests {
             let mut b = vec![0u8];
             b.extend((h.len() as u32).to_le_bytes());
             b.extend(h);
-            b.extend([1, 2, 3]);
+            b.extend(png());
             decode_shot(&b, MAX_IMAGE)
         };
         assert!(bad(json!({"w": 2, "h": 2, "scale": 2, "ocr": "off", "lines": [{"t": "a", "x": 0, "y": 0, "w": 1, "h": 1}]})).is_none());
         assert!(bad(json!({"w": 5000, "h": 2, "scale": 2, "ocr": "off", "lines": []})).is_none());
         assert!(bad(json!({"w": 2, "h": 2, "scale": 2, "ocr": "maybe", "lines": []})).is_none());
         assert!(bad(json!({"w": 2, "h": 2, "scale": 2, "ocr": "off", "lines": []})).is_some());
+        // 머리 JSON의 크기가 그림 머리와 다르면 받지 않는다.
+        assert!(
+            bad(json!({"w": 4000, "h": 4000, "scale": 2, "ocr": "off", "lines": []})).is_none()
+        );
     }
 
     #[test]

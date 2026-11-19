@@ -63,13 +63,37 @@ const EXIT_TOO_BIG: i32 = 86;
 const EXIT_NO_ENGINE: i32 = 2;
 /// 쪽 그림을 그리는 앱의 기능이 없음(엔진 시험의 도우미가 아닌데 화가를 받지 못함).
 const EXIT_NO_PAINT: i32 = 4;
-/// 쪽 하나를 그리고 글자를 읽는 도우미의 메모리·시간·CPU 시간. 쪽 그림(4,000×4,000 화소 하나)과 기기의 글자 인식
-/// (300dpi A4 한 쪽에서 약 320MB)이 함께 들어갈 만큼 두되, 나쁜 PDF가 그리기를 끝없이 늘이지 못하게 끝낸다. 시간은
-/// 기기에서 처음 글자를 읽을 때 인식 모델을 준비하느라 15초쯤 걸린 것을 넣어 둔다(그 뒤로는 쪽당 0.5초 안).
-/// 사용자는 그동안 진행을 보고 멈출 수 있다. CPU 시간은 글자 인식이 여러 스레드를 써 걸린 시간보다 길 수 있어 넉넉히 둔다.
-pub const PAGE_MEMORY: u64 = 640 << 20;
-pub const PAGE_TIME: Duration = Duration::from_secs(60);
-const PAGE_CPU: u64 = 120;
+/// 도우미가 시간 상한에 닿음(도우미 안의 감시 스레드), 부모가 사라짐.
+const EXIT_SLOW: i32 = 87;
+const EXIT_ORPHAN: i32 = 88;
+/// 쪽 그림을 다 그리기 전에 그리기 시간 상한에 닿음.
+const EXIT_DRAW_SLOW: i32 = 89;
+/// 화가가 쪽 그림을 다 그렸다(`drawn`). 그 뒤로는 글자 인식의 시간 상한만 본다.
+static DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// 화가가 쪽 그림을 다 그리고 부른다(앱의 Swift는 `kari_pdf_drawn`으로).
+pub fn drawn() {
+    DRAWN.store(true, SeqCst);
+}
+/// 쪽 하나를 그리는(글자를 읽는) 도우미의 메모리 상한. CoreGraphics와 Vision의 메모리는 Rust 할당자가 세지 못하므로
+/// 도우미 안의 감시 스레드가 자기 phys footprint를 보고(`PAGE_WATCH`), 부모가 이 값으로 한 번 더 본다. 쪽 그림 한 장
+/// (4,000×4,000 화소)과 글자 인식(300dpi A4에서 약 320MB)이 들어간다.
+pub const PAGE_MEMORY: u64 = 512 << 20;
+/// 도우미 안에서 끝내는 문턱: 감시 사이에 한 번에 잡는 그림 한 장(64MB)이 들어와도 `PAGE_MEMORY` 안에 든다.
+const PAGE_WATCH: u64 = 448 << 20;
+/// 쪽 하나의 시간 상한: 그리기만, 글자 인식까지(인식 모델을 다시 싣는 첫 쪽이 14초까지 걸린다). 디버그 빌드(엔진 시험)는
+/// 글 지우기가 몇 배 느려 그리기 상한을 늘려 둔다.
+pub const DRAW_TIME: Duration = Duration::from_millis(if cfg!(debug_assertions) {
+    15_000
+} else {
+    3_000
+});
+pub const OCR_TIME: Duration = Duration::from_secs(20);
+/// 캔버스로 가져오기 하나의 시간 상한(읽기부터 모든 쪽까지).
+pub const IMPORT_TIME: Duration = Duration::from_secs(120);
+/// 도우미 안의 감시 틈.
+const WATCH_EVERY: Duration = Duration::from_millis(2);
+const PAGE_CPU: u64 = 60;
 /// 쪽 그림을 받는 화가(앱의 Swift): (PDF, 길이, 쪽 번호(1부터), 배율(1pt당 화소), 그림 바이트 상한, 표시
 /// (1 글자 인식, 2 JPEG, 4 한국어 인식 여부만 묻기), 결과 길이) → malloc한 결과(`pdfcanvas::decode_shot`의 머리 JSON
 /// 길이·머리·그림). 그리지 못하면 null.
@@ -226,6 +250,17 @@ pub fn helper_main_with(painter: Option<Paint>) -> i32 {
     if paints && PAINT.get().is_none() {
         return EXIT_NO_PAINT;
     }
+    // 쪽 일은 마지막 인자가 시간 상한(ms)이다. 그리기는 그 안에서 `DRAW_TIME`까지.
+    let time = match job.as_slice() {
+        ["page", .., ms] => ms
+            .parse::<u64>()
+            .map_or(DRAW_TIME, Duration::from_millis)
+            .min(OCR_TIME),
+        ["langs"] => OCR_TIME,
+        _ => MAX_TIME,
+    };
+    let draw = if paints { time.min(DRAW_TIME) } else { time };
+    watch_self(if paints { PAGE_WATCH } else { MAX_MEMORY }, draw, time);
     let cpu = if paints { PAGE_CPU } else { CPU_SECONDS };
     // SAFETY: rlimit은 정수 둘이고 setrlimit은 읽기만 한다.
     unsafe {
@@ -236,7 +271,7 @@ pub fn helper_main_with(painter: Option<Paint>) -> i32 {
         libc::setrlimit(libc::RLIMIT_CPU, &r);
     }
     if paints {
-        RSS_CAP.store(PAGE_MEMORY, SeqCst);
+        RSS_CAP.store(PAGE_WATCH, SeqCst);
     }
     ARMED.store(true, SeqCst);
     let head = if job.is_empty() { 16 } else { 0 };
@@ -266,6 +301,38 @@ pub fn helper_main_with(painter: Option<Paint>) -> i32 {
         return 1;
     }
     0
+}
+
+/// 도우미 안의 감시 스레드: 자기 메모리(phys footprint)가 `limit`을 넘거나, 쪽 그림을 다 그리기 전에 `draw`가
+/// 지나거나, 띄운 지 `time`이 지나거나, 부모가 사라지면(앱이 끝남) 곧바로 끝낸다. 부모의 감시보다 짧은 틈으로 보아
+/// 그리기 프로그램이 한 번에 크게 잡아도 넘침이 작다.
+fn watch_self(limit: u64, draw: Duration, time: Duration) {
+    let begun = Instant::now();
+    let me = Memory::of(std::process::id());
+    // SAFETY: 인자 없는 조회.
+    let parent = unsafe { libc::getppid() };
+    std::thread::spawn(move || loop {
+        let code = if me
+            .as_ref()
+            .and_then(Memory::footprint)
+            .is_some_and(|m| m > limit)
+        {
+            Some(EXIT_TOO_BIG)
+        } else if !DRAWN.load(SeqCst) && begun.elapsed() > draw {
+            Some(EXIT_DRAW_SLOW)
+        } else if begun.elapsed() > time {
+            Some(EXIT_SLOW)
+        } else if unsafe { libc::getppid() } != parent {
+            Some(EXIT_ORPHAN)
+        } else {
+            None
+        };
+        if let Some(c) = code {
+            // SAFETY: _exit는 아무것도 잡거나 풀지 않고 프로세스를 끝낸다.
+            unsafe { libc::_exit(c) };
+        }
+        std::thread::sleep(WATCH_EVERY);
+    });
 }
 
 /// 화가를 불러 결과를 받는다. 받지 못하면 None.
@@ -300,6 +367,7 @@ pub unsafe extern "C" fn fake_paint(
     out_len: *mut usize,
 ) -> *mut u8 {
     let b = crate::pdfcanvas::fake_shot(flags, scale);
+    drawn();
     let p = libc::malloc(b.len()).cast::<u8>();
     if !p.is_null() {
         std::ptr::copy_nonoverlapping(b.as_ptr(), p, b.len());
@@ -320,7 +388,7 @@ fn layout_answer(pdf: &[u8]) -> Vec<u8> {
 /// 쪽 하나: 글 쪽이면 글을 보이지 않게 바꾼 PDF를, 아니면 받은 PDF를 화가에게 준다. 앞에 글을 지웠는지 1바이트를 둔다.
 /// 그리지 못하면 빈 결과.
 fn page_answer(pdf: &[u8], args: &[&str]) -> Vec<u8> {
-    let [i, strip, ocr, scale, max] = args else {
+    let [i, strip, ocr, scale, max, _ms] = args else {
         return Vec::new();
     };
     let (Ok(i), Ok(scale), Ok(max)) = (
@@ -409,6 +477,12 @@ pub(crate) fn read(bytes: &[u8], body: (f64, f64)) -> Result<Parsed, &'static st
 
 /// 쪽 그림을 그리지 못했다(나쁜 PDF이거나 앱의 그리기 기능이 받지 않은 것).
 pub const NO_PICTURE: &str = "쪽 그림을 그리지 못했습니다. 파일이 깨졌을 수 있습니다.";
+pub const PAGE_TOO_BIG: &str =
+    "쪽 그림을 그리는 데 메모리가 너무 많이 들어 캔버스로 가져올 수 없습니다.";
+pub const PAGE_TOO_SLOW: &str = "쪽 그림을 그리는 데 3초가 넘게 걸려 캔버스로 가져올 수 없습니다.";
+pub const OCR_TOO_SLOW: &str = "글자를 읽는 데 20초가 넘게 걸려 캔버스로 가져올 수 없습니다.";
+pub const IMPORT_TOO_SLOW: &str =
+    "가져오는 데 2분이 넘게 걸려 멈췄습니다. 쪽이 적은 PDF로 나눠 가져와 주세요.";
 
 /// 부모 쪽: 캔버스로 가져올 쪽들의 크기, 다루는 방법, 글 상자.
 pub fn canvas_layout(bytes: &[u8]) -> Result<crate::pdfcanvas::Layout, &'static str> {
@@ -431,7 +505,9 @@ pub fn canvas_shot(
     ocr: bool,
     scale: f64,
     max: usize,
+    time: Duration,
 ) -> Result<crate::pdfcanvas::Shot, &'static str> {
+    let time = time.min(if ocr { OCR_TIME } else { DRAW_TIME });
     let args = [
         "page".to_string(),
         index.to_string(),
@@ -439,6 +515,7 @@ pub fn canvas_shot(
         u8::from(ocr).to_string(),
         format!("{scale}"),
         max.to_string(),
+        time.as_millis().to_string(),
     ];
     #[cfg(test)]
     let out = {
@@ -449,11 +526,18 @@ pub fn canvas_shot(
     #[cfg(not(test))]
     let out = {
         let a: Vec<&str> = args.iter().map(String::as_str).collect();
+        // 부모의 감시는 둘째 방어: 도우미 안의 감시가 먼저 끝내게 조금 더 준다.
         let lim = Limits {
             out: max + (16 << 20),
+            time: time + Duration::from_secs(1),
             ..Limits::PAGE
         };
-        run(&a, &[], bytes, &lim)?
+        run(&a, &[], bytes, &lim).map_err(|e| match e {
+            TOO_BIG => PAGE_TOO_BIG,
+            TOO_SLOW if ocr => OCR_TOO_SLOW,
+            TOO_SLOW => PAGE_TOO_SLOW,
+            e => e,
+        })?
     };
     crate::pdfcanvas::decode_shot(&out, max).ok_or(NO_PICTURE)
 }
@@ -489,7 +573,7 @@ impl Limits {
     };
     const PAGE: Limits = Limits {
         memory: PAGE_MEMORY,
-        time: PAGE_TIME,
+        time: OCR_TIME,
         out: MAX_OUT,
     };
 }
@@ -617,6 +701,8 @@ fn run(job: &[&str], head: &[u8], bytes: &[u8], lim: &Limits) -> Result<Vec<u8>,
     match (status.code(), status.signal()) {
         (Some(0), _) => Ok(out),
         (Some(EXIT_TOO_BIG), _) => Err(TOO_BIG),
+        (Some(EXIT_SLOW), _) => Err(TOO_SLOW),
+        (Some(EXIT_DRAW_SLOW), _) => Err(PAGE_TOO_SLOW),
         (Some(EXIT_NO_ENGINE | EXIT_NO_PAINT), _) => Err(NO_HELPER),
         (_, Some(libc::SIGXCPU)) => Err(TOO_SLOW),
         _ => Err(BROKEN),

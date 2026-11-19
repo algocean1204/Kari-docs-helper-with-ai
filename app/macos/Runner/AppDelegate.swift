@@ -17,8 +17,10 @@ class AppDelegate: FlutterAppDelegate {
   private static func pdfHelper() -> Int32 {
     guard let dir = Bundle.main.privateFrameworksPath,
       let lib = dlopen(dir + "/kari.framework/kari", RTLD_NOW),
-      let sym = dlsym(lib, "kari_pdf_helper_with")
+      let sym = dlsym(lib, "kari_pdf_helper_with"),
+      let drawn = dlsym(lib, "kari_pdf_drawn")
     else { return 2 }
+    PdfPage.drawn = unsafeBitCast(drawn, to: (@convention(c) () -> Void).self)
     typealias Helper = @convention(c) (@convention(c) (
       UnsafePointer<UInt8>?, Int, UInt32, Double, Int, UInt32, UnsafeMutablePointer<Int>?
     ) -> UnsafeMutablePointer<UInt8>?) -> Int32

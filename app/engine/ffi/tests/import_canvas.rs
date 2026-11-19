@@ -399,3 +399,139 @@ fn pdf를_글_문서로_가져온_결과는_그대로다() {
     ];
     assert_eq!(got, want);
 }
+
+/// 견본 화가가 쪽마다 그리는 2×2 PNG(같은 해시).
+fn page_png() -> Vec<u8> {
+    let v = kari_import::pdfcanvas::fake_shot(0, 1.0);
+    let n = u32::from_le_bytes(v[..4].try_into().unwrap()) as usize;
+    v[4 + n..].to_vec()
+}
+
+/// 둘째 쪽에서 멈춰 있는 가져오기를 띄우고 첫 쪽 그림이 들어갈 때까지 기다린다.
+fn hang_at_second(case: &Case, ticket: u64) -> std::thread::JoinHandle<Value> {
+    let path = case.dir.join("멈춤.pdf");
+    std::fs::write(&path, mixed()).unwrap();
+    std::env::set_var("KARI_TEST_PAGE_HANG", "1");
+    let job = std::thread::spawn(move || {
+        call(
+            "import.apply",
+            json!({"path": path, "name": "멈춤", "as": "canvas", "ticket": ticket}),
+        )
+    });
+    let t = Instant::now();
+    while ok("import.progress", json!({"ticket": ticket})) != json!({"done": 1, "total": 4}) {
+        assert!(
+            t.elapsed() < Duration::from_secs(30),
+            "진행이 보이지 않는다"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    job
+}
+
+#[test]
+fn 가져오는_중에_라이브러리를_닫으면_멈추고_정리한_뒤_닫는다() {
+    let case = Case::new("import-canvas-close");
+    let before = doc_count();
+    let job = hang_at_second(&case, 31);
+    assert_eq!(walk(&case.dir.join("assets")).len(), 1);
+    let t = Instant::now();
+    ok("lib.close", json!({}));
+    std::env::remove_var("KARI_TEST_PAGE_HANG");
+    let r = job.join().unwrap();
+    assert!(t.elapsed() < Duration::from_secs(2), "{:?}", t.elapsed());
+    assert_eq!(
+        r["err"]["message"],
+        json!(kari_import::pdf::CANCELLED),
+        "{r}"
+    );
+    // 닫기 전에 정리했다: 다시 열면 문서도 그림도 남지 않는다.
+    case.open();
+    nothing_left(&case, before, 0);
+}
+
+#[test]
+fn 커밋_전의_쪽_그림은_휴지통_비우기가_지우지_않고_다른_문서가_쓰는_그림은_실패해도_남는다() {
+    let case = Case::new("import-canvas-gc");
+    // 그림 정리 충돌 1: 가져오는 중(첫 쪽 그림을 넣고 아직 커밋 전) 휴지통을 비워도 그 그림은 남는다.
+    let gone = ok("docs.create", json!({"kind": "canvas", "name": "버릴 것"}))["id"].clone();
+    ok("docs.trash", json!({"id": gone}));
+    let job = hang_at_second(&case, 32);
+    let p = ok("docs.purgeTrashed", json!({"before": u64::MAX >> 12}));
+    assert_eq!(p["purged"], json!(1));
+    assert_eq!(walk(&case.dir.join("assets")).len(), 1, "커밋 전의 쪽 그림");
+    ok("import.cancel", json!({"ticket": 32}));
+    std::env::remove_var("KARI_TEST_PAGE_HANG");
+    job.join().unwrap();
+    assert!(walk(&case.dir.join("assets")).is_empty());
+
+    // 그림 정리 충돌 2: 같은 그림(같은 해시)을 다른 문서가 쓰면 가져오기가 실패해도 지우지 않는다.
+    let png = case.dir.join("같은 그림.png");
+    std::fs::write(&png, page_png()).unwrap();
+    let put = ok("asset.put", json!({"path": png}));
+    let other = ok(
+        "docs.create",
+        json!({"kind": "canvas", "name": "같은 그림을 쓰는 문서"}),
+    )["id"]
+        .clone();
+    let page = nodes(&other)[0]["id"].clone();
+    ok(
+        "doc.commit",
+        json!({"id": other, "label": "그림", "ops": [{"op": "add", "node": {"id": "im", "type": "rect",
+            "parent": page, "props": {"fills": [{"type": "IMAGE", "asset": put["asset"], "mode": "FILL",
+            "opacity": 1, "visible": true}]}}}]}),
+    );
+    ok("asset.dropUnused", json!({"hashes": []}));
+    let job = hang_at_second(&case, 33);
+    ok("import.cancel", json!({"ticket": 33}));
+    std::env::remove_var("KARI_TEST_PAGE_HANG");
+    job.join().unwrap();
+    assert_eq!(
+        walk(&case.dir.join("assets")).len(),
+        1,
+        "다른 문서가 쓰는 그림"
+    );
+}
+
+/// 도우미 안의 감시: 그리기가 시간 상한을 넘거나 Rust 할당자 밖에서 메모리를 많이 잡으면 곧 끝내고 까닭과 함께 거절한다.
+#[cfg(feature = "test-hooks")]
+#[test]
+fn 쪽_그리기가_시간이나_메모리_상한을_넘으면_도우미를_끝내고_까닭과_함께_거절한다() {
+    let case = Case::new("import-canvas-limits");
+    let path = case.dir.join("한 쪽.pdf");
+    std::fs::write(&path, pages(&[("", "BT /F1 20 Tf 72 720 Td (One) Tj ET")])).unwrap();
+    let before = doc_count();
+    std::env::set_var("KARI_TEST_PAINT_MS", "5000");
+    let t = Instant::now();
+    let e = err(
+        "import.apply",
+        json!({"path": path, "name": "느림", "as": "canvas", "testBudgetMs": 800}),
+    );
+    std::env::remove_var("KARI_TEST_PAINT_MS");
+    assert_eq!(
+        e["message"],
+        json!(kari_import::pdf::IMPORT_TOO_SLOW),
+        "{e}"
+    );
+    assert!(
+        t.elapsed() < Duration::from_millis(2500),
+        "{:?}",
+        t.elapsed()
+    );
+    nothing_left(&case, before, 0);
+
+    std::env::set_var("KARI_TEST_PAINT_MB", "1024");
+    let e = err(
+        "import.apply",
+        json!({"path": path, "name": "큼", "as": "canvas"}),
+    );
+    std::env::remove_var("KARI_TEST_PAINT_MB");
+    assert_eq!(
+        e["message"],
+        json!(format!("1쪽: {}", kari_import::pdf::PAGE_TOO_BIG)),
+        "{e}"
+    );
+    let peak = kari_import::pdf::last_peak();
+    assert!(peak <= kari_import::pdf::PAGE_MEMORY, "{}MB", peak >> 20);
+    nothing_left(&case, before, 0);
+}

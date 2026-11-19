@@ -11,6 +11,9 @@ import Vision
 enum PdfPage {
   /// 그림의 긴 변 상한(화소). 엔진의 그림 넣기 상한과 같다.
   static let maxSide = 4000
+  /// 쪽 그림을 다 그렸을 때 부르는 엔진의 함수(`kari_pdf_drawn`). 도우미의 감시가 그 뒤로는 그리기 대신 글자 인식의
+  /// 시간 상한을 본다. 도우미를 띄운 앱이 정한다(창 없는 시험은 비워 둔다).
+  nonisolated(unsafe) static var drawn: (@convention(c) () -> Void)?
   /// 인식한 한 줄: 글과 그림 안의 상자(0~1, 왼쪽 위 기준).
   struct Line {
     let text: String
@@ -42,6 +45,7 @@ enum PdfPage {
       return frame(["ko": koreanSupported()], image: Data())
     }
     guard let image = render(pdf, page: page, scale: scale) else { return nil }
+    drawn?()
     var ocr = "off"
     var lines: [Line] = []
     if flags & 1 != 0 {

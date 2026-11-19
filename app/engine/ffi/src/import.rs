@@ -8,7 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::{Document, Guard, Kind};
@@ -298,6 +300,40 @@ pub(crate) fn as_canvas(a: &Args) -> bool {
     a.get("as").and_then(Value::as_str) == Some("canvas")
 }
 
+/// 돌고 있는 캔버스 가져오기의 표. 라이브러리를 닫을 때(`stop_all`) 멈추고 정리가 끝나기를 기다린다.
+static RUNNING: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+static ENDED: Condvar = Condvar::new();
+/// 표 없이 부른 가져오기에 주는 표(앱이 주는 표와 겹치지 않게 큰 수부터).
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(1 << 62);
+
+/// 돌고 있는 캔버스 가져오기를 모두 멈추고, 만든 것을 지우고 끝날 때까지 기다린다(오래 걸려도 30초). 명령 잠금을 잡기
+/// 전에 부른다(가져오기의 정리가 그 잠금을 잡는다).
+pub(crate) fn stop_all() {
+    let running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
+    running.iter().for_each(|t| kari_import::pdf::cancel(*t));
+    let _ = ENDED.wait_timeout_while(running, Duration::from_secs(30), |r| !r.is_empty());
+}
+
+/// 가져오기 하나를 `RUNNING`에 두고, 끝나면(멈춤·실패 포함) 빼고 기다리는 쪽을 깨운다.
+struct Running(u64);
+
+impl Running {
+    fn new(t: u64) -> Running {
+        RUNNING.lock().unwrap_or_else(|p| p.into_inner()).insert(t);
+        Running(t)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.0);
+        ENDED.notify_all();
+    }
+}
+
 /// 캔버스로 가져오는 중인 표 → (끝낸 쪽 수, 모든 쪽 수).
 static PROGRESS: Mutex<BTreeMap<u64, (usize, usize)>> = Mutex::new(BTreeMap::new());
 
@@ -413,7 +449,11 @@ pub(crate) fn canvas_apply(a: &Args) -> Res {
         ));
     }
     pdf_only(&bytes)?;
-    let ticket = a.maybe("ticket", Value::as_u64)?;
+    let ticket = a
+        .maybe("ticket", Value::as_u64)?
+        .unwrap_or_else(|| NEXT_TICKET.fetch_add(1, Ordering::Relaxed));
+    let _running = Running::new(ticket);
+    let ticket = Some(ticket);
     let name = a.str("name")?.to_string();
     let mut stored = BTreeSet::new();
     let mut made = None;
@@ -452,7 +492,17 @@ fn canvas_fill(
     stored: &mut BTreeSet<String>,
     made: &mut Option<DocId>,
 ) -> Res {
-    use kari_import::pdf::{canvas_layout, canvas_shot, with_ticket, CANCELLED};
+    use kari_import::pdf::{
+        canvas_layout, canvas_shot, with_ticket, CANCELLED, IMPORT_TIME, IMPORT_TOO_SLOW,
+    };
+    let begun = Instant::now();
+    // 시험용: 가져오기 전체의 시간 상한을 줄인다.
+    #[cfg(feature = "test-hooks")]
+    let import_time = a
+        .maybe("testBudgetMs", Value::as_u64)?
+        .map_or(IMPORT_TIME, Duration::from_millis);
+    #[cfg(not(feature = "test-hooks"))]
+    let import_time = IMPORT_TIME;
     let stopped = || ticket.is_some_and(kari_import::pdf::is_cancelled);
     let layout = with_ticket(ticket, || canvas_layout(bytes)).map_err(read_fail)?;
     let mut spent = 0;
@@ -480,19 +530,33 @@ fn canvas_fill(
         let scale = pc::scale_for(page.w, page.h, want);
         // 그림 바이트의 합계 상한을 남은 쪽에 고루 나눈다(넘는 쪽은 앱이 해상도를 낮춰 담는다).
         let max = MAX_IMAGE.min(MAX_IMAGE_TOTAL.saturating_sub(used) / (total - i));
-        let shot = with_ticket(ticket, || canvas_shot(bytes, i, strip, ocr, scale, max))
-            .map_err(read_fail)?;
+        // 가져오기 전체의 시간 상한 안에서 쪽마다의 상한을 준다.
+        let left = import_time.saturating_sub(begun.elapsed());
+        if left.is_zero() {
+            return Err(fail("import", IMPORT_TOO_SLOW));
+        }
+        let shot = with_ticket(ticket, || {
+            canvas_shot(bytes, i, strip, ocr, scale, max, left)
+        })
+        .map_err(|m| match m {
+            CANCELLED => fail("import", m),
+            _ if begun.elapsed() >= import_time => fail("import", IMPORT_TOO_SLOW),
+            _ => fail("import", format!("{}쪽: {m}", i + 1)),
+        })?;
+        // 그림 검사(풀어 보기)는 명령 잠금 밖에서, 저장만 안에서 한다.
+        let pic = kari_render::prepare_image(&shot.image).map_err(|_| {
+            fail(
+                "import",
+                format!("{}쪽: {}", i + 1, kari_import::pdf::NO_PICTURE),
+            )
+        })?;
         let asset = {
             let mut st = crate::library::engine();
             let e = on(&mut st)?;
-            match crate::edit::ingest_bytes(&mut e.lib, &shot.image)? {
-                Ok(p) => {
-                    crate::edit::pending().insert(p.asset.clone());
-                    stored.insert(p.asset.clone());
-                    p.asset
-                }
-                Err(_) => return Err(fail("import", kari_import::pdf::NO_PICTURE)),
-            }
+            let hash = e.lib.put_asset(&pic.bytes)?.hash;
+            crate::edit::pending().insert(hash.clone());
+            stored.insert(hash.clone());
+            hash
         };
         used += shot.image.len();
         if shot.scale < pc::SHARP - 1e-9 {

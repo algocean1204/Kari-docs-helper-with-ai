@@ -32,9 +32,10 @@ pub const CANCELLED: &str = "PDF 읽기를 멈췄습니다.";
 pub const NO_HELPER: &str = "PDF를 읽는 도우미를 띄우지 못했습니다. 앱을 다시 설치해 주세요.";
 
 pub use crate::pdfhelper::{
-    cancel, canvas_layout, canvas_shot, fake_paint, helper_main, helper_main_with, is_cancelled,
-    last_peak, ocr_korean, set_helper, with_ticket, Capped, Paint, MAX_MEMORY, MAX_TIME,
-    NO_PICTURE, PAGE_MEMORY, PAGE_TIME,
+    cancel, canvas_layout, canvas_shot, drawn, fake_paint, helper_main, helper_main_with,
+    is_cancelled, last_peak, ocr_korean, set_helper, with_ticket, Capped, Paint, DRAW_TIME,
+    IMPORT_TIME, IMPORT_TOO_SLOW, MAX_MEMORY, MAX_TIME, NO_PICTURE, OCR_TIME, OCR_TOO_SLOW,
+    PAGE_MEMORY, PAGE_TOO_BIG, PAGE_TOO_SLOW,
 };
 
 /// 크기 예산은 모든 형식이 같이 쓴다. PDF는 넘으면 `TOO_BIG`.

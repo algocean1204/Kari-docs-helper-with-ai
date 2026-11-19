@@ -202,7 +202,8 @@ class Library extends ChangeNotifier {
     return true;
   }
 
-  /// 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다. 앱이 꺼질 때 부른다.
+  /// 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다. 앱이 꺼질 때 부른다. 돌고 있는 캔버스
+  /// 가져오기(느린 줄)는 엔진이 멈추고 만든 문서와 그림을 지운 뒤에 닫는다.
   Future<void> close() async {
     try {
       await engine.call('lib.close');

@@ -433,6 +433,10 @@ pub(crate) struct PageText {
     /// 보이지 않게 그린 글자(`Tr` 3·7, 스캔 위에 얹은 인식 글 등)와 글자 표가 없어 읽지 못한 글자의 수.
     pub invisible: usize,
     pub unknown: usize,
+    /// 이 쪽에서 실제로 펼친 폼(한 번씩), 펼치지 못한 폼 수, Type3 글꼴로 그린 글이 있는가. 글을 뺀 바탕을 만들 때 쓴다.
+    pub forms: Vec<ObjectId>,
+    pub skipped_forms: usize,
+    pub type3: bool,
 }
 
 /// 읽은 문서: 쪽마다.
@@ -463,6 +467,18 @@ pub(crate) fn read_with(
     budget: usize,
 ) -> Result<Pages, &'static str> {
     let (doc, budget) = load(bytes, budget)?;
+    read_doc(&doc, budget, rep, max_pages, max_spans, None)
+}
+
+/// 읽어 둔 문서의 쪽들. `only`를 주면 그 쪽(0부터)만 읽고 다른 쪽은 빈 것으로 둔다.
+pub(crate) fn read_doc(
+    doc: &Document,
+    budget: usize,
+    rep: &mut Report,
+    max_pages: usize,
+    max_spans: usize,
+    only: Option<usize>,
+) -> Result<Pages, &'static str> {
     // 여는 암호 없이 보기 제한만 건 파일은 읽으면서 빈 암호로 풀린다. 풀리지 않으면 암호화된 채로 남는다.
     if doc.is_encrypted() {
         return Err(LOCKED);
@@ -475,7 +491,7 @@ pub(crate) fn read_with(
         return Err(TOO_MANY_PAGES);
     }
     let mut rd = Reader {
-        doc: &doc,
+        doc,
         fonts: HashMap::new(),
         form_data: HashMap::new(),
         spans: Vec::new(),
@@ -486,6 +502,9 @@ pub(crate) fn read_with(
         images: 0,
         covered: 0.0,
         invisible: 0,
+        page_forms: Vec::new(),
+        unnamed: 0,
+        type3: false,
         forms: 0,
         form_stack: Vec::new(),
         hlines: Vec::new(),
@@ -494,9 +513,13 @@ pub(crate) fn read_with(
         rep,
     };
     let mut pages = Vec::with_capacity(ids.len());
-    for id in ids {
-        let (area, base) = page_box(&doc, id);
-        let frame = page_frame(&doc, id, &base);
+    for (i, id) in ids.into_iter().enumerate() {
+        if only.is_some_and(|o| o != i) {
+            pages.push(PageText::default());
+            continue;
+        }
+        let (area, base) = page_box(doc, id);
+        let frame = page_frame(doc, id, &base);
         let bad = |rd: &mut Reader, pages: &mut Vec<PageText>| {
             rd.rep.bad_pages += 1;
             pages.push(PageText {
@@ -509,7 +532,7 @@ pub(crate) fn read_with(
             bad(&mut rd, &mut pages);
             continue;
         }
-        let content = match page_content(&doc, id, MAX_STREAM.min(rd.budget)) {
+        let content = match page_content(doc, id, MAX_STREAM.min(rd.budget)) {
             Ok(c) => c,
             Err(e) if e == TOO_BIG => return Err(TOO_BIG),
             Err(_) => {
@@ -518,9 +541,11 @@ pub(crate) fn read_with(
             }
         };
         rd.spend(content.len())?;
-        let res = page_resources(&doc, id);
-        (rd.images, rd.covered, rd.forms, rd.invisible) = (0, 0.0, 0, 0);
-        let unknown = rd.rep.pdf_unknown;
+        let res = page_resources(doc, id);
+        (rd.images, rd.covered, rd.forms, rd.invisible, rd.type3) = (0, 0.0, 0, 0, false);
+        rd.page_forms.clear();
+        rd.unnamed = 0;
+        let (unknown, skipped) = (rd.rep.pdf_unknown, rd.rep.pdf_forms);
         match rd.run(&content, &res, base, 0) {
             Err(BAD_PAGE) => {
                 rd.spans.clear();
@@ -542,6 +567,9 @@ pub(crate) fn read_with(
             frame,
             invisible: rd.invisible,
             unknown: rd.rep.pdf_unknown - unknown,
+            forms: std::mem::take(&mut rd.page_forms),
+            skipped_forms: rd.rep.pdf_forms - skipped + rd.unnamed,
+            type3: rd.type3,
         });
     }
     rd.rep.pdf_bad_fonts = rd.bad_fonts.len();
@@ -725,6 +753,8 @@ struct Font {
     /// 글꼴 사전의 주소(읽지 못한 글꼴을 셀 때 쓴다).
     key: usize,
     two: bool,
+    /// Type3 글꼴(글리프가 내용 스트림이라 글 보이기 방식 `Tr`을 따르지 않는 그리기 프로그램도 있다).
+    type3: bool,
     /// ToUnicode 표: 낱개 코드와 범위(시작 코드, 끝 코드, 시작 글).
     map: HashMap<u32, String>,
     ranges: Vec<(u32, u32, Vec<u16>)>,
@@ -895,8 +925,12 @@ struct Reader<'a, 'r> {
     images: usize,
     /// 그림이 덮은 넓이(쪽 좌표).
     covered: f32,
-    /// 이 쪽에서 보이지 않게 그린 글자 수.
+    /// 이 쪽에서 보이지 않게 그린 글자 수, 펼친 폼, Type3 글꼴의 글.
     invisible: usize,
+    page_forms: Vec<ObjectId>,
+    /// 참조 번호 없이 펼친 폼 수(그 폼은 바꿔 쓸 수 없다).
+    unnamed: usize,
+    type3: bool,
     forms: usize,
     /// 지금 펼치고 있는 폼들(자기를 다시 부르면 펼치지 않는다).
     form_stack: Vec<ObjectId>,
@@ -986,6 +1020,7 @@ impl<'a> Reader<'a, '_> {
         let mut font = Font {
             key: std::ptr::from_ref(dict) as usize,
             two,
+            type3: get(dict, b"Subtype").and_then(|o| o.as_name().ok()) == Some(b"Type3"),
             map: HashMap::new(),
             ranges: Vec::new(),
             simple: None,
@@ -1295,6 +1330,11 @@ impl<'a> Reader<'a, '_> {
                             };
                             // 펼칠 때마다 그 내용을 다시 따라가므로 그때마다 뺀다.
                             self.spend(data.len())?;
+                            match id {
+                                Some(i) if !self.page_forms.contains(&i) => self.page_forms.push(i),
+                                Some(_) => {}
+                                None => self.unnamed += 1,
+                            }
                             self.form_stack.extend(id);
                             let r = self.run(&data, &inner, mul(&m, &st.ctm), depth + 1);
                             if id.is_some() {
@@ -1317,6 +1357,7 @@ impl<'a> Reader<'a, '_> {
             return Ok(());
         };
         let step = if font.two { 2 } else { 1 };
+        self.type3 |= font.type3 && !s.is_empty();
         for c in s.chunks(step) {
             let code = code_of(c);
             let w0 = font.width(code);
@@ -1802,6 +1843,7 @@ mod tests {
         let mut f = Font {
             key: 0,
             two: true,
+            type3: false,
             map: HashMap::new(),
             ranges: Vec::new(),
             simple: None,

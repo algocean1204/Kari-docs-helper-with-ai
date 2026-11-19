@@ -94,6 +94,10 @@ fn handle(request: Option<&str>) -> Res {
     if m == "import.apply" && import::as_canvas(&Args(a)) {
         return import::canvas_apply(&Args(a));
     }
+    // 라이브러리를 닫기 전에 돌고 있는 캔버스 가져오기를 멈추고 그 정리(만든 문서와 그림 지우기)를 기다린다.
+    if m == "lib.close" {
+        import::stop_all();
+    }
     let mut state = library::engine();
     if m == "import.apply" {
         return import::apply(&mut state, &Args(a));
@@ -202,6 +206,12 @@ static ALLOC: kari_import::pdf::Capped = kari_import::pdf::Capped;
 #[no_mangle]
 pub extern "C" fn kari_pdf_helper() -> i32 {
     catch_unwind(kari_import::pdf::helper_main).unwrap_or(3)
+}
+
+/// 쪽 그림을 그리는 앱의 기능이 그림을 다 그렸을 때 부른다. 그 뒤로 도우미는 그리기 대신 글자 인식의 시간 상한을 본다.
+#[no_mangle]
+pub extern "C" fn kari_pdf_drawn() {
+    kari_import::pdf::drawn();
 }
 
 /// `kari_pdf_helper`에 쪽 그림을 그리고 글자를 읽는 앱의 기능(`paint`)을 준다. 앱(Swift)은 이것을 부른다.

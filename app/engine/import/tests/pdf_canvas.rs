@@ -254,12 +254,12 @@ fn 글_쪽의_바탕은_글을_보이지_않게_바꾼_pdf로_그린다() {
     assert!(pc::strip(&pdf, 5).is_none());
 
     pdf::set_helper(env!("CARGO_BIN_EXE_kari-import-pdf-helper"));
-    let s = pdf::canvas_shot(&pdf, 0, true, false, pc::SHARP, 1 << 20).unwrap();
+    let s = pdf::canvas_shot(&pdf, 0, true, false, pc::SHARP, 1 << 20, pdf::DRAW_TIME).unwrap();
     assert!(
         s.stripped && s.ocr == Ocr::Off && s.lines.is_empty(),
         "{s:?}"
     );
-    let s = pdf::canvas_shot(&pdf, 0, false, true, pc::OCR_SCALE, 1 << 20).unwrap();
+    let s = pdf::canvas_shot(&pdf, 0, false, true, pc::OCR_SCALE, 1 << 20, pdf::OCR_TIME).unwrap();
     assert!(
         !s.stripped && s.ocr == Ocr::Done && s.lines.len() == 1,
         "{s:?}"
@@ -343,7 +343,15 @@ fn 무작위로_바꾼_pdf_64개도_2초_안에_끝나고_쪽_그림까지_멈�
         let t = Instant::now();
         if let Ok(l) = layout(&b) {
             ok += 1;
-            let _ = pdf::canvas_shot(&b, 0, l.pages[0].mode == Mode::Text, false, 1.0, 1 << 20);
+            let _ = pdf::canvas_shot(
+                &b,
+                0,
+                l.pages[0].mode == Mode::Text,
+                false,
+                1.0,
+                1 << 20,
+                pdf::DRAW_TIME,
+            );
         }
         let took = t.elapsed();
         assert!(
