@@ -1512,7 +1512,12 @@ mod tests {
         let mut rep = Report::default();
         let t = std::time::Instant::now();
         let got = read_with(pdf, &mut rep, 10, MAX_SPANS_TEST, budget);
-        assert!(t.elapsed().as_secs_f32() < 2.0, "{:?}", t.elapsed());
+        // 시간은 최적화 빌드에서만 본다(CI의 디버그 빌드는 몇십 배 느리다). 작업 예산은 늘 본다.
+        assert!(
+            cfg!(debug_assertions) || t.elapsed().as_secs_f32() < 2.0,
+            "{:?}",
+            t.elapsed()
+        );
         if let Ok(p) = &got {
             let n: usize = p
                 .pages
