@@ -271,7 +271,7 @@ void main() {
   });
 
   group('AI로 구조 잡기', () {
-    const key = 'sk-ant-test-0000000000000000';
+    const key = 'test-anthropic-key';
 
     /// Claude 키를 넣은 뒤 [_path]를 고른다. [blocked]면 덩어리가 너무 많은 파일이다.
     Future<Rig> pickWithKey(WidgetTester tester, {String? blocked}) async {
