@@ -255,6 +255,11 @@ enum Got {
 }
 
 impl Ctx<'_, '_> {
+    /// 남은 크기 예산.
+    pub fn left(&self) -> usize {
+        MAX_WEIGHT.saturating_sub(self.spent)
+    }
+
     /// 결과에 무게 `n`을 더한다. 예산을 넘으면 `TOO_BIG`(다 만들기 전에 멈춘다).
     pub fn spend(&mut self, n: usize) -> Result<(), &'static str> {
         self.spent += n;

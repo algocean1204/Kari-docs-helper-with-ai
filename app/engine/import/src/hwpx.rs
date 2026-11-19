@@ -361,6 +361,7 @@ impl Rd<'_, '_, '_, '_> {
         }
         let mut line = Line {
             heading: pp.block.is_some(),
+            left: self.cx.left(),
             ..Line::default()
         };
         let mut tables = false;

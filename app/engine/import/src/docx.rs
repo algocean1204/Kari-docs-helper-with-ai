@@ -93,7 +93,8 @@ fn apply(look: &mut Look, rpr: &El, size: bool) {
 }
 
 /// 같은 모양의 글을 이어 붙이며 문단 하나를 만든다. 문단 상한(`PARA_CHARS`, `PARA_RUNS`)에 닿으면 끊어 `done`에
-/// 쌓고 이어지는 글로 다음 문단을 시작한다.
+/// 쌓고 이어지는 글로 다음 문단을 시작한다. 만든 무게가 `left`(남은 크기 예산)를 넘으면 더 받지 않는다(내보낼 때
+/// 예산에서 거절된다).
 #[derive(Default)]
 pub(crate) struct Line {
     pub runs: Vec<(String, Look, Option<String>, Option<Value>)>,
@@ -103,6 +104,9 @@ pub(crate) struct Line {
     pub done: Vec<Vec<Value>>,
     /// 문서에 넣을 수 없어 지운 글자 수(탭과 줄바꿈 밖의 제어 문자, 개체 자리 U+FFFC).
     pub dropped: usize,
+    pub left: usize,
+    /// 첫 문단 말고 만든 무게(run 1, 끊어 쌓은 문단 4).
+    pub cost: usize,
 }
 
 impl Line {
@@ -110,7 +114,12 @@ impl Line {
         if self.chars >= PARA_CHARS || self.runs.len() >= PARA_RUNS {
             let runs = self.take();
             self.done.push(runs);
+            self.cost += 4;
         }
+    }
+
+    fn full(&self) -> bool {
+        4 + self.cost > self.left
     }
 
     pub fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
@@ -119,7 +128,7 @@ impl Line {
         self.dropped += t.chars().filter(|c| !keep(c)).count();
         let t: String = t.chars().filter(keep).collect();
         let mut rest = t.as_str();
-        while !rest.is_empty() {
+        while !rest.is_empty() && !self.full() {
             self.room();
             let cut = rest
                 .char_indices()
@@ -129,19 +138,26 @@ impl Line {
             self.chars += head.chars().count();
             match self.runs.last_mut() {
                 Some((s, l, k, None)) if l == look && k.as_deref() == link => s.push_str(head),
-                _ => self.runs.push((
-                    head.to_string(),
-                    look.clone(),
-                    link.map(str::to_string),
-                    None,
-                )),
+                _ => {
+                    self.cost += 1;
+                    self.runs.push((
+                        head.to_string(),
+                        look.clone(),
+                        link.map(str::to_string),
+                        None,
+                    ))
+                }
             }
             rest = tail;
         }
     }
 
     pub fn obj(&mut self, o: Value) {
+        if self.full() {
+            return;
+        }
         self.room();
+        self.cost += 1;
         self.chars += 1;
         self.runs
             .push(("\u{FFFC}".into(), Look::default(), None, Some(o)));
@@ -309,6 +325,7 @@ impl Rd<'_, '_, '_, '_> {
         let base = self.style_look(sid);
         let mut line = Line {
             heading: block.is_some(),
+            left: self.cx.left(),
             ..Line::default()
         };
         self.inline(p, &base, None, &mut line);

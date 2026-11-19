@@ -177,7 +177,7 @@ fn sample(name: &str) -> (Vec<u8>, &'static str, Want) {
             .into_iter()
             .find(|e| *e == kind)
             .unwrap();
-        // 크기 예산 끝(그 안)과 조금 넘은 것, 그리고 고치기 전 상한(문단 5만 개) 안에서 만들 수 있던 큰 것.
+        // 크기 예산 끝(그 안)과 조금 넘은 것, 그리고 예산이 없으면 적용에 1GB 안팎을 쓰던 큰 것.
         let ((p, t, l, r), want) = match shape {
             "paras" => ((4800, 0, 0, 0), FITS),
             "paras+" => ((4801, 0, 0, 0), BIG),
@@ -188,6 +188,9 @@ fn sample(name: &str) -> (Vec<u8>, &'static str, Want) {
             "paras50k" => ((50_000, 0, 0, 0), BIG),
             "tables49" => ((0, 49, 0, 0), BIG),
             "runs100k" => ((0, 0, 100, 1000), BIG),
+            // 문단 하나에 글 조각 30만 개(HTML은 태그 수 상한 안의 10만 개). 문단을 다 모으기 전에 멈춰야 한다.
+            "onepara" if ext == "html" => ((0, 0, 1, 100_000), BIG),
+            "onepara" => ((0, 0, 1, 300_000), BIG),
             _ => unreachable!(),
         };
         return (office(ext, p, t, l, r), ext, want);
@@ -197,7 +200,7 @@ fn sample(name: &str) -> (Vec<u8>, &'static str, Want) {
         "bullets24" => pdf(shared(24, &bullets_page()), FITS),
         "spans12" => pdf(shared(12, &spans_page(50, 40)), FITS),
         "grid2" => pdf(shared(1, &grid_page(2, true)), FITS),
-        // 예산 밖(검토가 잰 견본의 꼴): 고치기 전 적용 RSS 2.3GB(grid3), 1.7GB(spans100).
+        // 예산 밖(측정한 견본의 꼴): 고치기 전 적용 RSS 2.3GB(grid3), 1.7GB(spans100).
         "bullets25" => pdf(shared(25, &bullets_page()), PDF_BIG),
         "grid1" => pdf(shared(1, &grid_page(27, false)), PDF_BIG),
         "grid3" => pdf(shared(3, &grid_page(27, false)), PDF_BIG),
@@ -319,7 +322,8 @@ fn 크기_예산_끝까지의_docx_hwpx_html은_2초_512mb_안에_넣고_넘으�
         return run_child(&name);
     }
     let shapes = [
-        "paras", "paras+", "tables", "tables+", "runs", "runs+", "paras50k", "tables49", "runs100k",
+        "paras", "paras+", "tables", "tables+", "runs", "runs+", "paras50k", "tables49",
+        "runs100k", "onepara",
     ];
     let names: Vec<String> = ["docx", "hwpx", "html"]
         .iter()
