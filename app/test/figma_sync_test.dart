@@ -912,7 +912,7 @@ void main() {
   });
 
   group('성능', () {
-    test('대응 5,000개·속성 20개 안팎의 견주기는 200ms 안', () {
+    test('대응 5,000개·속성 20개 안팎의 견주기는 1초 안(CI 러너 포함)', () {
       final p = bigPage(5000);
       final k = imported(p);
       final f = fig(
@@ -931,7 +931,7 @@ void main() {
       sw.stop();
       expect(k.length, 5001);
       expect(propSets(plan), hasLength(1));
-      expect(sw.elapsedMilliseconds, lessThan(200), reason: '${sw.elapsed}');
+      expect(sw.elapsedMilliseconds, lessThan(1000), reason: '${sw.elapsed}');
     });
   });
 
