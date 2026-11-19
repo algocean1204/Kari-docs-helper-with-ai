@@ -291,6 +291,18 @@ void main() {
       // 레이어 패널의 줄(수만 노드에서 수십 ms)은 캔버스 입력 앞에 서지 않게 느린 줄로.
       expect(slow('canvas.layers'), isTrue);
       expect(slow('canvas.cmd'), isFalse);
+      // 가져오기의 AI 구조 잡기는 모델을 기다리므로 느린 줄로, 그 멈추기는 기본 줄로(기다림 뒤에 서지 않게).
+      expect(slow('import.aiPlan'), isTrue);
+      expect(slow('import.aiRun'), isTrue);
+      expect(slow('import.cancel'), isFalse);
+      // PDF를 캔버스로 가져오기는 쪽마다 그리고 글자를 읽어 느린 줄로, 그 진행 묻기는 기본 줄로. 글 문서로는 그대로다.
+      String apply(Object? as) => jsonEncode({
+        'm': 'import.apply',
+        'a': {'path': '/a.pdf', 'as': ?as},
+      });
+      expect(slowLane(apply('canvas')), isTrue);
+      expect(slowLane(apply(null)), isFalse);
+      expect(slow('import.progress'), isFalse);
       for (final m in [
         'iv.start',
         'iv.answer',

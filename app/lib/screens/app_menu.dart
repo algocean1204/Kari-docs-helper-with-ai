@@ -132,9 +132,13 @@ class CanvasMenu {
     required this.openImage,
     this.layersOpen = false,
     this.toggleLayers,
+    this.figmaSync,
   });
 
   final CanvasSession session;
+
+  /// Figma와 다시 맞추기. Figma에서 가져온 요소가 없는 문서면 null(꺼짐).
+  final VoidCallback? figmaSync;
 
   /// 레이어 패널이 열려 있는지와 여닫기.
   final bool layersOpen;
@@ -553,6 +557,10 @@ List<MenuEntry> canvasMenus({
       ),
       MenuEntry('가져오기…', run: nav(app.importDoc)),
       MenuEntry('Figma에서 가져오기…', run: nav(app.figmaImport)),
+      MenuEntry(
+        'Figma와 다시 맞추기…',
+        run: canvas.figmaSync == null ? null : on(canvas.figmaSync!),
+      ),
       MenuEntry('홈으로', run: nav(app.home)),
       MenuEntry.divider,
       MenuEntry(

@@ -64,8 +64,37 @@ class FakeEngine extends EngineApi {
   /// `import.preview`가 돌려줄 파일 해시(경로 → 해시, 없으면 `h0`). 미리 본 뒤 파일이 바뀐 것은 이 값을 바꿔 흉내 낸다. 시험용.
   final Map<String, String> importHashes = {};
 
+  /// 받은 `import.preview`의 표(`ticket`)와 `import.cancel`의 표(받은 순서). 시험용.
+  final List<int?> importTickets = [];
+  final List<int> importCancels = [];
+
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
+
+  /// `as: canvas`인 `import.preview`가 돌려줄 요약(경로 → 요약). 없는 경로는 읽지 못한 파일로 답한다. 시험용.
+  final Map<String, Json> canvasImports = {};
+
+  /// `import.progress`가 돌려줄 진행(표 → {done, total}). 없는 표는 [progressAny]. 시험용.
+  final Map<int, Json> progress = {};
+  Json? progressAny;
+
+  /// `import.aiPlan`이 보일 덩어리(가린 글)와 `import.aiRun`이 돌려줄 답. 받은 `import.aiRun`의 인자(받은 순서). 시험용.
+  List<Json> aiChunks = [
+    {'id': 0, 'text': '홍길동', 'hint': 'h1'},
+    {'id': 1, 'text': '연락처 〔연락처1〕', 'hint': ''},
+  ];
+  Json aiReply = {
+    'structure': {'blocks': []},
+    'paras': 1,
+    'tables': 0,
+    'images': 0,
+    'chars': 9,
+    'headings': [
+      {'level': 1, 'text': '홍길동'},
+    ],
+    'requests': 1,
+  };
+  final List<Json> aiRuns = [];
 
   /// 넣어 두면 다음 `edit.cmd` 하나를 이 사유로 거절한다. 시험용.
   String? refuse;
@@ -182,6 +211,7 @@ class FakeEngine extends EngineApi {
         }
         return {'id': id};
       case 'import.preview':
+        importTickets.add(a['ticket'] as int?);
         // 진짜 엔진처럼 옛 한글(HWP)과 옛 Word(.doc) 파일은 안내만 한다.
         if ((a['path'] as String).endsWith('.hwp')) {
           throw const EngineError(
@@ -196,12 +226,39 @@ class FakeEngine extends EngineApi {
           );
         }
         final shown =
-            imports[a['path']] ??
+            (a['as'] == 'canvas'
+                ? canvasImports[a['path']]
+                : imports[a['path']]) ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
+      case 'import.progress':
+        return progress[a['ticket']] ?? progressAny;
+      case 'import.aiPlan':
+        final t = ai.task('structure');
+        if (t['hasKey'] != true) {
+          throw const EngineError(
+            'no_key',
+            '구조 잡기에 고른 AI의 키가 없습니다. 설정의 AI 연결에서 키를 넣거나 이 일의 모델을 바꿉니다.',
+          );
+        }
+        return {
+          'provider': t['provider'],
+          'vendor': t['provider'] == 'openai' ? 'OpenAI' : 'Anthropic',
+          'plan': false,
+          'model': t['model'],
+          'modelName': t['modelName'],
+          'chunks': aiChunks,
+        };
+      case 'import.aiRun':
+        aiRuns.add(a);
+        return aiReply;
+      case 'import.cancel':
+        importCancels.add(a['ticket'] as int);
+        return null;
       case 'import.apply':
+        final canvas = a['as'] == 'canvas';
         final p =
-            imports[a['path']] ??
+            (canvas ? canvasImports[a['path']] : imports[a['path']]) ??
             importAny ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         importCalls.add(a);
@@ -209,8 +266,9 @@ class FakeEngine extends EngineApi {
             a['hash'] != (importHashes[a['path']] ?? 'h0')) {
           throw const EngineError('import_changed', '파일이 바뀌었습니다. 다시 미리 봅니다.');
         }
-        final id = _add('flow', _name(a), _initial('flow'), null);
-        return {'id': id, 'lost': p['lost'] ?? const []};
+        final kind = canvas ? 'canvas' : 'flow';
+        final id = _add(kind, _name(a), _initial(kind), null);
+        return {'id': id, 'lost': p['applied'] ?? p['lost'] ?? const []};
       case 'docs.rename':
         final d = doc();
         final name = _name(a);
@@ -263,14 +321,27 @@ class FakeEngine extends EngineApi {
       case 'doc.nodes':
         return doc()['nodes'];
       case 'doc.commit':
-        // 흉내: 더하기와 지우기만 한 묶음으로 받는다(값 검사는 하지 않는다).
+        // 흉내: 더하기, 속성 바꾸기(null은 지움), 옮기기, 지우기를 한 묶음으로 받는다(값 검사는 하지 않는다).
         final d = doc();
         final nodes = d['nodes'] as List;
+        Map find(Object? id) => nodes.firstWhere(
+          (n) => (n as Map)['id'] == id,
+          orElse: () => throw EngineError('op', '없는 노드입니다: $id'),
+        );
         for (final op in a['ops'] as List) {
           final o = op as Map;
           if (o['op'] == 'add') {
             final node = (o['node'] as Map).cast<String, Object?>();
             nodes.add({'z': 'a0', 'props': <String, Object?>{}, ...node});
+          } else if (o['op'] == 'set') {
+            final props = find(o['id'])['props'] as Map;
+            for (final e in (o['props'] as Map).entries) {
+              e.value == null
+                  ? props.remove(e.key)
+                  : props[e.key] = jsonDecode(jsonEncode(e.value));
+            }
+          } else if (o['op'] == 'move') {
+            find(o['id'])['parent'] = o['parent'];
           } else if (o['op'] == 'del') {
             final gone = {o['id']};
             for (var grew = true; grew;) {

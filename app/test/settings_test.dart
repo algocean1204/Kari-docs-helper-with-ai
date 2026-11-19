@@ -38,7 +38,7 @@ Finder get findField => find.byType(TextField).first;
 /// 구역마다 그 구역에만 있는 항목 이름.
 const marks = {
   SettingsArea.ai: 'ChatGPT 플랜',
-  SettingsArea.models: '면접에 쓰는 모델',
+  SettingsArea.models: '일마다 쓰는 모델',
   SettingsArea.interview: '시선 기록',
   SettingsArea.doc: '입력하면서 자동 서식',
   SettingsArea.figma: 'Figma 데스크톱 앱',

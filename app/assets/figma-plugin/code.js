@@ -338,6 +338,8 @@ async function getDocumentInfo() {
   return {
     name: page.name,
     id: page.id,
+    // Kari: the file key (when Figma gives it to this plugin), so a canvas imported from one file is not synced with another.
+    fileKey: typeof figma.fileKey === "string" ? figma.fileKey : null,
     type: page.type,
     children: page.children.map((node) => ({
       id: node.id,

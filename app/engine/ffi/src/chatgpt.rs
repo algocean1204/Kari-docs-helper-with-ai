@@ -57,17 +57,21 @@ fn auth() -> Result<Auth, AiError> {
 }
 
 #[cfg(feature = "test-hooks")]
-fn api() -> Result<OpenAi, AiError> {
+fn api(retry: bool) -> Result<OpenAi, AiError> {
     let base = crate::ai::test_base()
         .ok_or_else(|| AiError::SignIn("시험 빌드에서는 ai.testBase를 먼저 부릅니다.".into()))?;
     let mut a = OpenAi::with_base_url(&base).plan();
-    a.retry_delays = vec![Duration::from_millis(1); 2];
+    a.retry_delays = vec![Duration::from_millis(1); if retry { 2 } else { 0 }];
     Ok(a)
 }
 
 #[cfg(not(feature = "test-hooks"))]
-fn api() -> Result<OpenAi, AiError> {
-    Ok(OpenAi::new().plan())
+fn api(retry: bool) -> Result<OpenAi, AiError> {
+    let mut a = OpenAi::new().plan();
+    if !retry {
+        a.retry_delays.clear();
+    }
+    Ok(a)
 }
 
 /// 설정의 기록. 없으면 빈 객체.
@@ -202,21 +206,32 @@ fn token(force: bool) -> Result<String, AiError> {
 
 /// ChatGPT 플랜으로 부르는 어댑터. 키 자리의 값은 쓰지 않고, 부를 때마다 보안 저장소의 접근 토큰을 쓴다.
 /// 401이면 한 번 갱신하고 다시 부른다. 그래도 401이면 다시 로그인해야 한다(자격은 지우지 않는다).
+/// 다시 보내지 않는 어댑터(`retry` 거짓)는 401에 토큰만 갱신하고 `Unauthorized`를 돌려준다(다시 보낼지는 부르는 쪽이 센다).
 /// 코드 없는 403은 입장 단계의 정책·권한 확인(지역 등)이라 키의 권한 문제(`forbidden`)가 아닌 플랜 오류로 돌려준다.
 #[derive(Debug)]
-pub(crate) struct Plan(OpenAi);
+pub(crate) struct Plan {
+    api: OpenAi,
+    resend: bool,
+}
 
 impl Plan {
-    pub(crate) fn new() -> Result<Plan, Fail> {
-        api().map(Plan).map_err(|e| ai_fail(e, &[]))
+    /// `retry`가 거짓이면 어댑터가 스스로 다시 보내지 않는다.
+    pub(crate) fn with(retry: bool) -> Result<Plan, Fail> {
+        api(retry)
+            .map(|api| Plan { api, resend: retry })
+            .map_err(|e| ai_fail(e, &[]))
     }
 
     fn call<T>(
         &self,
         mut f: impl FnMut(&OpenAi, &str) -> Result<T, AiError>,
     ) -> Result<T, AiError> {
-        let r = match f(&self.0, &token(false)?) {
-            Err(AiError::Unauthorized) => match f(&self.0, &token(true)?) {
+        let r = match f(&self.api, &token(false)?) {
+            Err(AiError::Unauthorized) if !self.resend => {
+                token(true)?;
+                Err(AiError::Unauthorized)
+            }
+            Err(AiError::Unauthorized) => match f(&self.api, &token(true)?) {
                 Err(AiError::Unauthorized) => Err(AiError::SignedOut),
                 r => r,
             },
@@ -408,7 +423,7 @@ pub(crate) fn dispatch(m: &str, a: &Args) -> Res {
                     .map_err(|e| ai_fail(e, &tokens))?;
             }
             // 모델 목록을 받지 못해도 연결은 한다(목록이 없으면 코드의 기본 판을 쓴다).
-            let models: Vec<Value> = api()
+            let models: Vec<Value> = api(true)
                 .and_then(|api| api.models(&c.access_token))
                 .map(|l| l.iter().map(model_json).collect())
                 .unwrap_or_default();

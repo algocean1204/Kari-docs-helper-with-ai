@@ -14,7 +14,7 @@ use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
 use crate::xml::{self, El};
 use crate::zip::Zip;
-use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
+use crate::{hex_color, link, weight, Ctx, Look};
 
 const NOT_DOCX: &str = "Word 문서(DOCX)를 읽지 못했습니다.";
 /// 표의 최대 행·열(붙여넣기와 같다). 넘으면 글로 풀어 쓴다.
@@ -57,7 +57,6 @@ struct Rd<'z, 'c, 'a, 's> {
     nums: HashMap<String, Levels>,
     /// 시작 번호를 이미 적은 (numId, 단계).
     started: HashSet<(String, u8)>,
-    paras: usize,
 }
 
 /// 켜고 끄는 속성(`<w:b/>`, `<w:b w:val="0"/>`).
@@ -94,7 +93,8 @@ fn apply(look: &mut Look, rpr: &El, size: bool) {
 }
 
 /// 같은 모양의 글을 이어 붙이며 문단 하나를 만든다. 문단 상한(`PARA_CHARS`, `PARA_RUNS`)에 닿으면 끊어 `done`에
-/// 쌓고 이어지는 글로 다음 문단을 시작한다.
+/// 쌓고 이어지는 글로 다음 문단을 시작한다. 만든 무게가 `left`(남은 크기 예산)를 넘으면 더 받지 않는다(내보낼 때
+/// 예산에서 거절된다).
 #[derive(Default)]
 pub(crate) struct Line {
     pub runs: Vec<(String, Look, Option<String>, Option<Value>)>,
@@ -104,6 +104,9 @@ pub(crate) struct Line {
     pub done: Vec<Vec<Value>>,
     /// 문서에 넣을 수 없어 지운 글자 수(탭과 줄바꿈 밖의 제어 문자, 개체 자리 U+FFFC).
     pub dropped: usize,
+    pub left: usize,
+    /// 첫 문단 말고 만든 무게(run 1, 끊어 쌓은 문단 4).
+    pub cost: usize,
 }
 
 impl Line {
@@ -111,7 +114,12 @@ impl Line {
         if self.chars >= PARA_CHARS || self.runs.len() >= PARA_RUNS {
             let runs = self.take();
             self.done.push(runs);
+            self.cost += 4;
         }
+    }
+
+    fn full(&self) -> bool {
+        4 + self.cost > self.left
     }
 
     pub fn text(&mut self, t: &str, look: &Look, link: Option<&str>) {
@@ -120,7 +128,7 @@ impl Line {
         self.dropped += t.chars().filter(|c| !keep(c)).count();
         let t: String = t.chars().filter(keep).collect();
         let mut rest = t.as_str();
-        while !rest.is_empty() {
+        while !rest.is_empty() && !self.full() {
             self.room();
             let cut = rest
                 .char_indices()
@@ -130,19 +138,26 @@ impl Line {
             self.chars += head.chars().count();
             match self.runs.last_mut() {
                 Some((s, l, k, None)) if l == look && k.as_deref() == link => s.push_str(head),
-                _ => self.runs.push((
-                    head.to_string(),
-                    look.clone(),
-                    link.map(str::to_string),
-                    None,
-                )),
+                _ => {
+                    self.cost += 1;
+                    self.runs.push((
+                        head.to_string(),
+                        look.clone(),
+                        link.map(str::to_string),
+                        None,
+                    ))
+                }
             }
             rest = tail;
         }
     }
 
     pub fn obj(&mut self, o: Value) {
+        if self.full() {
+            return;
+        }
         self.room();
+        self.cost += 1;
         self.chars += 1;
         self.runs
             .push(("\u{FFFC}".into(), Look::default(), None, Some(o)));
@@ -234,14 +249,6 @@ impl Rd<'_, '_, '_, '_> {
         Some(parts.join("/"))
     }
 
-    fn spend(&mut self) -> Result<(), &'static str> {
-        self.paras += 1;
-        if self.paras > MAX_PARAS {
-            return Err(TOO_MANY_PARAS);
-        }
-        Ok(())
-    }
-
     /// 덩이들(문단과 표). `in_cell`이면 표는 글로 풀어 쓴다(표 안의 표를 넣지 않는다).
     fn blocks(
         &mut self,
@@ -258,12 +265,14 @@ impl Rd<'_, '_, '_, '_> {
                 }
                 "w:tbl" => match self.table(e)? {
                     Some(t) => {
-                        self.spend()?;
-                        out.push(FragPara {
+                        let p = FragPara {
                             runs: Vec::new(),
                             props: Map::new(),
                             table: Some(t),
-                        });
+                        };
+                        // 칸 안의 문단은 칸을 읽을 때 셌다.
+                        self.cx.spend(4 + 4 * crate::cells(&p))?;
+                        out.push(p);
                     }
                     None => {
                         self.cx.rep.big += 1;
@@ -316,6 +325,7 @@ impl Rd<'_, '_, '_, '_> {
         let base = self.style_look(sid);
         let mut line = Line {
             heading: block.is_some(),
+            left: self.cx.left(),
             ..Line::default()
         };
         self.inline(p, &base, None, &mut line);
@@ -327,7 +337,7 @@ impl Rd<'_, '_, '_, '_> {
         }
         pieces.push(last);
         for runs in pieces {
-            self.spend()?;
+            self.cx.spend(4 + runs.len())?;
             out.push(FragPara {
                 runs,
                 props: props.clone(),
@@ -523,7 +533,6 @@ impl Rd<'_, '_, '_, '_> {
     /// 표를 글로 풀어 쓴다: 행마다 문단 하나, 칸은 탭으로 나눈다.
     fn flat(&mut self, t: &El, out: &mut Vec<FragPara>) -> Result<(), &'static str> {
         for tr in t.els().filter(|e| e.name == "w:tr") {
-            self.spend()?;
             let (mut text, mut left) = (String::new(), PARA_CHARS);
             for (i, tc) in cells(tr).enumerate() {
                 if i > 0 {
@@ -531,7 +540,7 @@ impl Rd<'_, '_, '_, '_> {
                 }
                 tc.gather("w:p", "w:t", &mut text, &mut left, &mut self.cx.rep.dropped);
             }
-            out.push(FragPara {
+            let p = FragPara {
                 runs: if text.is_empty() {
                     Vec::new()
                 } else {
@@ -539,7 +548,9 @@ impl Rd<'_, '_, '_, '_> {
                 },
                 props: Map::new(),
                 table: None,
-            });
+            };
+            self.cx.spend(weight(&p))?;
+            out.push(p);
         }
         Ok(())
     }
@@ -859,7 +870,6 @@ pub(crate) fn read(z: &Zip, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str>
         nums: read_numbering(z)?,
         started: HashSet::new(),
         cx,
-        paras: 0,
     };
     let mut out = Vec::new();
     rd.blocks(body, &mut out, false)?;

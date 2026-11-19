@@ -1,0 +1,1092 @@
+//! PDF 읽기를 따로 된 프로세스(도우미)에서 한다. 파일 해석부터 문단·표·run을 만드는 일까지 도우미가 하고, 부모는
+//! 크기 예산을 다시 확인한 결과만 받는다. 읽기 전 셈(`pdftext::count`)이 파서와 어긋나는 입력이 나와도 앱의 메모리와
+//! 시간을 지키려고 두 겹으로 막는다:
+//! 1. 도우미 안: 전역 할당자(`Capped`)가 힙이 상한을 넘는 할당에서, 그리고 4MB를 할당할 때마다 자기 최대 RSS를 보아
+//!    상한을 넘었으면 곧바로 끝낸다(`EXIT_TOO_BIG`). 일정에 기대지 않아 바쁜 기기에서도 넘침이 4MB 안이다.
+//! 2. 부모: 도우미의 메모리(phys footprint)와 걸린 시간을 지켜보다 넘으면 끝낸다(SIGKILL).
+//!
+//! 도우미는 앱의 실행 파일 자신이다(`<실행 파일> --kari-pdf-helper`). 앱은 창을 열기 전에 이 인자를 보고 `kari_pdf_helper`만
+//! 부르고 끝난다. 같은 서명·같은 샌드박스라 새로 서명할 실행 파일이 없다. 시험은 `set_helper`로 시험용 실행 파일을 준다.
+//!
+//! 주고받기: 표준 입력으로 본문 상자(f64 둘)와 PDF 바이트, 표준 출력으로 결과 JSON. 부모는 받은 것을 믿지 않고 꼴과
+//! 크기(쪽 수, 문단·칸·run의 무게, 글자 수, 옮기지 못한 것의 줄)를 다시 확인한다.
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+use std::collections::{HashMap, VecDeque};
+use std::io::{Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
+use std::sync::atomic::{
+    AtomicBool, AtomicIsize, AtomicU64, AtomicUsize, Ordering::Relaxed, Ordering::SeqCst,
+};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use kari_doc::serde_json::{self, json, Map, Value};
+use kari_edit::{FragCell, FragPara, FragRow, FragTable};
+
+use crate::pdf::{
+    weight, BROKEN, CANCELLED, LOCKED, MAX_PAGES, MAX_WEIGHT, NO_HELPER, NO_TEXT, TOO_BIG,
+    TOO_MANY_PAGES, TOO_MANY_SPANS, TOO_SLOW, UNMAPPED,
+};
+use crate::{Ctx, Report, EMPTY, MAX_FILE};
+
+/// 도우미로 띄울 때 주는 인자.
+pub const ARG: &str = "--kari-pdf-helper";
+/// 도우미 안 힙의 상한. 넘는 할당에서 도우미가 곧바로 끝난다. 할당자가 풀어 둔 채 쥐고 있는 몫과 코드·스택을 넣어도
+/// footprint가 512MB 안에 들게 둔다.
+const MAX_HEAP: isize = 256 << 20;
+/// 도우미 안에서 보는 자기 최대 RSS의 상한. 할당자가 풀어 둔 채 쥐고 있는 몫까지 든다.
+const MAX_RSS: u64 = 448 << 20;
+/// 이만큼 할당할 때마다 최대 RSS를 본다.
+const RSS_EVERY: usize = 4 << 20;
+/// 부모가 지켜보는 도우미 메모리(phys footprint)의 상한. 힙 상한 밖의 몫(코드, 스택)을 넣어 둔 둘째 방어다.
+pub const MAX_MEMORY: u64 = 448 << 20;
+/// 도우미에 주는 시간(띄우기부터). 끝내고 거두는 시간까지 2초 안에 들게 조금 낮게 둔다. 디버그 빌드(최적화 없음)는
+/// 몇 배 느려 시간 상한이 다른 상한보다 먼저 걸리므로 늘려 둔다(배포·개발 앱은 최적화 빌드라 1.75초).
+pub const MAX_TIME: Duration =
+    Duration::from_millis(if cfg!(debug_assertions) { 16_000 } else { 1750 });
+/// 도우미 결과(JSON)의 크기 상한. 크기 예산(`MAX_WEIGHT`)과 글자 수 상한 안의 결과는 이보다 작다.
+const MAX_OUT: usize = 16 << 20;
+/// 문서 전체의 글자 수 상한(읽을 때의 상한과 같다).
+pub(crate) const MAX_CHARS: usize = 2_000_000;
+/// 옮기지 못한 것의 줄 수와 한 줄의 글자 수 상한.
+const MAX_LOST: usize = 64;
+const LOST_CHARS: usize = 512;
+/// 메모리·시간·멈추기를 보는 틈. 도우미가 끝나거나 결과를 다 쓰면 기다리지 않고 바로 깬다.
+const POLL: Duration = Duration::from_millis(10);
+/// 부모가 먼저 죽어 지켜보는 쪽이 없을 때도 끝나게 도우미 스스로 거는 CPU 시간 상한(초).
+const CPU_SECONDS: u64 = if cfg!(debug_assertions) { 32 } else { 4 };
+/// 도우미의 끝 코드: 힙 상한에 닿음, 앱이 엔진 라이브러리를 열지 못함(Swift `pdfHelper`).
+const EXIT_TOO_BIG: i32 = 86;
+const EXIT_NO_ENGINE: i32 = 2;
+/// 쪽 그림을 그리는 앱의 기능이 없음(엔진 시험의 도우미가 아닌데 화가를 받지 못함).
+const EXIT_NO_PAINT: i32 = 4;
+/// 도우미가 시간 상한에 닿음(도우미 안의 감시 스레드), 부모가 사라짐.
+const EXIT_SLOW: i32 = 87;
+const EXIT_ORPHAN: i32 = 88;
+/// 쪽 그림을 다 그리기 전에 그리기 시간 상한에 닿음.
+const EXIT_DRAW_SLOW: i32 = 89;
+/// 화가가 쪽 그림을 다 그렸다(`drawn`). 그 뒤로는 글자 인식의 시간 상한만 본다.
+static DRAWN: AtomicBool = AtomicBool::new(false);
+
+/// 화가가 쪽 그림을 다 그리고 부른다(앱의 Swift는 `kari_pdf_drawn`으로).
+pub fn drawn() {
+    DRAWN.store(true, SeqCst);
+}
+/// 쪽 하나를 그리는(글자를 읽는) 도우미의 메모리 상한. CoreGraphics와 Vision의 메모리는 Rust 할당자가 세지 못하므로
+/// 도우미 안의 감시 스레드가 자기 phys footprint를 보고(`PAGE_WATCH`), 부모가 이 값으로 한 번 더 본다. 쪽 그림 한 장
+/// (4,000×4,000 화소)과 글자 인식(300dpi A4에서 약 320MB)이 들어간다.
+pub const PAGE_MEMORY: u64 = 512 << 20;
+/// 도우미 안에서 끝내는 문턱: 감시 사이에 한 번에 잡는 그림 한 장(64MB)이 들어와도 `PAGE_MEMORY` 안에 든다.
+const PAGE_WATCH: u64 = 448 << 20;
+/// 쪽 하나의 시간 상한: 그리기만, 글자 인식까지(인식 모델을 다시 싣는 첫 쪽이 14초까지 걸린다). 디버그 빌드(엔진 시험)는
+/// 글 지우기가 몇 배 느려 그리기 상한을 늘려 둔다.
+pub const DRAW_TIME: Duration = Duration::from_millis(if cfg!(debug_assertions) {
+    15_000
+} else {
+    3_000
+});
+pub const OCR_TIME: Duration = Duration::from_secs(20);
+/// 캔버스로 가져오기 하나의 시간 상한(읽기부터 모든 쪽까지).
+pub const IMPORT_TIME: Duration = Duration::from_secs(120);
+/// 도우미 안의 감시 틈.
+const WATCH_EVERY: Duration = Duration::from_millis(2);
+const PAGE_CPU: u64 = 60;
+/// 쪽 그림을 받는 화가(앱의 Swift): (PDF, 길이, 쪽 번호(1부터), 배율(1pt당 화소), 그림 바이트 상한, 표시
+/// (1 글자 인식, 2 JPEG, 4 한국어 인식 여부만 묻기), 결과 길이) → malloc한 결과(`pdfcanvas::decode_shot`의 머리 JSON
+/// 길이·머리·그림). 그리지 못하면 null.
+pub type Paint =
+    unsafe extern "C" fn(*const u8, usize, u32, f64, usize, u32, *mut usize) -> *mut u8;
+static PAINT: OnceLock<Paint> = OnceLock::new();
+/// 도우미 안에서 보는 자기 최대 RSS의 상한(일마다 정한다).
+static RSS_CAP: AtomicU64 = AtomicU64::new(MAX_RSS);
+
+static HELPER: OnceLock<PathBuf> = OnceLock::new();
+/// 마지막 읽기에서 잰 도우미의 최대 메모리(바이트). 시험과 기록용.
+static LAST_PEAK: AtomicU64 = AtomicU64::new(0);
+/// 멈추라고 한 읽기의 표(최근 것만).
+static CANCELLED_TICKETS: Mutex<VecDeque<u64>> = Mutex::new(VecDeque::new());
+
+thread_local! {
+    /// 이 스레드에서 지금 하는 읽기의 표. 표가 없는 읽기(적용)는 멈추기로 끝나지 않는다.
+    static TICKET: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+/// 도우미 실행 파일을 정한다(시험용). 주지 않으면 지금 실행 파일(앱)을 쓴다. 처음 준 것만 쓴다.
+pub fn set_helper(path: impl Into<PathBuf>) {
+    let _ = HELPER.set(path.into());
+}
+
+/// `f` 안의 PDF 읽기에 표 `ticket`을 단다. `cancel(ticket)`이 그 읽기만 멈춘다.
+pub fn with_ticket<T>(ticket: Option<u64>, f: impl FnOnce() -> T) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TICKET.set(None);
+        }
+    }
+    TICKET.set(ticket);
+    let _reset = Reset;
+    f()
+}
+
+/// 표 `ticket`의 읽기를 멈춘다. 돌고 있으면 도우미를 끝내고, 아직 시작하지 않았으면 시작하자마자 멈춘다.
+pub fn cancel(ticket: u64) {
+    let mut q = CANCELLED_TICKETS.lock().unwrap_or_else(|p| p.into_inner());
+    q.push_back(ticket);
+    while q.len() > 64 {
+        q.pop_front();
+    }
+}
+
+fn cancelled(ticket: Option<u64>) -> bool {
+    ticket.is_some_and(|t| {
+        CANCELLED_TICKETS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&t)
+    })
+}
+
+fn forget(ticket: Option<u64>) {
+    if let Some(t) = ticket {
+        CANCELLED_TICKETS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|x| *x != t);
+    }
+}
+
+/// 마지막 읽기에서 잰 도우미의 최대 메모리(바이트). 끝이 빨라 재기 전에 끝났으면 0.
+pub fn last_peak() -> u64 {
+    LAST_PEAK.load(SeqCst)
+}
+
+/// 도우미 프로세스의 전역 할당자. 도우미로 돌 때(`helper_main`)만 힙을 세고, 상한을 넘는 할당에서 곧바로 끝난다.
+/// 그 밖에는 시스템 할당자에 그대로 넘긴다. 앱의 엔진 라이브러리와 시험용 도우미가 전역 할당자로 둔다.
+pub struct Capped;
+
+static ARMED: AtomicBool = AtomicBool::new(false);
+/// 켠 뒤의 힙(바이트). 켜기 전에 잡은 것을 풀면 음수가 될 수 있다.
+static HEAP: AtomicIsize = AtomicIsize::new(0);
+/// 켠 뒤 할당한 바이트의 합(푼 것을 빼지 않는다).
+static VOLUME: AtomicUsize = AtomicUsize::new(0);
+
+fn grow(n: usize) {
+    let over = HEAP.fetch_add(n as isize, Relaxed) + n as isize > MAX_HEAP;
+    let before = VOLUME.fetch_add(n, Relaxed);
+    if over || ((before + n) / RSS_EVERY != before / RSS_EVERY && max_rss() > RSS_CAP.load(Relaxed))
+    {
+        // SAFETY: _exit는 아무것도 잡거나 풀지 않고 프로세스를 끝낸다(할당자 안에서 불러도 된다).
+        unsafe { libc::_exit(EXIT_TOO_BIG) };
+    }
+}
+
+/// 이 프로세스의 최대 RSS(바이트). 할당하지 않는 시스템 호출 하나다.
+fn max_rss() -> u64 {
+    // SAFETY: rusage는 정수 칸뿐이라 0으로 채워도 되고, getrusage는 그 자리에 쓰기만 한다.
+    let mut u: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut u) };
+    let v = u64::try_from(u.ru_maxrss).unwrap_or(0);
+    if cfg!(target_os = "macos") {
+        v
+    } else {
+        v * 1024
+    }
+}
+
+// SAFETY: 모든 일을 System에 넘기고, 켜져 있을 때 크기만 센다.
+unsafe impl GlobalAlloc for Capped {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        if ARMED.load(Relaxed) {
+            grow(l.size());
+        }
+        System.alloc(l)
+    }
+    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        if ARMED.load(Relaxed) {
+            grow(l.size());
+        }
+        System.alloc_zeroed(l)
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        System.dealloc(p, l);
+        if ARMED.load(Relaxed) {
+            HEAP.fetch_sub(l.size() as isize, Relaxed);
+        }
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
+        // 옮기는 동안은 옛 자리와 새 자리가 함께 있으므로 새 크기를 먼저 세고 옛 크기를 나중에 뺀다.
+        let armed = ARMED.load(Relaxed);
+        if armed {
+            grow(new);
+        }
+        let q = System.realloc(p, l, new);
+        if armed {
+            let freed = if q.is_null() { new } else { l.size() };
+            HEAP.fetch_sub(freed as isize, Relaxed);
+        }
+        q
+    }
+}
+
+/// 도우미 쪽: 표준 입력의 본문 상자와 PDF를 읽어 결과를 표준 출력에 쓴다. 프로세스의 끝 코드를 돌려준다.
+pub fn helper_main() -> i32 {
+    helper_main_with(None)
+}
+
+/// `helper_main`에 쪽 그림을 그리는 화가를 준다. 할 일은 `ARG` 뒤의 인자로 정한다: 없으면 글 문서로 읽기,
+/// `layout`이면 캔버스의 쪽과 글 상자, `page <쪽> <글 지움 0|1> <인식 0|1> <배율> <그림 상한>`이면 쪽 하나의 그림,
+/// `langs`면 한국어 글자 인식 여부.
+pub fn helper_main_with(painter: Option<Paint>) -> i32 {
+    if let Some(p) = painter {
+        let _ = PAINT.set(p);
+    }
+    let job: Vec<String> = std::env::args().skip_while(|a| a != ARG).skip(1).collect();
+    let job: Vec<&str> = job.iter().map(String::as_str).collect();
+    let paints = matches!(job.first(), Some(&"page" | &"langs"));
+    if paints && PAINT.get().is_none() {
+        return EXIT_NO_PAINT;
+    }
+    // 쪽 일은 마지막 인자가 시간 상한(ms)이다. 그리기는 그 안에서 `DRAW_TIME`까지.
+    let time = match job.as_slice() {
+        ["page", .., ms] => ms
+            .parse::<u64>()
+            .map_or(DRAW_TIME, Duration::from_millis)
+            .min(OCR_TIME),
+        ["langs"] => OCR_TIME,
+        _ => MAX_TIME,
+    };
+    let draw = if paints { time.min(DRAW_TIME) } else { time };
+    watch_self(if paints { PAGE_WATCH } else { MAX_MEMORY }, draw, time);
+    let cpu = if paints { PAGE_CPU } else { CPU_SECONDS };
+    // SAFETY: rlimit은 정수 둘이고 setrlimit은 읽기만 한다.
+    unsafe {
+        let r = libc::rlimit {
+            rlim_cur: cpu,
+            rlim_max: cpu,
+        };
+        libc::setrlimit(libc::RLIMIT_CPU, &r);
+    }
+    if paints {
+        RSS_CAP.store(PAGE_WATCH, SeqCst);
+    }
+    ARMED.store(true, SeqCst);
+    let head = if job.is_empty() { 16 } else { 0 };
+    let mut input = Vec::new();
+    if std::io::stdin()
+        .lock()
+        .take(head as u64 + MAX_FILE as u64 + 1)
+        .read_to_end(&mut input)
+        .is_err()
+        || input.len() < head
+    {
+        return 1;
+    }
+    let (h, pdf) = input.split_at(head);
+    let out = match job.as_slice() {
+        [] => {
+            let f = |b: &[u8]| f64::from_le_bytes(b.try_into().unwrap_or_default());
+            answer(pdf, (f(&h[..8]), f(&h[8..])))
+        }
+        ["layout"] => layout_answer(pdf),
+        ["langs"] => paint(&[], 0, 0.0, 0, 4).unwrap_or_default(),
+        ["page", rest @ ..] => page_answer(pdf, rest),
+        _ => return 1,
+    };
+    let mut o = std::io::stdout().lock();
+    if o.write_all(&out).and_then(|()| o.flush()).is_err() {
+        return 1;
+    }
+    0
+}
+
+/// 도우미 안의 감시 스레드: 자기 메모리(phys footprint)가 `limit`을 넘거나, 쪽 그림을 다 그리기 전에 `draw`가
+/// 지나거나, 띄운 지 `time`이 지나거나, 부모가 사라지면(앱이 끝남) 곧바로 끝낸다. 부모의 감시보다 짧은 틈으로 보아
+/// 그리기 프로그램이 한 번에 크게 잡아도 넘침이 작다.
+fn watch_self(limit: u64, draw: Duration, time: Duration) {
+    let begun = Instant::now();
+    let me = Memory::of(std::process::id());
+    // SAFETY: 인자 없는 조회.
+    let parent = unsafe { libc::getppid() };
+    std::thread::spawn(move || loop {
+        let code = if me
+            .as_ref()
+            .and_then(Memory::footprint)
+            .is_some_and(|m| m > limit)
+        {
+            Some(EXIT_TOO_BIG)
+        } else if !DRAWN.load(SeqCst) && begun.elapsed() > draw {
+            Some(EXIT_DRAW_SLOW)
+        } else if begun.elapsed() > time {
+            Some(EXIT_SLOW)
+        } else if unsafe { libc::getppid() } != parent {
+            Some(EXIT_ORPHAN)
+        } else {
+            None
+        };
+        if let Some(c) = code {
+            // SAFETY: _exit는 아무것도 잡거나 풀지 않고 프로세스를 끝낸다.
+            unsafe { libc::_exit(c) };
+        }
+        std::thread::sleep(WATCH_EVERY);
+    });
+}
+
+/// 화가를 불러 결과를 받는다. 받지 못하면 None.
+fn paint(pdf: &[u8], page: u32, scale: f64, max: usize, flags: u32) -> Option<Vec<u8>> {
+    let f = PAINT.get()?;
+    let mut n = 0usize;
+    // SAFETY: `pdf`는 `pdf.len()`바이트를 읽을 수 있고, 화가는 malloc한 `n`바이트(또는 null)를 돌려준다. 받은 것을
+    // 복사한 뒤 한 번만 푼다.
+    unsafe {
+        let p = f(pdf.as_ptr(), pdf.len(), page, scale, max, flags, &mut n);
+        if p.is_null() {
+            return None;
+        }
+        let out = std::slice::from_raw_parts(p, n).to_vec();
+        libc::free(p.cast());
+        Some(out)
+    }
+}
+
+/// 시험용 화가(`pdfcanvas::fake_shot`). 엔진 시험의 도우미 실행 파일이 쓴다.
+///
+/// # Safety
+/// `out_len`은 쓸 수 있는 자리여야 한다.
+#[doc(hidden)]
+pub unsafe extern "C" fn fake_paint(
+    _pdf: *const u8,
+    _len: usize,
+    _page: u32,
+    scale: f64,
+    _max: usize,
+    flags: u32,
+    out_len: *mut usize,
+) -> *mut u8 {
+    let b = crate::pdfcanvas::fake_shot(flags, scale);
+    drawn();
+    let p = libc::malloc(b.len()).cast::<u8>();
+    if !p.is_null() {
+        std::ptr::copy_nonoverlapping(b.as_ptr(), p, b.len());
+        *out_len = b.len();
+    }
+    p
+}
+
+fn layout_answer(pdf: &[u8]) -> Vec<u8> {
+    let got = if pdf.len() > MAX_FILE {
+        Err(TOO_BIG)
+    } else {
+        catch_unwind(AssertUnwindSafe(|| crate::pdfcanvas::layout(pdf))).unwrap_or(Err(BROKEN))
+    };
+    crate::pdfcanvas::encode_layout(got)
+}
+
+/// 쪽 하나: 글 쪽이면 글을 보이지 않게 바꾼 PDF를, 아니면 받은 PDF를 화가에게 준다. 앞에 글을 지웠는지 1바이트를 둔다.
+/// 그리지 못하면 빈 결과.
+fn page_answer(pdf: &[u8], args: &[&str]) -> Vec<u8> {
+    let [i, strip, ocr, scale, max, _ms] = args else {
+        return Vec::new();
+    };
+    let (Ok(i), Ok(scale), Ok(max)) = (
+        i.parse::<usize>(),
+        scale.parse::<f64>(),
+        max.parse::<usize>(),
+    ) else {
+        return Vec::new();
+    };
+    let (strip, ocr) = (*strip == "1", *ocr == "1");
+    let page = u32::try_from(i + 1).unwrap_or(0);
+    let stripped = if strip {
+        catch_unwind(AssertUnwindSafe(|| crate::pdfcanvas::strip(pdf, i))).unwrap_or(None)
+    } else {
+        None
+    };
+    let flags = u32::from(ocr) | (u32::from(!strip) << 1);
+    let got = match &stripped {
+        Some(b) => paint(b, page, scale, max, flags),
+        None => paint(pdf, page, scale, max, flags),
+    };
+    let did = stripped.is_some();
+    drop(stripped);
+    match got {
+        Some(g) => {
+            let mut out = Vec::with_capacity(g.len() + 1);
+            out.push(u8::from(did));
+            out.extend(g);
+            out
+        }
+        None => Vec::new(),
+    }
+}
+
+/// 도우미가 돌려주는 것.
+pub(crate) struct Parsed {
+    pub paras: Vec<FragPara>,
+    pub pages: usize,
+    pub lost: Vec<String>,
+}
+
+/// 읽어서 결과 JSON으로.
+fn answer(pdf: &[u8], body: (f64, f64)) -> Vec<u8> {
+    let got = if pdf.len() > MAX_FILE {
+        Err(TOO_BIG)
+    } else {
+        catch_unwind(AssertUnwindSafe(|| work(pdf, body))).unwrap_or(Err(BROKEN))
+    };
+    encode(got)
+}
+
+fn work(pdf: &[u8], body: (f64, f64)) -> Result<Parsed, &'static str> {
+    // PDF의 그림은 옮기지 않아 그림을 받는 일이 없다.
+    let mut store = |_: &[u8]| None;
+    let mut cx = Ctx {
+        store: &mut store,
+        images: 0,
+        bytes: 0,
+        spent: 0,
+        rep: Report::default(),
+        body,
+        seen: HashMap::new(),
+    };
+    let (paras, pages) = crate::pdf::read(pdf, &mut cx)?;
+    Ok(Parsed {
+        paras,
+        pages,
+        lost: cx.rep.lines(),
+    })
+}
+
+/// 부모 쪽: PDF를 도우미에게 읽혀 문단과 쪽 수, 옮기지 못한 것을 받는다.
+pub(crate) fn read(bytes: &[u8], body: (f64, f64)) -> Result<Parsed, &'static str> {
+    // 단위 시험은 도우미 없이 같은 JSON을 거친다.
+    #[cfg(test)]
+    let out = answer(bytes, body);
+    #[cfg(not(test))]
+    let out = {
+        let mut head = Vec::with_capacity(16);
+        head.extend(body.0.to_le_bytes());
+        head.extend(body.1.to_le_bytes());
+        run(&[], &head, bytes, &Limits::PARSE)?
+    };
+    decode(&out).unwrap_or(Err(BROKEN))
+}
+
+/// 쪽 그림을 그리지 못했다(나쁜 PDF이거나 앱의 그리기 기능이 받지 않은 것).
+pub const NO_PICTURE: &str = "쪽 그림을 그리지 못했습니다. 파일이 깨졌을 수 있습니다.";
+pub const PAGE_TOO_BIG: &str =
+    "쪽 그림을 그리는 데 메모리가 너무 많이 들어 캔버스로 가져올 수 없습니다.";
+pub const PAGE_TOO_SLOW: &str = "쪽 그림을 그리는 데 3초가 넘게 걸려 캔버스로 가져올 수 없습니다.";
+pub const OCR_TOO_SLOW: &str = "글자를 읽는 데 20초가 넘게 걸려 캔버스로 가져올 수 없습니다.";
+pub const IMPORT_TOO_SLOW: &str =
+    "가져오는 데 2분이 넘게 걸려 멈췄습니다. 쪽이 적은 PDF로 나눠 가져와 주세요.";
+
+/// 부모 쪽: 캔버스로 가져올 쪽들의 크기, 다루는 방법, 글 상자.
+pub fn canvas_layout(bytes: &[u8]) -> Result<crate::pdfcanvas::Layout, &'static str> {
+    if bytes.len() > MAX_FILE {
+        return Err(TOO_BIG);
+    }
+    #[cfg(test)]
+    let out = layout_answer(bytes);
+    #[cfg(not(test))]
+    let out = run(&["layout"], &[], bytes, &Limits::PARSE)?;
+    crate::pdfcanvas::decode_layout(&out).unwrap_or(Err(BROKEN))
+}
+
+/// 부모 쪽: 쪽 `index`(0부터)를 배율 `scale`로 그리고(`strip`이면 글을 뺀 바탕), `ocr`이면 글자를 읽는다. 그림은
+/// `max`바이트 안이다. 쪽마다 따로 띄운 도우미가 하고 끝나면 그 메모리를 모두 돌려준다(한 번에 쪽 그림 하나).
+pub fn canvas_shot(
+    bytes: &[u8],
+    index: usize,
+    strip: bool,
+    ocr: bool,
+    scale: f64,
+    max: usize,
+    time: Duration,
+) -> Result<crate::pdfcanvas::Shot, &'static str> {
+    let time = time.min(if ocr { OCR_TIME } else { DRAW_TIME });
+    let args = [
+        "page".to_string(),
+        index.to_string(),
+        u8::from(strip).to_string(),
+        u8::from(ocr).to_string(),
+        format!("{scale}"),
+        max.to_string(),
+        time.as_millis().to_string(),
+    ];
+    #[cfg(test)]
+    let out = {
+        let _ = PAINT.set(fake_paint);
+        let a: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+        page_answer(bytes, &a)
+    };
+    #[cfg(not(test))]
+    let out = {
+        let a: Vec<&str> = args.iter().map(String::as_str).collect();
+        // 부모의 감시는 둘째 방어: 도우미 안의 감시가 먼저 끝내게 조금 더 준다.
+        let lim = Limits {
+            out: max + (16 << 20),
+            time: time + Duration::from_secs(1),
+            ..Limits::PAGE
+        };
+        run(&a, &[], bytes, &lim).map_err(|e| match e {
+            TOO_BIG => PAGE_TOO_BIG,
+            TOO_SLOW if ocr => OCR_TOO_SLOW,
+            TOO_SLOW => PAGE_TOO_SLOW,
+            e => e,
+        })?
+    };
+    crate::pdfcanvas::decode_shot(&out, max).ok_or(NO_PICTURE)
+}
+
+/// 이 macOS의 글자 인식이 한국어(`ko-KR`)를 읽는가. 물을 수 없으면 None.
+pub fn ocr_korean() -> Option<bool> {
+    #[cfg(test)]
+    let out = {
+        let _ = PAINT.set(fake_paint);
+        paint(&[], 0, 0.0, 0, 4)?
+    };
+    #[cfg(not(test))]
+    let out = run(&["langs"], &[], &[], &Limits::PAGE).ok()?;
+    let n = u32::from_le_bytes(out.get(..4)?.try_into().ok()?) as usize;
+    let v: Value = serde_json::from_slice(out.get(4..4 + n)?).ok()?;
+    v.get("ko")?.as_bool()
+}
+
+/// 도우미 하나에 거는 상한. 단위 시험은 도우미를 띄우지 않아 쓰지 않는다.
+#[cfg_attr(test, allow(dead_code))]
+struct Limits {
+    memory: u64,
+    time: Duration,
+    out: usize,
+}
+
+#[cfg_attr(test, allow(dead_code))]
+impl Limits {
+    const PARSE: Limits = Limits {
+        memory: MAX_MEMORY,
+        time: MAX_TIME,
+        out: MAX_OUT,
+    };
+    const PAGE: Limits = Limits {
+        memory: PAGE_MEMORY,
+        time: OCR_TIME,
+        out: MAX_OUT,
+    };
+}
+
+enum Ev {
+    Read(Vec<u8>),
+    Exit,
+}
+
+/// 도우미를 띄워 바이트를 주고 결과를 받는다. 메모리·시간 상한을 넘거나 멈추라고 하면 끝내고(SIGKILL) 거둔다.
+#[cfg_attr(test, allow(dead_code))]
+fn run(job: &[&str], head: &[u8], bytes: &[u8], lim: &Limits) -> Result<Vec<u8>, &'static str> {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Command, Stdio};
+    let ticket = TICKET.get();
+    if cancelled(ticket) {
+        forget(ticket);
+        return Err(CANCELLED);
+    }
+    let exe = match HELPER.get() {
+        Some(p) => p.clone(),
+        None => std::env::current_exe().map_err(|_| NO_HELPER)?,
+    };
+    let begun = Instant::now();
+    LAST_PEAK.store(0, SeqCst);
+    let mut child = Command::new(exe)
+        .arg(ARG)
+        .args(job)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| NO_HELPER)?;
+    let (Some(mut input), Some(output)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(NO_HELPER);
+    };
+    // 도우미가 먼저 끝나 쓰기가 끊겨도 앱이 SIGPIPE로 죽지 않게 한다(쓰기는 오류로 돌아온다).
+    #[cfg(target_os = "macos")]
+    // SAFETY: 열린 파이프 fd에 표시 하나를 켠다.
+    unsafe {
+        use std::os::fd::AsRawFd;
+        libc::fcntl(input.as_raw_fd(), libc::F_SETNOSIGPIPE, 1);
+    }
+    let pid = child.id();
+    let watch = Memory::of(pid);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (stop, status, out) = std::thread::scope(|s| {
+        // 쓰기·읽기·끝 기다리기를 따로 해서, 도우미가 출력을 쓰는 동안 입력을 기다리는 일이 없고, 끝나거나 다 쓰면
+        // 바로 깬다.
+        s.spawn(move || {
+            let _ = input.write_all(head).and_then(|()| input.write_all(bytes));
+        });
+        let read_tx = tx.clone();
+        s.spawn(move || {
+            let _ = read_tx.send(Ev::Read(read_capped(output, lim.out)));
+        });
+        s.spawn(move || {
+            exited(pid);
+            let _ = tx.send(Ev::Exit);
+        });
+        let (mut out, mut gone, mut misses) = (None::<Vec<u8>>, false, 0);
+        let stop = loop {
+            match rx.recv_timeout(POLL) {
+                Ok(Ev::Read(o)) => out = Some(o),
+                Ok(Ev::Exit) => gone = true,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(_) => break Some(BROKEN),
+            }
+            if out.as_ref().is_some_and(|o| o.len() > lim.out) {
+                break Some(TOO_BIG);
+            }
+            if gone && out.is_some() {
+                break None;
+            }
+            if !gone {
+                match watch.as_ref().and_then(Memory::footprint) {
+                    Some(m) => {
+                        LAST_PEAK.fetch_max(m, SeqCst);
+                        if m > lim.memory {
+                            break Some(TOO_BIG);
+                        }
+                    }
+                    // 끝나는 중이면(태스크는 사라졌고 아직 끝을 알리지 않았다) 잴 수 없다. 오래 잴 수 없으면 지킬 수
+                    // 없으니 끝낸다.
+                    None => {
+                        misses += 1;
+                        if misses > 20 {
+                            break Some(BROKEN);
+                        }
+                    }
+                }
+            }
+            if begun.elapsed() > lim.time {
+                break Some(TOO_SLOW);
+            }
+            if cancelled(ticket) {
+                break Some(CANCELLED);
+            }
+        };
+        if stop.is_some() {
+            // 이미 끝났으면 kill은 실패한다. 어느 쪽이든 끝을 알게 된 뒤에 거둔다.
+            let _ = child.kill();
+        }
+        // 끝 기다리기 스레드가 끝을 본 뒤에 거둔다(거둔 번호를 다른 프로세스가 받기 전에 그 스레드가 끝나게).
+        while !gone || out.is_none() {
+            match rx.recv() {
+                Ok(Ev::Read(o)) => out = Some(o),
+                Ok(Ev::Exit) => gone = true,
+                Err(_) => break,
+            }
+        }
+        let status = child.wait();
+        (stop, status, out.unwrap_or_default())
+    });
+    // macOS에서는 여기서 도우미의 task 포트를 놓는다(Memory의 Drop). 다른 OS에서는 놓을 것이 없다.
+    #[allow(clippy::drop_non_drop)]
+    drop(watch);
+    forget(ticket);
+    if let Some(why) = stop {
+        return Err(why);
+    }
+    let status = status.map_err(|_| BROKEN)?;
+    match (status.code(), status.signal()) {
+        (Some(0), _) => Ok(out),
+        (Some(EXIT_TOO_BIG), _) => Err(TOO_BIG),
+        (Some(EXIT_SLOW), _) => Err(TOO_SLOW),
+        (Some(EXIT_DRAW_SLOW), _) => Err(PAGE_TOO_SLOW),
+        (Some(EXIT_NO_ENGINE | EXIT_NO_PAINT), _) => Err(NO_HELPER),
+        (_, Some(libc::SIGXCPU)) => Err(TOO_SLOW),
+        _ => Err(BROKEN),
+    }
+}
+
+/// 출력을 `cap + 1`바이트까지 읽는다. 버퍼는 그 크기까지만 늘린다.
+fn read_capped(mut r: impl Read, cap: usize) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let n = n.min(cap + 1 - out.len());
+                if out.len() + n > out.capacity() {
+                    let want = (out.capacity() * 2).max(out.len() + n).min(cap + 1);
+                    out.reserve_exact(want - out.len());
+                }
+                out.extend_from_slice(&buf[..n]);
+                if out.len() > cap {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    out
+}
+
+/// 프로세스 `pid`가 끝날 때까지 기다린다. 거두지는 않는다(`WNOWAIT`).
+fn exited(pid: u32) {
+    loop {
+        // SAFETY: siginfo_t는 정수 칸뿐이라 0으로 채워도 되고, waitid는 그 자리에 쓰기만 한다.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let r = unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
+        if r == 0 || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// 다른 프로세스의 메모리 재기. macOS는 그 태스크 이름 포트로 phys footprint를 읽는다(샌드박스 안에서도 자식에게는
+/// 열린다). 다른 체제(엔진 시험의 CI)는 /proc의 RSS.
+struct Memory {
+    #[cfg(target_os = "macos")]
+    task: mach::Port,
+    #[cfg(not(target_os = "macos"))]
+    pid: u32,
+}
+
+impl Memory {
+    #[cfg(target_os = "macos")]
+    fn of(pid: u32) -> Option<Memory> {
+        mach::task_name(pid).map(|task| Memory { task })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn footprint(&self) -> Option<u64> {
+        mach::footprint(self.task)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn of(pid: u32) -> Option<Memory> {
+        Some(Memory { pid })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn footprint(&self) -> Option<u64> {
+        let s = std::fs::read_to_string(format!("/proc/{}/statm", self.pid)).ok()?;
+        let pages: u64 = s.split_whitespace().nth(1)?.parse().ok()?;
+        // SAFETY: 인자 없는 조회.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        Some(pages * u64::try_from(page).ok()?)
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Memory {
+    fn drop(&mut self) {
+        mach::release(self.task);
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod mach {
+    pub type Port = libc::mach_port_t;
+
+    extern "C" {
+        /// `mach_task_self()`(C에서는 이 값을 읽는 매크로).
+        static mach_task_self_: Port;
+        fn task_name_for_pid(target: Port, pid: libc::c_int, out: *mut Port) -> libc::c_int;
+        fn mach_port_deallocate(task: Port, name: Port) -> libc::c_int;
+    }
+
+    fn me() -> Port {
+        // SAFETY: 프로세스가 시작할 때 정해지고 바뀌지 않는 값을 읽는다.
+        unsafe { mach_task_self_ }
+    }
+
+    /// `TASK_VM_INFO`(mach/task_info.h). 앞 46개 natural_t(rev3)까지 받으면 phys_footprint가 든다.
+    const TASK_VM_INFO: u32 = 22;
+    const WORDS: usize = 23;
+    /// `phys_footprint`의 자리(바이트 144 / 8).
+    const FOOTPRINT: usize = 18;
+
+    pub fn task_name(pid: u32) -> Option<Port> {
+        let mut port: Port = 0;
+        // SAFETY: 결과는 `port`에만 쓴다.
+        let r = unsafe { task_name_for_pid(me(), libc::c_int::try_from(pid).ok()?, &mut port) };
+        (r == 0).then_some(port)
+    }
+
+    pub fn footprint(task: Port) -> Option<u64> {
+        let mut info = [0u64; WORDS];
+        let mut count = (WORDS * 2) as libc::mach_msg_type_number_t;
+        // SAFETY: `info`는 `count`개 natural_t를 받을 수 있다. 커널은 그 안에서만 쓴다.
+        let r =
+            unsafe { libc::task_info(task, TASK_VM_INFO, info.as_mut_ptr().cast(), &mut count) };
+        (r == 0 && count as usize > FOOTPRINT * 2 + 1).then_some(info[FOOTPRINT])
+    }
+
+    pub fn release(task: Port) {
+        // SAFETY: `task_name`이 받은 포트를 한 번만 놓는다.
+        unsafe { mach_port_deallocate(me(), task) };
+    }
+}
+
+/// 도우미가 돌려줄 수 있는 오류. 이 밖의 글은 받지 않는다.
+const ERRORS: [&str; 8] = [
+    BROKEN,
+    LOCKED,
+    TOO_BIG,
+    TOO_MANY_PAGES,
+    TOO_MANY_SPANS,
+    NO_TEXT,
+    UNMAPPED,
+    EMPTY,
+];
+
+/// 결과 JSON: `{"err": 문장}` 또는 `{"pages", "lost", "paras"}`. 문단은 `{"r": run들, "p": 속성, "t": 표 또는 null}`,
+/// 표는 `{"w", "p", "rows": [[행 속성, [null 또는 [칸 속성, 문단들]]]]}`.
+fn encode(got: Result<Parsed, &'static str>) -> Vec<u8> {
+    let v = match got {
+        Err(e) => json!({ "err": e }),
+        Ok(p) => json!({
+            "pages": p.pages,
+            "lost": p.lost,
+            "paras": p.paras.into_iter().map(para_json).collect::<Vec<_>>(),
+        }),
+    };
+    serde_json::to_vec(&v).unwrap_or_default()
+}
+
+fn para_json(p: FragPara) -> Value {
+    json!({ "r": p.runs, "p": p.props, "t": p.table.map(|t| json!({
+        "w": t.whole,
+        "p": t.props,
+        "rows": t.rows.into_iter().map(|(rp, cells)| json!([
+            rp,
+            cells.into_iter().map(|c| c.map(|(cp, ps)| json!([
+                cp,
+                ps.into_iter().map(para_json).collect::<Vec<_>>(),
+            ]))).collect::<Vec<_>>(),
+        ])).collect::<Vec<_>>(),
+    })) })
+}
+
+/// 도우미가 돌려줄 수 있는 오류 글이면 그 상수.
+pub(crate) fn known_error(e: &str) -> Option<&'static str> {
+    ERRORS.iter().find(|k| **k == e).copied()
+}
+
+/// 옮기지 못한 것의 줄들(수와 길이 상한 안).
+pub(crate) fn lost_from(v: Value) -> Option<Vec<String>> {
+    match v {
+        Value::Array(a) if a.len() <= MAX_LOST => a
+            .into_iter()
+            .map(|l| match l {
+                Value::String(s) if s.chars().count() <= LOST_CHARS => Some(s),
+                _ => None,
+            })
+            .collect(),
+        _ => None,
+    }
+}
+
+/// 멈추라고 한 표인가(지우지 않고 본다). 쪽 사이에서 멈출 때 쓴다.
+pub fn is_cancelled(ticket: u64) -> bool {
+    cancelled(Some(ticket))
+}
+
+/// `encode`의 반대. 꼴이 틀리면 None. 크기 예산·글자 수를 넘으면 `TOO_BIG`.
+fn decode(b: &[u8]) -> Option<Result<Parsed, &'static str>> {
+    let Value::Object(mut v) = serde_json::from_slice(b).ok()? else {
+        return None;
+    };
+    if let Some(e) = v.get("err") {
+        let e = e.as_str()?;
+        return Some(Err(known_error(e)?));
+    }
+    let pages = usize::try_from(v.get("pages")?.as_u64()?).ok()?;
+    if pages > MAX_PAGES {
+        return None;
+    }
+    let lost = lost_from(v.remove("lost")?)?;
+    let Value::Array(ps) = v.remove("paras")? else {
+        return None;
+    };
+    let mut chars = 0;
+    let paras: Vec<FragPara> = ps
+        .into_iter()
+        .map(|p| para_from(p, false, &mut chars))
+        .collect::<Option<_>>()?;
+    if paras.iter().map(weight).sum::<usize>() > MAX_WEIGHT || chars > MAX_CHARS {
+        return Some(Err(TOO_BIG));
+    }
+    Some(Ok(Parsed { paras, pages, lost }))
+}
+
+fn object(v: Value) -> Option<Map<String, Value>> {
+    match v {
+        Value::Object(m) => Some(m),
+        _ => None,
+    }
+}
+
+fn array(v: Value) -> Option<Vec<Value>> {
+    match v {
+        Value::Array(a) => Some(a),
+        _ => None,
+    }
+}
+
+/// 문단 하나. 표 칸 안의 문단(`in_cell`)은 표를 갖지 않는다.
+fn para_from(v: Value, in_cell: bool, chars: &mut usize) -> Option<FragPara> {
+    let mut m = object(v)?;
+    let runs = array(m.remove("r")?)?;
+    for r in &runs {
+        let r = r.as_object()?;
+        *chars += r
+            .get("t")
+            .and_then(Value::as_str)
+            .map_or(0, |t| t.chars().count());
+    }
+    let props = object(m.remove("p")?)?;
+    let table = match m.remove("t")? {
+        Value::Null => None,
+        t if !in_cell => Some(table_from(t, chars)?),
+        _ => return None,
+    };
+    m.is_empty().then_some(FragPara { runs, props, table })
+}
+
+fn table_from(v: Value, chars: &mut usize) -> Option<FragTable> {
+    let mut m = object(v)?;
+    let whole = m.remove("w")?.as_bool()?;
+    let props = object(m.remove("p")?)?;
+    let mut rows: Vec<FragRow> = Vec::new();
+    let mut cols = None;
+    for row in array(m.remove("rows")?)? {
+        let mut row = array(row)?.into_iter();
+        let (rp, cells) = (object(row.next()?)?, array(row.next()?)?);
+        if row.next().is_some() || *cols.get_or_insert(cells.len()) != cells.len() {
+            return None;
+        }
+        let cells: Vec<Option<FragCell>> = cells
+            .into_iter()
+            .map(|c| match c {
+                Value::Null => Some(None),
+                c => {
+                    let mut c = array(c)?.into_iter();
+                    let cp = object(c.next()?)?;
+                    let ps = array(c.next()?)?
+                        .into_iter()
+                        .map(|p| para_from(p, true, chars))
+                        .collect::<Option<Vec<_>>>()?;
+                    c.next().is_none().then_some(Some((cp, ps)))
+                }
+            })
+            .collect::<Option<_>>()?;
+        rows.push((rp, cells));
+    }
+    (m.is_empty() && cols.is_some_and(|c| c > 0)).then_some(FragTable { whole, props, rows })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn para(t: &str) -> FragPara {
+        FragPara {
+            runs: vec![json!({"t": t, "s": {"weight": 700}})],
+            props: Map::new(),
+            table: None,
+        }
+    }
+
+    #[test]
+    fn 결과를_json으로_적고_확인하며_푼다() {
+        let mut span = Map::new();
+        span.insert("span".into(), json!({"rows": 1, "cols": 2}));
+        let table = FragPara {
+            runs: Vec::new(),
+            props: Map::new(),
+            table: Some(FragTable {
+                whole: true,
+                props: Map::new(),
+                rows: vec![
+                    (Map::new(), vec![Some((span, vec![para("칸")])), None]),
+                    (
+                        Map::new(),
+                        vec![
+                            Some((Map::new(), vec![])),
+                            Some((Map::new(), vec![para("b")])),
+                        ],
+                    ),
+                ],
+            }),
+        };
+        let want = vec![para("Kari 견본"), table];
+        let b = encode(Ok(Parsed {
+            paras: want.clone(),
+            pages: 2,
+            lost: vec!["그림 1개".into()],
+        }));
+        let got = decode(&b).unwrap().unwrap();
+        assert_eq!(got.paras, want);
+        assert_eq!((got.pages, got.lost), (2, vec!["그림 1개".to_string()]));
+
+        // 꼴이 틀리면(잘림, 표 안의 표, 열 수가 다른 행, 모르는 오류 글, 쪽 수 상한 밖) 받지 않는다.
+        let nested = json!({"pages": 1, "lost": [], "paras": [{"r": [], "p": {}, "t": {"w": true, "p": {},
+            "rows": [[{}, [[{}, [{"r": [], "p": {}, "t": {"w": true, "p": {}, "rows": []}}]]]]]}}]});
+        let ragged = json!({"pages": 1, "lost": [], "paras": [{"r": [], "p": {}, "t": {"w": true, "p": {},
+            "rows": [[{}, [null, null]], [{}, [null]]]}}]});
+        for bad in [
+            b[..b.len() - 1].to_vec(),
+            serde_json::to_vec(&nested).unwrap(),
+            serde_json::to_vec(&ragged).unwrap(),
+            br#"{"err": "unknown"}"#.to_vec(),
+            br#"{"pages": 301, "lost": [], "paras": []}"#.to_vec(),
+        ] {
+            assert!(decode(&bad).is_none(), "{}", String::from_utf8_lossy(&bad));
+        }
+        for e in ERRORS {
+            assert!(matches!(decode(&encode(Err(e))), Some(Err(x)) if x == e));
+        }
+    }
+
+    #[test]
+    fn 크기_예산과_글자_수를_넘는_결과는_너무_크다() {
+        let many: Vec<FragPara> = (0..MAX_WEIGHT / 5 + 1).map(|_| para("a")).collect();
+        let b = encode(Ok(Parsed {
+            paras: many,
+            pages: 1,
+            lost: Vec::new(),
+        }));
+        assert!(matches!(decode(&b), Some(Err(TOO_BIG))));
+        let long = "가".repeat(MAX_CHARS + 1);
+        let b = encode(Ok(Parsed {
+            paras: vec![para(&long)],
+            pages: 1,
+            lost: Vec::new(),
+        }));
+        assert!(matches!(decode(&b), Some(Err(TOO_BIG))));
+    }
+
+    #[test]
+    fn 출력은_상한_하나_넘게까지만_읽고_버퍼도_그만큼만_늘린다() {
+        let big = vec![b'x'; MAX_OUT + (5 << 20)];
+        let out = read_capped(big.as_slice(), MAX_OUT);
+        assert_eq!(out.len(), MAX_OUT + 1);
+        assert!(out.capacity() <= MAX_OUT + 1, "{}", out.capacity());
+        assert_eq!(read_capped(&b"abc"[..], MAX_OUT), b"abc");
+    }
+
+    #[test]
+    fn 멈추기는_그_표의_읽기만_멈춘다() {
+        cancel(7);
+        assert!(cancelled(Some(7)) && !cancelled(Some(8)) && !cancelled(None));
+        forget(Some(7));
+        assert!(!cancelled(Some(7)));
+        with_ticket(Some(9), || assert_eq!(TICKET.get(), Some(9)));
+        assert_eq!(TICKET.get(), None);
+    }
+}

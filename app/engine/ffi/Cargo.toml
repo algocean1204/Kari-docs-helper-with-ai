@@ -22,7 +22,16 @@ kari-interview = { path = "../interview" }
 # 가져오기: 미리 보기가 읽은 파일과 적용이 읽은 파일이 같은지 본다.
 sha2 = "0.11"
 
+# 시험이 쓰는 PDF 도우미(앱에서는 앱의 실행 파일이 `kari_pdf_helper`를 부른다). 앱 빌드(`--lib`)에는 들지 않는다.
+[[bin]]
+name = "kari-pdf-helper"
+path = "src/bin/pdf_helper.rs"
+test = false
+doc = false
+
 [features]
+# 앱에 싣는 빌드(app/hook/build.dart가 켠다): PDF 도우미로 돌 때 힙 상한을 세는 전역 할당자를 둔다.
+app = []
 # 시험용 길: `ai.testBase`(가짜 서버 주소)와 메모리 키 보관. 앱에 싣는 기본 빌드에는 없다.
 test-hooks = []
 
@@ -33,3 +42,5 @@ rusqlite = { version = "0.42", features = ["bundled"] }
 serde_json = "1"
 num-bigint = "0.4"
 base64 = "0.22"
+# PDF 가져오기 시험이 자식 프로세스의 최대 RSS를 잰다(getrusage). 이미 쓰는 판이라 새로 빌드되는 것은 없다.
+libc = "0.2"

@@ -519,6 +519,28 @@ class CanvasSession extends ChangeNotifier
     }
   }
 
+  /// 바깥에서 만든 연산 묶음(Figma와 다시 맞추기)을 되돌리기 한 번의 묶음으로 넣는다. 앞선 편집이 끝난 뒤에 넣는다.
+  /// 실패하면 다시 보내지 않고 [EngineError]를 던진다(부르는 쪽이 넣은 그림을 정리한다).
+  Future<void> commitOps(List<Json> ops, String label) {
+    if (saveError != null) return Future.error(saveError!);
+    _commitComposing();
+    final done = Completer<void>();
+    _then(() async {
+      try {
+        await engine.docCommit(id, ops, label);
+        done.complete();
+      } on Object catch (e, s) {
+        done.completeError(e, s);
+      }
+      try {
+        _apply(await engine.canvasState(id));
+      } on EngineError {
+        notifyListeners();
+      }
+    });
+    return done.future;
+  }
+
   /// 문서의 되돌리기·다시 하기. 엔진이 앞 사본을 따라가게 하고 선택은 남은 노드만 유지한다.
   Future<void> undo() {
     _commitComposing();

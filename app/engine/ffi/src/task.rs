@@ -16,29 +16,32 @@ use kari_store::Library;
 use crate::ai::{efforts_of, has_key, models_of, parse_effort, with_lib};
 use crate::fail::{bad, Args, Fail, Res};
 
-/// 일과 화면 이름. 면접의 네 가지(AI 편집의 일은 뒤에 더한다).
-pub(crate) const TASKS: [(&str, &str); 4] = [
+/// 일과 화면 이름. 면접의 네 가지와 가져오기의 구조 잡기.
+pub(crate) const TASKS: [(&str, &str); 5] = [
     ("claims", "면접에서 물을 문장 뽑기"),
     ("posting", "채용공고 나누기"),
     ("ask", "질문 만들기"),
     ("grade", "답변 채점"),
+    ("structure", "가져올 때 구조 잡기"),
 ];
 
-/// Claude의 기본값(실제 서버 측정으로 정함): (일, 계열, 강도).
-const CLAUDE: [(&str, &str, Effort); 4] = [
+/// Claude의 기본값(실제 서버 측정으로 정함): (일, 계열, 강도). 구조 잡기는 id만 엮는 쉬운 일이라 낮음.
+const CLAUDE: [(&str, &str, Effort); 5] = [
     ("claims", "haiku", Effort::Medium),
     ("posting", "haiku", Effort::Medium),
     ("ask", "haiku", Effort::Medium),
     ("grade", "haiku", Effort::High),
+    ("structure", "haiku", Effort::Low),
 ];
 
 /// OpenAI 키만 있을 때의 기본값(평가 자료를 OpenAI 계열·강도로 돌려 정함). 채점은 필수 체크포인트 일치가 가장 높고
 /// 오개념 오탐이 없던 luna 보통, 나머지는 품질이 같아 가장 싼 luna 낮음.
-const OPENAI: [(&str, &str, Effort); 4] = [
+const OPENAI: [(&str, &str, Effort); 5] = [
     ("claims", "luna", Effort::Low),
     ("posting", "luna", Effort::Low),
     ("ask", "luna", Effort::Low),
     ("grade", "luna", Effort::Medium),
+    ("structure", "luna", Effort::Low),
 ];
 
 /// 목록이 없거나 그 계열이 목록에 없을 때 쓰는 판.
@@ -198,9 +201,9 @@ pub(crate) fn place_model(lib: &Library) -> Result<Option<(String, ModelInfo)>, 
     Ok(Some((provider.to_string(), m)))
 }
 
-/// 면접을 시작할 수 있는지: 네 가지 일이 고른 제공사마다 확인된 키(저장한 모델 목록)가 있다.
+/// 면접을 시작할 수 있는지: 면접의 네 가지 일이 고른 제공사마다 확인된 키(저장한 모델 목록)가 있다.
 pub(crate) fn ready(lib: &Library) -> Result<bool, Fail> {
-    for (t, _) in TASKS {
+    for t in kari_interview::TASKS {
         if !has_key(lib, &choice(lib, t)?.provider)? {
             return Ok(false);
         }
@@ -208,11 +211,11 @@ pub(crate) fn ready(lib: &Library) -> Result<bool, Fail> {
     Ok(true)
 }
 
-/// 세션이 쓸 일마다의 판(시작할 때 한 번).
+/// 세션이 쓸 면접의 일마다의 판(시작할 때 한 번).
 pub(crate) fn pins(lib: &Library) -> Result<BTreeMap<String, Pin>, Fail> {
-    TASKS
+    kari_interview::TASKS
         .iter()
-        .map(|(t, _)| {
+        .map(|t| {
             let (c, m) = resolve(lib, t)?;
             let pin = Pin {
                 provider: c.provider,

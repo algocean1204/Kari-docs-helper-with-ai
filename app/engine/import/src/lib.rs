@@ -1,15 +1,20 @@
-//! 다른 앱의 파일 가져오기(`kari-import`): Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 붙여넣기와 같은
-//! 조각(`Fragment`)으로 읽는다. 조각을 새 문서에 넣는 일은 부르는 쪽(`kari-ffi`)이 한다.
+//! 다른 앱의 파일 가져오기(`kari-import`): Word 문서(DOCX), 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip),
+//! PDF를 붙여넣기와 같은 조각(`Fragment`)으로 읽는다. 조각을 새 문서에 넣는 일은 부르는 쪽(`kari-ffi`)이 한다.
 //!
 //! 화면, 파일, DB, 스레드를 모른다. 바이트를 받아 조각과 옮기지 못한 것의 목록을 돌려준다. 그림 바이트는 부르는 쪽이
 //! 검사해 에셋으로 저장하고 해시를 돌려준다. 아무것도 실행하지 않고, 네트워크의 그림을 내려받지 않는다.
 //! 형식은 확장자가 아니라 내용으로 가린다: zip이고 `word/document.xml`이 있으면 DOCX, HWPX 꾸러미면 HWPX, 다른 zip이면
-//! 웹 페이지 꾸러미, zip이 아니면 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린 문서(OLE, 암호 표시가 있는 zip
-//! 항목)는 읽지 않고 까닭만 알린다.
+//! 웹 페이지 꾸러미, 처음 1KB에 `%PDF-`가 있으면 PDF, 그 밖은 HTML이다. 옛 한글(HWP), 옛 Word(.doc), 암호가 걸린
+//! 문서(OLE, 암호 표시가 있는 zip 항목)는 읽지 않고 까닭만 알린다.
 
 mod docx;
 mod html;
 mod hwpx;
+pub mod pdf;
+pub mod pdfcanvas;
+mod pdfhelper;
+mod pdftext;
+pub mod structure;
 mod xml;
 mod zip;
 
@@ -25,18 +30,22 @@ pub const MAX_FILE: usize = 50 << 20;
 pub const MAX_IMAGES: usize = 300;
 pub const MAX_IMAGE: usize = 20 << 20;
 pub const MAX_IMAGE_TOTAL: usize = 200 << 20;
-/// 한 번에 만드는 문단 수 상한(붙여넣기와 같다).
-pub const MAX_PARAS: usize = 50_000;
+/// 가져온 결과의 크기 예산: 문단(표 칸 안 포함)과 표의 칸 자리는 4, 글 조각(run)은 1. 새 문서에 넣는 일(적용)의 시간과
+/// 메모리가 이 합에 거의 비례한다(칸·문단 하나에 수십 KB, run 하나에 약 9KB). 넘으면 `TOO_BIG`(PDF는 `pdf::TOO_BIG`).
+/// 한 줄짜리 문단이면 4,800개, 칸마다 한 줄이 든 50행·20열 표면 둘 남짓이다.
+pub const MAX_WEIGHT: usize = 24_000;
 
 pub const TOO_LARGE: &str = "50MB가 넘는 파일은 가져올 수 없습니다.";
 pub const EMPTY: &str = "가져올 글이 없습니다.";
-pub const TOO_MANY_PARAS: &str = "문단이 5만 개를 넘어 가져올 수 없습니다.";
+pub const TOO_BIG: &str = "내용이 너무 큰 문서는 가져올 수 없습니다.";
 
 /// 가져온 것: 조각과, 원본에 있었지만 옮기지 못했거나 비슷하게만 옮긴 것(사람이 읽는 한 줄씩).
 #[derive(Debug)]
 pub struct Imported {
     pub fragment: Fragment,
     pub lost: Vec<String>,
+    /// PDF의 쪽 수(다른 형식은 None).
+    pub pages: Option<usize>,
 }
 
 /// 그림 바이트 → (에셋 해시, 화소 크기). 받을 수 없는 그림(PNG·JPEG가 아님, 깨짐)이면 `None`.
@@ -65,6 +74,17 @@ pub(crate) struct Report {
     pub dropped: usize,
     /// 가리킨 글자·문단 모양이 없어 기본 모양으로 둔 곳.
     pub refs: usize,
+    pub pdf_images: usize,
+    /// 글이 없고 그림이 덮은 쪽(스캔 쪽).
+    pub blank_pages: usize,
+    pub bad_pages: usize,
+    /// 글자 표가 없어 읽지 못한 글자와 그 글꼴 수.
+    pub pdf_unknown: usize,
+    pub pdf_bad_fonts: usize,
+    /// 펼치지 않은 폼(자기를 다시 부르거나 너무 깊게 겹친 것, 읽지 못한 것).
+    pub pdf_forms: usize,
+    /// 선 없이 열만 맞춘 표(글 문단으로 둠).
+    pub pdf_loose_tables: usize,
 }
 
 /// 글꼴 목록에 적지 않는 이름: 앱의 글꼴과 CSS의 일반 글꼴.
@@ -131,6 +151,26 @@ impl Report {
             ),
             (self.textboxes, "글 상자", "개", "뺌"),
             (self.shapes, "도형·차트", "개", "뺌"),
+            (
+                self.pdf_images,
+                "그림",
+                "개",
+                "PDF의 그림은 아직 옮기지 않아 뺌",
+            ),
+            (
+                self.blank_pages,
+                "스캔 쪽",
+                "개",
+                "글이 없어 뺌. 캔버스로 가져오면 글자를 읽음",
+            ),
+            (self.bad_pages, "읽지 못한 쪽", "개", "깨져 있어 뺌"),
+            (
+                self.pdf_forms,
+                "펼치지 못한 그림 묶음(폼)",
+                "개",
+                "자기를 다시 부르거나 너무 깊게 겹쳐 뺌",
+            ),
+            (self.pdf_loose_tables, "선 없는 표", "개", "글로 둠"),
             (self.notes, "각주·미주", "개", "뺌"),
             (self.comments, "메모", "개", "뺌"),
             (self.math, "수식", "개", "뺌"),
@@ -162,6 +202,12 @@ impl Report {
                 .filter(|(n, ..)| *n > 0)
                 .map(|(n, what, unit, how)| format!("{what} {n}{unit}({how})")),
         );
+        if self.pdf_bad_fonts > 0 {
+            out.push(format!(
+                "글을 읽을 수 없는 글꼴 {}개(글자 {}개를 옮기지 못함)",
+                self.pdf_bad_fonts, self.pdf_unknown
+            ));
+        }
         if self.header_footer {
             out.push("머리글·바닥글(뺌)".into());
         }
@@ -169,11 +215,33 @@ impl Report {
     }
 }
 
+/// 문단 하나(표면 그 안의 칸과 문단까지)의 무게. `MAX_WEIGHT`와 함께 쓴다.
+pub fn weight(p: &FragPara) -> usize {
+    let mut w = 4 + p.runs.len();
+    if let Some(t) = &p.table {
+        for (_, row) in &t.rows {
+            for c in row {
+                w += 4 + c.as_ref().map_or(0, |(_, ps)| ps.iter().map(weight).sum());
+            }
+        }
+    }
+    w
+}
+
+/// 표의 칸 자리 수.
+pub(crate) fn cells(p: &FragPara) -> usize {
+    p.table
+        .as_ref()
+        .map_or(0, |t| t.rows.iter().map(|(_, r)| r.len()).sum())
+}
+
 /// 가져오는 동안의 그림 저장과 기록.
 pub(crate) struct Ctx<'a, 's> {
     store: &'a mut Store<'s>,
     images: usize,
     bytes: usize,
+    /// 지금까지 만든 결과의 무게(`MAX_WEIGHT`).
+    spent: usize,
     pub rep: Report,
     pub body: (f64, f64),
     /// 그림 자리(꾸러미 안의 이름, data: 주소)마다 한 번 받은 결과. 같은 그림을 여러 번 가리켜도 한 번만 풀고 검사한다.
@@ -189,6 +257,20 @@ enum Got {
 }
 
 impl Ctx<'_, '_> {
+    /// 남은 크기 예산.
+    pub fn left(&self) -> usize {
+        MAX_WEIGHT.saturating_sub(self.spent)
+    }
+
+    /// 결과에 무게 `n`을 더한다. 예산을 넘으면 `TOO_BIG`(다 만들기 전에 멈춘다).
+    pub fn spend(&mut self, n: usize) -> Result<(), &'static str> {
+        self.spent += n;
+        if self.spent > MAX_WEIGHT {
+            return Err(TOO_BIG);
+        }
+        Ok(())
+    }
+
     /// 자리 `key`의 그림. 처음이면 `read`로 바이트를 얻어 저장하고, 다시 오면 그 결과를 쓴다(빠진 것도 다시 센다).
     pub fn image_at(
         &mut self,
@@ -262,10 +344,14 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         store,
         images: 0,
         bytes: 0,
+        spent: 0,
         rep: Report::default(),
         body,
         seen: HashMap::new(),
     };
+    let mut pages = None;
+    let mut lost = None;
+    // zip을 먼저 본다(앞 1KB에 `%PDF-`가 든 zip도 있다).
     let paras = if zip::is_zip(bytes) {
         let z = zip::Zip::open(bytes)?;
         if z.encrypted() {
@@ -278,6 +364,12 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         } else {
             html::read_zip(&z, &mut cx)?
         }
+    } else if pdf::is_pdf(bytes) {
+        // PDF는 도우미 프로세스가 문단까지 만들어 돌려준다(옮기지 못한 것도 거기서 센다).
+        let got = pdfhelper::read(bytes, body)?;
+        pages = Some(got.pages);
+        lost = Some(got.lost);
+        got.paras
     } else {
         html::read_file(bytes, &mut cx)?
     };
@@ -291,16 +383,14 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
     if paras.is_empty() {
         return Err(EMPTY);
     }
-    if paras.len() > MAX_PARAS {
-        return Err(TOO_MANY_PARAS);
-    }
     Ok(Imported {
         fragment: Fragment {
             text: String::new(),
             paras,
             styles: Default::default(),
         },
-        lost: cx.rep.lines(),
+        lost: lost.unwrap_or_else(|| cx.rep.lines()),
+        pages,
     })
 }
 

@@ -40,13 +40,18 @@ pub(crate) fn secrets() -> &'static dyn Secrets {
     &kari_ai::OsSecrets
 }
 
-/// 시험 빌드는 `ai.testBase`로 준 가짜 서버만 부른다(두 제공사 모두). 주소가 없으면 실제 서버를 부르지 않고 실패한다.
-#[cfg(feature = "test-hooks")]
 pub(crate) fn client(provider: &str) -> Result<Box<dyn Provider>, Fail> {
+    client_with(provider, true)
+}
+
+/// 시험 빌드는 `ai.testBase`로 준 가짜 서버만 부른다(두 제공사 모두). 주소가 없으면 실제 서버를 부르지 않고 실패한다.
+/// `retry`가 거짓이면 어댑터가 스스로 다시 보내지 않는다(요청 수를 세는 일이 쓴다).
+#[cfg(feature = "test-hooks")]
+pub(crate) fn client_with(provider: &str, retry: bool) -> Result<Box<dyn Provider>, Fail> {
     use std::time::Duration;
     let base =
         test_base().ok_or_else(|| fail("ai", "시험 빌드에서는 ai.testBase를 먼저 부릅니다."))?;
-    let quick = vec![Duration::from_millis(1); 2];
+    let quick = vec![Duration::from_millis(1); if retry { 2 } else { 0 }];
     Ok(match provider {
         "anthropic" => {
             let mut c = kari_ai::Anthropic::with_base_url(&base);
@@ -63,8 +68,24 @@ pub(crate) fn client(provider: &str) -> Result<Box<dyn Provider>, Fail> {
 }
 
 #[cfg(not(feature = "test-hooks"))]
-pub(crate) fn client(provider: &str) -> Result<Box<dyn Provider>, Fail> {
-    kari_ai::client(provider, None).ok_or_else(|| bad(format!("모르는 제공사입니다: {provider}")))
+pub(crate) fn client_with(provider: &str, retry: bool) -> Result<Box<dyn Provider>, Fail> {
+    Ok(match provider {
+        "anthropic" => {
+            let mut c = kari_ai::Anthropic::new();
+            if !retry {
+                c.retry_delays.clear();
+            }
+            Box::new(c)
+        }
+        "openai" => {
+            let mut c = kari_ai::OpenAi::new();
+            if !retry {
+                c.retry_delays.clear();
+            }
+            Box::new(c)
+        }
+        p => return Err(bad(format!("모르는 제공사입니다: {p}"))),
+    })
 }
 
 /// 명령 잠금을 잡고 연 라이브러리로 `f`를 한다.
@@ -201,15 +222,24 @@ pub(crate) type Credential = (String, Box<dyn Provider>);
 /// 모델을 부를 때의 (키, 어댑터). OpenAI가 ChatGPT 플랜으로 가면 키는 비고 어댑터가 접근 토큰을 쓴다.
 /// 키가 없으면 `None`. 명령 잠금을 잡은 채 불러도 된다(네트워크를 쓰지 않는다).
 pub(crate) fn credential(lib: &Library, p: &str) -> Result<Option<Credential>, Fail> {
+    credential_with(lib, p, true)
+}
+
+/// `credential`과 같되 `retry`가 거짓이면 어댑터가 스스로 다시 보내지 않는다.
+pub(crate) fn credential_with(
+    lib: &Library,
+    p: &str,
+    retry: bool,
+) -> Result<Option<Credential>, Fail> {
     if p == "openai" && chatgpt::uses_plan(lib)? {
-        return Ok(Some((String::new(), Box::new(chatgpt::Plan::new()?))));
+        return Ok(Some((String::new(), Box::new(chatgpt::Plan::with(retry)?))));
     }
     // 키를 넣은 적이 없으면(저장한 모델 목록이 없으면) 보안 저장소를 열지 않는다.
     if key_models(lib, p)?.is_empty() {
         return Ok(None);
     }
     match secrets().get(p).map_err(|e| ai_fail(e, &[]))? {
-        Some(key) => Ok(Some((key, client(p)?))),
+        Some(key) => Ok(Some((key, client_with(p, retry)?))),
         None => Ok(None),
     }
 }

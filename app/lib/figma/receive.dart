@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import '../engine/engine.dart' show Json;
 import 'convert.dart' show Affine, applyAffine, mulAffine;
+import 'sync.dart' show FigmaTree;
 
 /// 한 번에 가져오는 Kari 요소의 최대 수. 한 묶음으로 넣으므로 너무 크면 저장과 되돌리기가 느려진다.
 const maxImportNodes = 3000;
@@ -71,6 +72,9 @@ class FigmaImport {
   /// 읽은 Figma 페이지의 id([FigmaLink.readPage]가 채운다). 있으면 적용할 때 같은 페이지를 다시 읽어 견준다.
   String? pageId;
 
+  /// 읽은 Figma 파일의 키(플러그인이 주면). 대응표에 두어 다른 파일과 맞추지 않게 한다.
+  String? fileKey;
+
   /// 옮긴 결과의 지문([fingerprintOf]): 만들 노드, Figma id, 그림 참조(imageRef), 옮기지 못한 것의 셈. 적용할 때
   /// 다시 읽어 옮긴 것과 다르면 페이지가 바뀐 것이다. 옮기지 않는 칸(Figma가 읽을 때마다 바꿀 수 있는 것)은 들지 않는다.
   int fingerprint = 0;
@@ -89,31 +93,24 @@ class FigmaImport {
   String get skippedText =>
       [for (final e in skipped.entries) '${e.key} ${e.value}'].join(', ');
 
-  /// 대응표를 넣은 묶음: 노드마다 `figma`에 Figma id와 가져올 때의 속성([maxBaseBytes]를 넘으면 id만). 그림을
-  /// 받은 뒤에 부른다.
-  // 한계: 복제하거나 복사해 붙인 요소도 같은 Figma id를 가진다. 다시 맞출 때 겹치는 id를 가린다.
-  List<Json> withMap() => [
-    for (final op in ops)
-      () {
-        final node = op['node'] as Json;
-        final props = node['props'] as Json;
-        final base = jsonEncode(props);
-        return {
+  /// 대응표를 넣은 묶음: 노드마다 `figma`에 Figma id와 기준값(가져올 때의 속성과 맞추기 정보, [FigmaTree.baseOf]).
+  /// 그림을 받은 뒤에 부른다.
+  List<Json> withMap() {
+    final tree = FigmaTree(this);
+    return [
+      for (final op in ops)
+        {
           'op': 'add',
           'node': {
-            ...node,
+            ...op['node'] as Json,
             'props': {
-              ...props,
-              'figma': {
-                'id': figmaOf[node['id']],
-                if (utf8.encode(base).length <= maxBaseBytes)
-                  'base': jsonDecode(base),
-              },
+              ...(op['node'] as Json)['props'] as Json,
+              'figma': tree.mapOf(figmaOf[(op['node'] as Json)['id']]!),
             },
           },
-        };
-      }(),
-  ];
+        },
+    ];
+  }
 
   void _skip(String why) => skipped[why] = (skipped[why] ?? 0) + 1;
 }
@@ -395,6 +392,7 @@ FigmaImport fromFigma(Object? page) {
       'name': ?_name(n['name']),
       if (opacity != null && opacity < 1) 'opacity': opacity,
       if (n['visible'] == false) 'visible': false,
+      if (n['locked'] == true) 'locked': true,
     };
   }
 
@@ -645,12 +643,8 @@ FigmaImport fromFigma(Object? page) {
   } else if (out.count > maxImportNodes) {
     out.tooBig = '요소가 ${out.count}개라 가져오지 않습니다. 한 번에 $maxImportNodes개까지 가져옵니다';
   } else {
-    var bytes = 0;
-    for (final op in out.ops) {
-      final props = (op['node'] as Json)['props'];
-      final n = utf8.encode(jsonEncode(props)).length;
-      if (n <= maxBaseBytes) bytes += n;
-    }
+    // 대응표 전체(속성과 맞추기 정보): 문서와 기록이 함께 커지므로 묶는다.
+    final bytes = FigmaTree(out).mapBytes;
     if (bytes > maxMapBytes) {
       out.tooBig =
           '가져올 때의 값이 ${(bytes / 1024 / 1024).toStringAsFixed(1)}MB라 가져오지 않습니다. '

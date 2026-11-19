@@ -28,6 +28,7 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		4A11CE5E2F00A0E100C0FFEE /* GazeMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A11CE5D2F00A0E100C0FFEE /* GazeMonitor.swift */; };
+		A7F3D10D2F11B0E100C0FFEE /* PdfPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F3D10C2F11B0E100C0FFEE /* PdfPage.swift */; };
 		4A11CE612F00A0E100C0FFEE /* Printing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A11CE602F00A0E100C0FFEE /* Printing.swift */; };
 		4A11CE642F00A0E100C0FFEE /* Updater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A11CE632F00A0E100C0FFEE /* Updater.swift */; };
 		5563471F0286DA41B00F9BFD /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EFDF1A2DF87FF8512F029EFC /* Pods_Runner.framework */; };
@@ -86,6 +87,7 @@
 		33E51914231749380026EE4D /* Release.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = Release.entitlements; sourceTree = "<group>"; };
 		33E5194F232828860026EE4D /* AppInfo.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AppInfo.xcconfig; sourceTree = "<group>"; };
 		4A11CE5D2F00A0E100C0FFEE /* GazeMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GazeMonitor.swift; sourceTree = "<group>"; };
+		A7F3D10C2F11B0E100C0FFEE /* PdfPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfPage.swift; sourceTree = "<group>"; };
 		4A11CE602F00A0E100C0FFEE /* Printing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Printing.swift; sourceTree = "<group>"; };
 		4A11CE632F00A0E100C0FFEE /* Updater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updater.swift; sourceTree = "<group>"; };
 		4C317749F9B85AEB1D4CF321 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
@@ -184,6 +186,7 @@
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				4A11CE5D2F00A0E100C0FFEE /* GazeMonitor.swift */,
+				A7F3D10C2F11B0E100C0FFEE /* PdfPage.swift */,
 				4A11CE602F00A0E100C0FFEE /* Printing.swift */,
 				4A11CE632F00A0E100C0FFEE /* Updater.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
@@ -448,6 +451,7 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				4A11CE5E2F00A0E100C0FFEE /* GazeMonitor.swift in Sources */,
+				A7F3D10D2F11B0E100C0FFEE /* PdfPage.swift in Sources */,
 				4A11CE612F00A0E100C0FFEE /* Printing.swift in Sources */,
 				4A11CE642F00A0E100C0FFEE /* Updater.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
