@@ -125,6 +125,14 @@ class _ImportDialogState extends State<ImportDialog> {
     }
   }
 
+  /// Esc나 바깥 누르기로 닫혀도 기다리던 구조 잡기를 멈춘다(요청이 이어지지 않게).
+  @override
+  void dispose() {
+    final t = _aiTicket;
+    if (t != null) unawaited(widget.library.engine.importCancel(t));
+    super.dispose();
+  }
+
   /// 기다리는 구조 잡기를 멈춘다. 아무것도 넣지 않고 규칙 결과로 돌아간다.
   void _stop() {
     final t = _aiTicket;
@@ -318,8 +326,9 @@ class SendDialog extends StatelessWidget {
     return Sheet(
       title: '보내는 내용',
       subtitle:
-          '${plan['vendor']} · ${plan['modelName']}$via에 아래 글만 보냅니다. 연락처는 〔연락처N〕으로 가렸고, '
-          '파일, 그림, 파일 이름은 보내지 않습니다. 받는 것은 제목·문단·목록·표의 구조뿐입니다.',
+          '${plan['vendor']} · ${plan['modelName']}$via에 아래 글과 그 번호, 모양 표시(제목·목록·굵게·크기·표 자리), '
+          '구조만 정하라는 지시문을 보냅니다. 연락처는 〔연락처N〕으로 가렸고, 파일, 그림, 파일 이름은 보내지 않습니다. '
+          '받는 것은 제목·문단·목록·표의 구조뿐입니다.',
       actions: [
         AppButton('취소', onPressed: () => Navigator.of(context).pop(false)),
         AppButton(

@@ -327,8 +327,9 @@ void main() {
       expect(
         find.text(
           keepAll(
-            'Anthropic · Claude Haiku 5.5에 아래 글만 보냅니다. 연락처는 〔연락처N〕으로 가렸고, '
-            '파일, 그림, 파일 이름은 보내지 않습니다. 받는 것은 제목·문단·목록·표의 구조뿐입니다.',
+            'Anthropic · Claude Haiku 5.5에 아래 글과 그 번호, 모양 표시(제목·목록·굵게·크기·표 자리), '
+            '구조만 정하라는 지시문을 보냅니다. 연락처는 〔연락처N〕으로 가렸고, 파일, 그림, 파일 이름은 보내지 않습니다. '
+            '받는 것은 제목·문단·목록·표의 구조뿐입니다.',
           ),
         ),
         findsOneWidget,
@@ -407,6 +408,24 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, '가져오기'));
       await tester.pumpAndSettle();
       expect(rig.fake.importCalls.single.containsKey('structure'), isFalse);
+    });
+
+    testWidgets('기다리는 중 Esc로 창을 닫아도 그 호출을 멈춘다', (tester) async {
+      final rig = await pickWithKey(tester);
+      final gate = Completer<void>();
+      rig.fake.waits['import.aiRun'] = gate.future;
+      await send(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(rig.fake.importCancels, isEmpty);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(ImportDialog), findsNothing);
+      expect(rig.fake.importCancels, hasLength(1));
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(rig.fake.importCancels, [rig.fake.aiRuns.single['ticket']]);
+      expect(rig.fake.docs, isEmpty);
     });
   });
 }

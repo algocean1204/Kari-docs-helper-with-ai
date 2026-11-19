@@ -243,6 +243,13 @@ fn 틀린_표는_거절한다() {
             "모르는 칸 table",
         ),
         (t(json!([])), "표의 행은"),
+        (
+            t(json!([
+                [c(json!([0]), 1, 1), c(json!([1]), 2, 1)],
+                [c(json!([2]), 1, 2)],
+            ])),
+            "겹칩니다",
+        ),
     ];
     for (text, why) in cases {
         let e = parse(&text, 3).expect_err(&text);

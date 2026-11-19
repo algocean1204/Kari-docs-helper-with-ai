@@ -462,8 +462,15 @@ mod hooked {
     }
 
     /// 연락처 가리기 꾸러미(면접과 같은 꼴), 지시 주입, 자료 구역 닫기, 토큰 모양 글, 이모지, 빈 문단을 덩어리에 넣은 HTML.
-    const SECRETS: [&str; 12] = [
+    const SECRETS: [&str; 19] = [
         "kim.dev+job@Mail.Example.com",
+        "kim [at] example.com",
+        "kim@한글.example",
+        "(02) 123-4567",
+        "010.1234.5678",
+        "010/1234/5678",
+        "9001011234567",
+        "070-1234-5678",
         "010-1234-5678",
         "01012345678",
         "02-123-4567",
@@ -762,7 +769,15 @@ mod hooked {
                 r["fallback"], "AI 구조를 쓰지 못해 기본 규칙으로 가져옵니다.",
                 "{r}"
             );
-            assert!(r["reason"].as_str().unwrap().contains(why), "{why}: {r}");
+            let reason = r["reason"].as_str().unwrap();
+            if want == 2 {
+                // 화면의 까닭은 정해진 문장이고, 모델이 보낸 칸 이름 같은 자세한 까닭은 다시 묻는 글에만 든다.
+                assert_eq!(reason, "모델의 답이 정해진 모양이 아니었습니다.", "{r}");
+                let again: Value = serde_json::from_str(&srv.posts()[start + 1]).unwrap();
+                assert!(user_of(&again).contains(why), "{why}");
+            } else {
+                assert!(reason.contains(why), "{why}: {r}");
+            }
             assert!(r.get("structure").is_none());
             assert_eq!(doc_count(), before);
         }
@@ -891,6 +906,44 @@ mod hooked {
         let r = ok("import.aiRun", json!({"path": path}));
         assert_eq!(r["requests"], 1, "{r}");
         assert_eq!(srv.posts().len(), n + 1);
+
+        // 401: 어댑터는 토큰만 갱신하고 다시 보내지 않는다. 두 번째 요청이 그 토큰으로 간다(모두 2번).
+        let refreshed = || {
+            json!({"access_token": "at-SECRET-access-2", "refresh_token": "rt-SECRET-refresh-2",
+                "expires_in": 3600, "token_type": "Bearer"})
+            .to_string()
+        };
+        srv.tokens
+            .lock()
+            .unwrap()
+            .extend((0..3).map(|_| refreshed()));
+        let mut first = true;
+        srv.set(move |b| {
+            if std::mem::take(&mut first) {
+                Resp::Error(401, "authentication_error")
+            } else {
+                brain(b)
+            }
+        });
+        let n = srv.posts().len();
+        let r = ok("import.aiRun", json!({"path": path}));
+        assert_eq!(
+            (srv.posts().len() - n, &r["requests"]),
+            (2, &json!(2)),
+            "{r}"
+        );
+        assert!(r["structure"].is_object(), "{r}");
+        // 401 → 401: 두 번으로 그치고 규칙으로 물러난다.
+        srv.set(|_| Resp::Error(401, "authentication_error"));
+        let n = srv.posts().len();
+        let r = ok("import.aiRun", json!({"path": path}));
+        assert_eq!(
+            (srv.posts().len() - n, &r["requests"]),
+            (2, &json!(2)),
+            "{r}"
+        );
+        assert_eq!(r["reason"], "ChatGPT 로그인을 다시 해야 합니다.", "{r}");
+        srv.set(brain);
         let b: Value = serde_json::from_str(srv.posts().last().unwrap()).unwrap();
         assert_eq!(b["store"], false);
         for s in SECRETS {
@@ -999,6 +1052,38 @@ mod hooked {
         assert_eq!(r["requests"], 1, "{r}");
         assert_eq!(r["headings"].as_array().unwrap().len(), 100);
         assert!(cfg!(debug_assertions) || ms <= 500, "{ms}ms");
+    }
+
+    /// 여러 줄에서 멈추기와 시작을 함께 되풀이해도 막히지 않는다(멈춤 표의 잠금 차례).
+    #[test]
+    fn 멈추기와_시작이_겹쳐도_막히지_않는다() {
+        let srv = serve();
+        let case = begin("race", &srv);
+        let path = case.dir.join("짧음.html");
+        std::fs::write(&path, "<h1>제목</h1><p>글</p>").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        for k in 0..4u64 {
+            let (tx, path) = (tx.clone(), path.clone());
+            thread::spawn(move || {
+                for i in 0..25u64 {
+                    let t = 1_000_000 + k * 1_000 + i;
+                    if k % 2 == 0 {
+                        // 돌기 시작한 호출과 아직 없는 표를 번갈아 멈춘다.
+                        call("import.cancel", json!({"ticket": t + 1}));
+                        call("import.aiRun", json!({"path": path, "ticket": t}));
+                    } else {
+                        call("import.cancel", json!({"ticket": t}));
+                        let r = call("import.aiRun", json!({"path": path, "ticket": t}));
+                        assert_eq!(r["err"]["code"], "canceled", "{r}");
+                    }
+                }
+                tx.send(()).unwrap();
+            });
+        }
+        for _ in 0..4 {
+            rx.recv_timeout(Duration::from_secs(60))
+                .expect("멈추기와 시작이 서로를 기다리며 멈췄다");
+        }
     }
 
     /// PDF(도우미 프로세스가 읽음)도 같은 길로 간다: 내보낸 이력서 → 구조 → 가져오기.

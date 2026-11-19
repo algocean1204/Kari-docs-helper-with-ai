@@ -238,7 +238,9 @@ fn table(rows: &[Value], n: usize) -> Result<Vec<Vec<Cell>>, String> {
             }
             for dr in 0..rs {
                 for dc in 0..cs {
-                    taken.insert((r + dr, c + dc));
+                    if !taken.insert((r + dr, c + dc)) {
+                        return Err("합친 칸이 겹칩니다".into());
+                    }
                 }
             }
             c += cs;
