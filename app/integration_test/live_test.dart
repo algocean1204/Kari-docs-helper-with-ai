@@ -4,7 +4,8 @@
 //   cd app && flutter test integration_test/live_test.dart -d macos
 //
 // 키는 실행할 때의 환경 변수 ANTHROPIC_API_KEY, OPENAI_API_KEY에서만 읽는다(빌드에 넣지 않는다. --dart-define을
-// 쓰지 않는다). 없는 제공사의 시험은 건너뛴다. 보안 저장소에 이미 그 제공사의 키가 있으면(사용자의 키일 수 있다)
+// 쓰지 않는다). 없는 제공사의 시험은 건너뛴다. 보안 저장소의 항목은 이 시험만 쓰는 서비스 이름([liveService])에 두어
+// 개발 앱이 넣어 둔 키를 읽거나 덮지 않는다. 그 이름에 이미 그 제공사의 키가 있으면(지난 시험이 중간에 끊긴 것)
 // 덮어쓰지 않으려고 멈춘다. 시험이 넣은 키는 끝날 때(실패해도) 보안 저장소에서 지운다. 자료 폴더는 새 임시 폴더이고
 // 끝나면 지운다. 가져오기의 구조 잡기 시험은 지어낸 두 쪽짜리 이력서를 보내고 쓴 토큰을 출력한다.
 import 'dart:async';
@@ -14,13 +15,37 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:kari/design/tokens.dart' show keepAll;
-import 'package:kari/engine/engine.dart' show Json;
+import 'package:kari/engine/engine.dart' show EngineApi, Json;
 import 'package:kari/engine/native.dart';
 import 'package:kari/main.dart' show App;
 import 'package:kari/screens/import_dialog.dart';
 import 'package:kari/screens/paper.dart' show PaperView;
+import 'package:kari/update.dart' show updates;
 
 import 'app_test.dart' show nativeLibrary, newDoc, paraTexts, typeAll;
+
+/// 이 시험만 쓰는 보안 저장소의 서비스 이름(번들 ID 뒤에 `.livetest`). 개발 앱의 항목은 서명이 다른 빌드가 만든
+/// 것일 수 있어, 읽으려 하면 macOS가 허락을 묻는 창을 띄우고 시험이 멈춘다. 번들 ID를 못 읽으면 배포 앱의 이름으로
+/// 떨어지지 않게 멈춘다.
+Future<String> liveService() async {
+  await updates.identify();
+  if (updates.id.isEmpty) fail('번들 ID를 읽지 못해 시험용 보안 저장소 이름을 정하지 못했다.');
+  return '${updates.id}.livetest';
+}
+
+/// 그 서비스 이름에 이미 그 제공사의 키가 있으면 멈춘다.
+Future<void> refuseStored(
+  EngineApi api,
+  String service,
+  String provider,
+) async {
+  if (await api.aiKeyStored(provider)) {
+    fail(
+      '보안 저장소의 $service에 이미 $provider 키가 있어 덮어쓰지 않으려고 멈춘다. '
+      'security delete-generic-password -s $service -a $provider 로 지운 뒤 다시 돌린다.',
+    );
+  }
+}
 
 /// [what]이 보일 때까지 프레임을 돌린다(모델 호출은 수십 초 걸릴 수 있다).
 Future<void> waitFor(
@@ -151,12 +176,11 @@ void main() {
       '실제 서버($name): 설정에 키를 넣어 저장하고, 면접에서 두 번 답하고 끝내 리포트를 본다',
       skip: key.isEmpty,
       (tester) async {
-        final (library, _) = await newDoc(tester);
+        final service = await liveService();
+        final (library, _) = await newDoc(tester, service: service);
         final api = library.engine;
         // 자료 폴더는 새것이라 설정에는 키가 없다. 보안 저장소를 직접 본다.
-        if (await api.aiKeyStored(provider)) {
-          fail('보안 저장소에 이미 $name 키가 있어 덮어쓰지 않으려고 멈춘다. 앱의 설정에서 키를 지운 뒤 다시 돌린다.');
-        }
+        await refuseStored(api, service, provider);
         // 실패해도 시험이 넣은 키는 지운다(라이브러리를 닫기 전에 돈다).
         addTearDown(() => api.aiDeleteKey(provider));
 
@@ -244,16 +268,16 @@ void main() {
         final file = File('${tmp.path}/견본 이력서.html')
           ..writeAsStringSync(resumeHtml());
         final api = _Recorded();
+        final service = await liveService();
         final library = await nativeLibrary(
           tester,
           engine: api,
           importPath: () async => file.path,
+          service: service,
         );
         await tester.pumpWidget(App(library: library));
         await waitFor(tester, find.text('가져오기…'), '홈');
-        if (await api.aiKeyStored(provider)) {
-          fail('보안 저장소에 이미 $name 키가 있어 덮어쓰지 않으려고 멈춘다. 앱의 설정에서 키를 지운 뒤 다시 돌린다.');
-        }
+        await refuseStored(api, service, provider);
         addTearDown(() => api.aiDeleteKey(provider));
         await library.setKey(provider, key);
         expect(library.structureModel?['provider'], provider);

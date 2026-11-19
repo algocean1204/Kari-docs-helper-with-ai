@@ -102,12 +102,14 @@ void stayResumed(IntegrationTestWidgetsFlutterBinding binding) {
 
 /// 자료 폴더(KARI_HOME이 있으면 그 폴더, 없으면 새 임시 폴더)의 진짜 엔진 라이브러리. 끝나면 화면을 비우고
 /// 라이브러리를 닫고, 만든 폴더를 지운다. [savePath], [openPath], [importPath]는 대화 상자 대신 쓴다.
+/// [service]는 키 보관의 서비스 이름이다(주지 않으면 앱의 번들 ID).
 Future<Library> nativeLibrary(
   WidgetTester tester, {
   SavePath? savePath,
   OpenPath? openPath,
   OpenPath? importPath,
   NativeEngine? engine,
+  String? service,
 }) async {
   final home = Platform.environment['KARI_HOME'] ?? '';
   final made = home.isEmpty;
@@ -122,7 +124,7 @@ Future<Library> nativeLibrary(
     savePath: savePath ?? pickSavePath,
     openPath: openPath ?? pickOpenPath,
     importPath: importPath ?? pickImportPath,
-    service: updates.id.isEmpty ? null : updates.id,
+    service: service ?? (updates.id.isEmpty ? null : updates.id),
   );
   addTearDown(() async {
     await unstuck(tester.pumpWidget(const SizedBox()));
@@ -137,11 +139,13 @@ Future<(Library, int)> newDoc(
   WidgetTester tester, {
   SavePath? savePath,
   OpenPath? openPath,
+  String? service,
 }) async {
   final library = await nativeLibrary(
     tester,
     savePath: savePath,
     openPath: openPath,
+    service: service,
   );
   await unstuck(tester.pumpWidget(App(library: library)));
   await until(
