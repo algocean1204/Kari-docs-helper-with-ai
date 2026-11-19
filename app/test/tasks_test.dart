@@ -22,7 +22,13 @@ void main() {
     final rig = await pumpAi(tester, connected: true);
     await openModels(tester);
     expect(find.text('기본값 사용 중'), findsOneWidget);
-    for (final name in ['면접에서 물을 문장 뽑기', '채용공고 나누기', '질문 만들기', '답변 채점']) {
+    for (final name in [
+      '면접에서 물을 문장 뽑기',
+      '채용공고 나누기',
+      '질문 만들기',
+      '답변 채점',
+      '가져올 때 구조 잡기',
+    ]) {
       expect(find.text(name), findsOneWidget);
     }
     expect(
@@ -30,9 +36,10 @@ void main() {
       findsNWidgets(3),
     );
     expect(find.text('Haiku · 생각 깊이 높음 · 지금 Claude Haiku 5.5'), findsOneWidget);
+    expect(find.text('Haiku · 생각 깊이 낮음 · 지금 Claude Haiku 5.5'), findsOneWidget);
 
     // 채점을 Opus 계열, 최대로: 그 계열의 가장 새 판이 정해진다.
-    expect(find.text('바꾸기'), findsNWidgets(4));
+    expect(find.text('바꾸기'), findsNWidgets(5));
     await tap(tester, change(3));
     expect(find.text('답변 채점의 모델'), findsOneWidget);
     expect(filledLabels(tester, within: find.byType(Dialog)), isEmpty);
@@ -122,7 +129,7 @@ void main() {
     await openModels(tester);
     expect(find.text('키를 넣으면 고를 수 있습니다'), findsOneWidget);
     expect(find.text('답변 채점'), findsOneWidget);
-    expect(find.textContaining('지금 claude-haiku-5-5'), findsNWidgets(4));
+    expect(find.textContaining('지금 claude-haiku-5-5'), findsNWidgets(5));
     expect(tester.takeException(), isNull);
   });
 }

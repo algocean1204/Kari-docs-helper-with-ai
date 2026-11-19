@@ -10,9 +10,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use kari_doc::serde_json::{json, Map, Value};
-use kari_doc::{Document, Kind};
+use kari_doc::{Document, Guard, Kind};
 use kari_edit::{Command, Editor, Fragment};
-use kari_import::{import, summary, Imported, HWP_LEGACY, MAX_FILE, TOO_LARGE};
+use kari_import::{import, structure, summary, Imported, HWP_LEGACY, MAX_FILE, TOO_LARGE};
 use kari_layout::{body_size, Layouter};
 use kari_store::{stage, Actor, DocId, Error, Meta};
 use sha2::{Digest, Sha256};
@@ -23,7 +23,7 @@ use crate::library::{now_ms, on, Engine};
 /// 사본 하나에 한 번에 적용하는 op 수(밖에서 들어온 묶음의 상한).
 const CHUNK: usize = 5000;
 
-fn read_file(a: &Args) -> Result<Vec<u8>, Fail> {
+pub(crate) fn read_file(a: &Args) -> Result<Vec<u8>, Fail> {
     let path = Path::new(a.str("path")?);
     let unreadable = || fail("import", "파일을 읽지 못했습니다.");
     // 일반 파일만. 특수 파일(`/dev/zero`, 이름 있는 파이프)은 끝없이 읽거나 열다가 멈춘다.
@@ -41,7 +41,7 @@ fn read_file(a: &Args) -> Result<Vec<u8>, Fail> {
 }
 
 /// 읽은 바이트의 SHA-256(소문자 16진수). 미리 보기가 돌려주고 적용이 다시 읽은 것과 견준다.
-fn digest(bytes: &[u8]) -> String {
+pub(crate) fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -60,31 +60,85 @@ fn read_fail(m: &'static str) -> Fail {
     )
 }
 
-fn body_of(doc: &Document) -> (f64, f64) {
+pub(crate) fn body_of(doc: &Document) -> (f64, f64) {
     let (w, h) = body_size(doc);
     (f64::from(w), f64::from(h))
 }
 
-/// 미리 보기: 문서를 만들지 않고 읽어 본 요약과 옮기지 못한 것. `pages`는 PDF의 쪽 수(다른 형식은 null).
-pub(crate) fn preview(a: &Args) -> Res {
-    let bytes = read_file(a)?;
+/// 라이브러리를 건드리지 않고 규칙으로 읽는다. 그림은 검사만 하고 저장하지 않는다(에셋 자리에는 바이트의 해시를 둔다).
+/// `ticket`을 주면 `import.cancel`로 이 읽기를 멈출 수 있다.
+pub(crate) fn read_rule(bytes: &[u8], a: &Args) -> Result<Imported, Fail> {
     let blank = Document::new(Kind::Flow, "").map_err(Error::Doc)?;
     let mut check = |b: &[u8]| {
         kari_render::prepare_image(b)
             .ok()
-            .map(|p| (String::new(), (p.width, p.height)))
+            .map(|p| (digest(b), (p.width, p.height)))
     };
-    // `ticket`을 주면 `import.cancel`로 이 미리 보기를 멈출 수 있다.
     let ticket = a.maybe("ticket", Value::as_u64)?;
-    let got = kari_import::pdf::with_ticket(ticket, || import(&bytes, body_of(&blank), &mut check))
-        .map_err(read_fail)?;
-    let s = summary(&got.fragment);
-    Ok(json!({
-        "hash": digest(&bytes),
+    kari_import::pdf::with_ticket(ticket, || import(bytes, body_of(&blank), &mut check))
+        .map_err(read_fail)
+}
+
+/// 미리 보기의 요약.
+pub(crate) fn summary_json(f: &Fragment) -> Value {
+    let s = summary(f);
+    json!({
         "paras": s.paras, "tables": s.tables, "images": s.images, "chars": s.chars,
         "headings": s.headings.iter().map(|(l, t)| json!({"level": l, "text": t})).collect::<Vec<_>>(),
-        "lost": got.lost, "pages": got.pages,
-    }))
+    })
+}
+
+/// 미리 보기: 문서를 만들지 않고 읽어 본 요약과 옮기지 못한 것. `pages`는 PDF의 쪽 수(다른 형식은 null).
+/// `ai`는 AI로 구조 잡기에 보낼 덩어리 수와, 보낼 수 없으면 그 까닭.
+pub(crate) fn preview(a: &Args) -> Res {
+    let bytes = read_file(a)?;
+    let got = read_rule(&bytes, a)?;
+    let chunks = structure::chunks(&got.fragment);
+    let mut out = summary_json(&got.fragment);
+    out["hash"] = json!(digest(&bytes));
+    out["lost"] = json!(got.lost);
+    out["pages"] = json!(got.pages);
+    out["ai"] = json!({"chunks": chunks.len(), "blocked": structure::blocked(&chunks)});
+    Ok(out)
+}
+
+/// 문서의 문단 글, 문서 차례(표는 행·칸 차례). 빈 문단은 뺀다.
+fn para_texts(doc: &Document) -> Vec<String> {
+    fn walk(doc: &Document, parent: Option<&str>, out: &mut Vec<String>) {
+        for n in doc.children(parent) {
+            if n.kind == "para" {
+                out.push(doc.text(&n.id).unwrap_or_default());
+            } else {
+                walk(doc, Some(&n.id), out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(doc, None, &mut out);
+    out.retain(|t| !t.is_empty());
+    out
+}
+
+/// 구조로 만든 문서가 문서 검사를 지나고 글이 덩어리 글 그대로인지. 아니면 까닭.
+fn verify(doc: &Document, expect: &[String]) -> Result<(), String> {
+    if let Some(e) = doc.check().into_iter().next() {
+        return Err(format!("문서 검사: {e}"));
+    }
+    if para_texts(doc) != expect {
+        return Err("만든 문서의 글이 원래 글과 다릅니다".into());
+    }
+    Ok(())
+}
+
+/// 구조로 만든 조각을 빈 새 문서에 붙여 본다(라이브러리를 건드리지 않는다): op 확인, 문서 검사, 글 같음.
+pub(crate) fn dry_run(frag: Fragment, expect: &[String]) -> Result<(), String> {
+    let mut doc = Document::new(Kind::Flow, "").map_err(|e| e.to_string())?;
+    let ops = plan(&doc, frag).map_err(|f| f.message)?;
+    for chunk in ops.chunks(CHUNK) {
+        doc.apply(&Value::Array(chunk.to_vec()), Guard::default())
+            .map_err(|e| format!("op 확인: {e}"))?;
+    }
+    verify(&doc, expect)
 }
 
 /// 새 문서(첫 문단 하나)에 조각을 붙이는 op들. 첫 덩이가 문단이면 그 모양(제목, 목록)을 첫 문단이 받는다.
@@ -148,19 +202,33 @@ fn fill(
     if let Some(f) = io {
         return Err(f);
     }
-    let got = got?;
+    let mut got = got?;
+    // AI가 정한 구조: 같은 확인을 다시 하고 규칙의 조각 대신 쓴다. 글은 덩어리의 원래 글 그대로다.
+    let expect = match a.get("structure") {
+        Some(v) => {
+            let chunks = structure::chunks(&got.fragment);
+            let bad_shape = |m: String| fail("import", format!("AI 구조를 쓸 수 없습니다: {m}"));
+            let blocks = structure::parse_value(v, chunks.len()).map_err(bad_shape)?;
+            got.fragment.paras =
+                structure::build(&blocks, &chunks, body_of(d.doc()).0).map_err(bad_shape)?;
+            Some(structure::texts(&blocks, &chunks))
+        }
+        None => None,
+    };
     // 시험용: 문서를 만들고 그림을 넣은 뒤 엔진 안에서 멈춘 경우.
     #[cfg(feature = "test-hooks")]
     if a.get("testPanic").and_then(Value::as_bool) == Some(true) {
         panic!("시험용 멈춤");
     }
-    #[cfg(not(feature = "test-hooks"))]
-    let _ = a;
     let ops = plan(d.doc(), got.fragment.clone())?;
     let mut st = stage(&d);
     for chunk in ops.chunks(CHUNK) {
         st.apply(&Value::Array(chunk.to_vec()))
             .map_err(Error::Doc)?;
+    }
+    if let Some(expect) = expect {
+        verify(st.doc(), &expect)
+            .map_err(|m| fail("import", format!("AI 구조를 쓸 수 없습니다: {m}")))?;
     }
     let meta = Meta {
         label: "가져오기",
@@ -179,6 +247,7 @@ fn fill(
 }
 
 /// 가져오기: 파일을 읽어 `name`의 새 흐름 문서를 만든다. `hash`(미리 보기가 돌려준 값)를 주면 읽은 파일이 그것과 같을 때만 한다. `styles`를 주면 새 문서가 그 스타일 표로 시작한다(`docs.create`와 같다).
+/// `structure`(`import.aiRun`이 돌려준 구조)를 주면 규칙의 조각 대신 그 구조로 넣는다. 같은 확인을 다시 하고, 맞지 않으면 아무것도 남기지 않고 실패한다.
 pub(crate) fn apply(state: &mut Option<Engine>, a: &Args) -> Res {
     let bytes = read_file(a)?;
     // 미리 본 뒤 원본이 바뀌었으면 아무것도 만들기 전에 멈춘다. 해시가 없는 호출은 그대로 읽는다.

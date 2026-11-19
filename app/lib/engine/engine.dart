@@ -887,17 +887,36 @@ abstract class EngineApi {
 
   /// 파일을 [name]의 새 흐름 문서로 가져온다. [styles]를 주면 그 스타일 표로 시작한다. {id, lost}.
   /// [hash](미리 보기가 돌려준 `hash`)를 주면 지금 읽은 파일이 그것과 다를 때 `import_changed`로 거절하고 아무것도 만들지 않는다.
+  /// [structure]([importAiRun]이 돌려준 `structure`)를 주면 규칙의 결과 대신 그 구조로 넣는다(글은 원래 글 그대로다).
   Future<Json> importApply(
     String path,
     String name, {
     Json? styles,
     String? hash,
+    Json? structure,
   }) async =>
       await call('import.apply', {
             'path': path,
             'name': name,
             'styles': ?styles,
             'hash': ?hash,
+            'structure': ?structure,
+          })
+          as Json;
+
+  /// AI로 구조 잡기에 보낼 내용. 보내지 않는다. {provider, vendor: 회사, plan: ChatGPT 플랜으로 가는가, model, modelName,
+  /// chunks: [{id, text: 가린 글, hint}]}. 키가 없으면 `no_key`, 덩어리가 너무 많으면 `ai_blocked`.
+  Future<Json> importAiPlan(String path, {String? hash}) async =>
+      await call('import.aiPlan', {'path': path, 'hash': ?hash}) as Json;
+
+  /// AI로 구조 잡기: 보내고 확인한다(요청은 많아야 2번, 60초까지). 맞으면 {structure, paras, tables, images, chars,
+  /// headings, requests, usage}, 물러나면 {fallback: 알림 문장, reason, requests, usage}. [importCancel]([ticket])로 멈추면
+  /// `canceled`.
+  Future<Json> importAiRun(String path, {String? hash, int? ticket}) async =>
+      await call('import.aiRun', {
+            'path': path,
+            'hash': ?hash,
+            'ticket': ?ticket,
           })
           as Json;
 

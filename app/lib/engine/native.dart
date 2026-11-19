@@ -109,6 +109,8 @@ bool slowLane(String request) {
         m == 'doc.exportDocx' ||
         m == 'doc.exportTxt' ||
         m == 'import.preview' ||
+        m == 'import.aiPlan' ||
+        m == 'import.aiRun' ||
         m == 'canvas.layers' ||
         (m.startsWith('iv.') && !_quickIv.contains(m));
   } on FormatException {
@@ -194,9 +196,23 @@ class NativeEngine extends EngineApi {
     String name, {
     Json? styles,
     String? hash,
+    Json? structure,
   }) async {
     await _ready();
-    return super.importApply(path, name, styles: styles, hash: hash);
+    return super.importApply(
+      path,
+      name,
+      styles: styles,
+      hash: hash,
+      structure: structure,
+    );
+  }
+
+  /// 구조 잡기도 받은 구조를 빈 문서에 붙여 확인하므로 글꼴이 있어야 한다.
+  @override
+  Future<Json> importAiRun(String path, {String? hash, int? ticket}) async {
+    await _ready();
+    return super.importAiRun(path, hash: hash, ticket: ticket);
   }
 
   Future<void> _ready() async {

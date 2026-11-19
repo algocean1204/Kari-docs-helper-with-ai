@@ -13,6 +13,7 @@ mod hwpx;
 pub mod pdf;
 mod pdfhelper;
 mod pdftext;
+pub mod structure;
 mod xml;
 mod zip;
 

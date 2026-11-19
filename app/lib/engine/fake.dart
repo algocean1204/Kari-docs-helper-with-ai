@@ -71,6 +71,24 @@ class FakeEngine extends EngineApi {
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
 
+  /// `import.aiPlan`이 보일 덩어리(가린 글)와 `import.aiRun`이 돌려줄 답. 받은 `import.aiRun`의 인자(받은 순서). 시험용.
+  List<Json> aiChunks = [
+    {'id': 0, 'text': '홍길동', 'hint': 'h1'},
+    {'id': 1, 'text': '연락처 〔연락처1〕', 'hint': ''},
+  ];
+  Json aiReply = {
+    'structure': {'blocks': []},
+    'paras': 1,
+    'tables': 0,
+    'images': 0,
+    'chars': 9,
+    'headings': [
+      {'level': 1, 'text': '홍길동'},
+    ],
+    'requests': 1,
+  };
+  final List<Json> aiRuns = [];
+
   /// 넣어 두면 다음 `edit.cmd` 하나를 이 사유로 거절한다. 시험용.
   String? refuse;
 
@@ -204,6 +222,25 @@ class FakeEngine extends EngineApi {
             imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
+      case 'import.aiPlan':
+        final t = ai.task('structure');
+        if (t['hasKey'] != true) {
+          throw const EngineError(
+            'no_key',
+            '구조 잡기에 고른 AI의 키가 없습니다. 설정의 AI 연결에서 키를 넣거나 이 일의 모델을 바꿉니다.',
+          );
+        }
+        return {
+          'provider': t['provider'],
+          'vendor': t['provider'] == 'openai' ? 'OpenAI' : 'Anthropic',
+          'plan': false,
+          'model': t['model'],
+          'modelName': t['modelName'],
+          'chunks': aiChunks,
+        };
+      case 'import.aiRun':
+        aiRuns.add(a);
+        return aiReply;
       case 'import.cancel':
         importCancels.add(a['ticket'] as int);
         return null;

@@ -302,7 +302,7 @@ class FakeIv {
         'tokensCached': 3000 * _turns(s).length,
         'cost': 0.0009 * _turns(s).length,
         'models': {
-          for (final t in FakeAi.tasks.map((t) => engine.ai.task(t.$1)))
+          for (final t in FakeAi.ivTasks.map(engine.ai.task))
             t['task']: {
               'provider': t['provider'],
               'model': t['model'],
@@ -584,7 +584,7 @@ class FakeIv {
         final posting = a['posting'] == null
             ? null
             : hide(_posting(a['posting'])['text'] as String);
-        final tasks = [for (final t in FakeAi.tasks) engine.ai.task(t.$1)];
+        final tasks = [for (final t in FakeAi.ivTasks) engine.ai.task(t)];
         return {
           'resume': resume,
           'posting': posting,
@@ -607,7 +607,7 @@ class FakeIv {
         _paras(a['doc'] as int);
         if (a['posting'] != null) _posting(a['posting'])['parsed'] = true;
         // 고른 제공사의 키가 없으면 다른 제공사로 넘어가지 않고 막는다(진짜 엔진과 같은 문구).
-        for (final t in FakeAi.tasks.map((t) => engine.ai.task(t.$1))) {
+        for (final t in FakeAi.ivTasks.map(engine.ai.task)) {
           if (t['hasKey'] != true) {
             final openai = t['provider'] == 'openai';
             final name = openai ? 'OpenAI' : 'Claude(Anthropic)';
