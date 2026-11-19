@@ -64,6 +64,10 @@ class FakeEngine extends EngineApi {
   /// `import.preview`가 돌려줄 파일 해시(경로 → 해시, 없으면 `h0`). 미리 본 뒤 파일이 바뀐 것은 이 값을 바꿔 흉내 낸다. 시험용.
   final Map<String, String> importHashes = {};
 
+  /// 받은 `import.preview`의 표(`ticket`)와 `import.cancel`의 표(받은 순서). 시험용.
+  final List<int?> importTickets = [];
+  final List<int> importCancels = [];
+
   /// 받은 `import.apply`의 인자(받은 순서). 시험용.
   final List<Json> importCalls = [];
 
@@ -182,6 +186,7 @@ class FakeEngine extends EngineApi {
         }
         return {'id': id};
       case 'import.preview':
+        importTickets.add(a['ticket'] as int?);
         // 진짜 엔진처럼 옛 한글(HWP)과 옛 Word(.doc) 파일은 안내만 한다.
         if ((a['path'] as String).endsWith('.hwp')) {
           throw const EngineError(
@@ -199,6 +204,9 @@ class FakeEngine extends EngineApi {
             imports[a['path']] ??
             (throw const EngineError('import', '파일을 읽지 못했습니다.'));
         return {...shown, 'hash': importHashes[a['path']] ?? 'h0'};
+      case 'import.cancel':
+        importCancels.add(a['ticket'] as int);
+        return null;
       case 'import.apply':
         final p =
             imports[a['path']] ??

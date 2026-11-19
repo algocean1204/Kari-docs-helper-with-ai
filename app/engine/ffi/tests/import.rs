@@ -371,6 +371,148 @@ fn hwpx의_그림은_내용으로_가리고_넣을_수_없는_글자는_빼며_�
 }
 
 #[test]
+fn pdf로_내보낸_이력서를_미리_보고_가져오면_제목과_목록이_남고_되돌리기_한_번이다() {
+    let case = Case::new("import-pdf");
+    let id = new_session();
+    insert(id, "홍길동");
+    cmd(id, json!({"k": "setStyle", "name": "title"}));
+    cmd(id, json!({"k": "enter"}));
+    cmd(id, json!({"k": "setStyle", "name": "h1"}));
+    insert(id, "경력");
+    cmd(id, json!({"k": "enter"}));
+    cmd(id, json!({"k": "setStyle", "name": "body"}));
+    insert(id, "• 견본상사에서 결제 API를 만들었습니다.");
+    let out = case.dir.join("내보낸 이력서.pdf");
+    ok("doc.exportPdf", json!({"id": id, "path": out}));
+    let before = doc_count();
+    let original = std::fs::read(&out).unwrap();
+    let assets = walk(&case.dir.join("assets")).len();
+
+    // 다른 표의 멈추기는 이 미리 보기를 막지 않는다. 표를 빠뜨린 멈추기는 틀린 요청이다.
+    assert_eq!(ok("import.cancel", json!({"ticket": 41})), Value::Null);
+    assert_eq!(
+        err("import.cancel", json!({}))["code"],
+        json!("bad_request")
+    );
+    let p = ok("import.preview", json!({"path": out, "ticket": 42}));
+    assert_eq!(p["pages"], json!(1), "{p}");
+    assert_eq!(
+        p["headings"],
+        json!([{"level": 1, "text": "홍길동"}, {"level": 2, "text": "경력"}])
+    );
+    assert_eq!(p["lost"], json!([]));
+    // 미리 보기는 문서도 그림도 만들지 않는다.
+    assert_eq!(doc_count(), before);
+    assert_eq!(walk(&case.dir.join("assets")).len(), assets);
+    // 멈추라고 한 표의 미리 보기는 읽지 않고 멈춘다.
+    assert_eq!(ok("import.cancel", json!({"ticket": 43})), Value::Null);
+    let e = err("import.preview", json!({"path": out, "ticket": 43}));
+    assert_eq!(e["message"], json!(kari_import::pdf::CANCELLED), "{e}");
+    let hash = p["hash"]
+        .as_str()
+        .expect("미리 보기가 해시를 돌려준다")
+        .to_string();
+
+    // 미리 본 뒤 파일이 바뀌면 적용하지 않는다.
+    let mut changed = original.clone();
+    let last = changed.len() - 1;
+    changed[last] ^= 1;
+    std::fs::write(&out, &changed).unwrap();
+    let e = err(
+        "import.apply",
+        json!({"path": out, "name": "x", "hash": hash}),
+    );
+    assert_eq!(e["code"], json!("import_changed"), "{e}");
+    assert_eq!(doc_count(), before);
+    std::fs::write(&out, &original).unwrap();
+
+    let r = ok(
+        "import.apply",
+        json!({"path": out, "name": "가져온 이력서", "hash": hash}),
+    );
+    // 원본은 읽기만 한다.
+    assert_eq!(std::fs::read(&out).unwrap(), original);
+    let got = r["id"].as_i64().unwrap();
+    ok("doc.open", json!({"id": got}));
+    let paras = top(got);
+    let styles: Vec<Value> = paras.iter().map(|p| p["props"]["style"].clone()).collect();
+    assert_eq!(styles, [json!("h1"), json!("h2"), Value::Null]);
+    let t: Vec<String> = paras.iter().map(texts_of).collect();
+    assert_eq!(
+        t,
+        ["홍길동", "경력", "견본상사에서 결제 API를 만들었습니다."]
+    );
+    assert_eq!(
+        paras[2]["props"]["pf"]["list"],
+        json!({"kind": "BULLET", "level": 0})
+    );
+    assert_eq!(ok("doc.verify", json!({"id": got})), json!([]));
+    let h = ok("doc.history", json!({"id": got, "limit": 10}));
+    assert_eq!(h.as_array().unwrap().len(), 1);
+    // 되돌리기 한 번이면 빈 새 문서, 다시 하면 가져온 상태와 같다.
+    let imported = back_hash(got);
+    ok("doc.undo", json!({"id": got, "actor": "user"}));
+    assert_eq!(texts(got), [""]);
+    ok("doc.redo", json!({"id": got, "actor": "user"}));
+    assert_eq!(back_hash(got), imported);
+
+    // 깨진 PDF는 정해진 문장으로 거절하고 문서도 그림도 남기지 않는다.
+    let assets = walk(&case.dir.join("assets")).len();
+    let bad = case.dir.join("깨진.pdf");
+    std::fs::write(&bad, b"%PDF-1.7\n broken").unwrap();
+    for m in ["import.preview", "import.apply"] {
+        let e = err(m, json!({"path": bad, "name": "깨진"}));
+        assert_eq!(e["code"], json!("import"), "{e}");
+        assert_eq!(e["message"], json!(kari_import::pdf::BROKEN));
+    }
+    assert_eq!(doc_count(), before + 1);
+    assert_eq!(walk(&case.dir.join("assets")).len(), assets);
+    assert!(ok("docs.list", json!({"trashed": true}))
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+/// 시간 상한은 release 기준이라 debug 빌드에서는 돌지 않는다.
+#[test]
+#[cfg_attr(debug_assertions, ignore = "release에서만 잰다")]
+fn 두_쪽_pdf의_미리_보기는_300ms_가져오기는_500ms_안이다() {
+    let case = Case::new("import-pdf-speed");
+    let id = new_session();
+    for i in 0..45 {
+        insert(
+            id,
+            &format!("{i}번째 줄: 견본상사에서 결제 API의 멱등성을 보장하려고 요청 키와 상태 머신을 함께 썼습니다."),
+        );
+        cmd(id, json!({"k": "enter"}));
+    }
+    let out = case.dir.join("두 쪽.pdf");
+    ok("doc.exportPdf", json!({"id": id, "path": out}));
+    assert_eq!(
+        ok("import.preview", json!({"path": out}))["pages"],
+        json!(2)
+    );
+    let p95 = |mut v: Vec<std::time::Duration>| {
+        v.sort();
+        v[v.len() * 95 / 100]
+    };
+    let mut preview = Vec::new();
+    let mut apply = Vec::new();
+    for _ in 0..20 {
+        let t = std::time::Instant::now();
+        ok("import.preview", json!({"path": out}));
+        preview.push(t.elapsed());
+        let t = std::time::Instant::now();
+        ok("import.apply", json!({"path": out, "name": "두 쪽"}));
+        apply.push(t.elapsed());
+    }
+    let (p, a) = (p95(preview), p95(apply));
+    eprintln!("두 쪽 PDF p95: 미리 보기 {p:?}, 가져오기 {a:?}");
+    assert!(p.as_millis() <= 300, "{p:?}");
+    assert!(a.as_millis() <= 500, "{a:?}");
+}
+
+#[test]
 fn 오천_개가_넘는_op도_묶음_하나로_넣는다() {
     let case = Case::new("import-big");
     let html: String = (0..6000).map(|i| format!("<p>줄 {i}</p>")).collect();

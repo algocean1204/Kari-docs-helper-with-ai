@@ -1,6 +1,6 @@
 //! 앱과 엔진의 경계.
 //!
-//! `kari_call`, `kari_free`가 JSON 요청을 받아 JSON 응답을 돌려준다. 화면 스레드는 명령 잠금을 잡지 않는
+//! `kari_call`, `kari_free`가 JSON 요청을 받아 JSON 응답을 돌려준다. `kari_pdf_helper`는 PDF 읽기 도우미 프로세스의 몸통이다. 화면 스레드는 명령 잠금을 잡지 않는
 //! C 함수(`kari_font_add`, `kari_edit_gen`, `kari_edit_render`, `kari_edit_render_at`)을 바로 부른다.
 //! `canvas.*`는 캔버스 문서의 편집 세션이다(`edit.*`과 같은 모양). 그리기와 바뀜 번호는 같은 C 함수가 문서 번호로 세션을 찾는다.
 //! `ai.*`와 `iv.*`는 네트워크를 기다리므로, `doc.exportPdf`는 배치와 파일 쓰기가 길므로 명령 잠금을 스스로 짧게 잡는다.
@@ -73,6 +73,12 @@ fn handle(request: Option<&str>) -> Res {
     // 미리 보기는 라이브러리를 건드리지 않아 명령 잠금을 잡지 않는다(큰 파일을 읽는 동안 편집이 이어진다).
     if m == "import.preview" {
         return import::preview(&Args(a));
+    }
+    // 표(`ticket`)를 단 PDF 미리 보기를 멈춘다(돌고 있으면 도우미를 끝내고, 줄 서 있으면 시작하자마자 멈춘다).
+    // 미리 보기 창의 `취소`가 부른다. 잠금을 잡지 않는다.
+    if m == "import.cancel" {
+        kari_import::pdf::cancel(Args(a).seq("ticket")?);
+        return Ok(Value::Null);
     }
     let mut state = library::engine();
     if m == "import.apply" {
@@ -170,6 +176,18 @@ pub unsafe extern "C" fn kari_font_add(data: *const u8, len: usize) -> i32 {
     }
     let bytes = std::slice::from_raw_parts(data, len);
     catch_unwind(|| if session::font_add(bytes) { 0 } else { 1 }).unwrap_or(3)
+}
+
+/// 앱 빌드에서 PDF 도우미의 힙 상한을 세는 할당자. 도우미가 아닐 때는 시스템 할당자에 그대로 넘긴다.
+#[cfg(feature = "app")]
+#[global_allocator]
+static ALLOC: kari_import::pdf::Capped = kari_import::pdf::Capped;
+
+/// PDF 읽기 도우미의 몸통. 앱이 자기 실행 파일을 `--kari-pdf-helper`로 다시 띄우면, 창을 열기 전에 이것만 부르고
+/// 그 값으로 끝난다. 표준 입력의 PDF를 읽어 결과를 표준 출력에 쓴다. 0 성공, 1 입출력 실패, 3 엔진 안의 오류.
+#[no_mangle]
+pub extern "C" fn kari_pdf_helper() -> i32 {
+    catch_unwind(kari_import::pdf::helper_main).unwrap_or(3)
 }
 
 /// 문서의 바뀜 번호. 그릴 것이 달라질 때마다 오른다. 세션이 없으면 0. 명령 잠금을 잡지 않는다.

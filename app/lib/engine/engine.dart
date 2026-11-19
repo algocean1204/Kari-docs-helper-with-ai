@@ -874,10 +874,16 @@ abstract class EngineApi {
   Future<Json> docExportTxt(int id, String path) async =>
       await call('doc.exportTxt', {'id': id, 'path': path}) as Json;
 
-  /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip)을 읽어 본다. 문서를 만들지 않는다.
+  /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip, PDF)을 읽어 본다. 문서를 만들지 않는다.
   /// {hash: 읽은 바이트의 SHA-256, paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
-  Future<Json> importPreview(String path) async =>
-      await call('import.preview', {'path': path}) as Json;
+  /// [ticket]을 주면 [importCancel]로 이 미리 보기만 멈출 수 있다.
+  Future<Json> importPreview(String path, {int? ticket}) async =>
+      await call('import.preview', {'path': path, 'ticket': ?ticket}) as Json;
+
+  /// 표 [ticket]을 단 PDF 미리 보기를 멈춘다. 돌고 있으면 엔진이 읽기 도우미 프로세스를 끝내고, 아직 줄 서 있으면 시작하자마자
+  /// 멈춘다. 그 미리 보기는 오류로 끝난다.
+  Future<void> importCancel(int ticket) =>
+      call('import.cancel', {'ticket': ticket});
 
   /// 파일을 [name]의 새 흐름 문서로 가져온다. [styles]를 주면 그 스타일 표로 시작한다. {id, lost}.
   /// [hash](미리 보기가 돌려준 `hash`)를 주면 지금 읽은 파일이 그것과 다를 때 `import_changed`로 거절하고 아무것도 만들지 않는다.

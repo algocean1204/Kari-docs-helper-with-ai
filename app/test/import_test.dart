@@ -1,4 +1,4 @@
-// 가져오기의 위젯 시험(흉내 엔진): 홈의 `가져오기…`, 파일 메뉴의 `가져오기…`, 미리 보기 창의 요약과 옮기지 못한 것,
+// 가져오기의 위젯 시험(흉내 엔진): 홈의 `가져오기…`, 파일 메뉴의 `가져오기…`, 미리 보기 창의 요약(PDF의 쪽 수)과 옮기지 못한 것,
 // 취소와 가져오기, 읽지 못한 파일, 같은 이름의 번호.
 
 import 'dart:async';
@@ -105,6 +105,57 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(ImportDialog), findsNothing);
     expect(previews(), before);
+  });
+
+  testWidgets('PDF는 쪽 수를 요약 앞에 두고 스캔 쪽을 옮기지 못한 것에 보인다', (tester) async {
+    const pdf = '/tmp/kari-test/받은 파일/홍길동 이력서.pdf';
+    final rig = await pumpReal(tester, seed: false);
+    rig.fake.imports[pdf] = {
+      ..._preview,
+      'pages': 2,
+      'lost': ['스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)'],
+    };
+    rig.importPath = () async => pdf;
+    await tester.tap(find.text('가져오기…'));
+    await tester.pumpAndSettle();
+    expect(find.text('쪽 2개 · 문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
+    expect(
+      find.text(keepAll('· 스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)')),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.importCalls.single['path'], pdf);
+    expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
+  });
+
+  testWidgets('읽는 중에 취소하면 엔진의 읽기도 멈추고, 다 읽은 뒤의 취소는 멈추지 않는다', (tester) async {
+    final rig = await pumpReal(tester, seed: false);
+    rig.fake.imports[_path] = _preview;
+    rig.importPath = () async => _path;
+    final reading = Completer<void>();
+    rig.fake.waits['import.preview'] = reading.future;
+    await tester.tap(find.text('가져오기…'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ImportDialog), findsOneWidget);
+    await tester.tap(find.widgetWithText(TextButton, '취소'));
+    await tester.pump();
+    expect(rig.fake.sent.where((m) => m == 'import.cancel'), hasLength(1));
+    reading.complete();
+    await tester.pumpAndSettle();
+    // 멈추는 것은 이 창이 미리 보기에 단 표다.
+    expect(rig.fake.importTickets.single, isNotNull);
+    expect(rig.fake.importCancels, [rig.fake.importTickets.single]);
+    expect(find.byType(ImportDialog), findsNothing);
+
+    rig.fake.waits.remove('import.preview');
+    await tester.tap(find.text('가져오기…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '취소'));
+    await tester.pumpAndSettle();
+    expect(rig.fake.sent.where((m) => m == 'import.cancel'), hasLength(1));
+    expect(rig.fake.docs, isEmpty);
   });
 
   testWidgets('읽지 못하는 파일은 까닭을 보이고 가져오기가 꺼진다', (tester) async {

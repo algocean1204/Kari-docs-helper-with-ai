@@ -620,7 +620,7 @@ typedef OpenPath = Future<String?> Function();
 Future<String?> pickOpenPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('openPath');
 
-/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, 한글 문서, HTML, zip)을 고른다. `kari/files`의 `importPath`.
+/// macOS의 열기 대화 상자로 가져올 파일(Word 문서, 한글 문서, HTML, zip, PDF)을 고른다. `kari/files`의 `importPath`.
 Future<String?> pickImportPath() =>
     const MethodChannel('kari/files').invokeMethod<String>('importPath');
 

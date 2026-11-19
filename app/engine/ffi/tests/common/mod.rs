@@ -49,6 +49,8 @@ pub struct Case {
 impl Case {
     pub fn new(name: &str) -> Case {
         let lock = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        // 앱에서는 앱의 실행 파일이 PDF 도우미다. 시험은 같은 몸통을 부르는 시험용 실행 파일을 쓴다.
+        kari_import::pdf::set_helper(env!("CARGO_BIN_EXE_kari-pdf-helper"));
         call("lib.close", json!({}));
         let dir = std::env::temp_dir().join(format!("kari-edit-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

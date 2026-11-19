@@ -10,7 +10,9 @@
 // 글은 입력 채널 경로로 넣는다(TextInput.updateEditingValue: 입력기가 앱에 값을 줄 때와 같은 호출이고, 종이에
 // 입력 채널이 붙어 있어야 닿는다). 시험이 합성한 키 이벤트는 macOS 입력기를 거치지 않아 글자를 만들지 못하므로,
 // 키 이벤트로는 Enter, Tab, ⌘A, ⌘B, ⌘Z를 보낸다.
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -811,6 +813,44 @@ void main() {
     );
   });
 
+  // PDF 해석은 앱의 실행 파일을 `--kari-pdf-helper`로 다시 띄운 도우미가 한다. 샌드박스 앱 안에서 도우미가 뜨고,
+  // 엔진이 그 메모리를 재어 상한을 넘으면 끝내는지 본다(재지 못하면 "깨진 PDF"가 된다).
+  testWidgets('PDF는 샌드박스 앱 안의 도우미 프로세스가 읽고, 메모리 상한을 넘으면 끝낸다', (tester) async {
+    final tmp = Directory.systemTemp.createTempSync('kari-pdf-');
+    addTearDown(() => tmp.deleteSync(recursive: true));
+    final engine = NativeEngine();
+    final good = File('${tmp.path}/견본.pdf')
+      ..writeAsBytesSync(
+        pdfOf(latin1.encode('BT /F1 24 Tf 72 700 Td (Kari) Tj ET')),
+      );
+    final sw = Stopwatch()..start();
+    final p = await engine.call('import.preview', {'path': good.path}) as Map;
+    debugPrint('PDF 미리 보기(도우미 포함): ${sw.elapsedMilliseconds}ms');
+    expect(p['pages'], 1);
+    expect(p['chars'], 4);
+
+    // 읽기 전 셈이 보지 못하는 큰 배열(내용 스트림의 낱말 stream 뒤 400만 원소 TJ): 도우미가 메모리 상한에서 끝난다.
+    final big = File('${tmp.path}/큰.pdf')
+      ..writeAsBytesSync(
+        pdfOf(
+          ZLibCodec(level: 9).encode(
+            latin1.encode(
+              'BT /F1 12 Tf 72 700 Td stream [${'0 ' * 4000000}(Kari)] TJ ET',
+            ),
+          ),
+          flate: true,
+        ),
+      );
+    sw.reset();
+    final e = await engine
+        .call('import.preview', {'path': big.path})
+        .then<Object?>((_) => null, onError: (Object e) => e);
+    debugPrint('큰 PDF 거절: ${sw.elapsedMilliseconds}ms');
+    expect(e, isA<EngineError>());
+    expect((e as EngineError).message, '내용이 너무 큰 PDF는 가져올 수 없습니다.');
+    expect(sw.elapsed, lessThan(const Duration(seconds: 2)));
+  });
+
   testWidgets('보안 저장소 자가 확인(ai.keyCheck)이 샌드박스 앱 안에서 통과한다', (tester) async {
     expect(await NativeEngine().call('ai.keyCheck'), {'ok': true});
   });
@@ -1123,4 +1163,45 @@ Future<void> typingLatency(WidgetTester tester, {double zoom = 1}) async {
     reason: '200자가 모두 들어갔다',
   );
   expect(base.length, line.length + 200);
+}
+
+/// 글 쪽 하나짜리 PDF: 1 카탈로그, 2 쪽 나무, 3 쪽, 4 내용([content]), 5 글꼴(Helvetica).
+List<int> pdfOf(List<int> content, {bool flate = false}) {
+  final out = BytesBuilder()..add(latin1.encode('%PDF-1.7\n'));
+  final at = <int>[];
+  void obj(List<int> body) {
+    at.add(out.length);
+    out
+      ..add(latin1.encode('${at.length} 0 obj\n'))
+      ..add(body)
+      ..add(latin1.encode('\nendobj\n'));
+  }
+
+  obj(latin1.encode('<< /Type /Catalog /Pages 2 0 R >>'));
+  obj(latin1.encode('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'));
+  obj(
+    latin1.encode(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+      '/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    ),
+  );
+  obj([
+    ...latin1.encode(
+      '<< /Length ${content.length}${flate ? ' /Filter /FlateDecode' : ''} >>\nstream\n',
+    ),
+    ...content,
+    ...latin1.encode('\nendstream'),
+  ]);
+  obj(latin1.encode('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'));
+  final xref = out.length;
+  out.add(latin1.encode('xref\n0 6\n0000000000 65535 f \n'));
+  for (final a in at) {
+    out.add(latin1.encode('${a.toString().padLeft(10, '0')} 00000 n \n'));
+  }
+  out.add(
+    latin1.encode(
+      'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n',
+    ),
+  );
+  return out.takeBytes();
 }

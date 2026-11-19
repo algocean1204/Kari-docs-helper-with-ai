@@ -501,8 +501,8 @@ class MainFlutterWindow: NSWindow {
           result(response == .OK ? panel.url?.path : nil)
         }
       case "importPath":
-        // 가져올 파일 고르기. Word 문서, 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip)를 고를 수 있다. 옛 한글(HWP)과
-        // 옛 Word(.doc)도 고를 수 있게 둔다(막으면 저장해 가져오라는 엔진의 안내를 볼 길이 없다). 취소하면 nil.
+        // 가져올 파일 고르기. Word 문서, 한글 문서(HWPX), HTML, Google Docs의 웹 페이지 꾸러미(zip), PDF를 고를 수 있다.
+        // 옛 한글(HWP)과 옛 Word(.doc)도 고를 수 있게 둔다(막으면 저장해 가져오라는 엔진의 안내를 볼 길이 없다). 취소하면 nil.
         // 파일은 엔진이 읽기만 한다(고른 파일에만 샌드박스의 읽기 허락이 생긴다).
         guard let self else {
           result(nil)
@@ -510,7 +510,7 @@ class MainFlutterWindow: NSWindow {
         }
         let panel = NSOpenPanel()
         panel.allowedContentTypes =
-          ["docx", "doc", "hwpx", "hwp", "html", "htm", "zip"].compactMap { UTType(filenameExtension: $0) }
+          ["docx", "doc", "hwpx", "hwp", "html", "htm", "zip", "pdf"].compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

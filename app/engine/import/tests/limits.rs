@@ -26,6 +26,19 @@ unsafe impl GlobalAlloc for Counting {
         System.dealloc(p, l);
         NOW.fetch_sub(l.size(), Relaxed);
     }
+    // 늘린 만큼도 센다(기본 realloc은 새로 잡고 옮기므로 그 사이의 최대를 빠뜨리지 않게).
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
+        let q = System.realloc(p, l, new);
+        if !q.is_null() {
+            if new >= l.size() {
+                let more = new - l.size();
+                PEAK.fetch_max(NOW.fetch_add(more, Relaxed) + more, Relaxed);
+            } else {
+                NOW.fetch_sub(l.size() - new, Relaxed);
+            }
+        }
+        q
+    }
 }
 
 #[global_allocator]
