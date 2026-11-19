@@ -17,6 +17,10 @@ const metaKids = '~kids',
 /// 다른 Figma 파일에서 가져온 문서를 맞추려 할 때.
 const otherFile = '이 문서는 다른 Figma 파일에서 가져왔습니다. 그 파일에서 플러그인을 실행해 연결한 뒤 맞춥니다';
 
+/// 파일 키로 확인하지 못했고 페이지·대지·대응 id도 맞지 않을 때. 다른 파일일 수도, 같은 페이지에서 많이 지웠을 수도 있다.
+const unsureFile =
+    '이 문서를 가져온 Figma 페이지인지 확인할 수 없어 맞추지 않습니다. 가져온 파일의 그 페이지에서 플러그인을 실행했는지 확인하고, 그 페이지에서 많이 지웠다면 다시 가져옵니다';
+
 /// 충돌 하나: Kari와 Figma가 같은 것을 다르게 바꿨다. 기본은 Kari 값이고, [key]를 고르면 Figma 쪽을 쓴다.
 class SyncConflict {
   const SyncConflict(this.key, this.name, this.what, this.kari, this.figma);
@@ -431,11 +435,11 @@ SyncPlan planSync(
     if ((page != null && page != tree.page) ||
         boards.any((b) => tree.nodes[fidOf(b)]?.type != 'page') ||
         overlap * 2 < primary.length) {
-      return plan..refused = otherFile;
+      return plan..refused = unsureFile;
     }
   }
   if (!primary.keys.any(tree.nodes.containsKey)) {
-    return plan..refused = otherFile;
+    return plan..refused = unsureFile;
   }
 
   // 맞춘 때의 부모와 지문(`~kids`, `~boards`).
@@ -621,7 +625,8 @@ SyncPlan planSync(
     final name = _nameOf(kp, type);
     final locked = lockedByKari(k);
     if (type != f.type) {
-      final ok = !locked && pristine(k);
+      // 확인하지 못한 파일에서는 고치지 않은 요소도 바꿔 넣지 않고 충돌로만 보인다.
+      final ok = !plan.unconfirmed && !locked && pristine(k);
       if (!ok) conflict(f.fid, name, 'type', type, f.type);
       if (ok || chose(f.fid, 'type')) {
         for (final d in subtree(k)) {

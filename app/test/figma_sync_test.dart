@@ -479,6 +479,20 @@ void main() {
       expect(kariOf(applyOps(edited, chosen.ops), '1:2')!['type'], 'ellipse');
     });
 
+    test('파일을 확인하지 못한 맞추기에서는 고치지 않은 요소의 종류 바뀜도 충돌로만 보인다', () {
+      final f = fig(
+        editF(b, '1:2', (n) => {...n, 'type': 'ELLIPSE'}),
+        file: null,
+      );
+      final k = imported(b, file: null);
+      final plan = planSync(k, f);
+      expect(plan.unconfirmed, isTrue);
+      expect(plan.conflicts.single.what, 'type');
+      expect(opsOf(plan, 'del'), isEmpty);
+      final chosen = planSync(k, f, pick: {'1:2/type'});
+      expect(kariOf(applyOps(k, chosen.ops), '1:2')!['type'], 'ellipse');
+    });
+
     test('Kari에서 잠근 요소는 Figma의 변경을 받지 않고 충돌로 보인다', () {
       final k = setK(imported(b), '1:2', {'locked': true});
       final f = fig(
@@ -544,7 +558,7 @@ void main() {
           figmaNode('9:1', 'FRAME', x: 0, y: 0, w: 10, h: 10),
         ]);
         final plan = planSync(imported(b), fig(other));
-        expect(plan.refused, otherFile);
+        expect(plan.refused, unsureFile);
         expect(plan.ops, isEmpty);
       },
     );
@@ -787,7 +801,7 @@ void main() {
         final k = imported(b, file: null);
         for (final key in [null, 'fileX']) {
           final plan = planSync(k, fig(other, file: key));
-          expect(plan.refused, otherFile, reason: '$key');
+          expect(plan.refused, unsureFile, reason: '$key');
           expect(opsOf(plan, 'del'), isEmpty);
         }
         // 같은 페이지여도 확인하지 못한 맞추기는 파일 키를 새로 새기지 않고, Figma에서 지운 것은 충돌로만 보인다.
