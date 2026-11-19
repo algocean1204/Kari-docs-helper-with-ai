@@ -268,8 +268,10 @@ class _KeyDialogState extends State<KeyDialog> {
         children: [
           Text('$name API 키', style: AppText.label.copyWith(color: c.text)),
           const SizedBox(height: Space.x1),
-          HintNamed(
-            TextField(
+          // 위의 글은 칸에 이어져 있지 않아 칸의 이름으로 따로 단다. 안내 글은 키의 꼴만 말한다.
+          Semantics(
+            label: '$name API 키',
+            child: TextField(
               controller: _text,
               autofocus: true,
               readOnly: busy,

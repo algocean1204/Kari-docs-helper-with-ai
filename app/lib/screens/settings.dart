@@ -630,16 +630,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SingleActivator(LogicalKeyboardKey.escape): () =>
                   setState(_find.clear),
             },
-            child: TextField(
-              controller: _find,
-              focusNode: _findNode,
-              style: AppText.body.copyWith(color: c.text),
-              decoration: InputDecoration(
-                hintText: '설정 찾기',
-                prefixIcon: Icon(Icons.search, size: 18, color: c.textMuted),
-                prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            child: HintNamed(
+              TextField(
+                controller: _find,
+                focusNode: _findNode,
+                style: AppText.body.copyWith(color: c.text),
+                decoration: InputDecoration(
+                  hintText: '설정 찾기',
+                  prefixIcon: Icon(Icons.search, size: 18, color: c.textMuted),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 36),
+                ),
+                onChanged: (_) => setState(() {}),
               ),
-              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: Space.x3),

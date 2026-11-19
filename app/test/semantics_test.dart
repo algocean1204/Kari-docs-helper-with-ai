@@ -14,11 +14,13 @@ import 'package:kari/design/components.dart';
 import 'package:kari/design/theme.dart';
 import 'package:kari/main.dart';
 
+import 'ai_test.dart' show providerButton, pumpAi, tap, typeKey;
 import 'canvas_layers_test.dart' show openLayers;
 import 'design_test.dart' show loadFonts, pumpApp, sizes;
 import 'editor_test.dart'
     show docMenu, firstPara, insertMenu, openCv, semantics, shortcut;
 import 'format_test.dart' show formatMenu;
+import 'interview_test.dart' show pumpIv, startFirst;
 
 /// 지금 트리에서 걸린 것: 누르기 동작이 없는 켜진 단추, 이름 없는 단추, 이름 없는 글자 칸.
 List<String> audit() => [
@@ -27,7 +29,9 @@ List<String> audit() => [
       ...() {
         final d = n.getSemanticsData();
         final f = d.flagsCollection;
-        final name = d.label.isNotEmpty ? d.label : d.tooltip;
+        // macOS의 손쉬운 사용에는 label만 이름으로 간다. 도구 설명과 안내 글은 전해지지 않는다.
+        // 한계: 글자 칸은 label도 아직 macOS로 가지 않는다(flutter/flutter#120779). 여기서는 Flutter 트리를 본다.
+        final name = d.label;
         return [
           // 줄바꿈용 결합 문자(keepAll)는 화면의 글에만 넣는다.
           if (d.label.contains('\u2060')) '결합 문자가 든 이름 "${d.label}"',
@@ -36,11 +40,17 @@ List<String> audit() => [
               f.isEnabled != Tristate.isFalse &&
               !d.hasAction(SemanticsAction.tap))
             '누르기 없는 단추 $name',
-          if (f.isTextField && name.isEmpty && d.hint.isEmpty)
-            '이름 없는 칸 "${d.value}" ${n.rect}',
+          if (f.isTextField && name.isEmpty) '이름 없는 칸 "${d.value}" ${n.rect}',
         ];
       }(),
 ];
+
+/// 이름이 [label]로 시작하는 글자 칸. 칸이 비어 있으면 안내 글이 이름 뒤에 줄을 바꿔 붙는다.
+SemanticsFinder namedField(String label) => find.semantics.byPredicate(
+  (n) =>
+      n.getSemanticsData().flagsCollection.isTextField &&
+      n.label.split('\n').first == label,
+);
 
 SemanticsData data(String label) => find.semantics
     .byLabel(RegExp('^${RegExp.escape(label)}\$'))
@@ -211,6 +221,43 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.semantics.byLabel('대화 상자 바깥'), findsOne);
       expect(find.semantics.byLabel('닫기'), findsNothing);
+      h.dispose();
+    });
+  });
+
+  group('글자 칸과 본문은 글이 들어가도 이름이 있다', () {
+    testWidgets('설정 찾기와 키 넣기 칸', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpAi(tester);
+      await tap(tester, providerButton('OpenAI 키 넣기'));
+      expect(namedField('OpenAI API 키'), findsOne);
+      await typeKey(tester, 'sk-test');
+      expect(namedField('OpenAI API 키'), findsOne);
+      await tap(tester, find.text('취소'));
+
+      expect(namedField('설정 찾기'), findsOne);
+      await tester.enterText(find.widgetWithText(TextField, '설정 찾기'), '키');
+      await tester.pumpAndSettle();
+      expect(namedField('설정 찾기'), findsOne);
+      h.dispose();
+    });
+
+    testWidgets('글자 크기 칸과 문서 본문', (tester) async {
+      final h = tester.ensureSemantics();
+      await openCv(tester);
+      expect(namedField('글자 크기'), findsOne);
+      expect(namedField('문서 본문'), findsOne);
+      h.dispose();
+    });
+
+    testWidgets('면접의 답변 칸', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpIv(tester);
+      await startFirst(tester);
+      expect(namedField('답변'), findsOne);
+      await tester.enterText(find.byType(TextField), '인덱스를 더했습니다.');
+      await tester.pumpAndSettle();
+      expect(namedField('답변'), findsOne);
       h.dispose();
     });
   });
