@@ -86,12 +86,28 @@ Future<void> shortcut(WidgetTester tester, LogicalKeyboardKey key) async {
   await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
 }
 
-/// 자료 폴더(KARI_HOME이 있으면 그 폴더, 없으면 새 임시 폴더)로 앱을 띄우고 `새 문서`를 연다.
-/// 끝나면 화면을 비우고 라이브러리를 닫고, 만든 폴더를 지운다. [savePath], [openPath]는 대화 상자 대신 쓴다.
-Future<(Library, int)> newDoc(
+/// 시험 도중 사용자가 다른 앱을 쓰면 앱이 비활성이 되고, Flutter는 초점을 거두고 프레임을 멈춘다. 그러면 시험이
+/// 넣는 글과 키가 어디에도 닿지 않는다(실제 사용자는 창을 앞에 두고 친다). 시험은 입력기 대신 값을 직접 넣으므로
+/// 처음에 활성으로 알리고, 그 뒤 운영체제의 활성 상태 알림은 받지 않는다.
+void stayResumed(IntegrationTestWidgetsFlutterBinding binding) {
+  binding.defaultBinaryMessenger.handlePlatformMessage(
+    SystemChannels.lifecycle.name,
+    SystemChannels.lifecycle.codec.encodeMessage(
+      AppLifecycleState.resumed.toString(),
+    ),
+    (_) {},
+  );
+  SystemChannels.lifecycle.setMessageHandler((_) async => null);
+}
+
+/// 자료 폴더(KARI_HOME이 있으면 그 폴더, 없으면 새 임시 폴더)의 진짜 엔진 라이브러리. 끝나면 화면을 비우고
+/// 라이브러리를 닫고, 만든 폴더를 지운다. [savePath], [openPath], [importPath]는 대화 상자 대신 쓴다.
+Future<Library> nativeLibrary(
   WidgetTester tester, {
   SavePath? savePath,
   OpenPath? openPath,
+  OpenPath? importPath,
+  NativeEngine? engine,
 }) async {
   final home = Platform.environment['KARI_HOME'] ?? '';
   final made = home.isEmpty;
@@ -101,10 +117,11 @@ Future<(Library, int)> newDoc(
   // 앱(main)처럼 번들 ID를 키 보관의 서비스 이름으로 넘긴다. 시험 앱(Kari Dev)은 배포 앱의 키에 닿지 않는다.
   await updates.identify();
   final library = Library(
-    NativeEngine(),
+    engine ?? NativeEngine(),
     dir,
     savePath: savePath ?? pickSavePath,
     openPath: openPath ?? pickOpenPath,
+    importPath: importPath ?? pickImportPath,
     service: updates.id.isEmpty ? null : updates.id,
   );
   addTearDown(() async {
@@ -112,6 +129,20 @@ Future<(Library, int)> newDoc(
     await library.close();
     if (made) Directory(dir).deleteSync(recursive: true);
   });
+  return library;
+}
+
+/// [nativeLibrary]로 앱을 띄우고 `새 문서`를 연다.
+Future<(Library, int)> newDoc(
+  WidgetTester tester, {
+  SavePath? savePath,
+  OpenPath? openPath,
+}) async {
+  final library = await nativeLibrary(
+    tester,
+    savePath: savePath,
+    openPath: openPath,
+  );
   await unstuck(tester.pumpWidget(App(library: library)));
   await until(
     tester,
@@ -201,18 +232,7 @@ Future<String> writePng(String dir) async {
 }
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  // 시험 도중 사용자가 다른 앱을 쓰면 앱이 비활성이 되고, Flutter는 초점을 거두고 프레임을 멈춘다. 그러면 시험이
-  // 넣는 글과 키가 어디에도 닿지 않는다(실제 사용자는 창을 앞에 두고 친다). 시험은 입력기 대신 값을 직접 넣으므로
-  // 처음에 활성으로 알리고, 그 뒤 운영체제의 활성 상태 알림은 받지 않는다.
-  binding.defaultBinaryMessenger.handlePlatformMessage(
-    SystemChannels.lifecycle.name,
-    SystemChannels.lifecycle.codec.encodeMessage(
-      AppLifecycleState.resumed.toString(),
-    ),
-    (_) {},
-  );
-  SystemChannels.lifecycle.setMessageHandler((_) async => null);
+  stayResumed(IntegrationTestWidgetsFlutterBinding.ensureInitialized());
 
   testWidgets('새 문서에 쓰고, 굵게 하고, 되돌리고, 홈에 다녀와도 글이 남는다', (tester) async {
     final home = Platform.environment['KARI_HOME'] ?? '';
