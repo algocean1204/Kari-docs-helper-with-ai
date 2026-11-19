@@ -369,9 +369,14 @@ fn 밖의_엔티티를_펼치지_않는다() {
 }
 
 #[test]
-fn 문단이_상한을_넘으면_거절한다() {
-    let body: String = (0..MAX_PARAS + 1).map(|_| hp(0, &[(0, "줄")])).collect();
-    assert_eq!(run(&hwpx(&body, &[])).err(), Some(TOO_MANY_PARAS));
+fn 크기_예산을_넘으면_거절한다() {
+    // 한 줄짜리 문단의 무게는 5다.
+    let body = |n: usize| -> String { (0..n).map(|_| hp(0, &[(0, "줄")])).collect() };
+    assert!(run(&hwpx(&body(MAX_WEIGHT / 5), &[])).is_ok());
+    assert_eq!(
+        run(&hwpx(&body(MAX_WEIGHT / 5 + 1), &[])).err(),
+        Some(TOO_BIG)
+    );
 }
 
 #[test]
@@ -1171,7 +1176,7 @@ fn 무작위_한글_문서_64개는_멈추지_않고_곧은_조각이_된다() {
         let z = hwpx("", &[("Contents/section0.xml", &sec)]);
         if let Ok(got) = run(&z) {
             check_frag(&got.fragment.paras);
-            assert!(got.fragment.paras.len() <= MAX_PARAS);
+            assert!(got.fragment.paras.iter().map(weight).sum::<usize>() <= MAX_WEIGHT);
             ok += 1;
         }
     }
