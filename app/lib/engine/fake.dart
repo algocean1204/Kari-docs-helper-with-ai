@@ -271,14 +271,27 @@ class FakeEngine extends EngineApi {
       case 'doc.nodes':
         return doc()['nodes'];
       case 'doc.commit':
-        // 흉내: 더하기와 지우기만 한 묶음으로 받는다(값 검사는 하지 않는다).
+        // 흉내: 더하기, 속성 바꾸기(null은 지움), 옮기기, 지우기를 한 묶음으로 받는다(값 검사는 하지 않는다).
         final d = doc();
         final nodes = d['nodes'] as List;
+        Map find(Object? id) => nodes.firstWhere(
+          (n) => (n as Map)['id'] == id,
+          orElse: () => throw EngineError('op', '없는 노드입니다: $id'),
+        );
         for (final op in a['ops'] as List) {
           final o = op as Map;
           if (o['op'] == 'add') {
             final node = (o['node'] as Map).cast<String, Object?>();
             nodes.add({'z': 'a0', 'props': <String, Object?>{}, ...node});
+          } else if (o['op'] == 'set') {
+            final props = find(o['id'])['props'] as Map;
+            for (final e in (o['props'] as Map).entries) {
+              e.value == null
+                  ? props.remove(e.key)
+                  : props[e.key] = jsonDecode(jsonEncode(e.value));
+            }
+          } else if (o['op'] == 'move') {
+            find(o['id'])['parent'] = o['parent'];
           } else if (o['op'] == 'del') {
             final gone = {o['id']};
             for (var grew = true; grew;) {

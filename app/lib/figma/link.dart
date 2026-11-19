@@ -11,9 +11,12 @@ import 'client.dart';
 import 'convert.dart';
 import 'receive.dart';
 import 'relay.dart';
+import 'sync.dart';
 
 export 'client.dart' show FigmaError;
 export 'receive.dart' show FigmaImport;
+export 'sync.dart'
+    show SyncPlan, SyncConflict, planSync, linkedPage, hasFigmaMap;
 
 /// 중계 서버의 상태: 아직 켜지 않음, 이미 켜진 것(다른 앱)을 씀, 앱이 켬, 켜지 못함.
 enum RelayKind { off, external, builtin, failed }
@@ -63,6 +66,9 @@ class FigmaLink extends ChangeNotifier {
 
   /// 연결된 파일에서 지금 보이는 페이지의 이름(플러그인이 파일 이름은 주지 않는다).
   String? pageName;
+
+  /// 연결된 파일의 키. 플러그인이 주지 않으면 null이다.
+  String? fileKey;
   FigmaClient? _client;
 
   bool get connected => status == LinkStatus.connected && _client != null;
@@ -128,6 +134,8 @@ class FigmaLink extends ChangeNotifier {
       await c.join(ch);
       final info = await c.send('get_document_info', const {});
       pageName = info is Map ? info['name'] as String? : null;
+      final key = info is Map ? info['fileKey'] : null;
+      fileKey = key is String && key.length <= 200 ? key : null;
       final mine = c;
       c.onClosed = (why) {
         if (!identical(_client, mine)) return;
@@ -321,14 +329,17 @@ class FigmaLink extends ChangeNotifier {
     String pageId, {
     Duration timeout = const Duration(seconds: 120),
     Duration total = maxCommandTime,
-  }) async => fromFigma(
-    await _c.send(
-      'get_node_info',
-      {'nodeId': pageId},
-      timeout: timeout,
-      total: total,
-    ),
-  )..pageId = pageId;
+  }) async =>
+      fromFigma(
+          await _c.send(
+            'get_node_info',
+            {'nodeId': pageId},
+            timeout: timeout,
+            total: total,
+          ),
+        )
+        ..pageId = pageId
+        ..fileKey = fileKey;
 
   /// [plan]을 [name](겹치면 번호)의 새 캔버스 문서로 가져와 그 id와 화면에 보일 한 줄을 돌려준다. 그림 칠은 Figma가
   /// 그 노드를 그린 PNG로 받는다. [stop]이 끝나면 기다리던 답을 버리고 곧 멈추며(Figma에 명령을 더 보내지 않는다)
@@ -345,33 +356,68 @@ class FigmaLink extends ChangeNotifier {
     if (plan.count == 0) {
       throw const FigmaError('가져올 것이 없습니다. 페이지의 최상위에 프레임이 없습니다');
     }
-    final c = _c;
     const stopped = FigmaError('가져오기를 멈췄습니다. 아무것도 만들지 않았습니다');
-    var isStopped = false;
-    final stopNow = stop?.then<Object?>((_) {
-      isStopped = true;
-      throw stopped;
-    });
-    // 그림이 없으면 아무도 기다리지 않는다: 멈춤의 오류가 처리되지 않은 채 남지 않게.
-    stopNow?.ignore();
-    Future<Object?> race(Future<Object?> asked) =>
-        stopNow == null ? asked : Future.any([asked, stopNow]);
-    // 모양은 미리 볼 때 읽었고 그림은 지금 받는다. 그사이 페이지가 바뀌면 섞인 결과가 되므로 다시 읽어 견준다.
-    final pageId = plan.pageId;
-    if (pageId != null) {
-      final now = await race(
-        c.send('get_node_info', {
-          'nodeId': pageId,
-        }, timeout: const Duration(seconds: 120)),
+    final w = _Work(stop, stopped);
+    await _recheck(plan, w);
+    final (put, missed) = await _images(
+      plan.images,
+      w,
+      onProgress: onProgress,
+      imageTimeout: imageTimeout,
+    );
+    // 그림을 넣는 동안 멈추기를 눌렀으면 문서를 만들지 않는다.
+    if (w.stopped) await _undo(put, stopped);
+    final title = clean(name).trim();
+    final int id;
+    try {
+      id = await library.createCanvasWith(
+        title.isEmpty
+            ? 'Figma 페이지'
+            : String.fromCharCodes(title.runes.take(180)),
+        plan.withMap(),
+        'Figma에서 가져오기',
       );
-      if (fromFigma(now).fingerprint != plan.fingerprint) {
-        throw const FigmaChanged();
-      }
+    } on EngineError catch (e) {
+      await _undo(put, e);
     }
+    return (
+      id: id,
+      line: [
+        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개',
+        if (plan.skippedCount > 0) '옮기지 못한 것 ${plan.skippedText}',
+        if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
+        if (plan.fonts > 0) '글 상자 ${plan.fonts}개의 글꼴을 Pretendard로 바꿨습니다',
+      ].join(' · '),
+    );
+  }
+
+  /// 모양은 미리 볼 때 읽었고 그림은 지금 받는다. 그사이 페이지가 바뀌면 섞인 결과가 되므로 다시 읽어 견준다.
+  Future<void> _recheck(FigmaImport plan, _Work w) async {
+    final pageId = plan.pageId;
+    if (pageId == null) return;
+    final now = await w.race(
+      _c.send('get_node_info', {
+        'nodeId': pageId,
+      }, timeout: const Duration(seconds: 120)),
+    );
+    if (fromFigma(now).fingerprint != plan.fingerprint) {
+      throw const FigmaChanged();
+    }
+  }
+
+  /// [images]마다 Figma가 그린 PNG를 받아 에셋으로 넣고 그 칠을 채운다. 넣은 에셋과 받지 못한 수를 돌려준다.
+  /// 멈춤, 끊김, 시간 초과는 그만두고 넣은 에셋을 지운다.
+  Future<(List<String>, int)> _images(
+    List<FigmaImage> images,
+    _Work w, {
+    void Function(int done, int total)? onProgress,
+    Duration imageTimeout = const Duration(seconds: 60),
+  }) async {
+    final c = _c;
     final got = <(FigmaImage, List<int>)>[];
     var total = 0, missed = 0;
-    for (final (i, want) in plan.images.indexed) {
-      if (isStopped) throw stopped;
+    for (final (i, want) in images.indexed) {
+      if (w.stopped) throw w.stoppedError;
       try {
         final asked = c.send('export_node_as_image', {
           'nodeId': want.figmaId,
@@ -379,7 +425,7 @@ class FigmaLink extends ChangeNotifier {
           'scale': 1,
         }, timeout: imageTimeout);
         // 멈추면 기다리던 답을 버린다(늦게 오는 답이나 실패는 [Future.any]가 받아 버린다).
-        final r = await race(asked);
+        final r = await w.race(asked);
         final data = r is Map ? r['imageData'] : null;
         // base64는 4글자에 3바이트다. 풀기 전에 길이로 거른다.
         if (data is! String || data.length > (maxImageBytes + 2) ~/ 3 * 4) {
@@ -394,87 +440,105 @@ class FigmaLink extends ChangeNotifier {
       } on FigmaError catch (e) {
         // 멈춤, 끊김, 시간 초과는 가져오기를 그만둔다(문서를 만들지 않는다). 플러그인이 그 노드를 내보내지
         // 못한다고 답한 것만 빼고 이어 간다.
-        if (isStopped || !c.open || e is FigmaTimeout) rethrow;
+        if (w.stopped || !c.open || e is FigmaTimeout) rethrow;
         missed++;
       } on FormatException {
         missed++;
       }
-      onProgress?.call(i + 1, plan.images.length);
+      onProgress?.call(i + 1, images.length);
     }
-    if (isStopped) throw stopped;
+    if (w.stopped) throw w.stoppedError;
     final put = <String>[];
-    // 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지운다.
-    Future<Never> undo(Object e) async {
-      if (put.isNotEmpty) {
-        try {
-          await library.engine.assetDropUnused(put);
-        } on EngineError {
-          // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
-        }
-      }
-      throw e;
-    }
-
-    if (got.isNotEmpty) {
-      Directory? dir;
-      try {
-        dir = (Directory(
-          library.outDir,
-        )..createSync(recursive: true)).createTempSync('figma-');
-        for (final (want, bytes) in got) {
-          final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
-          final asset = (await library.engine.assetPut(f.path))['asset'];
-          if (asset is String) {
-            put.add(asset);
-            want.props['fills'] = [
-              {
-                'type': 'IMAGE',
-                'asset': asset,
-                'mode': 'FILL',
-                'opacity': 1,
-                'visible': true,
-              },
-            ];
-          } else {
-            missed++;
-          }
-        }
-      } on EngineError catch (e) {
-        await undo(e);
-      } on FileSystemException catch (e) {
-        await undo(FigmaError('그림을 임시 폴더에 쓰지 못했습니다 · ${e.message}'));
-      } finally {
-        try {
-          dir?.deleteSync(recursive: true);
-        } on FileSystemException {
-          // 남은 폴더는 앱을 다시 켤 때 지운다.
-        }
-      }
-    }
-    // 그림을 넣는 동안 멈추기를 눌렀으면 문서를 만들지 않는다.
-    if (isStopped) await undo(stopped);
-    final title = clean(name).trim();
-    final int id;
+    if (got.isEmpty) return (put, missed);
+    Directory? dir;
     try {
-      id = await library.createCanvasWith(
-        title.isEmpty
-            ? 'Figma 페이지'
-            : String.fromCharCodes(title.runes.take(180)),
-        plan.withMap(),
-        'Figma에서 가져오기',
-      );
+      dir = (Directory(
+        library.outDir,
+      )..createSync(recursive: true)).createTempSync('figma-');
+      for (final (want, bytes) in got) {
+        final f = File('${dir.path}/image.png')..writeAsBytesSync(bytes);
+        final asset = (await library.engine.assetPut(f.path))['asset'];
+        if (asset is String) {
+          put.add(asset);
+          want.props['fills'] = [
+            {
+              'type': 'IMAGE',
+              'asset': asset,
+              'mode': 'FILL',
+              'opacity': 1,
+              'visible': true,
+            },
+          ];
+        } else {
+          missed++;
+        }
+      }
     } on EngineError catch (e) {
-      await undo(e);
+      await _undo(put, e);
+    } on FileSystemException catch (e) {
+      await _undo(put, FigmaError('그림을 임시 폴더에 쓰지 못했습니다 · ${e.message}'));
+    } finally {
+      try {
+        dir?.deleteSync(recursive: true);
+      } on FileSystemException {
+        // 남은 폴더는 앱을 다시 켤 때 지운다.
+      }
     }
-    return (
-      id: id,
-      line: [
-        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개',
-        if (plan.skippedCount > 0) '옮기지 못한 것 ${plan.skippedText}',
-        if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
-        if (plan.fonts > 0) '글 상자 ${plan.fonts}개의 글꼴을 Pretendard로 바꿨습니다',
-      ].join(' · '),
+    return (put, missed);
+  }
+
+  /// 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지우고 [e]를 던진다.
+  Future<Never> _undo(List<String> put, Object e) async {
+    if (put.isNotEmpty) {
+      try {
+        await library.engine.assetDropUnused(put);
+      } on EngineError {
+        // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
+      }
+    }
+    throw e;
+  }
+
+  /// 캔버스 문서 [docId]를 Figma에서 새로 읽은 페이지 [fresh]와 다시 맞춘다. 페이지를 다시 읽어 미리 본 것과 같은지
+  /// 보고(다르면 [FigmaChanged]), Figma에서 더한 그림 칠을 받은 뒤 [planSync]의 연산을 [commit]으로 묶음 하나에
+  /// 넣는다. [pick]은 Figma 값을 고른 충돌. [stop]이 끝나면 곧 멈추고 아무것도 바꾸지 않는다. 실패하거나 멈추면 넣은
+  /// 에셋을 지운다. Figma에는 읽는 명령만 보낸다. 끝나면 화면에 보일 한 줄을 돌려준다.
+  Future<String> applySync(
+    int docId,
+    FigmaImport fresh, {
+    required Set<String> pick,
+    required Future<void> Function(List<Json> ops) commit,
+    void Function(int done, int total)? onProgress,
+    Future<void>? stop,
+    Duration imageTimeout = const Duration(seconds: 60),
+  }) async {
+    if (fresh.tooBig != null) throw FigmaError(fresh.tooBig!);
+    const stopped = FigmaError('다시 맞추기를 멈췄습니다. 아무것도 바꾸지 않았습니다');
+    final w = _Work(stop, stopped);
+    await _recheck(fresh, w);
+    var plan = planSync(
+      await library.engine.docNodes(docId),
+      fresh,
+      pick: pick,
     );
+    if (plan.refused != null) throw FigmaError(plan.refused!);
+    final (put, missed) = await _images(
+      plan.images,
+      w,
+      onProgress: onProgress,
+      imageTimeout: imageTimeout,
+    );
+    if (w.stopped) await _undo(put, stopped);
+    // 그림 칠을 채운 속성으로 연산을 다시 만든다.
+    plan = planSync(await library.engine.docNodes(docId), fresh, pick: pick);
+    if (!plan.empty) {
+      try {
+        await commit(plan.ops);
+      } on EngineError catch (e) {
+        await _undo(put, e);
+      }
+    }
+    return syncLine(plan, missed: missed);
   }
 
   /// 그림 칠: 에셋 파일을 읽어 base64로 넣는다. 없거나 너무 크면 [FigmaError](그 노드는 그림 없이 남는다).
@@ -498,4 +562,35 @@ class FigmaLink extends ChangeNotifier {
     if (id is! String) throw const FigmaError('Figma가 만든 요소의 id를 주지 않았습니다');
     return id;
   }
+}
+
+/// 맞추기의 결과 한 줄.
+String syncLine(SyncPlan plan, {int missed = 0}) {
+  if (plan.empty) return 'Figma와 맞춰 봤습니다 · 바뀐 것이 없습니다';
+  return [
+    'Figma와 다시 맞췄습니다 · 바뀐 요소 ${plan.nodes}개(속성 ${plan.props}개), '
+        '지움 ${plan.deleted}개, 더함 ${plan.added}개',
+    if (plan.conflicts.isNotEmpty) '충돌 ${plan.conflicts.length}개',
+    if (plan.kariDeleted > 0) 'Kari에서 지운 ${plan.kariDeleted}개는 다시 만들지 않았습니다',
+    if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
+  ].join(' · ');
+}
+
+/// 가져오기·맞추기 한 번: 멈추기를 받으면 기다리던 답을 버리고 [stoppedError]로 끝난다.
+class _Work {
+  _Work(Future<void>? stop, this.stoppedError) {
+    _stopNow = stop?.then<Object?>((_) {
+      stopped = true;
+      throw stoppedError;
+    });
+    // 아무도 기다리지 않을 때 멈춤의 오류가 처리되지 않은 채 남지 않게.
+    _stopNow?.ignore();
+  }
+
+  final FigmaError stoppedError;
+  bool stopped = false;
+  Future<Object?>? _stopNow;
+
+  Future<Object?> race(Future<Object?> asked) =>
+      _stopNow == null ? asked : Future.any([asked, _stopNow!]);
 }

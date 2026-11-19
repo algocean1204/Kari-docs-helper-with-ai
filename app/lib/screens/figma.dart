@@ -688,3 +688,282 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
     );
   }
 }
+
+/// "Figma와 다시 맞추기". Figma에서 가져온 캔버스 문서를 그 Figma 페이지의 지금 모습과 견주어, 바뀔 요소·속성 수,
+/// 지울 것, 더할 것, 충돌을 먼저 보인다. 충돌은 Kari 값이 기본이고 줄마다 Figma 값을 고를 수 있다. `맞추기`는 묶음
+/// 하나로 넣어(되돌리기 한 번) 문서와 대응표를 함께 바꾸고, `취소`는 아무것도 바꾸지 않는다. 닫을 때 결과 한 줄을
+/// 돌려준다(바꾸지 않았으면 null).
+class FigmaSyncDialog extends StatefulWidget {
+  const FigmaSyncDialog({
+    super.key,
+    required this.link,
+    required this.docId,
+    required this.commit,
+  });
+
+  final FigmaLink link;
+  final int docId;
+
+  /// 연산 묶음을 문서에 넣는다(캔버스 세션의 것).
+  final Future<void> Function(List<Json> ops) commit;
+
+  @override
+  State<FigmaSyncDialog> createState() => _FigmaSyncDialogState();
+}
+
+class _FigmaSyncDialogState extends State<FigmaSyncDialog> {
+  List<FigmaPage>? _pages;
+  FigmaPage? _page;
+  List<Json>? _nodes;
+  FigmaImport? _fresh;
+  SyncPlan? _plan;
+  final _pick = <String>{};
+  bool _reading = false;
+  bool _applying = false;
+  Completer<void> _stop = Completer<void>();
+  (int, int)? _progress;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.link.connected) _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final nodes = await widget.link.library.engine.docNodes(widget.docId);
+      final pages = await widget.link.pages();
+      if (!mounted) return;
+      final linked = linkedPage(nodes);
+      setState(() {
+        _nodes = nodes;
+        _pages = pages;
+      });
+      if (pages.isNotEmpty) {
+        await _read(
+          pages.where((p) => p.id == linked).firstOrNull ?? pages.first,
+        );
+      }
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on EngineError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _read(FigmaPage page) async {
+    setState(() {
+      _page = page;
+      _fresh = null;
+      _plan = null;
+      _pick.clear();
+      _reading = true;
+      _error = null;
+    });
+    try {
+      final fresh = await widget.link.readPage(page.id);
+      if (mounted && _page == page) {
+        setState(() {
+          _fresh = fresh;
+          _plan = planSync(_nodes!, fresh);
+        });
+      }
+    } on FigmaError catch (e) {
+      if (mounted && _page == page) setState(() => _error = e.message);
+    } finally {
+      if (mounted && _page == page) setState(() => _reading = false);
+    }
+  }
+
+  void _choose(SyncConflict c, bool figma) => setState(() {
+    figma ? _pick.add(c.key) : _pick.remove(c.key);
+    _plan = planSync(_nodes!, _fresh!, pick: _pick);
+  });
+
+  void _halt() {
+    if (!_stop.isCompleted) _stop.complete();
+  }
+
+  Future<void> _apply() async {
+    setState(() {
+      _applying = true;
+      _stop = Completer<void>();
+      _error = null;
+    });
+    try {
+      final line = await widget.link.applySync(
+        widget.docId,
+        _fresh!,
+        pick: {..._pick},
+        commit: widget.commit,
+        onProgress: (a, b) {
+          if (mounted) setState(() => _progress = (a, b));
+        },
+        stop: _stop.future,
+      );
+      if (mounted) Navigator.of(context).pop(line);
+    } on FigmaChanged catch (e) {
+      // 바뀐 페이지를 다시 미리 보고 알린다.
+      if (mounted) {
+        setState(() {
+          _applying = false;
+          _progress = null;
+        });
+        await _read(_page!);
+        if (mounted) setState(() => _error = e.message);
+      }
+    } on FigmaError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on EngineError catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _applying = false;
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    final link = widget.link;
+    final pages = _pages;
+    final fresh = _fresh;
+    final plan = _plan;
+    Widget line(String text, {Color? color}) => Padding(
+      padding: const EdgeInsets.only(bottom: Space.x2),
+      child: KeepText(
+        text,
+        style: AppText.body.copyWith(color: color ?? c.text),
+      ),
+    );
+    final ready =
+        plan != null &&
+        plan.refused == null &&
+        fresh?.tooBig == null &&
+        !plan.empty &&
+        !_applying;
+    // 맞추는 동안에는 바깥 누르기·Esc로 창이 닫히지 않고 멈추기가 된다.
+    return PopScope(
+      canPop: !_applying,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _applying) _halt();
+      },
+      child: Sheet(
+        title: 'Figma와 다시 맞추기',
+        maxWidth: 560,
+        actions: [
+          if (_applying)
+            AppButton('멈추기', onPressed: _halt)
+          else ...[
+            AppButton('취소', onPressed: () => Navigator.of(context).pop()),
+            AppButton(
+              '맞추기',
+              kind: ButtonKind.primary,
+              onPressed: ready ? _apply : null,
+            ),
+          ],
+        ],
+        children: [
+          if (!link.connected)
+            line('Figma에 연결되지 않았습니다. 설정 → Figma에서 채널에 연결한 뒤 다시 엽니다.')
+          else ...[
+            Text('견줄 Figma 페이지', style: AppText.label.copyWith(color: c.text)),
+            const SizedBox(height: Space.x2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: MoreMenu(
+                key: const Key('figma-sync-page'),
+                label: pages == null ? '페이지를 읽는 중' : _page?.name ?? '페이지 없음',
+                tooltip: '견줄 Figma 페이지',
+                icon: Icons.unfold_more,
+                checked: {?_page?.name},
+                items: [
+                  for (final p in pages ?? const <FigmaPage>[])
+                    (
+                      p.name,
+                      () {
+                        if (!_applying) _read(p);
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Space.x4),
+            if (_reading) line('페이지를 읽는 중', color: c.textMuted),
+            if (fresh?.tooBig != null)
+              NoticeText(fresh!.tooBig!, failed: true)
+            else if (plan?.refused != null)
+              NoticeText(plan!.refused!, failed: true)
+            else if (plan != null && fresh != null) ...[
+              line(
+                plan.empty
+                    ? '바뀐 것이 없습니다'
+                    : '바뀔 요소 ${plan.nodes}개(속성 ${plan.props}개), '
+                          '지울 것 ${plan.deleted}개, 더할 것 ${plan.added}개, '
+                          '충돌 ${plan.conflicts.length}개',
+              ),
+              if (plan.kariDeleted > 0)
+                line(
+                  'Kari에서 지운 ${plan.kariDeleted}개는 다시 만들지 않습니다',
+                  color: c.textMuted,
+                ),
+              if (plan.unlinked > 0)
+                line(
+                  '복제한 ${plan.unlinked}개는 Figma와의 대응을 뗍니다(Kari의 것이 됩니다)',
+                  color: c.textMuted,
+                ),
+              if (fresh.skippedCount > 0)
+                line(
+                  '옮기지 못하는 것(견주지 않습니다): ${fresh.skippedText}',
+                  color: c.textMuted,
+                ),
+              for (final k in plan.conflicts.take(200))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Space.x2),
+                  child: Wrap(
+                    spacing: Space.x2,
+                    runSpacing: Space.x1,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      KeepText(
+                        '${k.name} · ${k.label}',
+                        style: AppText.body.copyWith(color: c.text),
+                      ),
+                      Segmented<bool>(
+                        key: Key('figma-sync-${k.key}'),
+                        options: [
+                          (false, 'Kari ${k.kari}'),
+                          (true, 'Figma ${k.figma}'),
+                        ],
+                        value: _pick.contains(k.key),
+                        onChanged: (v) {
+                          if (!_applying) _choose(k, v);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              if (plan.conflicts.length > 200)
+                line(
+                  '충돌 ${plan.conflicts.length - 200}개는 더 보이지 않습니다(Kari 값을 씁니다)',
+                  color: c.textMuted,
+                ),
+            ],
+            line(
+              '맞춘 것은 되돌리기 한 번으로 돌아갑니다. Figma 파일은 읽기만 하고 바꾸지 않습니다.',
+              color: c.textMuted,
+            ),
+          ],
+          if (_progress != null)
+            line('그림을 받는 중 · ${_progress!.$1}/${_progress!.$2}'),
+          if (_error != null) NoticeText(_error!, failed: true),
+        ],
+      ),
+    );
+  }
+}

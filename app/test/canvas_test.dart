@@ -1205,6 +1205,7 @@ void main() {
     Future<(_Delegate, Opened)> openWithMenu(
       WidgetTester tester, {
       List<Json> selection = const [],
+      bool figma = false,
     }) async {
       final d = _Delegate();
       final binding = WidgetsBinding.instance;
@@ -1217,6 +1218,10 @@ void main() {
           rig.fake.docs.values.firstWhere((x) => x['kind'] == 'canvas')['id']
               as int;
       rig.fake.canvas(id)['selection'] = selection;
+      if (figma) {
+        final nodes = rig.fake.docs[id]!['nodes'] as List;
+        ((nodes.last as Map)['props'] as Map)['figma'] = {'id': '1:2'};
+      }
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -1246,6 +1251,22 @@ void main() {
       (flat(d.menus).firstWhere((x) => name(x) == m) as PlatformMenu).menus,
     );
 
+    testWidgets('Figma에서 가져온 요소가 있으면 다시 맞추기가 켜지고 창을 연다', (tester) async {
+      final (d, _) = await openWithMenu(tester, figma: true);
+      final item = flat(
+        (flat(d.menus).firstWhere((x) => name(x) == '파일') as PlatformMenu)
+            .menus,
+      ).firstWhere((x) => name(x) == 'Figma와 다시 맞추기…');
+      expect(item.onSelected, isNotNull);
+      item.onSelected!();
+      await tester.pumpAndSettle();
+      expect(find.text('Figma와 다시 맞추기'), findsOneWidget);
+      expect(find.textContaining(keepAll('Figma에 연결되지 않았습니다')), findsOneWidget);
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      expect(find.text('Figma와 다시 맞추기'), findsNothing);
+    });
+
     testWidgets('캔버스 문서가 열려 있으면 캔버스 메뉴가 붙고 항목이 명령을 낸다', (tester) async {
       clipboard(tester);
       final (d, o) = await openWithMenu(
@@ -1258,7 +1279,20 @@ void main() {
       );
       expect(
         [for (final x in menu(d, '파일')) name(x)],
-        ['새 문서', '가져오기…', 'Figma에서 가져오기…', '홈으로', 'PDF로 내보내기…', '버전 기록'],
+        [
+          '새 문서',
+          '가져오기…',
+          'Figma에서 가져오기…',
+          'Figma와 다시 맞추기…',
+          '홈으로',
+          'PDF로 내보내기…',
+          '버전 기록',
+        ],
+      );
+      // Figma에서 가져온 요소가 없는 캔버스는 다시 맞추기가 꺼진다.
+      expect(
+        menu(d, '파일').firstWhere((x) => name(x) == 'Figma와 다시 맞추기…').onSelected,
+        isNull,
       );
       expect(
         [for (final x in menu(d, '편집')) name(x)],

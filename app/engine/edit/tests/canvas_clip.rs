@@ -398,3 +398,55 @@ fn 고른_것이_없으면_복사할_것이_없고_글_상자_편집_중에는_�
     assert!(plan.refused.is_some());
     assert_eq!(t.commits, 0);
 }
+
+/// 복제·붙여넣기한 사본은 Kari의 것이다: Figma 대응(`figma`)은 원본만 지니고, 사본의 자손도 지니지 않는다.
+#[test]
+fn 복제와_붙여넣기의_사본은_figma_대응을_지니지_않는다() {
+    let map = |id: &str| json!({"id": id, "base": {"x": 20}});
+    let mapped_doc = || {
+        CanvasT::new(
+            canvas(&[
+                (
+                    "f",
+                    "frame",
+                    "n1",
+                    json!({"x": 20, "y": 30, "w": 150, "h": 90, "figma": map("1:1")}),
+                ),
+                (
+                    "t",
+                    "text",
+                    "f",
+                    json!({"x": 60, "y": 10, "runs": [{"t": "가나"}], "figma": map("1:2")}),
+                ),
+            ]),
+            fresh,
+        )
+    };
+    let mapped = |t: &CanvasT| {
+        t.back
+            .nodes()
+            .filter(|n| n.props.contains_key("figma"))
+            .map(|n| n.id.clone())
+            .collect::<HashSet<_>>()
+    };
+    let mut t = mapped_doc();
+    let before = mapped(&t);
+    assert_eq!(before.len(), 2);
+    select(&mut t, &["f"]);
+    t.cmd(CanvasCmd::Duplicate { offset: None });
+    assert_eq!(t.back.len(), 5, "프레임과 글이 하나씩 더");
+    assert_eq!(mapped(&t), before, "복제");
+    select(&mut t, &["f"]);
+    let clip = copy(&mut t);
+    paste(&mut t, &clip);
+    assert_eq!(t.back.len(), 7);
+    assert_eq!(mapped(&t), before, "붙여넣기");
+    let mut other = mapped_doc();
+    paste_at(&mut other, &clip, false, false, (200.0, 150.0));
+    assert_eq!(
+        mapped(&other).len(),
+        2,
+        "다른 문서에 붙인 사본도 대응이 없다"
+    );
+    assert!(t.back.check().is_empty());
+}

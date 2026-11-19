@@ -65,7 +65,7 @@ Affine _local(double x, double y, double w, double h, double rot) {
 }
 
 /// 스키마(`engine/doc/schema/canvas.json`)의 기본값 가운데 옮길 때 보는 것. 문서는 기본값과 다른 값만 저장한다.
-Object? _defaultOf(String type, String key) {
+Object? schemaDefault(String type, String key) {
   const white = [
     {'type': 'SOLID', 'color': '#FFFFFFFF', 'opacity': 1, 'visible': true},
   ];
@@ -95,7 +95,7 @@ Object? prop(Json n, String key) {
   final props = n['props'] as Map? ?? const {};
   return props.containsKey(key)
       ? props[key]
-      : _defaultOf(n['type'] as String, key);
+      : schemaDefault(n['type'] as String, key);
 }
 
 double _num(Json n, String key, [double fallback = 0]) =>
