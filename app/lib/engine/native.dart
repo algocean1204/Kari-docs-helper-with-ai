@@ -95,13 +95,16 @@ const _quickIv = {
 };
 
 /// 오래 걸리는 호출인지: AI 호출(`ai.*`, 네트워크를 기다린다), PDF 내보내기(`doc.exportPdf`, 배치와 파일 쓰기),
-/// 가져오기의 미리 보기(`import.preview`, 큰 파일 읽기),
+/// 가져오기의 미리 보기(`import.preview`, 큰 파일 읽기), PDF를 캔버스로 가져오기(`as`가 `canvas`인 `import.apply`, 쪽마다
+/// 그리고 글자를 읽는다),
 /// 면접(`iv.*`. 모델을 부르지 않는 읽기와 취소는 뺀다). 다른 줄에서 실행한다. 읽지 못하는 요청은 기본 줄로 보낸다.
 bool slowLane(String request) {
   try {
     final r = jsonDecode(request);
     if (r is! Map || r['m'] is! String) return false;
     final m = r['m'] as String;
+    final a = r['a'];
+    if (m == 'import.apply' && a is Map && a['as'] == 'canvas') return true;
     // ChatGPT 로그인 기다림을 끊는 것은 그 기다림 뒤에 줄을 서면 안 된다.
     if (m == 'ai.chatgptCancel') return false;
     return m.startsWith('ai.') ||
@@ -197,6 +200,8 @@ class NativeEngine extends EngineApi {
     Json? styles,
     String? hash,
     Json? structure,
+    bool canvas = false,
+    int? ticket,
   }) async {
     await _ready();
     return super.importApply(
@@ -205,6 +210,8 @@ class NativeEngine extends EngineApi {
       styles: styles,
       hash: hash,
       structure: structure,
+      canvas: canvas,
+      ticket: ticket,
     );
   }
 

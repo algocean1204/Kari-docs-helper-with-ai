@@ -4,15 +4,22 @@
 //! 가져오기는 새 문서를 만들고, 조각을 그 문서에 붙이는 op들을 사본(`stage`)에 5,000개씩 적용해 검사한 뒤
 //! 묶음 하나, 되돌리기 단위 하나로 커밋한다. 중간에 실패하면 만든 문서와 넣은 그림을 지운다.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::{Document, Guard, Kind};
 use kari_edit::{Command, Editor, Fragment};
-use kari_import::{import, structure, summary, Imported, HWP_LEGACY, MAX_FILE, TOO_LARGE};
+use kari_import::pdfcanvas::{self as pc, Mode, Ocr, TextBox};
+use kari_import::{
+    import, structure, summary, Imported, HWP_LEGACY, MAX_FILE, MAX_IMAGE, MAX_IMAGE_TOTAL,
+    MAX_WEIGHT, TOO_LARGE,
+};
 use kari_layout::{body_size, Layouter};
 use kari_store::{stage, Actor, DocId, Error, Meta};
 use sha2::{Digest, Sha256};
@@ -92,6 +99,9 @@ pub(crate) fn summary_json(f: &Fragment) -> Value {
 /// `ai`는 AI로 구조 잡기에 보낼 덩어리 수와, 보낼 수 없으면 그 까닭.
 pub(crate) fn preview(a: &Args) -> Res {
     let bytes = read_file(a)?;
+    if as_canvas(a) {
+        return canvas_preview(&bytes, a);
+    }
     let got = read_rule(&bytes, a)?;
     let chunks = structure::chunks(&got.fragment);
     let mut out = summary_json(&got.fragment);
@@ -281,4 +291,364 @@ pub(crate) fn apply(state: &mut Option<Engine>, a: &Args) -> Res {
             Err(f)
         }
     }
+}
+
+// ---- PDF → 캔버스 ----
+
+/// `as: "canvas"`면 PDF를 새 캔버스 문서로 가져온다.
+pub(crate) fn as_canvas(a: &Args) -> bool {
+    a.get("as").and_then(Value::as_str) == Some("canvas")
+}
+
+/// 돌고 있는 캔버스 가져오기의 표. 라이브러리를 닫을 때(`stop_all`) 멈추고 정리가 끝나기를 기다린다.
+static RUNNING: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+static ENDED: Condvar = Condvar::new();
+/// 표 없이 부른 가져오기에 주는 표(앱이 주는 표와 겹치지 않게 큰 수부터).
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(1 << 62);
+
+/// 돌고 있는 캔버스 가져오기를 모두 멈추고, 만든 것을 지우고 끝날 때까지 기다린다(오래 걸려도 30초). 명령 잠금을 잡기
+/// 전에 부른다(가져오기의 정리가 그 잠금을 잡는다).
+pub(crate) fn stop_all() {
+    let running = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
+    running.iter().for_each(|t| kari_import::pdf::cancel(*t));
+    let _ = ENDED.wait_timeout_while(running, Duration::from_secs(30), |r| !r.is_empty());
+}
+
+/// 가져오기 하나를 `RUNNING`에 두고, 끝나면(멈춤·실패 포함) 빼고 기다리는 쪽을 깨운다.
+struct Running(u64);
+
+impl Running {
+    fn new(t: u64) -> Running {
+        RUNNING.lock().unwrap_or_else(|p| p.into_inner()).insert(t);
+        Running(t)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.0);
+        ENDED.notify_all();
+    }
+}
+
+/// 캔버스로 가져오는 중인 표 → (끝낸 쪽 수, 모든 쪽 수).
+static PROGRESS: Mutex<BTreeMap<u64, (usize, usize)>> = Mutex::new(BTreeMap::new());
+
+fn set_progress(ticket: Option<u64>, v: Option<(usize, usize)>) {
+    if let Some(t) = ticket {
+        let mut p = PROGRESS.lock().unwrap_or_else(|p| p.into_inner());
+        match v {
+            Some(v) => p.insert(t, v),
+            None => p.remove(&t),
+        };
+    }
+}
+
+/// `import.progress`: 표 `ticket`의 캔버스 가져오기가 끝낸 쪽 수와 모든 쪽 수. 돌고 있지 않으면 null. 잠금을 잡지 않는다.
+pub(crate) fn progress(a: &Args) -> Res {
+    let t = a.seq("ticket")?;
+    let p = PROGRESS.lock().unwrap_or_else(|p| p.into_inner());
+    Ok(p.get(&t).map_or(
+        Value::Null,
+        |(done, total)| json!({"done": done, "total": total}),
+    ))
+}
+
+fn pdf_only(bytes: &[u8]) -> Result<(), Fail> {
+    if bytes[..bytes.len().min(1024)]
+        .windows(5)
+        .any(|w| w == b"%PDF-")
+    {
+        Ok(())
+    } else {
+        Err(fail("import", "PDF만 캔버스로 가져올 수 있습니다."))
+    }
+}
+
+/// 글 상자의 무게를 크기 예산(모든 가져오기가 같이 쓴다)에 더한다. 넘으면 `TOO_BIG`.
+fn spend(boxes: &[TextBox], spent: &mut usize) -> Result<(), Fail> {
+    *spent += boxes.iter().map(pc::weight).sum::<usize>();
+    if *spent > MAX_WEIGHT {
+        return Err(fail("import", kari_import::pdf::TOO_BIG));
+    }
+    Ok(())
+}
+
+/// 바탕을 화소 상한 때문에 144dpi 아래로 그릴 쪽 수.
+fn coarse(l: &pc::Layout) -> usize {
+    l.pages
+        .iter()
+        .filter(|p| pc::scale_for(p.w, p.h, pc::SHARP) < pc::SHARP - 1e-9)
+        .count()
+}
+
+fn coarse_line(n: usize) -> String {
+    format!("바탕 그림 {n}개(크기 상한 때문에 144dpi보다 낮게 그림)")
+}
+
+/// 캔버스 미리 보기: 쪽 수, 글 상자 수, 글자를 읽을 쪽 수와 이 macOS가 한국어를 읽는지. 라이브러리를 건드리지 않는다.
+fn canvas_preview(bytes: &[u8], a: &Args) -> Res {
+    pdf_only(bytes)?;
+    let ticket = a.maybe("ticket", Value::as_u64)?;
+    let l = kari_import::pdf::with_ticket(ticket, || kari_import::pdf::canvas_layout(bytes))
+        .map_err(read_fail)?;
+    let mut spent = 0;
+    for p in &l.pages {
+        spend(&p.boxes, &mut spent)?;
+    }
+    let of = |m: Mode| l.pages.iter().filter(|p| p.mode == m).count();
+    let ocr = of(Mode::Ocr);
+    let korean = if ocr > 0 {
+        kari_import::pdf::with_ticket(ticket, kari_import::pdf::ocr_korean)
+    } else {
+        None
+    };
+    let mut lost = l.lost.clone();
+    if korean == Some(false) {
+        lost.push(format!(
+            "{}(글자를 읽을 쪽 {ocr}개는 바탕 그림만 가져옴)",
+            pc::NO_KOREAN
+        ));
+    }
+    let n = coarse(&l);
+    if n > 0 {
+        lost.push(coarse_line(n));
+    }
+    let boxes: usize = l.pages.iter().map(|p| p.boxes.len()).sum();
+    let chars: usize = l
+        .pages
+        .iter()
+        .flat_map(|p| &p.boxes)
+        .map(|b| b.text().chars().filter(|c| *c != '\n').count())
+        .sum();
+    Ok(json!({
+        "canvas": true, "hash": digest(bytes), "pages": l.pages.len(), "boxes": boxes, "chars": chars,
+        "textPages": of(Mode::Text), "keptPages": of(Mode::Kept), "ocrPages": ocr, "korean": korean,
+        "lost": lost,
+    }))
+}
+
+/// 페이지 사이의 세로 틈(캔버스 단위).
+const GAP: f64 = 40.0;
+
+/// `import.apply`의 `as: "canvas"`: PDF의 쪽마다 페이지 하나인 새 캔버스 문서를 만든다. 쪽 그림과 글자 인식은 쪽마다
+/// 도우미가 하고, 그동안 명령 잠금을 잡지 않는다(그림을 넣을 때와 마지막 커밋에서만 잠깐 잡는다). 묶음 하나, 되돌리기
+/// 단위 하나로 넣는다. `ticket`을 주면 `import.progress`로 진행을 보고 `import.cancel`로 멈춘다(돌고 있는 도우미를 끝낸다).
+/// 실패하거나 멈추면 만든 문서와 넣은 그림을 지운다.
+pub(crate) fn canvas_apply(a: &Args) -> Res {
+    let bytes = read_file(a)?;
+    if a.maybe("hash", Value::as_str)?
+        .is_some_and(|h| h != digest(&bytes))
+    {
+        return Err(fail(
+            "import_changed",
+            "파일이 바뀌었습니다. 다시 미리 봅니다.",
+        ));
+    }
+    pdf_only(&bytes)?;
+    let ticket = a
+        .maybe("ticket", Value::as_u64)?
+        .unwrap_or_else(|| NEXT_TICKET.fetch_add(1, Ordering::Relaxed));
+    let _running = Running::new(ticket);
+    let ticket = Some(ticket);
+    let name = a.str("name")?.to_string();
+    let mut stored = BTreeSet::new();
+    let mut made = None;
+    let res = catch_unwind(AssertUnwindSafe(|| {
+        canvas_fill(&bytes, &name, ticket, a, &mut stored, &mut made)
+    }))
+    .unwrap_or_else(|_| Err(fail("panic", "엔진 안에서 처리하지 못한 오류가 났습니다.")));
+    set_progress(ticket, None);
+    // 커밋했으면 문서가 그림을 쓰고, 실패했으면 아래에서 지운다. 어느 쪽이든 더 기다리지 않는다.
+    {
+        let mut p = crate::edit::pending();
+        stored.iter().for_each(|h| {
+            p.remove(h);
+        });
+    }
+    if res.is_err() {
+        let mut st = crate::library::engine();
+        if let Some(e) = st.as_mut() {
+            let keep = crate::edit::kept_assets();
+            if let Some(id) = made {
+                let _ = e.lib.trash_doc(id, now_ms());
+                let _ = e.lib.purge_doc_keeping(id, &keep);
+            }
+            stored.retain(|h| !keep.contains(h));
+            let _ = e.lib.drop_unused_assets(stored);
+        }
+    }
+    res
+}
+
+fn canvas_fill(
+    bytes: &[u8],
+    name: &str,
+    ticket: Option<u64>,
+    a: &Args,
+    stored: &mut BTreeSet<String>,
+    made: &mut Option<DocId>,
+) -> Res {
+    use kari_import::pdf::{
+        canvas_layout, canvas_shot, with_ticket, CANCELLED, IMPORT_TIME, IMPORT_TOO_SLOW,
+    };
+    let begun = Instant::now();
+    // 시험용: 가져오기 전체의 시간 상한을 줄인다.
+    #[cfg(feature = "test-hooks")]
+    let import_time = a
+        .maybe("testBudgetMs", Value::as_u64)?
+        .map_or(IMPORT_TIME, Duration::from_millis);
+    #[cfg(not(feature = "test-hooks"))]
+    let import_time = IMPORT_TIME;
+    let stopped = || ticket.is_some_and(kari_import::pdf::is_cancelled);
+    let layout = with_ticket(ticket, || canvas_layout(bytes)).map_err(read_fail)?;
+    let mut spent = 0;
+    for p in &layout.pages {
+        spend(&p.boxes, &mut spent)?;
+    }
+    let total = layout.pages.len();
+    set_progress(ticket, Some((0, total)));
+    let mut ops = Vec::new();
+    let mut next = 0u64;
+    let mut id = || {
+        next += 1;
+        format!("pd{next:x}")
+    };
+    let (mut used, mut top) = (0usize, 0.0);
+    let (mut read, mut empty, mut failed, mut no_korean, mut lowered) = (0, 0, 0, false, 0);
+    for (i, page) in layout.pages.iter().enumerate() {
+        if stopped() {
+            return Err(fail("import", CANCELLED));
+        }
+        let strip = page.mode == Mode::Text;
+        let ocr = page.mode == Mode::Ocr;
+        // 글을 뺀 바탕은 144dpi, 글자가 든 바탕(스캔·그대로 쪽)은 글자를 읽을 수 있게 300dpi로 그린다.
+        let want = if strip { pc::SHARP } else { pc::OCR_SCALE };
+        let scale = pc::scale_for(page.w, page.h, want);
+        // 그림 바이트의 합계 상한을 남은 쪽에 고루 나눈다(넘는 쪽은 앱이 해상도를 낮춰 담는다).
+        let max = MAX_IMAGE.min(MAX_IMAGE_TOTAL.saturating_sub(used) / (total - i));
+        // 가져오기 전체의 시간 상한 안에서 쪽마다의 상한을 준다.
+        let left = import_time.saturating_sub(begun.elapsed());
+        if left.is_zero() {
+            return Err(fail("import", IMPORT_TOO_SLOW));
+        }
+        let shot = with_ticket(ticket, || {
+            canvas_shot(bytes, i, strip, ocr, scale, max, left)
+        })
+        .map_err(|m| match m {
+            CANCELLED => fail("import", m),
+            _ if begun.elapsed() >= import_time => fail("import", IMPORT_TOO_SLOW),
+            _ => fail("import", format!("{}쪽: {m}", i + 1)),
+        })?;
+        // 그림 검사(풀어 보기)는 명령 잠금 밖에서, 저장만 안에서 한다.
+        let pic = kari_render::prepare_image(&shot.image).map_err(|_| {
+            fail(
+                "import",
+                format!("{}쪽: {}", i + 1, kari_import::pdf::NO_PICTURE),
+            )
+        })?;
+        let asset = {
+            let mut st = crate::library::engine();
+            let e = on(&mut st)?;
+            let hash = e.lib.put_asset(&pic.bytes)?.hash;
+            crate::edit::pending().insert(hash.clone());
+            stored.insert(hash.clone());
+            hash
+        };
+        used += shot.image.len();
+        if shot.scale < pc::SHARP - 1e-9 {
+            lowered += 1;
+        }
+        let none: &[TextBox] = &[];
+        let mut found = Vec::new();
+        let (shown, hidden) = match page.mode {
+            Mode::Text if shot.stripped => (page.boxes.as_slice(), none),
+            // 바탕에 글이 그대로 있으면 읽은 글은 숨긴 묶음에 둔다(두 번 보이지 않게).
+            Mode::Text | Mode::Kept => (none, page.boxes.as_slice()),
+            Mode::Ocr => {
+                match shot.ocr {
+                    Ocr::Done => {
+                        found = pc::ocr_boxes(&shot.lines, page.w, page.h);
+                        spend(&found, &mut spent)?;
+                        if found.is_empty() {
+                            empty += 1;
+                        } else {
+                            read += 1;
+                        }
+                    }
+                    Ocr::NoKorean => no_korean = true,
+                    Ocr::Failed => failed += 1,
+                    Ocr::Off => {}
+                }
+                (none, found.as_slice())
+            }
+        };
+        ops.extend(pc::page_ops(i, page, &asset, top, shown, hidden, &mut id));
+        top += page.h + GAP;
+        set_progress(ticket, Some((i + 1, total)));
+    }
+    if stopped() {
+        return Err(fail("import", CANCELLED));
+    }
+    // 시험용: 쪽 그림을 넣은 뒤 엔진 안에서 멈춘 경우.
+    #[cfg(feature = "test-hooks")]
+    if a.get("testPanic").and_then(Value::as_bool) == Some(true) {
+        panic!("시험용 멈춤");
+    }
+    let mut lost = layout.lost.clone();
+    if read > 0 {
+        lost.push(format!(
+            "글자를 읽은 쪽 {read}개(읽은 글은 숨긴 묶음 \"{}\"에 둠. 켜면 고칠 수 있음)",
+            pc::RECOGNIZED
+        ));
+    }
+    if empty > 0 {
+        lost.push(format!("읽은 글이 없는 쪽 {empty}개"));
+    }
+    if no_korean {
+        lost.push(format!("{}(바탕 그림만 가져옴)", pc::NO_KOREAN));
+    }
+    if failed > 0 {
+        lost.push(format!(
+            "글자를 읽지 못한 쪽 {failed}개(바탕 그림만 가져옴)"
+        ));
+    }
+    if lowered > 0 {
+        lost.push(coarse_line(lowered));
+    }
+    let mut st = crate::library::engine();
+    let e = on(&mut st)?;
+    let doc = e
+        .lib
+        .create_doc_with(Kind::Canvas, name, Default::default())?;
+    *made = Some(doc);
+    let mut d = e.lib.open_doc(doc)?;
+    // 새 문서의 처음 페이지는 같은 묶음에서 지운다.
+    for n in d.doc().children(None) {
+        ops.push(json!({"op": "del", "id": n.id}));
+    }
+    let mut sd = stage(&d);
+    for chunk in ops.chunks(CHUNK) {
+        sd.apply(&Value::Array(chunk.to_vec()))
+            .map_err(Error::Doc)?;
+    }
+    // 시험용: 사본에 다 적용하고 커밋하기 직전에 멈춘 경우.
+    #[cfg(feature = "test-hooks")]
+    if a.get("testPanic").and_then(Value::as_str) == Some("commit") {
+        panic!("시험용 멈춤");
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    let _ = a;
+    let meta = Meta {
+        label: "가져오기",
+        actor: Actor::User,
+        group: None,
+        run: None,
+        base: None,
+    };
+    e.lib.commit_staged(&mut d, sd, &meta)?;
+    Ok(json!({"id": doc, "lost": lost}))
 }

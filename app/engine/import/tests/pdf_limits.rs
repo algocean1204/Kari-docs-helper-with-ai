@@ -783,7 +783,7 @@ fn p21_그림만_있는_쪽은_스캔_쪽이다() {
     assert_eq!(texts(&got), ["Kari"]);
     assert!(
         got.lost
-            .contains(&"스캔 쪽 2개(글이 없어 뺌. 스캔본은 다음에 지원)".to_string()),
+            .contains(&"스캔 쪽 2개(글이 없어 뺌. 캔버스로 가져오면 글자를 읽음)".to_string()),
         "{:?}",
         got.lost
     );

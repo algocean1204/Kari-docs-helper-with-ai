@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/tokens.dart' show keepAll;
+import 'package:kari/engine/engine.dart' show EngineError;
 import 'package:kari/screens/app_menu.dart';
 import 'package:kari/screens/import_dialog.dart';
 
@@ -113,14 +114,14 @@ void main() {
     rig.fake.imports[pdf] = {
       ..._preview,
       'pages': 2,
-      'lost': ['스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)'],
+      'lost': ['스캔 쪽 1개(글이 없어 뺌. 캔버스로 가져오면 글자를 읽음)'],
     };
     rig.importPath = () async => pdf;
     await tester.tap(find.text('가져오기…'));
     await tester.pumpAndSettle();
     expect(find.text('쪽 2개 · 문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
     expect(
-      find.text(keepAll('· 스캔 쪽 1개(글이 없어 뺌. 스캔본은 다음에 지원)')),
+      find.text(keepAll('· 스캔 쪽 1개(글이 없어 뺌. 캔버스로 가져오면 글자를 읽음)')),
       findsOneWidget,
     );
     await tester.tap(find.widgetWithText(TextButton, '가져오기'));
@@ -426,6 +427,116 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.fake.importCancels, [rig.fake.aiRuns.single['ticket']]);
       expect(rig.fake.docs, isEmpty);
+    });
+  });
+
+  group('PDF를 캔버스로', () {
+    const pdf = '/tmp/kari-test/받은 파일/포트폴리오.pdf';
+    final canvas = <String, Object?>{
+      'canvas': true,
+      'pages': 3,
+      'boxes': 42,
+      'chars': 900,
+      'textPages': 2,
+      'keptPages': 0,
+      'ocrPages': 1,
+      'korean': true,
+      'lost': ['글꼴 Helvetica(Pretendard로 바꿈)'],
+    };
+
+    Future<Rig> pick(WidgetTester tester) async {
+      final rig = await pumpReal(tester, seed: false);
+      rig.fake.imports[pdf] = {..._preview, 'pages': 3};
+      rig.fake.canvasImports[pdf] = canvas;
+      rig.importPath = () async => pdf;
+      await tester.tap(find.text('가져오기…'));
+      await tester.pumpAndSettle();
+      return rig;
+    }
+
+    testWidgets('글 문서로와 캔버스로를 고르고, 캔버스로 미리 본 뒤 가져오면 새 캔버스 문서를 연다', (
+      tester,
+    ) async {
+      final rig = await pick(tester);
+      // 처음은 글 문서로(지금까지와 같다).
+      expect(find.text('글 문서로'), findsOneWidget);
+      expect(
+        find.text('쪽 3개 · 문단 12개 · 표 1개 · 그림 1개 · 글자 840자'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('캔버스로'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(keepAll('"포트폴리오" 캔버스 문서를')), findsOneWidget);
+      expect(find.text('쪽 3개 · 글 상자 42개 · 글자를 읽을 쪽 1개'), findsOneWidget);
+      expect(
+        find.text(keepAll('· 글꼴 Helvetica(Pretendard로 바꿈)')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('segmented-note')), findsOneWidget);
+      // 미리 보기는 문서를 만들지 않는다.
+      expect(rig.fake.docs, isEmpty);
+
+      await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+      await tester.pumpAndSettle();
+      final call = rig.fake.importCalls.single;
+      expect(call['as'], 'canvas');
+      expect(call['hash'], 'h0');
+      expect(call['ticket'], isA<int>());
+      expect(find.byType(ImportDialog), findsNothing);
+      final made = rig.fake.docs.values.single;
+      expect((made['kind'], made['name']), ('canvas', '포트폴리오'));
+      expect(rig.fake.sent, contains('canvas.open'));
+    });
+
+    testWidgets('가져오는 동안 진행을 보이고 멈추기를 누르면 엔진의 그 가져오기를 멈춘다', (tester) async {
+      final rig = await pick(tester);
+      await tester.tap(find.text('캔버스로'));
+      await tester.pumpAndSettle();
+      final running = Completer<void>();
+      rig.fake.waits['import.apply'] = running.future;
+      rig.fake.progressAny = {'done': 1, 'total': 3};
+      await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.text('쪽 1/3 옮기는 중'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, '멈추기'));
+      await tester.pump();
+      expect(rig.fake.importCancels, hasLength(1));
+      // 엔진은 만든 것을 지우고 멈췄다고 답한다. 창은 남아 까닭을 보인다.
+      rig.fake.failures['import.apply'] = const EngineError(
+        'import',
+        'PDF 읽기를 멈췄습니다.',
+      );
+      running.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(ImportDialog), findsOneWidget);
+      expect(find.textContaining('PDF 읽기를 멈췄습니다.'), findsOneWidget);
+      expect(rig.fake.docs, isEmpty);
+      expect(find.text('쪽 1/3 옮기는 중'), findsNothing);
+    });
+
+    testWidgets('가져온 뒤에야 안 알림이 있으면 보이고 열기로 연다', (tester) async {
+      final rig = await pick(tester);
+      rig.fake.canvasImports[pdf] = {
+        ...canvas,
+        'applied': [
+          '글꼴 Helvetica(Pretendard로 바꿈)',
+          '글자를 읽은 쪽 1개(읽은 글은 숨긴 묶음 "인식한 글"에 둠. 켜면 고칠 수 있음)',
+        ],
+      };
+      await tester.tap(find.text('캔버스로'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '가져오기'));
+      await tester.pumpAndSettle();
+      expect(find.text('가져왔습니다'), findsOneWidget);
+      expect(
+        find.text(keepAll('· 글자를 읽은 쪽 1개(읽은 글은 숨긴 묶음 "인식한 글"에 둠. 켜면 고칠 수 있음)')),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(TextButton, '열기'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ImportDialog), findsNothing);
+      expect(rig.fake.docs.values.single['kind'], 'canvas');
     });
   });
 }

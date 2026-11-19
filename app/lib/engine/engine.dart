@@ -877,8 +877,23 @@ abstract class EngineApi {
   /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip, PDF)을 읽어 본다. 문서를 만들지 않는다.
   /// {hash: 읽은 바이트의 SHA-256, paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
   /// [ticket]을 주면 [importCancel]로 이 미리 보기만 멈출 수 있다.
-  Future<Json> importPreview(String path, {int? ticket}) async =>
-      await call('import.preview', {'path': path, 'ticket': ?ticket}) as Json;
+  /// [canvas]면 PDF를 캔버스로 가져올 때의 요약이다: {canvas: true, hash, pages, boxes: 글 상자 수, chars, textPages,
+  /// keptPages, ocrPages: 글자를 읽을 쪽 수, korean: 이 macOS가 한국어를 읽는가(읽을 쪽이 없으면 null), lost}.
+  Future<Json> importPreview(
+    String path, {
+    int? ticket,
+    bool canvas = false,
+  }) async =>
+      await call('import.preview', {
+            'path': path,
+            'ticket': ?ticket,
+            if (canvas) 'as': 'canvas',
+          })
+          as Json;
+
+  /// 표 [ticket]을 단 캔버스 가져오기의 진행 {done: 끝낸 쪽 수, total}. 돌고 있지 않으면 null.
+  Future<Json?> importProgress(int ticket) async =>
+      await call('import.progress', {'ticket': ticket}) as Json?;
 
   /// 표 [ticket]을 단 PDF 미리 보기를 멈춘다. 돌고 있으면 엔진이 읽기 도우미 프로세스를 끝내고, 아직 줄 서 있으면 시작하자마자
   /// 멈춘다. 그 미리 보기는 오류로 끝난다.
@@ -888,12 +903,16 @@ abstract class EngineApi {
   /// 파일을 [name]의 새 흐름 문서로 가져온다. [styles]를 주면 그 스타일 표로 시작한다. {id, lost}.
   /// [hash](미리 보기가 돌려준 `hash`)를 주면 지금 읽은 파일이 그것과 다를 때 `import_changed`로 거절하고 아무것도 만들지 않는다.
   /// [structure]([importAiRun]이 돌려준 `structure`)를 주면 규칙의 결과 대신 그 구조로 넣는다(글은 원래 글 그대로다).
+  /// [canvas]면 PDF의 쪽마다 페이지 하나인 새 캔버스 문서로 가져온다(쪽 그림을 바탕에 잠그고, 스캔 쪽은 기기 안에서 글자를
+  /// 읽는다). [ticket]으로 [importProgress]를 보고 [importCancel]로 멈춘다.
   Future<Json> importApply(
     String path,
     String name, {
     Json? styles,
     String? hash,
     Json? structure,
+    bool canvas = false,
+    int? ticket,
   }) async =>
       await call('import.apply', {
             'path': path,
@@ -901,6 +920,8 @@ abstract class EngineApi {
             'styles': ?styles,
             'hash': ?hash,
             'structure': ?structure,
+            if (canvas) 'as': 'canvas',
+            'ticket': ?ticket,
           })
           as Json;
 

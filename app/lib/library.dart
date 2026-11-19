@@ -202,7 +202,8 @@ class Library extends ChangeNotifier {
     return true;
   }
 
-  /// 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다. 앱이 꺼질 때 부른다.
+  /// 라이브러리를 닫는다. 엔진이 열린 문서마다 "문서를 닫을 때" 버전을 남긴다. 앱이 꺼질 때 부른다. 돌고 있는 캔버스
+  /// 가져오기(느린 줄)는 엔진이 멈추고 만든 문서와 그림을 지운 뒤에 닫는다.
   Future<void> close() async {
     try {
       await engine.call('lib.close');
@@ -263,6 +264,21 @@ class Library extends ChangeNotifier {
       hash: hash,
       structure: structure,
     );
+    await _run(() async {});
+    return r;
+  }
+
+  /// PDF를 쪽마다 페이지 하나인 새 캔버스 문서로 가져온다. {id, lost}. [ticket]으로 진행을 보고 멈춘다. 실패는
+  /// [EngineError]로 던진다(엔진이 만든 문서와 넣은 그림을 지운다).
+  Future<Json> importCanvas(String path, {String? hash, int? ticket}) async {
+    final r = await engine.importApply(
+      path,
+      importName(path),
+      hash: hash,
+      canvas: true,
+      ticket: ticket,
+    );
+    newCanvases.add(r['id'] as int);
     await _run(() async {});
     return r;
   }

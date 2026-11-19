@@ -57,7 +57,7 @@
 | 자동 서식 | `app/engine/edit/src/auto.rs`, 따로 된 묶음으로 잇는 것은 `app/engine/ffi/src/edit.rs`의 `run_auto`, 설정은 `app/lib/screens/settings.dart` |
 | 개요, 쪽으로 가기 | `app/engine/edit/src/outline.rs`, `motion.rs`의 `go_to`, 화면은 `app/lib/screens/navigate.dart` |
 | 메뉴 막대 | `app/lib/screens/app_menu.dart`(캔버스 문서의 메뉴는 `canvasMenus`) |
-| 가져오기 | `app/engine/import/src/`(`docx.rs` Word 문서, `hwpx.rs` 한글 문서, `html.rs` HTML과 꾸러미, `xml.rs` XML, `zip.rs` 꾸러미 읽기), HTML은 `app/engine/edit/src/rich.rs`의 `html_import`, 호출은 `app/engine/ffi/src/import.rs`, 화면은 `app/lib/screens/import_dialog.dart` |
+| 가져오기 | `app/engine/import/src/`(`docx.rs` Word 문서, `hwpx.rs` 한글 문서, `html.rs` HTML과 꾸러미, `xml.rs` XML, `zip.rs` 꾸러미 읽기, `pdf.rs`·`pdftext.rs` PDF, `pdfhelper.rs` PDF 도우미 프로세스, `pdfcanvas.rs` PDF → 캔버스), PDF 쪽 그림과 글자 인식은 `app/macos/Runner/PdfPage.swift`(창 없는 시험은 `app/macos/PdfPageCheck`), HTML은 `app/engine/edit/src/rich.rs`의 `html_import`, 호출은 `app/engine/ffi/src/import.rs`, 화면은 `app/lib/screens/import_dialog.dart` |
 | Word 문서, 텍스트 내보내기 | `app/engine/docx/src/`(`body.rs` 본문·표·목록·머리글, `props.rs` 글자·문단 모양과 스타일, `txt.rs` 텍스트, `zip.rs` 꾸러미), 호출은 `app/engine/ffi/src/docx.rs` |
 | 글자·문단 모양, 서식 지우기 | `app/engine/edit/src/format.rs`, 쪽 나누기는 `text.rs`, 번호 시작 값은 `list.rs`, 사용자 지정 용지는 `page.rs` |
 | 첨자, 자간, 형광펜, 줄 간격의 배치 | `app/engine/layout/src/style.rs`, `para.rs`, `lines.rs` |

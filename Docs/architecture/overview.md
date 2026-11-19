@@ -89,7 +89,7 @@ flowchart BT
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `import.aiPlan`, `import.aiRun` | `app/engine/ffi/src/structure.rs` | 가져오기의 AI 구조 잡기. 보낼 내용(가린 덩어리 글)과, 보내고 확인한 구조 또는 규칙으로 물러난 까닭 → [ai-connection.md](ai-connection.md#가져오기의-구조-잡기) |
-| `import.preview`, `import.apply` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
+| `import.preview`, `import.apply`, `import.progress` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다. `as: "canvas"`면 PDF를 쪽마다 페이지 하나인 새 캔버스 문서로 넣는다: 명령 잠금은 쪽 그림을 에셋으로 넣을 때와 마지막 커밋에서만 잡고, `import.progress {ticket}`가 끝낸 쪽 수를, `import.cancel`이 멈추기를 받는다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
 | `ai.chatgpt*` | `app/engine/ffi/src/chatgpt.rs` | ChatGPT로 계속하기(OpenAI의 ChatGPT 플랜) → [ai-connection.md](ai-connection.md#chatgpt-플랜-사용) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |
@@ -106,7 +106,7 @@ Dart 쪽 함수는 `app/lib/engine/engine.dart`(`EngineApi`)에 이름마다 하
 | 줄 | 아이솔레이트 | 요청 |
 |---|---|---|
 | 목록 줄 | `kari-net` | 모델 목록을 받는 `ai.setKey`와 `refresh`를 준 `ai.models`, ChatGPT 로그인(`ai.chatgptBegin`, 브라우저를 최대 10분 기다리는 `ai.chatgptWait`, `ai.chatgptSignOut`) |
-| 느린 줄 | `kari-slow` | 목록 줄의 것과 `ai.chatgptCancel`을 뺀 `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, `import.preview`, `import.aiPlan`, `import.aiRun`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
+| 느린 줄 | `kari-slow` | 목록 줄의 것과 `ai.chatgptCancel`을 뺀 `ai.*`, `doc.exportPdf`, `doc.exportDocx`, `doc.exportTxt`, `import.preview`, `as`가 `canvas`인 `import.apply`, `import.aiPlan`, `import.aiRun`, 아래 기본 줄의 것을 뺀 `iv.*`, `canvas.layers`(레이어 패널의 줄. 수만 노드에서 수십 ms라 입력 앞에 세우지 않는다) |
 | 기본 줄 | `kari-engine` | 나머지 전부(편집 명령 포함)와 `ai.chatgptCancel`, `iv.cancel`, `iv.pack`, `iv.posting`, `iv.postings`, `iv.session`, `iv.sessions`, `iv.report`, `iv.mastery`, `iv.preview`, `iv.gaze`, `iv.dashboard` |
 
 느린 줄의 요청은 오래 걸리는 동안 명령 잠금을 쥐고 있지 않는다. 그래서 키 확인, PDF 내보내기, 면접 질문을 기다리는 동안에도 편집이 이어진다.

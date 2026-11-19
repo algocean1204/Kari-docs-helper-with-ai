@@ -11,6 +11,7 @@ mod docx;
 mod html;
 mod hwpx;
 pub mod pdf;
+pub mod pdfcanvas;
 mod pdfhelper;
 mod pdftext;
 pub mod structure;
@@ -160,7 +161,7 @@ impl Report {
                 self.blank_pages,
                 "스캔 쪽",
                 "개",
-                "글이 없어 뺌. 스캔본은 다음에 지원",
+                "글이 없어 뺌. 캔버스로 가져오면 글자를 읽음",
             ),
             (self.bad_pages, "읽지 못한 쪽", "개", "깨져 있어 뺌"),
             (

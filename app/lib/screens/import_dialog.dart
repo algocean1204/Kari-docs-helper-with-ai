@@ -10,6 +10,8 @@ import 'dialogs.dart';
 
 /// 가져오기 미리 보기. 고른 파일을 엔진이 읽어 본 요약(문단, 표, 그림, 제목)과 옮기지 못한 것을 보인다.
 /// `가져오기`를 누르면 새 글 문서를 만들고 그 id를 돌려준다. 취소하면 null. 원본 파일은 읽기만 한다.
+/// PDF는 `글 문서로`와 `캔버스로` 가운데 고른다. 캔버스로는 쪽마다 페이지 하나에 쪽 그림을 잠근 바탕으로 깔고 글은 글 상자로
+/// 옮긴다. 스캔한 쪽은 이 Mac 안에서 글자를 읽어 숨긴 묶음 "인식한 글"에 둔다. 쪽마다 진행을 보이고 `멈추기`로 멈춘다.
 /// `AI로 구조 잡기`(고를 때만): 보낼 내용(가린 덩어리 글)을 먼저 보이고, `보내기`를 누르면 설정의 일 `structure`에 고른 AI가
 /// 제목·문단·목록·표만 정한다. 글은 바꾸지 못한다. 쓰지 못하면 까닭을 알리고 규칙 결과로 가져온다.
 class ImportDialog extends StatefulWidget {
@@ -41,6 +43,109 @@ class _ImportDialogState extends State<ImportDialog> {
   String? _fallback;
   EngineError? _aiError;
 
+  /// PDF를 캔버스로 가져오는가, 캔버스 미리 보기와 그 해시.
+  bool _canvas = false;
+  Future<Json>? _canvasPreview;
+  String? _canvasHash;
+  late final int _canvasTicket = _ticket + 1;
+
+  /// 캔버스로 가져오는 중의 표와 진행 {done, total}.
+  int? _runTicket;
+  Json? _progress;
+  Timer? _poll;
+
+  /// 캔버스로 가져온 뒤에야 안 것(해상도를 낮춘 쪽, 읽은 쪽 수 등)이 있으면 그 줄들과 만든 문서. `열기`로 닫는다.
+  List<String>? _applied;
+  int? _made;
+
+  late final bool _pdfName = widget.path.toLowerCase().endsWith('.pdf');
+
+  bool _canvasReading = false;
+
+  Future<Json> _readCanvas() async {
+    _canvasReading = true;
+    try {
+      final p = await widget.library.engine.importPreview(
+        widget.path,
+        ticket: _canvasTicket,
+        canvas: true,
+      );
+      _canvasHash = p['hash'] as String?;
+      return p;
+    } finally {
+      _canvasReading = false;
+    }
+  }
+
+  void _choose(bool canvas) {
+    if (_saving || canvas == _canvas) return;
+    setState(() {
+      _canvas = canvas;
+      _error = null;
+      if (canvas) _canvasPreview ??= _readCanvas();
+    });
+  }
+
+  /// 캔버스로 가져온다. 진행을 0.3초마다 묻는다.
+  Future<void> _importCanvas() async {
+    final engine = widget.library.engine;
+    final ticket = DateTime.now().microsecondsSinceEpoch;
+    setState(() {
+      _saving = true;
+      _error = null;
+      _runTicket = ticket;
+      _progress = null;
+    });
+    _poll = Timer.periodic(const Duration(milliseconds: 300), (_) async {
+      final p = await engine.importProgress(ticket);
+      if (mounted && _runTicket == ticket && p != null) {
+        setState(() => _progress = p);
+      }
+    });
+    try {
+      final r = await widget.library.importCanvas(
+        widget.path,
+        hash: _canvasHash,
+        ticket: ticket,
+      );
+      final seen = {
+        for (final l in ((await _canvasPreview)?['lost'] as List?) ?? []) '$l',
+      };
+      final extra = [
+        for (final l in (r['lost'] as List?) ?? const [])
+          if (!seen.contains('$l')) '$l',
+      ];
+      if (!mounted) return;
+      if (extra.isEmpty) {
+        Navigator.of(context).pop(r['id'] as int);
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _applied = extra;
+        _made = r['id'] as int;
+      });
+    } on EngineError catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = e;
+          if (e.code == 'import_changed') _canvasPreview = _readCanvas();
+        });
+      }
+    } finally {
+      _poll?.cancel();
+      _poll = null;
+      _runTicket = null;
+    }
+  }
+
+  /// 캔버스로 가져오기를 멈춘다. 엔진이 돌고 있는 쪽 그림을 끝내고 만든 것을 지운다.
+  void _stopCanvas() {
+    final t = _runTicket;
+    if (t != null) unawaited(widget.library.engine.importCancel(t));
+  }
+
   /// 파일을 읽어 본다. 적용에 넘길 해시를 함께 기억한다.
   Future<Json> _read() async {
     final p = await widget.library.engine.importPreview(
@@ -52,6 +157,7 @@ class _ImportDialogState extends State<ImportDialog> {
   }
 
   Future<void> _import() async {
+    if (_canvas) return _importCanvas();
     setState(() {
       _saving = true;
       _error = null;
@@ -130,6 +236,7 @@ class _ImportDialogState extends State<ImportDialog> {
   void dispose() {
     final t = _aiTicket;
     if (t != null) unawaited(widget.library.engine.importCancel(t));
+    _poll?.cancel();
     super.dispose();
   }
 
@@ -161,37 +268,80 @@ class _ImportDialogState extends State<ImportDialog> {
         final lost = [for (final l in (p?['lost'] as List?) ?? const []) '$l'];
         final more = headings.length - ImportDialog.shownHeadings;
         final waiting = _aiTicket != null;
+        final pdf = _pdfName || read?['pages'] != null;
         // 가져오는 동안은 Esc나 바깥 누르기로 닫히지 않는다(만든 문서를 열지 못하고 창만 사라진다).
         return PopScope(
           canPop: !_saving,
           child: Sheet(
             title: '가져오기',
-            subtitle: '"$_name" 글 문서를 새로 만들어 내용을 옮깁니다. 원본 파일은 바꾸지 않습니다.',
+            subtitle: _canvas
+                ? '"$_name" 캔버스 문서를 새로 만들어 PDF의 쪽마다 페이지 하나로 옮깁니다. 원본 파일은 바꾸지 않습니다.'
+                : '"$_name" 글 문서를 새로 만들어 내용을 옮깁니다. 원본 파일은 바꾸지 않습니다.',
             actions: [
-              AppButton(
-                '취소',
-                onPressed: _saving
-                    ? null
-                    : () {
-                        // 아직 읽는 중이거나 줄 서 있으면(큰 PDF) 엔진의 그 읽기도 멈춘다.
-                        if (read == null && error == null) {
-                          unawaited(
-                            widget.library.engine.importCancel(_ticket),
-                          );
-                        }
-                        _stop();
-                        Navigator.of(context).pop();
-                      },
-              ),
-              AppButton(
-                '가져오기',
-                kind: ButtonKind.primary,
-                loading: _saving,
-                onPressed: p == null || waiting ? null : _import,
-              ),
+              if (_applied == null)
+                AppButton(
+                  '취소',
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          // 아직 읽는 중이거나 줄 서 있으면(큰 PDF) 엔진의 그 읽기도 멈춘다.
+                          if (read == null && error == null) {
+                            unawaited(
+                              widget.library.engine.importCancel(_ticket),
+                            );
+                          }
+                          if (_canvasReading) {
+                            unawaited(
+                              widget.library.engine.importCancel(_canvasTicket),
+                            );
+                          }
+                          _stop();
+                          Navigator.of(context).pop();
+                        },
+                ),
+              if (_applied != null)
+                AppButton(
+                  '열기',
+                  kind: ButtonKind.primary,
+                  onPressed: () => Navigator.of(context).pop(_made),
+                )
+              else if (_canvas)
+                FutureBuilder<Json>(
+                  future: _canvasPreview,
+                  builder: (context, cs) => AppButton(
+                    '가져오기',
+                    kind: ButtonKind.primary,
+                    loading: _saving,
+                    onPressed: cs.data == null ? null : _import,
+                  ),
+                )
+              else
+                AppButton(
+                  '가져오기',
+                  kind: ButtonKind.primary,
+                  loading: _saving,
+                  onPressed: p == null || waiting ? null : _import,
+                ),
             ],
             children: [
-              if (error != null)
+              if (pdf)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Space.x3),
+                  child: Segmented<bool>(
+                    options: const [(false, '글 문서로'), (true, '캔버스로')],
+                    value: _canvas,
+                    onChanged: _choose,
+                    notes: const {
+                      false: '글을 문단·표·목록으로 옮겨 고쳐 쓰기 좋습니다. 그림과 도형은 옮기지 않습니다.',
+                      true:
+                          '쪽 모양 그대로 옮깁니다. 쪽 그림을 바탕에 잠그고 글은 글 상자로 둡니다. '
+                          '스캔한 쪽은 이 Mac 안에서 글자를 읽습니다(파일을 밖으로 보내지 않습니다).',
+                    },
+                  ),
+                ),
+              if (_canvas)
+                _canvasBody(context)
+              else if (error != null)
                 ErrorLine(
                   error is EngineError ? describe(error) : '$error',
                   onRetry: null,
@@ -252,6 +402,83 @@ class _ImportDialogState extends State<ImportDialog> {
               ],
             ],
           ),
+        );
+      },
+    );
+  }
+
+  /// 캔버스로 가져올 때의 요약, 진행과 `멈추기`, 가져온 뒤의 알림.
+  Widget _canvasBody(BuildContext context) {
+    final c = AppColors.of(context);
+    Widget line(String t) =>
+        KeepText(t, style: AppText.body.copyWith(color: c.text));
+    return FutureBuilder<Json>(
+      future: _canvasPreview,
+      builder: (context, snap) {
+        final p = snap.data;
+        if (snap.error != null) {
+          final e = snap.error;
+          return ErrorLine(
+            e is EngineError ? describe(e) : '$e',
+            onRetry: null,
+          );
+        }
+        if (p == null) {
+          return Text(
+            '파일을 읽는 중입니다',
+            style: AppText.body.copyWith(color: c.textMuted),
+          );
+        }
+        final lost = [for (final l in (p['lost'] as List?) ?? const []) '$l'];
+        final done = _progress?['done'] as int? ?? 0;
+        final total = _progress?['total'] as int? ?? (p['pages'] as int? ?? 0);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '쪽 ${p['pages']}개 · 글 상자 ${p['boxes']}개 · 글자를 읽을 쪽 ${p['ocrPages']}개',
+              style: AppText.body.copyWith(
+                color: c.text,
+                fontFeatures: AppText.tabular,
+              ),
+            ),
+            if (_saving) ...[
+              const SizedBox(height: Space.x3),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  '쪽 $done/$total 옮기는 중',
+                  key: const Key('import-canvas-progress'),
+                  style: AppText.caption.copyWith(color: c.textMuted),
+                ),
+              ),
+              const SizedBox(height: Space.x1),
+              LinearProgressIndicator(value: total == 0 ? null : done / total),
+              const SizedBox(height: Space.x2),
+              AppButton('멈추기', onPressed: _stopCanvas),
+            ],
+            if (_applied != null) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: Space.x4, bottom: Space.x1),
+                child: Text(
+                  '가져왔습니다',
+                  style: AppText.label.copyWith(color: c.text),
+                ),
+              ),
+              for (final l in _applied!) line('· $l'),
+            ],
+            Padding(
+              padding: const EdgeInsets.only(top: Space.x4, bottom: Space.x1),
+              child: Text(
+                '옮기지 못한 것과 알림',
+                style: AppText.label.copyWith(color: c.text),
+              ),
+            ),
+            if (lost.isEmpty)
+              Text('없습니다.', style: AppText.body.copyWith(color: c.textMuted))
+            else
+              for (final l in lost) line('· $l'),
+          ],
         );
       },
     );
