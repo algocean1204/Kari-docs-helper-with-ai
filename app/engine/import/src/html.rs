@@ -5,7 +5,7 @@
 use kari_edit::{html_import, FragPara, ImportSink, Refusal};
 
 use crate::zip::Zip;
-use crate::{Ctx, EMPTY, TOO_MANY_PARAS};
+use crate::{weight, Ctx, EMPTY, TOO_BIG};
 
 const NOT_UTF8: &str = "UTF-8로 된 HTML만 가져올 수 있습니다.";
 const NO_HTML: &str = "압축 파일 안에 HTML 문서가 없습니다.";
@@ -137,10 +137,14 @@ fn text(bytes: &[u8]) -> Result<&str, &'static str> {
 
 fn read(html: &str, sink: &mut Sink) -> Result<Vec<FragPara>, &'static str> {
     let body = sink.cx.body;
+    // 한계: 글은 붙여넣기와 같은 읽기가 다 만든 뒤에 무게를 잰다. 그 읽기는 HTML 크기·태그 수 상한으로 묶여 있다.
     match html_import(html, body, sink) {
-        Ok(Some(f)) => Ok(f.paras),
+        Ok(Some(f)) => {
+            sink.cx.spend(f.paras.iter().map(weight).sum())?;
+            Ok(f.paras)
+        }
         Ok(None) => Err(EMPTY),
-        Err(Refusal::TooManyLines) => Err(TOO_MANY_PARAS),
+        Err(Refusal::TooManyLines) => Err(TOO_BIG),
         Err(r) => Err(r.message()),
     }
 }

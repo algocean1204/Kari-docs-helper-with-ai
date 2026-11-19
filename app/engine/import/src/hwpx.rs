@@ -21,7 +21,7 @@ use crate::docx::PARA_CHARS;
 use crate::docx::{fill_color, xml_of, Line, MAX_COLS, MAX_ROWS, MIN_COL};
 use crate::xml::{self, El, Kid};
 use crate::zip::Zip;
-use crate::{hex_color, link, Ctx, Look, MAX_PARAS, TOO_MANY_PARAS};
+use crate::{hex_color, link, weight, Ctx, Look};
 
 /// 옛 한글(HWP) 이진 파일을 거절하는 안내.
 pub const HWP_LEGACY: &str =
@@ -275,18 +275,9 @@ struct Rd<'z, 'c, 'a, 's> {
     dir: String,
     /// 시작 번호를 이미 적은 (번호 모양 id, 단계).
     started: HashSet<(String, u8)>,
-    paras: usize,
 }
 
 impl Rd<'_, '_, '_, '_> {
-    fn spend(&mut self) -> Result<(), &'static str> {
-        self.paras += 1;
-        if self.paras > MAX_PARAS {
-            return Err(TOO_MANY_PARAS);
-        }
-        Ok(())
-    }
-
     /// 문단들(`parent` 바로 아래의 `hp:p`). `in_cell`이면 표는 글로 풀어 쓴다(표 안의 표를 넣지 않는다).
     fn blocks(
         &mut self,
@@ -326,7 +317,7 @@ impl Rd<'_, '_, '_, '_> {
         }
         pieces.push(last);
         for runs in pieces {
-            self.spend()?;
+            self.cx.spend(4 + runs.len())?;
             out.push(FragPara {
                 runs,
                 props: props.clone(),
@@ -404,12 +395,14 @@ impl Rd<'_, '_, '_, '_> {
                         tables = true;
                         match self.table(c)? {
                             Some(t) => {
-                                self.spend()?;
-                                out.push(FragPara {
+                                let p = FragPara {
                                     runs: Vec::new(),
                                     props: Map::new(),
                                     table: Some(t),
-                                });
+                                };
+                                // 칸 안의 문단은 칸을 읽을 때 셌다.
+                                self.cx.spend(4 + 4 * crate::cells(&p))?;
+                                out.push(p);
                             }
                             None => {
                                 self.cx.rep.big += 1;
@@ -530,7 +523,6 @@ impl Rd<'_, '_, '_, '_> {
     /// 표를 글로 풀어 쓴다: 행마다 문단 하나, 칸은 탭으로 나눈다.
     fn flat(&mut self, t: &El, out: &mut Vec<FragPara>) -> Result<(), &'static str> {
         for tr in t.els().filter(|e| e.name == "hp:tr") {
-            self.spend()?;
             let (mut text, mut left) = (String::new(), PARA_CHARS);
             for (i, tc) in tr.els().filter(|e| e.name == "hp:tc").enumerate() {
                 if i > 0 {
@@ -544,7 +536,7 @@ impl Rd<'_, '_, '_, '_> {
                     &mut self.cx.rep.dropped,
                 );
             }
-            out.push(FragPara {
+            let p = FragPara {
                 runs: if text.is_empty() {
                     Vec::new()
                 } else {
@@ -552,7 +544,9 @@ impl Rd<'_, '_, '_, '_> {
                 },
                 props: Map::new(),
                 table: None,
-            });
+            };
+            self.cx.spend(weight(&p))?;
+            out.push(p);
         }
         Ok(())
     }
@@ -767,7 +761,6 @@ pub(crate) fn read(z: &Zip, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static str>
         manifest,
         dir,
         started: HashSet::new(),
-        paras: 0,
     };
     let mut out = Vec::new();
     for (_, name) in secs {

@@ -28,12 +28,14 @@ pub const MAX_FILE: usize = 50 << 20;
 pub const MAX_IMAGES: usize = 300;
 pub const MAX_IMAGE: usize = 20 << 20;
 pub const MAX_IMAGE_TOTAL: usize = 200 << 20;
-/// 한 번에 만드는 문단 수 상한(붙여넣기와 같다).
-pub const MAX_PARAS: usize = 50_000;
+/// 가져온 결과의 크기 예산: 문단(표 칸 안 포함)과 표의 칸 자리는 4, 글 조각(run)은 1. 새 문서에 넣는 일(적용)의 시간과
+/// 메모리가 이 합에 거의 비례한다(칸·문단 하나에 수십 KB, run 하나에 약 9KB). 넘으면 `TOO_BIG`(PDF는 `pdf::TOO_BIG`).
+/// 한 줄짜리 문단이면 4,800개, 칸마다 한 줄이 든 50행·20열 표면 둘 남짓이다.
+pub const MAX_WEIGHT: usize = 24_000;
 
 pub const TOO_LARGE: &str = "50MB가 넘는 파일은 가져올 수 없습니다.";
 pub const EMPTY: &str = "가져올 글이 없습니다.";
-pub const TOO_MANY_PARAS: &str = "문단이 5만 개를 넘어 가져올 수 없습니다.";
+pub const TOO_BIG: &str = "내용이 너무 큰 문서는 가져올 수 없습니다.";
 
 /// 가져온 것: 조각과, 원본에 있었지만 옮기지 못했거나 비슷하게만 옮긴 것(사람이 읽는 한 줄씩).
 #[derive(Debug)]
@@ -211,11 +213,33 @@ impl Report {
     }
 }
 
+/// 문단 하나(표면 그 안의 칸과 문단까지)의 무게. `MAX_WEIGHT`와 함께 쓴다.
+pub fn weight(p: &FragPara) -> usize {
+    let mut w = 4 + p.runs.len();
+    if let Some(t) = &p.table {
+        for (_, row) in &t.rows {
+            for c in row {
+                w += 4 + c.as_ref().map_or(0, |(_, ps)| ps.iter().map(weight).sum());
+            }
+        }
+    }
+    w
+}
+
+/// 표의 칸 자리 수.
+pub(crate) fn cells(p: &FragPara) -> usize {
+    p.table
+        .as_ref()
+        .map_or(0, |t| t.rows.iter().map(|(_, r)| r.len()).sum())
+}
+
 /// 가져오는 동안의 그림 저장과 기록.
 pub(crate) struct Ctx<'a, 's> {
     store: &'a mut Store<'s>,
     images: usize,
     bytes: usize,
+    /// 지금까지 만든 결과의 무게(`MAX_WEIGHT`).
+    spent: usize,
     pub rep: Report,
     pub body: (f64, f64),
     /// 그림 자리(꾸러미 안의 이름, data: 주소)마다 한 번 받은 결과. 같은 그림을 여러 번 가리켜도 한 번만 풀고 검사한다.
@@ -231,6 +255,15 @@ enum Got {
 }
 
 impl Ctx<'_, '_> {
+    /// 결과에 무게 `n`을 더한다. 예산을 넘으면 `TOO_BIG`(다 만들기 전에 멈춘다).
+    pub fn spend(&mut self, n: usize) -> Result<(), &'static str> {
+        self.spent += n;
+        if self.spent > MAX_WEIGHT {
+            return Err(TOO_BIG);
+        }
+        Ok(())
+    }
+
     /// 자리 `key`의 그림. 처음이면 `read`로 바이트를 얻어 저장하고, 다시 오면 그 결과를 쓴다(빠진 것도 다시 센다).
     pub fn image_at(
         &mut self,
@@ -304,6 +337,7 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
         store,
         images: 0,
         bytes: 0,
+        spent: 0,
         rep: Report::default(),
         body,
         seen: HashMap::new(),
@@ -341,9 +375,6 @@ pub fn import(bytes: &[u8], body: (f64, f64), store: &mut Store) -> Result<Impor
     paras.drain(..lead);
     if paras.is_empty() {
         return Err(EMPTY);
-    }
-    if paras.len() > MAX_PARAS {
-        return Err(TOO_MANY_PARAS);
     }
     Ok(Imported {
         fragment: Fragment {

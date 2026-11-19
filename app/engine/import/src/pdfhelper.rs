@@ -30,7 +30,7 @@ use crate::pdf::{
     weight, BROKEN, CANCELLED, LOCKED, MAX_PAGES, MAX_WEIGHT, NO_HELPER, NO_TEXT, TOO_BIG,
     TOO_MANY_PAGES, TOO_MANY_SPANS, TOO_SLOW, UNMAPPED,
 };
-use crate::{Ctx, Report, EMPTY, MAX_FILE, TOO_MANY_PARAS};
+use crate::{Ctx, Report, EMPTY, MAX_FILE};
 
 /// 도우미로 띄울 때 주는 인자.
 pub const ARG: &str = "--kari-pdf-helper";
@@ -245,6 +245,7 @@ fn work(pdf: &[u8], body: (f64, f64)) -> Result<Parsed, &'static str> {
         store: &mut store,
         images: 0,
         bytes: 0,
+        spent: 0,
         rep: Report::default(),
         body,
         seen: HashMap::new(),
@@ -522,7 +523,7 @@ mod mach {
 }
 
 /// 도우미가 돌려줄 수 있는 오류. 이 밖의 글은 받지 않는다.
-const ERRORS: [&str; 9] = [
+const ERRORS: [&str; 8] = [
     BROKEN,
     LOCKED,
     TOO_BIG,
@@ -531,7 +532,6 @@ const ERRORS: [&str; 9] = [
     NO_TEXT,
     UNMAPPED,
     EMPTY,
-    TOO_MANY_PARAS,
 ];
 
 /// 결과 JSON: `{"err": 문장}` 또는 `{"pages", "lost", "paras"}`. 문단은 `{"r": run들, "p": 속성, "t": 표 또는 null}`,

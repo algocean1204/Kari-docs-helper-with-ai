@@ -126,3 +126,38 @@ pub fn render(id: i64, w: i32, h: i32, scale: f32, scroll: f32) -> (Vec<u8>, i32
     let r = unsafe { kari_edit_render(id, px.as_mut_ptr(), w, h, w * 4, scale, scroll) };
     (px, r)
 }
+
+/// 압축하지 않고 담는 꾸러미(읽는 쪽은 crc를 보지 않는다).
+pub fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let (mut out, mut dir) = (Vec::new(), Vec::new());
+    for (name, data) in files {
+        let at = out.len() as u32;
+        let common = |v: &mut Vec<u8>| {
+            v.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // 판, 깃발, 담기, 시각, crc
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            v.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        };
+        out.extend_from_slice(&0x0403_4B50u32.to_le_bytes());
+        common(&mut out);
+        out.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(data);
+        dir.extend_from_slice(&0x0201_4B50u32.to_le_bytes());
+        dir.extend_from_slice(&[20, 0]);
+        common(&mut dir);
+        dir.extend_from_slice(&[0; 12]);
+        dir.extend_from_slice(&at.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+    }
+    let start = out.len() as u32;
+    out.extend_from_slice(&dir);
+    out.extend_from_slice(&0x0605_4B50u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(dir.len() as u32).to_le_bytes());
+    out.extend_from_slice(&start.to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}

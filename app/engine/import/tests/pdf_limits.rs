@@ -852,7 +852,7 @@ fn p25_문단이_5만_개를_넘으면_크기_예산에서_거절한다() {
         .map(|i| format!("BT /F1 3 Tf 20 {} Td (- {i}) Tj ET\n", 830 - 4 * i))
         .collect();
     let pages: Vec<Vec<u8>> = (0..260).map(|_| page(&one)).collect();
-    // 문단 상한(5만)보다 먼저 PDF의 크기 예산에 걸린다(넣는 일의 메모리를 묶는 상한).
+    // PDF의 크기 예산(넣는 일의 메모리를 묶는 상한)에 걸린다.
     assert_eq!(
         take(&doc(&pages, &[], "", Vec::new())).unwrap_err(),
         TOO_BIG

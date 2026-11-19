@@ -13,7 +13,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use kari_doc::serde_json::{json, Map, Value};
 use kari_edit::{FragCell, FragPara, FragRow, FragTable};
 
-use crate::{Ctx, Look, EMPTY, MAX_PARAS, TOO_MANY_PARAS};
+use crate::{cells, Ctx, Look, EMPTY};
 
 pub const MAX_PAGES: usize = 300;
 /// 문서 전체의 글 조각 수 상한.
@@ -35,24 +35,10 @@ pub use crate::pdfhelper::{
     cancel, helper_main, last_peak, set_helper, with_ticket, Capped, MAX_MEMORY, MAX_TIME,
 };
 
-/// 가져온 결과의 크기 예산: 문단(표 칸 안 포함)과 표의 칸 자리는 4, 글 조각(run)은 1. 새 문서에 넣는 일(적용)의 시간과
-/// 메모리가 이 합에 거의 비례한다(칸·문단 하나에 약 33KB, run 하나에 약 9KB). 넘으면 `TOO_BIG`.
-pub const MAX_WEIGHT: usize = 24_000;
+/// 크기 예산은 모든 형식이 같이 쓴다. PDF는 넘으면 `TOO_BIG`.
+pub use crate::{weight, MAX_WEIGHT};
 /// 쪽 하나에서 표로 보는 선 격자의 수. 넘으면 `TOO_BIG`.
 pub const MAX_GRIDS: usize = 16;
-
-/// 문단 하나(표면 그 안의 칸과 문단까지)의 무게. `MAX_WEIGHT`와 함께 쓴다.
-pub fn weight(p: &FragPara) -> usize {
-    let mut w = 4 + p.runs.len();
-    if let Some(t) = &p.table {
-        for (_, row) in &t.rows {
-            for c in row {
-                w += 4 + c.as_ref().map_or(0, |(_, ps)| ps.iter().map(weight).sum());
-            }
-        }
-    }
-    w
-}
 
 /// 쓴 무게.
 struct Budget(usize);
@@ -672,9 +658,6 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
     let mut out = Vec::with_capacity(blocks.len());
     let mut prev_ordered: Option<u64> = None;
     for b in blocks {
-        if out.len() >= MAX_PARAS {
-            return Err(TOO_MANY_PARAS);
-        }
         match b {
             Block::Table(t) => {
                 prev_ordered = None;
@@ -735,13 +718,6 @@ fn build(mut pages: Vec<Page>, cx: &mut Ctx) -> Result<Vec<FragPara>, &'static s
         }
     }
     Ok(out)
-}
-
-/// 표의 칸 자리 수.
-fn cells(p: &FragPara) -> usize {
-    p.table
-        .as_ref()
-        .map_or(0, |t| t.rows.iter().map(|(_, r)| r.len()).sum())
 }
 
 /// 제목: 목록이 아닌 150자 이하의 문단으로, 본문보다 1.5pt 넘고 15% 넘게 크거나, 조금이라도 크고 모두 굵다.
