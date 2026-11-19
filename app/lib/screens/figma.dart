@@ -907,6 +907,16 @@ class _FigmaSyncDialogState extends State<FigmaSyncDialog> {
                           '지울 것 ${plan.deleted}개, 더할 것 ${plan.added}개, '
                           '충돌 ${plan.conflicts.length}개',
               ),
+              if (plan.unconfirmed)
+                line(
+                  '어느 Figma 파일에서 왔는지 확인할 수 없습니다. Figma에서 지운 것은 지우지 않고 충돌로 보입니다',
+                  color: c.textMuted,
+                ),
+              if (plan.unsure > 0)
+                line(
+                  'Kari에 없는 ${plan.unsure}개는 Figma에서 더했는지 Kari에서 지웠는지 알 수 없어 고르지 않으면 만들지 않습니다',
+                  color: c.textMuted,
+                ),
               if (plan.kariDeleted > 0)
                 line(
                   'Kari에서 지운 ${plan.kariDeleted}개는 다시 만들지 않습니다',

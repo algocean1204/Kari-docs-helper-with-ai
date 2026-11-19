@@ -70,13 +70,13 @@ Json basePage() => page([
   figmaNode('2:1', 'FRAME', x: 500, y: 0, w: 200, h: 200),
 ]);
 
-/// [p]를 읽어 옮긴 것(페이지와 파일 키를 붙인다).
-FigmaImport fig(Json p, {String? file}) => fromFigma(p)
+/// [p]를 읽어 옮긴 것(페이지와 파일 키를 붙인다. 키는 기본으로 같은 파일의 것).
+FigmaImport fig(Json p, {String? file = 'fileA'}) => fromFigma(p)
   ..pageId = '0:1'
   ..fileKey = file;
 
 /// [p]를 가져온 Kari 노드들(`doc.nodes` 꼴, 저장을 흉내 내 JSON으로 한 번 오간다).
-List<Json> imported(Json p, {String? file}) {
+List<Json> imported(Json p, {String? file = 'fileA'}) {
   var born = 1;
   return [
     for (final op in fig(p, file: file).withMap())
@@ -536,8 +536,10 @@ void main() {
         final k = imported(b, file: 'fileA');
         expect(planSync(k, fig(b, file: 'fileB')).refused, otherFile);
         expect(planSync(k, fig(b, file: 'fileA')).refused, isNull);
-        // 파일 키를 모르면(플러그인이 주지 않음) 같은 파일로 본다.
-        expect(planSync(k, fig(b)).refused, isNull);
+        // 파일 키를 모르면(플러그인이 주지 않음) 확인하지 못한 맞추기로 더 엄격히 본다.
+        final unsure = planSync(k, fig(b, file: null));
+        expect(unsure.refused, isNull);
+        expect(unsure.unconfirmed, isTrue);
         final other = page([
           figmaNode('9:1', 'FRAME', x: 0, y: 0, w: 10, h: 10),
         ]);
@@ -746,29 +748,145 @@ void main() {
     });
 
     test('맞추기 정보 없이 가져온 옛 문서도 맞추고, 한 번 맞추면 정보가 붙는다', () {
-      final k = [
-        for (final n in imported(b))
-          {
-            ...n,
-            'props': {
-              ...n['props'] as Map,
-              'figma': {
-                'id': ((n['props'] as Map)['figma'] as Map)['id'],
-                'base': {
-                  for (final e
-                      in (((n['props'] as Map)['figma'] as Map)['base'] as Map)
-                          .entries)
-                    if (!(e.key as String).startsWith('~')) e.key: e.value,
-                },
-              },
-            },
-          },
-      ];
+      final k = legacy(imported(b));
       final plan = planSync(k, fig(b));
       expect(plan.conflicts, isEmpty);
       expect(propSets(plan), isEmpty);
       expect(plan.ops, isNotEmpty, reason: '기준값에 맞추기 정보를 붙인다');
       expectSettled(k, fig(b), plan);
+    });
+
+    test('옛 문서에서 Kari가 지운 요소는 다시 만들지 않고, 모른다는 충돌로 알린다(고르면 더한다)', () {
+      final k = legacy(delK(imported(b), '1:2'));
+      final plan = planSync(k, fig(b));
+      expect(opsOf(plan, 'add'), isEmpty);
+      expect(plan.unsure, 1);
+      expect(plan.conflicts.single.key, '1:2/unsure');
+      final chosen = planSync(k, fig(b), pick: {'1:2/unsure'});
+      expect(opsOf(chosen, 'add'), hasLength(1));
+      // 옛 문서의 최상위(대지)도 같다.
+      final noBoard = legacy(delK(imported(b), '2:1'));
+      expect(opsOf(planSync(noBoard, fig(b)), 'add'), isEmpty);
+    });
+
+    test(
+      '파일 키가 없는 문서: 페이지 id가 같아도 대응 id가 하나만 겹치는 다른 페이지는 거절하고 파일 키를 새기지 않는다',
+      () {
+        final other = page([
+          figmaNode(
+            '1:1',
+            'FRAME',
+            x: 0,
+            y: 0,
+            w: 400,
+            h: 300,
+            children: [figmaNode('7:1', 'RECTANGLE', x: 1, y: 1, w: 5, h: 5)],
+          ),
+          figmaNode('7:2', 'FRAME', x: 500, y: 0, w: 10, h: 10),
+        ]);
+        final k = imported(b, file: null);
+        for (final key in [null, 'fileX']) {
+          final plan = planSync(k, fig(other, file: key));
+          expect(plan.refused, otherFile, reason: '$key');
+          expect(opsOf(plan, 'del'), isEmpty);
+        }
+        // 같은 페이지여도 확인하지 못한 맞추기는 파일 키를 새로 새기지 않고, Figma에서 지운 것은 충돌로만 보인다.
+        final f = fig(editF(b, '1:4', (_) => null), file: 'fileX');
+        final plan = planSync(k, f);
+        expect(plan.unconfirmed, isTrue);
+        expect(opsOf(plan, 'del'), isEmpty);
+        expect(plan.conflicts.map((c) => c.what).toSet(), {'deleted'});
+        expect(jsonEncode(plan.ops), isNot(contains('~file')));
+        // 문서에 키가 있고 플러그인이 주지 않으면 문서의 키를 그대로 둔다.
+        final keyed = imported(b);
+        final kept = applyOps(
+          keyed,
+          planSync(
+            keyed,
+            fig(editF(b, '1:2', (n) => {...n, 'opacity': 0.5}), file: null),
+          ).ops,
+        );
+        final base = (propOf(kept, '1:1', 'figma') as Map)['base'] as Map;
+        expect(base['~file'], 'fileA');
+      },
+    );
+
+    test(
+      '빈 대지 2,000개: `~boards`는 앞의 대지 몇 개에만 두고 대응표 전체는 4MB 안(넘으면 가져오지 않음)',
+      () {
+        final p = page([
+          for (var i = 0; i < 2000; i++)
+            figmaNode('b$i', 'FRAME', x: i * 20.0, y: 0, w: 10, h: 10),
+        ]);
+        final f = fig(p);
+        final bytes = FigmaTree(f).mapBytes;
+        expect(
+          f.tooBig != null || bytes <= maxMapBytes,
+          isTrue,
+          reason: '$bytes',
+        );
+        final ops = f.withMap();
+        final withBoards = ops.where(
+          (o) =>
+              (((o['node'] as Json)['props'] as Json)['figma'] as Map)['base']
+                  .toString()
+                  .contains('~boards'),
+        );
+        expect(withBoards.length, FigmaTree.boardsOn);
+        // 한도를 넘는 페이지는 미리 보기에서 거절한다.
+        final huge = fromFigma(
+          page([
+            figmaNode(
+              'f',
+              'FRAME',
+              x: 0,
+              y: 0,
+              w: 10,
+              h: 10,
+              children: [
+                for (var i = 0; i < 2000; i++)
+                  figmaNode(
+                    't$i',
+                    'TEXT',
+                    x: 0,
+                    y: 0,
+                    w: 10,
+                    h: 10,
+                    extra: {'characters': '가' * 1000},
+                  ),
+              ],
+            ),
+          ]),
+        );
+        expect(huge.tooBig, isNotNull);
+      },
+    );
+
+    test('자식 2,500개 프레임: 지문을 빼고 id 목록만 두어 Kari가 지운 자식을 다시 만들지 않는다', () {
+      final p = page([
+        figmaNode(
+          'f',
+          'FRAME',
+          x: 0,
+          y: 0,
+          w: 1000,
+          h: 1000,
+          children: [
+            for (var i = 0; i < 2500; i++)
+              figmaNode('1000:$i', 'RECTANGLE', x: 1, y: 1, w: 5, h: 5),
+          ],
+        ),
+      ]);
+      final k = imported(p);
+      final kids =
+          ((propOf(k, 'f', 'figma') as Map)['base'] as Map)['~kids'] as Map;
+      expect(kids.length, 2500);
+      expect(kids.values.toSet(), {''}, reason: '지문을 뺀 id 목록');
+      final deleted = delK(k, '1000:7');
+      final plan = planSync(deleted, fig(p));
+      expect(opsOf(plan, 'add'), isEmpty);
+      expect(plan.kariDeleted, 1);
+      expectSettled(deleted, fig(p), plan);
     });
   });
 
@@ -805,13 +923,13 @@ void main() {
 
   group('가짜 플러그인', () {
     late Directory tmp;
-    late FakeEngine fake;
+    late _PutHook fake;
     late Library lib;
     late FigmaRelay relay;
 
     setUp(() async {
       tmp = await Directory.systemTemp.createTemp('kari-figma-sync-');
-      fake = FakeEngine();
+      fake = _PutHook();
       lib = Library(fake, tmp.path, outDir: '${tmp.path}/out');
       await fake.libOpen(tmp.path);
       await lib.open();
@@ -1089,6 +1207,41 @@ void main() {
       await expectLater(cut, throwsA(isA<FigmaError>()));
       await unchanged();
       await link.stop();
+    });
+
+    test('그림을 넣은 뒤 두 번째 계획이 거절되면 넣은 그림을 지우고 아무것도 바꾸지 않는다', () async {
+      var now = basePage();
+      final (link, plugin) = await connect(() => now);
+      final id = await importDoc(link);
+      now = addF(
+        now,
+        '1:1',
+        figmaNode(
+          '1:8',
+          'RECTANGLE',
+          x: 0,
+          y: 0,
+          w: 5,
+          h: 5,
+          extra: {
+            'fills': [
+              {'type': 'IMAGE', 'imageRef': 'r'},
+            ],
+          },
+        ),
+      );
+      final commits = fake.commits.length;
+      final dropped = fake.assetsDropped.length;
+      // 그림을 넣는 사이에 대응표가 깨진다(두 번째 계획이 거절된다).
+      fake.onPut = () {
+        final nodes = fake.docs[id]!['nodes'] as List;
+        ((nodes.first as Map)['props'] as Map)['figma'] = {'id': 3};
+      };
+      await expectLater(sync(link, id), throwsA(isA<FigmaError>()));
+      expect(fake.assetsDropped.length, dropped + 1);
+      expect(fake.commits.length, commits);
+      await link.stop();
+      await plugin.close();
     });
 
     test('이상한 답: 페이지가 아닌 답, 지우라는 글, 한도를 넘은 페이지는 바꾸지 않는다', () async {
@@ -1457,5 +1610,36 @@ class _SyncLink extends FigmaLink {
     final plan = planSync(nodes, fresh, pick: pick);
     await commit(plan.ops);
     return syncLine(plan);
+  }
+}
+
+/// 맞추기 정보(`~`로 시작하는 칸)가 없던 때의 문서처럼 기준값에서 그 칸을 뺀다.
+List<Json> legacy(List<Json> k) => [
+  for (final n in k)
+    {
+      ...n,
+      'props': {
+        ...n['props'] as Map,
+        if ((n['props'] as Map)['figma'] case final Map m)
+          'figma': {
+            'id': m['id'],
+            'base': {
+              for (final e in (m['base'] as Map).entries)
+                if (!(e.key as String).startsWith('~')) e.key: e.value,
+            },
+          },
+      },
+    },
+];
+
+/// `asset.put` 뒤에 [onPut]을 부르는 가짜 엔진(그림을 넣은 사이에 일어나는 일을 흉내 낸다).
+class _PutHook extends FakeEngine {
+  void Function()? onPut;
+
+  @override
+  Future<String> send(String request) async {
+    final out = await super.send(request);
+    if ((jsonDecode(request) as Map)['m'] == 'asset.put') onPut?.call();
+    return out;
   }
 }

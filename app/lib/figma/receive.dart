@@ -643,12 +643,8 @@ FigmaImport fromFigma(Object? page) {
   } else if (out.count > maxImportNodes) {
     out.tooBig = '요소가 ${out.count}개라 가져오지 않습니다. 한 번에 $maxImportNodes개까지 가져옵니다';
   } else {
-    var bytes = 0;
-    for (final op in out.ops) {
-      final props = (op['node'] as Json)['props'];
-      final n = utf8.encode(jsonEncode(props)).length;
-      if (n <= maxBaseBytes) bytes += n;
-    }
+    // 대응표 전체(속성과 맞추기 정보): 문서와 기록이 함께 커지므로 묶는다.
+    final bytes = FigmaTree(out).mapBytes;
     if (bytes > maxMapBytes) {
       out.tooBig =
           '가져올 때의 값이 ${(bytes / 1024 / 1024).toStringAsFixed(1)}MB라 가져오지 않습니다. '

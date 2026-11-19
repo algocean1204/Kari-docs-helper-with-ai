@@ -45,7 +45,7 @@ void main() {
   });
 
   /// [p]를 가져온 캔버스 문서(가져오기와 같은 묶음: 노드와 대응을 넣고 처음 대지를 지운다).
-  Future<int> importDoc(Json p, {String? file}) async {
+  Future<int> importDoc(Json p, {String? file = 'fileA'}) async {
     final id = await engine.docsCreate('canvas', '가져옴');
     final first = await engine.docNodes(id);
     await engine.docCommit(id, [
@@ -359,7 +359,15 @@ void main() {
         final plugin = await FakePlugin.join(
           relay.port,
           'ch',
-          answer: (command, _) => command == 'get_node_info' ? p : null,
+          answer: (command, _) => switch (command) {
+            'get_node_info' => p,
+            'get_document_info' => {
+              'name': 'Page 1',
+              'id': '0:1',
+              'fileKey': 'fileA',
+            },
+            _ => null,
+          },
         );
         addTearDown(() => expectReadOnly(plugin));
         final lib = Library(engine, tmp.path, outDir: '${tmp.path}/out');

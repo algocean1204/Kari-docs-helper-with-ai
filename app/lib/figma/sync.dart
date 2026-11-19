@@ -40,6 +40,7 @@ const whatLabels = {
   'kariDeleted': 'Kari에서 지웠고 Figma에서 고침',
   'type': 'Figma에서 종류가 바뀜',
   'parent': 'Figma에서 다른 곳으로 옮김',
+  'unsure': 'Kari에 없음(Figma에서 더했는지 Kari에서 지웠는지 모름)',
 };
 
 const propLabels = {
@@ -80,6 +81,14 @@ class SyncPlan {
 
   /// 복제나 붙여넣기로 같은 Figma id를 가진 노드 가운데 대응을 떼는 것의 수.
   int unlinked = 0;
+
+  /// Kari에 없는 Figma 노드 가운데, 맞추기 정보가 없어(옛 문서, 한도를 넘은 목록) Figma에서 더한 것인지 Kari에서
+  /// 지운 것인지 모르는 것의 수. 충돌로 보이고 고르지 않으면 만들지 않는다.
+  int unsure = 0;
+
+  /// 같은 Figma 파일인지 파일 키로 확인하지 못했다(문서나 플러그인에 키가 없음). 그때는 Figma에서 지운 것도
+  /// 지우지 않고 충돌로만 보인다.
+  bool unconfirmed = false;
   final conflicts = <SyncConflict>[];
 
   /// 더할 노드 가운데 그림 칠을 Figma에서 받아야 하는 것.
@@ -134,12 +143,18 @@ class FigmaTree {
     }
   }
 
-  final String? page, file;
+  final String? page;
+
+  /// 기준값에 새길 파일 키. 맞추기는 파일을 확인하지 못했으면 문서에 있던 값을 둔다([planSync]).
+  String? file;
 
   /// 부모가 먼저 오는 차례.
   final nodes = <String, _F>{};
   final _hashes = <String, String>{};
   Json? _boards;
+
+  /// `~boards`를 두는 대지의 수(페이지의 앞쪽 대지들). 모든 대지에 두면 대지 수의 제곱으로 커진다.
+  static const boardsOn = 3;
 
   /// 노드 속성의 지문. 그림 칠 노드는 칠을 빼고 센다(칠은 받은 그림이라 읽을 때마다 비어 있다).
   String hashOf(String fid) =>
@@ -148,29 +163,52 @@ class FigmaTree {
   /// 견주는 속성: 그림 칠 노드는 칠을 뺀다(받은 그림이라 읽을 때마다 비어 있다).
   static Json _own(_F f) => f.image ? ({...f.props}..remove('fills')) : f.props;
 
-  /// [fid]의 새 기준값: 속성과 맞추기 정보. 한도를 넘으면 맞추기 정보만, 그것도 넘거나 비었으면 null(id만 둔다).
+  late final List<String> _boardIds = [
+    for (final b in nodes.values)
+      if (b.parent == null) b.fid,
+  ];
+
+  /// [fid]의 새 기준값: 속성과 맞추기 정보. 한도([maxBaseBytes])를 넘으면 차례로 줄인다: `~kids`의 지문을 빼고 id만
+  /// (빈 지문), 속성을 빼고 맞추기 정보만, `~kids`도 뺀 것. 모두 넘거나 비었으면 null(id만 둔다).
   Json? baseOf(String fid) {
     final f = nodes[fid]!;
-    final meta = <String, Object?>{
-      if (const {'page', 'frame', 'group'}.contains(f.type))
-        metaKids: {for (final k in f.kids) k: hashOf(k)},
+    final container = const {'page', 'frame', 'group'}.contains(f.type);
+    final top = <String, Object?>{
       if (f.parent == null) ...{
-        metaBoards: _boards ??= {
-          for (final b in nodes.values)
-            if (b.parent == null) b.fid: hashOf(b.fid),
-        },
+        if (_boardIds.take(boardsOn).contains(fid))
+          metaBoards: _boards ??= {for (final b in _boardIds) b: hashOf(b)},
         metaPage: ?page,
         metaFile: ?file,
       },
     };
+    final kids = {for (final k in f.kids) k: hashOf(k)};
+    final ids = {for (final k in f.kids) k: ''};
+    final own = _own(f);
     for (final base in [
-      {..._own(f), ...meta},
-      meta,
+      {...own, if (container) metaKids: kids, ...top},
+      if (container) {...own, metaKids: ids, ...top},
+      if (container) {metaKids: ids, ...top},
+      top,
     ]) {
       if (base.isEmpty) break;
-      if (utf8.encode(jsonEncode(base)).length <= maxBaseBytes) return base;
+      final n = utf8.encode(jsonEncode(base)).length;
+      if (n <= maxBaseBytes) {
+        _bytes[fid] = n;
+        return base;
+      }
     }
     return null;
+  }
+
+  final _bytes = <String, int>{};
+
+  /// 모든 노드의 기준값을 JSON으로 쓴 바이트의 합(대응표 전체의 크기).
+  int get mapBytes {
+    var total = 0;
+    for (final fid in nodes.keys) {
+      if (baseOf(fid) != null) total += _bytes[fid]!;
+    }
+    return total;
   }
 
   /// 대응 칸: Figma id와 기준값.
@@ -367,12 +405,32 @@ SyncPlan planSync(
   }
 
   Map? baseOf(Json n) => (props(n)['figma'] as Map)['base'] as Map?;
-  for (final n in primary.values) {
-    final f = baseOf(n)?[metaFile];
-    if (n['parent'] == null &&
-        f is String &&
-        tree.file != null &&
-        f != tree.file) {
+  // 같은 파일인가: 문서의 파일 키와 플러그인의 키가 둘 다 있으면 같아야 한다. 하나라도 없으면 확인하지 못한 것이라
+  // 더 엄격히 본다: 맞춘 페이지 id가 같고, 대응한 대지가 모두 같은 종류로 있고, 대응 id의 절반 이상이 페이지에 있어야
+  // 한다. 확인하지 못한 맞추기는 지우지 않고(충돌로만), 파일 키를 새로 새기지 않는다.
+  final boards = [
+    for (final n in primary.values)
+      if (n['parent'] == null && n['type'] == 'page') n,
+  ];
+  String? stored(String key) {
+    for (final n in boards) {
+      final v = baseOf(n)?[key];
+      if (v is String) return v;
+    }
+    return null;
+  }
+
+  final storedFile = stored(metaFile), current = tree.file;
+  if (storedFile != null && current != null) {
+    if (storedFile != current) return plan..refused = otherFile;
+  } else {
+    plan.unconfirmed = true;
+    tree.file = storedFile;
+    final page = stored(metaPage);
+    final overlap = primary.keys.where(tree.nodes.containsKey).length;
+    if ((page != null && page != tree.page) ||
+        boards.any((b) => tree.nodes[fidOf(b)]?.type != 'page') ||
+        overlap * 2 < primary.length) {
       return plan..refused = otherFile;
     }
   }
@@ -400,6 +458,8 @@ SyncPlan planSync(
       }
     }
   }
+
+  final boardsKnown = boards.any((b) => baseOf(b)?[metaBoards] is Map);
 
   String? kariParent(Json n) {
     for (var p = byId[n['parent']]; p != null; p = byId[p['parent']]) {
@@ -524,6 +584,19 @@ SyncPlan planSync(
       return;
     }
     final known = !replaced.contains(f.fid) && knownHash.containsKey(f.fid);
+    // 맞추기 정보가 없는 자리(옛 문서의 컨테이너, 한도를 넘어 목록을 뺀 컨테이너, `~boards`가 없는 최상위)라
+    // 더한 것인지 지운 것인지 모른다: 만들지 않고 충돌로 보인다(고르면 더한다).
+    final informed =
+        known ||
+        replaced.contains(f.fid) ||
+        addedKari.containsKey(p) ||
+        (p == null ? boardsKnown : baseOf(primary[p]!)?[metaKids] is Map);
+    if (!informed) {
+      plan.unsure++;
+      conflict(f.fid, _nameOf(f.props, f.type), 'unsure', '없음', '있음');
+      if (chose(f.fid, 'unsure')) add(f, parent);
+      return;
+    }
     if (known) {
       if (knownHash[f.fid] != tree.hashOf(f.fid)) {
         final name = _nameOf(f.props, f.type);
@@ -661,7 +734,7 @@ SyncPlan planSync(
   for (final n in missing) {
     if (gone.contains(n['id'])) continue;
     final fid = fidOf(n);
-    if (canDelete(n)) {
+    if (!plan.unconfirmed && canDelete(n)) {
       del(n);
       continue;
     }

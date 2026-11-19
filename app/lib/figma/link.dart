@@ -489,14 +489,25 @@ class FigmaLink extends ChangeNotifier {
 
   /// 넣은 에셋은 문서가 되지 못하면(멈춤, 실패) 지우고 [e]를 던진다.
   Future<Never> _undo(List<String> put, Object e) async {
-    if (put.isNotEmpty) {
-      try {
-        await library.engine.assetDropUnused(put);
-      } on EngineError {
-        // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
-      }
-    }
+    await _dropAssets(put);
     throw e;
+  }
+
+  Future<void> _dropAssets(List<String> put) async {
+    if (put.isEmpty) return;
+    try {
+      await library.engine.assetDropUnused(put);
+    } on EngineError {
+      // 지우지 못한 에셋은 자료 폴더에 남는다(쓰는 문서는 없다).
+    }
+  }
+
+  /// 그림 칠 노드의 칠을 읽은 때의 값(빈 칠)으로 되돌린다. 실패한 뒤 같은 미리 보기로 다시 해도 지운 에셋을 가리키지
+  /// 않게.
+  static void _clearImages(FigmaImport plan) {
+    for (final i in plan.images) {
+      i.props['fills'] = <Object?>[];
+    }
   }
 
   /// 캔버스 문서 [docId]를 Figma에서 새로 읽은 페이지 [fresh]와 다시 맞춘다. 페이지를 다시 읽어 미리 본 것과 같은지
@@ -514,6 +525,8 @@ class FigmaLink extends ChangeNotifier {
   }) async {
     if (fresh.tooBig != null) throw FigmaError(fresh.tooBig!);
     const stopped = FigmaError('다시 맞추기를 멈췄습니다. 아무것도 바꾸지 않았습니다');
+    // 앞선 시도가 실패했으면 그림 칠이 지운 에셋을 가리킬 수 있다: 읽은 때의 값에서 다시 시작한다.
+    _clearImages(fresh);
     final w = _Work(stop, stopped);
     await _recheck(fresh, w);
     var plan = planSync(
@@ -528,16 +541,18 @@ class FigmaLink extends ChangeNotifier {
       onProgress: onProgress,
       imageTimeout: imageTimeout,
     );
-    if (w.stopped) await _undo(put, stopped);
-    // 그림 칠을 채운 속성으로 연산을 다시 만든다.
-    plan = planSync(await library.engine.docNodes(docId), fresh, pick: pick);
-    if (!plan.empty) {
-      try {
-        await commit(plan.ops);
-      } on EngineError catch (e) {
-        await _undo(put, e);
-      }
+    // 그림을 넣은 뒤의 실패(멈춤, 문서 읽기, 거절, 넣기)는 모두 넣은 에셋을 지운다. 바꿀 것이 없어도 지운다.
+    try {
+      if (w.stopped) throw stopped;
+      // 그림 칠을 채운 속성으로 연산을 다시 만든다.
+      plan = planSync(await library.engine.docNodes(docId), fresh, pick: pick);
+      if (plan.refused != null) throw FigmaError(plan.refused!);
+      if (!plan.empty) await commit(plan.ops);
+    } on Object catch (e) {
+      _clearImages(fresh);
+      await _undo(put, e);
     }
+    if (plan.empty && put.isNotEmpty) await _dropAssets(put);
     return syncLine(plan, missed: missed);
   }
 
@@ -572,6 +587,7 @@ String syncLine(SyncPlan plan, {int missed = 0}) {
         '지움 ${plan.deleted}개, 더함 ${plan.added}개',
     if (plan.conflicts.isNotEmpty) '충돌 ${plan.conflicts.length}개',
     if (plan.kariDeleted > 0) 'Kari에서 지운 ${plan.kariDeleted}개는 다시 만들지 않았습니다',
+    if (plan.unconfirmed) '어느 Figma 파일에서 왔는지 확인할 수 없어 지우지 않았습니다',
     if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
   ].join(' · ');
 }
