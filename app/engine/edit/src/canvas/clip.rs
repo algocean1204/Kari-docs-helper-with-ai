@@ -249,6 +249,8 @@ impl CanvasEditor {
         let mut made = Vec::new();
         for (n, id) in clip.nodes.iter().zip(&ids) {
             let mut props = n.props.clone();
+            // 사본은 Kari의 것이다: Figma 대응은 원본만 지닌다(다시 맞출 때 같은 Figma id가 둘이 되지 않게).
+            props.remove("figma");
             let (up, z) = if clip.roots.contains(&n.id) {
                 let (kx, ky) = pos_keys(&n.kind);
                 for (k, d) in [(kx, dx), (ky, dy)] {

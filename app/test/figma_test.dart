@@ -2346,8 +2346,14 @@ void main() {
         final image = figma['1:3']!;
         expect((image['fills'] as List).single, containsPair('type', 'IMAGE'));
         final base = (image['figma'] as Map)['base'] as Map;
-        expect(base['fills'], image['fills']);
+        // 그림 칠은 받은 그림이라 기준값에 두지 않는다(다시 맞출 때 견주지 않는다).
+        expect(base.containsKey('fills'), isFalse);
         expect(base.containsKey('figma'), isFalse);
+        // 대지는 맞추기 정보(자식의 지문, 페이지)를 지닌다.
+        final board = (figma['1:1']!['figma'] as Map)['base'] as Map;
+        expect((board['~kids'] as Map).keys.toSet(), {'1:2', '1:3', '1:4'});
+        expect((board['~boards'] as Map).keys, ['1:1']);
+        expect(board['~page'], '0:1');
         expect((figma['1:4']!['fills'] as List), isEmpty);
         await link.stop();
         await plugin.close();

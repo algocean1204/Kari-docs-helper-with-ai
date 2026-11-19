@@ -344,6 +344,8 @@ pub(crate) fn duplicate(
                     .map(|(_, new)| new.clone())
             };
             let mut props = n.props.clone();
+            // 사본은 Kari의 것이다: Figma 대응은 원본만 지닌다(다시 맞출 때 같은 Figma id가 둘이 되지 않게).
+            props.remove("figma");
             if first {
                 let num = |k: &str| doc.prop(&n.id, k).and_then(Value::as_f64).unwrap_or(0.0);
                 if n.kind == "page" {

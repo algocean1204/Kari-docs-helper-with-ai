@@ -12,7 +12,8 @@ import 'canvas_layers.dart';
 import 'canvas_props.dart';
 import 'canvas_surface.dart';
 import 'doc.dart' show salvageAction, savedWhen;
-import 'figma.dart' show FigmaSendDialog;
+import '../figma/link.dart' show hasFigmaMap;
+import 'figma.dart' show FigmaSendDialog, FigmaSyncDialog;
 import 'name_field.dart';
 import 'paper.dart' show drawsPaper;
 import 'versions.dart';
@@ -48,6 +49,9 @@ class _CanvasScreenState extends State<CanvasScreen> {
   bool _layers = true;
   bool _exporting = false;
   int _noticed = 0;
+
+  /// 문서에 Figma에서 가져온 요소(대응)가 있는지. 있으면 "Figma와 다시 맞추기"가 켜진다.
+  bool _figmaLinked = false;
 
   /// 메뉴 막대에 내는 문서 명령. 붙인 것을 뗄 때 같은 것인지 알아보도록 한 번만 만든다.
   late final CanvasMenu? Function() _menuOf = _canvasMenu;
@@ -90,6 +94,21 @@ class _CanvasScreenState extends State<CanvasScreen> {
     s.fitOnFirstView = widget.library.newCanvases.remove(widget.docId);
     s.open();
     s.showLayers(_layers);
+    _checkFigma();
+  }
+
+  /// 문서를 연 뒤 Figma 대응이 있는지 본다.
+  Future<void> _checkFigma() async {
+    final s = _session;
+    await s.settled;
+    try {
+      final linked = hasFigmaMap(await widget.library.engine.docNodes(s.id));
+      if (mounted && identical(s, _session) && linked != _figmaLinked) {
+        setState(() => _figmaLinked = linked);
+      }
+    } on EngineError {
+      // 열지 못한 문서는 화면이 알린다.
+    }
   }
 
   /// 화면을 떠나면 문서를 닫는다. 엔진이 "문서를 닫을 때" 버전을 남긴다.
@@ -130,6 +149,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
       openImage: widget.library.openPath,
       layersOpen: _layers,
       toggleLayers: _toggleLayers,
+      figmaSync: _figmaLinked ? _syncFigma : null,
     );
   }
 
@@ -188,6 +208,27 @@ class _CanvasScreenState extends State<CanvasScreen> {
     _focus.requestFocus();
   }
 
+  /// Figma와 다시 맞추는 창. 맞춘 결과는 화면 아래에 한 줄로 알린다.
+  Future<void> _syncFigma() async {
+    final s = _session;
+    if (!await s.flush() || !mounted) return;
+    final line = await showDialog<String>(
+      context: context,
+      builder: (_) => FigmaSyncDialog(
+        link: widget.library.figma,
+        docId: s.id,
+        commit: (ops) => s.commitOps(ops, 'Figma와 다시 맞추기'),
+      ),
+    );
+    if (line != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: NoticeText(line)));
+    }
+    await _checkFigma();
+    _focus.requestFocus();
+  }
+
   /// 그림 파일을 고르고 만들기 도구로 건다. 다음에 판을 누르면 그 자리에 놓인다.
   Future<void> _pickImage() async {
     try {
@@ -232,6 +273,7 @@ class _CanvasScreenState extends State<CanvasScreen> {
               onExport: () => _export(doc),
               onVersions: () => setState(() => _versions = !_versions),
               onFigma: () => _sendToFigma(doc),
+              onFigmaSync: _figmaLinked ? _syncFigma : null,
               onNameDone: _focus.requestFocus,
             ),
             _ToolBar(
@@ -317,6 +359,7 @@ class _TopBar extends StatelessWidget {
     required this.onExport,
     required this.onVersions,
     required this.onFigma,
+    required this.onFigmaSync,
     required this.onNameDone,
   });
 
@@ -328,6 +371,9 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onExport;
   final VoidCallback onVersions;
   final VoidCallback onFigma;
+
+  /// Figma와 다시 맞추기. Figma에서 가져온 요소가 없으면 null.
+  final VoidCallback? onFigmaSync;
 
   /// 이름을 Enter나 Esc로 마쳤을 때 초점을 돌려줄 곳(판).
   final VoidCallback onNameDone;
@@ -411,7 +457,10 @@ class _TopBar extends StatelessWidget {
           MoreMenu(
             key: const Key('canvas-more'),
             tooltip: '문서 메뉴',
-            items: [('Figma로 보내기…', st == null ? null : onFigma)],
+            items: [
+              ('Figma로 보내기…', st == null ? null : onFigma),
+              ('Figma와 다시 맞추기…', st == null ? null : onFigmaSync),
+            ],
           ),
         ],
       ),
