@@ -6,6 +6,6 @@ publish.workspace = true
 
 [dependencies]
 kari-doc = { path = "../doc" }
-rusqlite = { version = "0.42", features = ["bundled", "backup", "fallible_uint"] }
+rusqlite = { version = "0.43", features = ["bundled", "backup", "fallible_uint"] }
 serde_json = "1"
 sha2 = "0.11"
