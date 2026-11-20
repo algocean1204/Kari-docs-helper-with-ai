@@ -397,7 +397,7 @@ class _FillMenuState extends State<FillMenu> {
       inline: {
         '색': Palette(
           label: '셀 바탕색',
-          swatches: [...highlightSwatches, ...textSwatches],
+          swatches: fillSwatches,
           current: shown,
           autofocus: false,
           onPick: _pick,

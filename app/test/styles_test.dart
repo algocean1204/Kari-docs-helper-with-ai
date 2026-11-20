@@ -57,12 +57,12 @@ Future<void> styleMenu(WidgetTester tester, String item) async {
   await tapIt(tester, menuItem(item));
 }
 
-/// 메뉴 항목의 순서(글이 있는 항목만).
+/// 메뉴 항목의 순서(글이 있는 항목만). 항목의 글은 단추로 알리는 Semantics 안에 있다.
 List<String> menuLabels(WidgetTester tester) => [
   for (final b in tester.widgetList<MenuItemButton>(
     find.byType(MenuItemButton),
   ))
-    if (b.child case Text(:final data?)) data,
+    if (b.child case Semantics(child: Text(:final data?))) data,
 ];
 
 String fieldText(WidgetTester tester, String label) => tester

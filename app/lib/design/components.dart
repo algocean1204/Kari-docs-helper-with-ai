@@ -268,6 +268,10 @@ class HintNamed extends StatelessWidget {
 /// 메뉴를 펴고 접는다. 단추를 누를 때와 손쉬운 사용의 누르기가 같은 일을 하게 한 곳에 둔다.
 void toggleMenu(MenuController m) => m.isOpen ? m.close() : m.open();
 
+/// [MenuItemButton]의 글. Flutter의 메뉴 항목은 단추로 알리지 않아 macOS의 손쉬운 사용에서 그냥 글로 읽힌다.
+/// 항목 안의 단추 표시는 항목의 노드에 합쳐진다.
+Widget menuItemText(Widget text) => Semantics(button: true, child: text);
+
 /// 더 보기(⋯) 단추와 그 메뉴. 열면 첫 항목에 초점이 가서 화살표와 Enter로 고르고, Esc로 닫는다.
 /// [label]을 주면 글이 있는 고르기 단추가 되고 메뉴는 단추의 왼쪽 끝에 맞춘다(문단 스타일).
 class MoreMenu extends StatelessWidget {
@@ -401,7 +405,7 @@ class MoreMenu extends StatelessWidget {
                       shortcuts[label]!,
                       style: AppText.dense.copyWith(color: c.textMuted),
                     ),
-              child: Text(label),
+              child: menuItemText(Text(label)),
             ),
       ],
       builder: (context, controller, _) => Tooltip(
