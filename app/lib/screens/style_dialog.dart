@@ -143,7 +143,7 @@ class _StyleMenuState extends State<StyleMenu> {
       onPressed: on,
       style: item,
       leadingIcon: const SizedBox(width: 16),
-      child: Text(label),
+      child: menuItemText(Text(label)),
     );
     return MenuAnchor(
       controller: _menu,
@@ -192,12 +192,14 @@ class _StyleMenuState extends State<StyleMenu> {
                   ),
               ],
             ),
-            child: Text(
-              x.name,
-              style: AppText.body.copyWith(
-                fontSize: styleMenuSize(x.size),
-                fontWeight: _weight(x.weight),
-                height: 1.3,
+            child: menuItemText(
+              Text(
+                x.name,
+                style: AppText.body.copyWith(
+                  fontSize: styleMenuSize(x.size),
+                  fontWeight: _weight(x.weight),
+                  height: 1.3,
+                ),
               ),
             ),
           ),
@@ -577,13 +579,13 @@ class _Pick<T> extends StatelessWidget {
               autofocus: true,
               style: item,
               onPressed: () => onChanged(null),
-              child: Text(inherit),
+              child: menuItemText(Text(inherit)),
             ),
             for (final (v, name) in options)
               MenuItemButton(
                 style: item,
                 onPressed: () => onChanged(v),
-                child: Text(name),
+                child: menuItemText(Text(name)),
               ),
           ],
           builder: (context, controller, _) => FocusRing(

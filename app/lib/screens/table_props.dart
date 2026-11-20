@@ -397,7 +397,15 @@ class _FillMenuState extends State<FillMenu> {
       inline: {
         '색': Palette(
           label: '셀 바탕색',
-          swatches: [...highlightSwatches, ...textSwatches],
+          // 형광펜과 글자색에 같은 이름(초록 등)이 있어, 한 판에서는 더 옅은 형광펜 색을 가려 부른다.
+          swatches: [
+            for (final (name, hex) in highlightSwatches)
+              (
+                textSwatches.any((t) => t.$1 == name) ? '아주 연한 $name' : name,
+                hex,
+              ),
+            ...textSwatches,
+          ],
           current: shown,
           autofocus: false,
           onPick: _pick,

@@ -584,7 +584,7 @@ void main() {
       final o = await openLayers(tester, selection: [node('r1', 'rect')]);
       await tester.tap(find.byKey(const Key('swatch-칠 색')));
       await tester.pumpAndSettle();
-      await tester.tap(find.bySemanticsLabel('빨강'));
+      await tester.tap(find.bySemanticsLabel('칠 색 빨강'));
       await tester.pumpAndSettle();
       expect(lastCmd(o, 'set')['props'], {
         'fill': {'color': '#C00000'},
