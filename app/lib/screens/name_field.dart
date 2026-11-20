@@ -102,26 +102,34 @@ class _NameFieldState extends State<NameField> {
     }
     return Tooltip(
       message: '이름 바꾸기',
+      excludeFromSemantics: true,
       child: FocusRing(
-        child: Material(
-          // 누를 수 있는 것은 쉬는 상태에서도 보이게 글자색을 옅게 깐다(조용한 단추와 같다).
-          color: c.text.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(Radii.control),
-          child: InkWell(
-            onTap: _start,
-            borderRadius: BorderRadius.circular(Radii.control),
-            hoverColor: c.text.withValues(alpha: 0.08),
-            focusColor: Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Space.x2,
-                vertical: 6,
-              ),
-              child: Text(
-                widget.doc.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.label.copyWith(color: c.text),
+        child: Semantics(
+          button: true,
+          onTap: _start,
+          label: '문서 이름 바꾸기: ${widget.doc.name}',
+          child: ExcludeSemantics(
+            child: Material(
+              // 누를 수 있는 것은 쉬는 상태에서도 보이게 글자색을 옅게 깐다(조용한 단추와 같다).
+              color: c.text.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(Radii.control),
+              child: InkWell(
+                onTap: _start,
+                borderRadius: BorderRadius.circular(Radii.control),
+                hoverColor: c.text.withValues(alpha: 0.08),
+                focusColor: Colors.transparent,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Space.x2,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    widget.doc.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.label.copyWith(color: c.text),
+                  ),
+                ),
               ),
             ),
           ),

@@ -779,30 +779,37 @@ class SourceChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
     return FocusRing(
-      child: Material(
-        color: c.surface2,
-        borderRadius: BorderRadius.circular(Radii.control),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(Radii.control),
-          hoverColor: c.text.withValues(alpha: 0.06),
-          focusColor: Colors.transparent,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(6, 6, Space.x3, 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ClaimMark(number),
-                const SizedBox(width: Space.x2),
-                Flexible(
-                  child: Text(
-                    '이력서 · $text',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.caption.copyWith(color: c.textMuted),
-                  ),
+      child: Semantics(
+        button: true,
+        onTap: onPressed,
+        label: '이력서 문장 $number 보기: $text',
+        child: ExcludeSemantics(
+          child: Material(
+            color: c.surface2,
+            borderRadius: BorderRadius.circular(Radii.control),
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(Radii.control),
+              hoverColor: c.text.withValues(alpha: 0.06),
+              focusColor: Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(6, 6, Space.x3, 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClaimMark(number),
+                    const SizedBox(width: Space.x2),
+                    Flexible(
+                      child: Text(
+                        '이력서 · $text',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.caption.copyWith(color: c.textMuted),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

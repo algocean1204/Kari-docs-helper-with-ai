@@ -225,6 +225,7 @@ class LibraryHome extends StatelessWidget {
               title: d.name,
               subtitle: about(d),
               onTap: () => onOpen(d),
+              does: '열기',
               action: _more(context, d),
             ),
           ?_showAll('문서', docs.length),
@@ -261,6 +262,7 @@ class LibraryHome extends StatelessWidget {
               title: p['title'] as String,
               subtitle: '${formatWhen(p['added'] as int, now)}에 추가',
               onTap: () => _showPosting(context, p),
+              does: '내용 보기',
               action: MoreMenu(
                 tooltip: '채용공고 메뉴',
                 items: [
@@ -637,6 +639,7 @@ class LibraryHome extends StatelessWidget {
               subtitle:
                   '질문 ${s['questions']}개 · 깊이 ${s['reach'] ?? 0}단계 / 목표 ${s['target']}단계',
               onTap: () => onShowReport(s['id'] as String),
+              does: '리포트 보기',
             ),
         ],
       ),
@@ -1116,6 +1119,7 @@ class _Row extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.onTap,
+    required this.does,
     this.action,
   });
 
@@ -1123,6 +1127,9 @@ class _Row extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+
+  /// 누르면 하는 일(열기 등). 읽어 주는 이름의 끝에 붙인다.
+  final String does;
 
   /// 줄 밖 오른쪽에 두는 단추(더 보기). 줄과 초점을 따로 받는다.
   final Widget? action;
@@ -1167,15 +1174,22 @@ class _Row extends StatelessWidget {
     final row = onTap == null
         ? content
         : FocusRing(
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(Radii.control),
-              child: InkWell(
-                onTap: onTap,
-                borderRadius: BorderRadius.circular(Radii.control),
-                hoverColor: c.text.withValues(alpha: 0.06),
-                focusColor: Colors.transparent,
-                child: content,
+            child: Semantics(
+              button: true,
+              onTap: onTap,
+              label: '$title, $subtitle, $does',
+              child: ExcludeSemantics(
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(Radii.control),
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(Radii.control),
+                    hoverColor: c.text.withValues(alpha: 0.06),
+                    focusColor: Colors.transparent,
+                    child: content,
+                  ),
+                ),
               ),
             ),
           );
