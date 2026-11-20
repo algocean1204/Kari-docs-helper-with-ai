@@ -26,7 +26,7 @@ import 'styles_test.dart' show openStyleDialog;
 import 'table_props_test.dart' show withTable;
 
 /// 지금 트리에서 걸린 것: 누르기 동작이 없는 켜진 단추, 이름 없는 단추, 이름 없는 글자 칸,
-/// 단추로 읽히지 않는 메뉴 항목, 이름이 겹치는 고르는 단추(색 견본 등).
+/// 단추로 읽히지 않는 누르는 것(메뉴 항목, 카드), 이름이 겹치는 고르는 단추(색 견본 등).
 List<String> audit() {
   final picks = <String>{};
   return [
@@ -47,10 +47,14 @@ List<String> audit() {
                 !d.hasAction(SemanticsAction.tap))
               '누르기 없는 단추 $name',
             if (f.isTextField && name.isEmpty) '이름 없는 칸 "${d.value}" ${n.rect}',
-            // 켜짐·꺼짐이 있는 것(꺼진 메뉴 항목도)이 단추가 아니면 macOS의 손쉬운 사용에서 그냥 글로 읽힌다.
-            if (f.isEnabled != Tristate.none &&
+            // 누를 수 있거나 켜짐·꺼짐이 있는 것(꺼진 메뉴 항목도)이 단추가 아니면 macOS의 손쉬운 사용에서
+            // 그냥 글로 읽힌다. 대화 상자 바깥(닫기 동작이 있는 막)은 단추가 아니다.
+            if ((d.hasAction(SemanticsAction.tap) ||
+                    f.isEnabled != Tristate.none) &&
+                !d.hasAction(SemanticsAction.dismiss) &&
                 !f.isButton &&
                 !f.isTextField &&
+                !f.isLink &&
                 f.isChecked == CheckedState.none &&
                 f.isToggled == Tristate.none)
               '단추로 읽히지 않는 항목 "$name"',
@@ -294,6 +298,34 @@ void main() {
       tester.semantics.tap(find.semantics.byLabel('부제'));
       await tester.pumpAndSettle();
       expect(rig.fake.cmds.last['k'], 'setStyle');
+      h.dispose();
+    });
+
+    testWidgets('누를 수 있는 줄과 이름은 하는 일을 붙여 읽는다', (tester) async {
+      final h = tester.ensureSemantics();
+      await pumpApp(tester, AppRoute.home, sizes[1]);
+      SemanticsData row(String start) => find.semantics
+          .byPredicate((n) => n.label.startsWith(start))
+          .evaluate()
+          .first
+          .getSemanticsData();
+      for (final (start, end) in [
+        ('이력서, ', ', 열기'),
+        ('예시페이 백엔드 엔지니어, ', ', 내용 보기'),
+      ]) {
+        expect(row(start).label, endsWith(end));
+        expect(row(start).flagsCollection.isButton, isTrue, reason: start);
+      }
+      h.dispose();
+    });
+
+    testWidgets('문서 이름은 이름 바꾸기 단추로 읽히고, 누르면 이름 칸이 된다', (tester) async {
+      final h = tester.ensureSemantics();
+      await openCv(tester);
+      expect(data('문서 이름 바꾸기: 이력서').flagsCollection.isButton, isTrue);
+      tester.semantics.tap(find.semantics.byLabel('문서 이름 바꾸기: 이력서'));
+      await tester.pumpAndSettle();
+      expect(namedField('문서 이름'), findsOne);
       h.dispose();
     });
 
