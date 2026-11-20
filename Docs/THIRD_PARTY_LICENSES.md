@@ -148,7 +148,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | native-tls | 0.2.18 | MIT OR Apache-2.0 | https://github.com/rust-native-tls/rust-native-tls |  | [958e28cd3f](#t-958e28cd3f) [c375b96e2a](#t-c375b96e2a) |
 | new_debug_unreachable | 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable |  | [e0d942dfe6](#t-e0d942dfe6) |
 | nom | 8.0.0 | MIT | https://github.com/rust-bakery/nom |  | [8f22db49e2](#t-8f22db49e2) |
-| num-bigint | 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-num/num-bigint |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
+| num-bigint | 0.5.1 | MIT OR Apache-2.0 | https://github.com/rust-num/num-bigint |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
 | num-integer | 0.1.47 | MIT OR Apache-2.0 | https://github.com/rust-num/num-integer |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits |  | [0ffddef9e4](#t-0ffddef9e4) [c25311c4c6](#t-c25311c4c6) |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | https://github.com/matklad/once_cell |  | [0ffddef9e4](#t-0ffddef9e4) [fe2a981798](#t-fe2a981798) |
@@ -176,7 +176,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | rangemap | 1.8.0 | MIT/Apache-2.0 | https://github.com/jeffparsons/rangemap |  | [2ea22eafd4](#t-2ea22eafd4) [29683a8093](#t-29683a8093) |
 | read-fonts | 0.39.2 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |  | [0849650722](#t-0849650722) [cff000a3ae](#t-cff000a3ae) |
 | read-fonts | 0.41.0 | MIT OR Apache-2.0 | https://github.com/googlefonts/fontations |  | [105b5c924c](#t-105b5c924c) [ba498e49a7](#t-ba498e49a7) |
-| rusqlite | 0.42.0 | MIT | https://github.com/rusqlite/rusqlite |  | [284f5d7703](#t-284f5d7703) |
+| rusqlite | 0.43.0 | MIT | https://github.com/rusqlite/rusqlite |  | [284f5d7703](#t-284f5d7703) |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT | https://github.com/rust-lang/rustc-hash |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | https://github.com/bytecodealliance/rustix |  | [175bdea6e6](#t-175bdea6e6) [0ffddef9e4](#t-0ffddef9e4) [f42a00ac54](#t-f42a00ac54) [fe2a981798](#t-fe2a981798) |
 | rustls-pki-types | 1.16.0 | MIT OR Apache-2.0 | https://github.com/rustls/pki-types |  | [2e9b290051](#t-2e9b290051) [43d78f3759](#t-43d78f3759) |
@@ -216,7 +216,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) [21b7ffe462](#t-21b7ffe462) |
 | unicode-normalization | 0.1.26 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/unicode-rs/unicode-normalization |  | [9fba058782](#t-9fba058782) [0ffddef9e4](#t-0ffddef9e4) [d1442c3bc8](#t-d1442c3bc8) [21b7ffe462](#t-21b7ffe462) |
 | unicode-properties | 0.1.5 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/unicode-rs/unicode-properties |  | [9fba058782](#t-9fba058782) [0ffddef9e4](#t-0ffddef9e4) [d1442c3bc8](#t-d1442c3bc8) [ff07a96ff2](#t-ff07a96ff2) |
-| ureq | 3.5.1 | MIT OR Apache-2.0 | https://github.com/algesten/ureq |  | [0ffddef9e4](#t-0ffddef9e4) [5fb79267f1](#t-5fb79267f1) |
+| ureq | 3.5.2 | MIT OR Apache-2.0 | https://github.com/algesten/ureq |  | [0ffddef9e4](#t-0ffddef9e4) [5fb79267f1](#t-5fb79267f1) |
 | ureq-proto | 0.7.1 | MIT OR Apache-2.0 | https://github.com/algesten/ureq-proto |  | [0ffddef9e4](#t-0ffddef9e4) [a243a22ce7](#t-a243a22ce7) |
 | utf8-zero | 0.8.1 | MIT OR Apache-2.0 | https://github.com/algesten/utf8-zero |  | [59d8f0ba87](#t-59d8f0ba87) [fe2a981798](#t-fe2a981798) |
 | utf8_iter | 1.1.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/utf8_iter |  | [0636525ad3](#t-0636525ad3) [0ffddef9e4](#t-0ffddef9e4) [69fb5adae1](#t-69fb5adae1) |
@@ -768,7 +768,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### 0ffddef9e4
 
-쓰는 곳: aes 0.9.4 (LICENSE-APACHE), arrayvec 0.7.8 (LICENSE-APACHE), base64 0.22.1 (LICENSE-APACHE), base64 0.23.1 (LICENSE-APACHE), base64ct 1.8.3 (LICENSE-APACHE), bitflags 2.13.2 (LICENSE-APACHE), block-buffer 0.12.1 (LICENSE-APACHE), block-padding 0.4.2 (LICENSE-APACHE), bumpalo 3.20.3 (LICENSE-APACHE), bytemuck 1.25.2 (LICENSE-APACHE), bytemuck_derive 1.12.1 (LICENSE-APACHE), cbc 0.2.1 (LICENSE-APACHE), cfg-if 1.0.5 (LICENSE-APACHE), chacha20 0.10.2 (LICENSE-APACHE), cipher 0.5.2 (LICENSE-APACHE), cmov 0.5.4 (LICENSE-APACHE), const-oid 0.10.3 (LICENSE-APACHE), core-foundation 0.10.1 (LICENSE-APACHE), core-foundation-sys 0.8.7 (LICENSE-APACHE), cpubits 0.1.1 (LICENSE-APACHE), cpufeatures 0.3.1 (LICENSE-APACHE), crypto-common 0.2.2 (LICENSE-APACHE), ctutils 0.4.8 (LICENSE-APACHE), der 0.8.3 (LICENSE-APACHE), digest 0.11.3 (LICENSE-APACHE), displaydoc 0.2.7 (LICENSE-APACHE), ecb 0.2.1 (LICENSE-APACHE), encoding_rs 0.8.44 (LICENSE-APACHE), equivalent 1.0.3 (LICENSE-APACHE), errno 0.3.14 (LICENSE-APACHE), euclid 0.22.14 (LICENSE-APACHE), fastrand 2.5.0 (LICENSE-APACHE), flate2 1.1.11 (LICENSE-APACHE), fontique 0.12.0 (LICENSE-APACHE), gif 0.14.2 (LICENSE-APACHE), hashbrown 0.17.1 (LICENSE-APACHE), hashlink 0.12.2 (LICENSE-APACHE), html5ever 0.40.1 (LICENSE-APACHE), httparse 1.10.1 (LICENSE-APACHE), hybrid-array 0.4.15 (LICENSE-APACHE), indexmap 2.14.2 (LICENSE-APACHE), inout 0.2.6 (LICENSE-APACHE), krilla 0.8.2 (LICENSE_APACHE), kurbo 0.13.1 (LICENSE-APACHE), lock_api 0.4.14 (LICENSE-APACHE), log 0.4.35 (LICENSE-APACHE), markup5ever 0.40.0 (LICENSE-APACHE), md-5 0.11.0 (LICENSE-APACHE), multiversion_no_op 1.0.0 (LICENSE-APACHE), num-bigint 0.4.8 (LICENSE-APACHE), num-integer 0.1.47 (LICENSE-APACHE), num-traits 0.2.19 (LICENSE-APACHE), once_cell 1.21.4 (LICENSE-APACHE), parking_lot 0.12.5 (LICENSE-APACHE), parking_lot_core 0.9.12 (LICENSE-APACHE), parlance 0.1.1 (LICENSE-APACHE), parley 0.12.0 (LICENSE-APACHE), parley_data 0.12.0 (LICENSE-APACHE), pem-rfc7468 1.0.0 (LICENSE-APACHE), percent-encoding 2.3.2 (LICENSE-APACHE), png 0.18.1 (LICENSE-APACHE), polycool 0.4.0 (LICENSE-APACHE), rustix 1.1.6 (LICENSE-APACHE), scopeguard 1.2.0 (LICENSE-APACHE), security-framework 3.7.0 (LICENSE-APACHE), security-framework-sys 2.17.0 (LICENSE-APACHE), sha2 0.11.1 (LICENSE-APACHE), siphasher 1.0.4 (LICENSE-APACHE), smallvec 1.16.5 (LICENSE-APACHE), stable_deref_trait 1.2.1 (LICENSE-APACHE), string_cache 0.11.0 (LICENSE-APACHE), tempfile 3.27.0 (LICENSE-APACHE), tendril 0.5.1 (LICENSE-APACHE), tinyvec 1.13.3 (LICENSE-APACHE.md), unicode-bidi 0.3.18 (LICENSE-APACHE), unicode-normalization 0.1.26 (LICENSE-APACHE), unicode-properties 0.1.5 (LICENSE-APACHE), ureq 3.5.1 (LICENSE-APACHE), ureq-proto 0.7.1 (LICENSE-APACHE.txt), utf8_iter 1.1.0 (LICENSE-APACHE), utf_types 1.0.0 (LICENSE-APACHE), web_atoms 0.3.0 (LICENSE-APACHE), weezl 0.1.12 (LICENSE-APACHE), weezl 0.2.1 (LICENSE-APACHE), zeroize 1.9.1 (LICENSE-APACHE), zune-core 0.5.3 (LICENSE-APACHE), zune-jpeg 0.5.15 (LICENSE-APACHE)
+쓰는 곳: aes 0.9.4 (LICENSE-APACHE), arrayvec 0.7.8 (LICENSE-APACHE), base64 0.22.1 (LICENSE-APACHE), base64 0.23.1 (LICENSE-APACHE), base64ct 1.8.3 (LICENSE-APACHE), bitflags 2.13.2 (LICENSE-APACHE), block-buffer 0.12.1 (LICENSE-APACHE), block-padding 0.4.2 (LICENSE-APACHE), bumpalo 3.20.3 (LICENSE-APACHE), bytemuck 1.25.2 (LICENSE-APACHE), bytemuck_derive 1.12.1 (LICENSE-APACHE), cbc 0.2.1 (LICENSE-APACHE), cfg-if 1.0.5 (LICENSE-APACHE), chacha20 0.10.2 (LICENSE-APACHE), cipher 0.5.2 (LICENSE-APACHE), cmov 0.5.4 (LICENSE-APACHE), const-oid 0.10.3 (LICENSE-APACHE), core-foundation 0.10.1 (LICENSE-APACHE), core-foundation-sys 0.8.7 (LICENSE-APACHE), cpubits 0.1.1 (LICENSE-APACHE), cpufeatures 0.3.1 (LICENSE-APACHE), crypto-common 0.2.2 (LICENSE-APACHE), ctutils 0.4.8 (LICENSE-APACHE), der 0.8.3 (LICENSE-APACHE), digest 0.11.3 (LICENSE-APACHE), displaydoc 0.2.7 (LICENSE-APACHE), ecb 0.2.1 (LICENSE-APACHE), encoding_rs 0.8.44 (LICENSE-APACHE), equivalent 1.0.3 (LICENSE-APACHE), errno 0.3.14 (LICENSE-APACHE), euclid 0.22.14 (LICENSE-APACHE), fastrand 2.5.0 (LICENSE-APACHE), flate2 1.1.11 (LICENSE-APACHE), fontique 0.12.0 (LICENSE-APACHE), gif 0.14.2 (LICENSE-APACHE), hashbrown 0.17.1 (LICENSE-APACHE), hashlink 0.12.2 (LICENSE-APACHE), html5ever 0.40.1 (LICENSE-APACHE), httparse 1.10.1 (LICENSE-APACHE), hybrid-array 0.4.15 (LICENSE-APACHE), indexmap 2.14.2 (LICENSE-APACHE), inout 0.2.6 (LICENSE-APACHE), krilla 0.8.2 (LICENSE_APACHE), kurbo 0.13.1 (LICENSE-APACHE), lock_api 0.4.14 (LICENSE-APACHE), log 0.4.35 (LICENSE-APACHE), markup5ever 0.40.0 (LICENSE-APACHE), md-5 0.11.0 (LICENSE-APACHE), multiversion_no_op 1.0.0 (LICENSE-APACHE), num-bigint 0.5.1 (LICENSE-APACHE), num-integer 0.1.47 (LICENSE-APACHE), num-traits 0.2.19 (LICENSE-APACHE), once_cell 1.21.4 (LICENSE-APACHE), parking_lot 0.12.5 (LICENSE-APACHE), parking_lot_core 0.9.12 (LICENSE-APACHE), parlance 0.1.1 (LICENSE-APACHE), parley 0.12.0 (LICENSE-APACHE), parley_data 0.12.0 (LICENSE-APACHE), pem-rfc7468 1.0.0 (LICENSE-APACHE), percent-encoding 2.3.2 (LICENSE-APACHE), png 0.18.1 (LICENSE-APACHE), polycool 0.4.0 (LICENSE-APACHE), rustix 1.1.6 (LICENSE-APACHE), scopeguard 1.2.0 (LICENSE-APACHE), security-framework 3.7.0 (LICENSE-APACHE), security-framework-sys 2.17.0 (LICENSE-APACHE), sha2 0.11.1 (LICENSE-APACHE), siphasher 1.0.4 (LICENSE-APACHE), smallvec 1.16.5 (LICENSE-APACHE), stable_deref_trait 1.2.1 (LICENSE-APACHE), string_cache 0.11.0 (LICENSE-APACHE), tempfile 3.27.0 (LICENSE-APACHE), tendril 0.5.1 (LICENSE-APACHE), tinyvec 1.13.3 (LICENSE-APACHE.md), unicode-bidi 0.3.18 (LICENSE-APACHE), unicode-normalization 0.1.26 (LICENSE-APACHE), unicode-properties 0.1.5 (LICENSE-APACHE), ureq 3.5.2 (LICENSE-APACHE), ureq-proto 0.7.1 (LICENSE-APACHE.txt), utf8_iter 1.1.0 (LICENSE-APACHE), utf_types 1.0.0 (LICENSE-APACHE), web_atoms 0.3.0 (LICENSE-APACHE), weezl 0.1.12 (LICENSE-APACHE), weezl 0.2.1 (LICENSE-APACHE), zeroize 1.9.1 (LICENSE-APACHE), zune-core 0.5.3 (LICENSE-APACHE), zune-jpeg 0.5.15 (LICENSE-APACHE)
 
 ```text
 Apache License
@@ -1442,7 +1442,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### c25311c4c6
 
-쓰는 곳: bitflags 2.13.2 (LICENSE-MIT), log 0.4.35 (LICENSE-MIT), num-bigint 0.4.8 (LICENSE-MIT), num-integer 0.1.47 (LICENSE-MIT), num-traits 0.2.19 (LICENSE-MIT)
+쓰는 곳: bitflags 2.13.2 (LICENSE-MIT), log 0.4.35 (LICENSE-MIT), num-bigint 0.5.1 (LICENSE-MIT), num-integer 0.1.47 (LICENSE-MIT), num-traits 0.2.19 (LICENSE-MIT)
 
 ```text
 Copyright (c) 2014 The Rust Project Developers
@@ -4516,7 +4516,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### 284f5d7703
 
-쓰는 곳: libsqlite3-sys 0.40.0 (LICENSE), rusqlite 0.42.0 (LICENSE)
+쓰는 곳: libsqlite3-sys 0.40.0 (LICENSE), rusqlite 0.43.0 (LICENSE)
 
 ```text
 Copyright (c) 2014 The rusqlite developers
@@ -7937,7 +7937,7 @@ authorization of the copyright holder.
 
 ### 5fb79267f1
 
-쓰는 곳: ureq 3.5.1 (LICENSE-MIT)
+쓰는 곳: ureq 3.5.2 (LICENSE-MIT)
 
 ```text
 MIT License
