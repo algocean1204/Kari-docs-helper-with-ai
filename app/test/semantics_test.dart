@@ -22,6 +22,7 @@ import 'editor_test.dart'
     show docMenu, firstPara, insertMenu, openCv, semantics, shortcut;
 import 'format_test.dart' show formatMenu;
 import 'interview_test.dart' show pumpIv, startFirst;
+import 'styles_test.dart' show openStyleDialog;
 import 'table_props_test.dart' show withTable;
 
 /// 지금 트리에서 걸린 것: 누르기 동작이 없는 켜진 단추, 이름 없는 단추, 이름 없는 글자 칸,
@@ -121,6 +122,25 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
       }
+      h.dispose();
+    });
+
+    testWidgets('스타일 고치기 창과 문단 모양 창의 바탕색 견본', (tester) async {
+      final h = tester.ensureSemantics();
+      await openCv(tester);
+      await openStyleDialog(tester, '본문');
+      tester.semantics.tap(find.semantics.byLabel('바탕색 고르기'));
+      await tester.pumpAndSettle();
+      expect(find.semantics.byLabel('바탕색 아주 연한 초록'), findsOne);
+      expect(audit(), isEmpty, reason: '스타일 고치기 창');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('취소'));
+      await tester.pumpAndSettle();
+      await formatMenu(tester, '문단 모양…');
+      tester.semantics.tap(find.semantics.byLabel('바탕색 고르기'));
+      await tester.pumpAndSettle();
+      expect(audit(), isEmpty, reason: '문단 모양 창');
       h.dispose();
     });
 

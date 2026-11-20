@@ -468,7 +468,7 @@ class BorderGroup extends StatelessWidget {
               child: ColorField(
                 controller: e.shade,
                 label: '바탕색',
-                swatches: const [...highlightSwatches, ...textSwatches],
+                swatches: fillSwatches,
                 clearable: true,
                 error: e.shadeTouched ? e.shadeError : null,
                 helper: shadeHint == null ? '비우면 바탕 없음' : '비우면 바탕 스타일을 따름',
