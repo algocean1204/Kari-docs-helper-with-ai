@@ -40,7 +40,7 @@ test-hooks = []
 rusqlite = { version = "0.42", features = ["bundled"] }
 # 가짜 HTTP 서버(app/engine/ai/tests/common)를 같이 쓴다. 가짜 인증 서버의 ID 토큰 서명에 뒤의 셋을 쓴다.
 serde_json = "1"
-num-bigint = "0.4"
+num-bigint = "0.5"
 base64 = "0.22"
 # PDF 가져오기 시험이 자식 프로세스의 최대 RSS를 잰다(getrusage). 이미 쓰는 판이라 새로 빌드되는 것은 없다.
 libc = "0.2"
