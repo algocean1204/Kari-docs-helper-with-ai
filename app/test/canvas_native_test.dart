@@ -664,7 +664,13 @@ void main() {
         '대응표 없음 ${a}ms, 있음 ${b}ms',
       );
       expect(put.elapsed, lessThan(const Duration(seconds: 2)));
-      expect(b - a, lessThanOrEqualTo(50));
+      // 대응표가 있는 열기는 없는 열기의 3배나 50ms 더한 값 가운데 큰 쪽까지(느린 CI 러너에서는 둘 다 몇 배
+      // 느려진다. 대응표가 열기를 O(n²)으로 만들거나 몇 배 느리게 하면 걸린다).
+      expect(
+        b,
+        lessThanOrEqualTo(math.max(a + 50, a * 3)),
+        reason: '없음 ${a}ms, 있음 ${b}ms',
+      );
     },
   );
 }
