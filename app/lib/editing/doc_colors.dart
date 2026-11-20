@@ -38,6 +38,14 @@ const highlightSwatches = [
   ('빨강', '#FFCDD2'),
 ];
 
+/// 바탕색 견본: 형광펜 8개 다음에 글자색 20개. 둘에 같은 이름(초록 등)이 있어, 글자색과 이름이 같은 형광펜 색은
+/// 더 옅으므로 "아주 연한 초록"처럼 부른다.
+final fillSwatches = [
+  for (final (name, hex) in highlightSwatches)
+    (textSwatches.any((t) => t.$1 == name) ? '아주 연한 $name' : name, hex),
+  ...textSwatches,
+];
+
 /// 적은 색 글을 `#RRGGBB`(대문자)로. 앞의 `#`는 있어도 되고 없어도 된다. 틀리면 null.
 String? swatchHex(String hex) {
   final v = swatchValue(hex);

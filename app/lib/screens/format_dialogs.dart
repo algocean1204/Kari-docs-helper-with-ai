@@ -70,7 +70,7 @@ class Palette extends StatefulWidget {
     this.autofocus = true,
   });
 
-  /// 읽어 주는 이름(글자색, 형광펜).
+  /// 읽어 주는 이름(글자색, 형광펜). 견본의 이름 앞에도 붙는다.
   final String label;
   final List<(String, String)> swatches;
   final ValueChanged<String> onPick;
@@ -160,7 +160,8 @@ class _PaletteState extends State<Palette> {
                         child: Semantics(
                           button: true,
                           selected: hex == widget.current?.toUpperCase(),
-                          label: name,
+                          // 판 이름을 붙인다. 글자색과 형광펜에 같은 색 이름이 있다.
+                          label: '${widget.label} $name',
                           child: InkWell(
                             canRequestFocus: false,
                             onTap: () => widget.onPick(hex),

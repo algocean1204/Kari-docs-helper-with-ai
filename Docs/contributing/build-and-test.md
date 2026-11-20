@@ -119,7 +119,7 @@ app/scripts/demo.sh --encode   # 묶기만 다시
 - 엔진 시험은 `app/engine`에서 돌린다. `#[ignore]`라 `--ignored`를 줄 때만 돈다. 키는 환경 변수 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, 없으면 `KARI_ENV`가 가리키는 `.env` 파일의 같은 이름 줄에서 읽는다. `app/.env.example`을 `app/.env`로 복사해 값을 채우고 `KARI_ENV`에 그 절대 경로를 준다(`.env`는 git이 무시한다). 키가 없는 제공사의 시험은 건너뛴다.
 - `kari-interview`의 시험은 `KARI_PROVIDER`(`anthropic` 기본, `openai`)의 제공사로 돈다. `kari-ai`의 시험은 두 제공사를 각각 돈다.
 - `kari-interview`의 시험은 호출마다 추정 비용을 `app/engine/target/live-ledger.jsonl`에 제공사와 함께 적고, 그 제공사의 합이 예산(`KARI_LIVE_BUDGET`, 달러)에 닿으면 더 부르지 않고 멈춘다. 기본 예산은 `tests/common/live.rs`에 있다. 모델, 강도, 횟수를 바꾸는 변수(`KARI_LIVE_*`, `KARI_QA_*`)는 각 파일의 머리에 있다.
-- 앱 시험은 실행할 때의 환경 변수 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`에서만 키를 읽고, 키가 없는 제공사의 시험은 건너뛴다. 키체인에 그 제공사의 Kari 항목이 이미 있으면(`ai.keyStored`) 덮어쓰지 않고 실패로 멈춘다. 시험은 키를 앱의 설정 화면으로 넣고, 끝날 때(실패해도) 그 항목을 지운다.
+- 앱 시험은 실행할 때의 환경 변수 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`에서만 키를 읽고, 키가 없는 제공사의 시험은 건너뛴다. 키체인의 서비스 이름은 앱의 번들 ID 뒤에 `.livetest`를 붙인 시험 전용 이름이라 개발 앱이 넣어 둔 키를 읽거나 덮지 않는다. 그 이름에 그 제공사의 항목이 이미 있으면(`ai.keyStored`, 지난 시험이 중간에 끊긴 경우) 덮어쓰지 않고 실패로 멈춘다. 시험은 키를 앱의 설정 화면으로 넣고, 끝날 때(실패해도) 그 항목을 지운다.
 
 ## 지식 팩 검사
 

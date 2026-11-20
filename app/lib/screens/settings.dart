@@ -630,16 +630,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SingleActivator(LogicalKeyboardKey.escape): () =>
                   setState(_find.clear),
             },
-            child: TextField(
-              controller: _find,
-              focusNode: _findNode,
-              style: AppText.body.copyWith(color: c.text),
-              decoration: InputDecoration(
-                hintText: '설정 찾기',
-                prefixIcon: Icon(Icons.search, size: 18, color: c.textMuted),
-                prefixIconConstraints: const BoxConstraints(minWidth: 36),
+            child: HintNamed(
+              TextField(
+                controller: _find,
+                focusNode: _findNode,
+                style: AppText.body.copyWith(color: c.text),
+                decoration: InputDecoration(
+                  hintText: '설정 찾기',
+                  prefixIcon: Icon(Icons.search, size: 18, color: c.textMuted),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 36),
+                ),
+                onChanged: (_) => setState(() {}),
               ),
-              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(height: Space.x3),
@@ -1362,7 +1364,8 @@ class _Provider extends StatelessWidget {
                     InfoTip(info!, name: name),
                   ],
                 ),
-              Text(
+              // 설명은 띄어쓰기에서 줄을 바꾼다(좁은 창에서 낱말 가운데가 끊기지 않게).
+              KeepText(
                 company,
                 style: AppText.caption.copyWith(color: c.textMuted),
               ),
@@ -1374,6 +1377,7 @@ class _Provider extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(width: Space.x3),
         status,
         const SizedBox(width: Space.x3),
         SizedBox(
