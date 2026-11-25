@@ -216,6 +216,13 @@ class _ChannelRowState extends State<ChannelRow> {
     super.dispose();
   }
 
+  /// 클립보드의 글을 칸에 넣는다(연결은 하지 않는다). 글이 없으면 칸을 그대로 둔다.
+  Future<void> _paste() async {
+    final t = (await Clipboard.getData(Clipboard.kTextPlain))?.text?.trim();
+    if (t == null || t.isEmpty || !mounted) return;
+    _text.text = t;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
@@ -259,6 +266,12 @@ class _ChannelRowState extends State<ChannelRow> {
               ),
             ),
             const SizedBox(width: Space.x2),
+            AppButton(
+              '붙여넣기',
+              semanticLabel: '채널 ID 붙여넣기',
+              onPressed: busy ? null : _paste,
+            ),
+            const SizedBox(width: Space.x2),
             if (status == LinkStatus.connected)
               AppButton('연결 끊기', onPressed: l?.disconnect)
             else
@@ -282,6 +295,16 @@ class _ChannelRowState extends State<ChannelRow> {
       ],
     );
   }
+}
+
+/// Figma에서 지금 보는 페이지: 목록과 함께 받은 id, 없으면 연결할 때 받은 id, 이름이 하나만 맞는 페이지,
+/// 아니면 첫 페이지. 목록이 비면 null.
+FigmaPage? _shownPage(FigmaLink link, List<FigmaPage> pages) {
+  FigmaPage? byId(String? id) => pages.where((p) => p.id == id).firstOrNull;
+  final named = pages.where((p) => p.name == link.pageName);
+  return byId(link.currentPageId) ??
+      byId(link.pageId) ??
+      (named.length == 1 ? named.single : pages.firstOrNull);
 }
 
 /// 캔버스의 "Figma로 보내기". 받을 페이지를 고르거나 새 페이지 이름을 쓰고, 자리를 정할 지시를 적을 수 있다.
@@ -335,7 +358,7 @@ class _FigmaSendDialogState extends State<FigmaSendDialog> {
       if (!mounted) return;
       setState(() {
         _pages = pages;
-        _page = pages.isEmpty ? _new : pages.first.id;
+        _page = _shownPage(widget.link, pages)?.id ?? _new;
       });
     } on FigmaError catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -521,14 +544,7 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
       final pages = await link.pages();
       if (!mounted) return;
       setState(() => _pages = pages);
-      // Figma에서 지금 보는 페이지: 목록과 함께 받은 id, 없으면 연결할 때 받은 id, 이름이 하나만 맞는 페이지,
-      // 아니면 첫 페이지.
-      FigmaPage? byId(String? id) => pages.where((p) => p.id == id).firstOrNull;
-      final named = pages.where((p) => p.name == link.pageName);
-      final now =
-          byId(link.currentPageId) ??
-          byId(link.pageId) ??
-          (named.length == 1 ? named.single : pages.firstOrNull);
+      final now = _shownPage(link, pages);
       if (now != null) await _read(now);
     } on FigmaError catch (e) {
       if (mounted) setState(() => _error = e.message);
