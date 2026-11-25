@@ -17,6 +17,7 @@ import 'package:kari/design/components.dart';
 import 'package:kari/design/tokens.dart';
 import 'package:kari/engine/engine.dart';
 import 'package:kari/engine/fake.dart';
+import 'package:kari/figma/link.dart' show FigmaLink;
 import 'package:kari/library.dart';
 import 'package:kari/main.dart';
 import 'package:kari/screens/dialogs.dart' show trashedWhen;
@@ -45,6 +46,15 @@ class _OpenArgs extends FakeEngine {
   }
 }
 
+/// 설정의 Figma 구역을 열어도 이 맥의 중계 자리를 살피지 않는 연결. 중계를 켜거나 붙어도 기본 자리(3055)가
+/// 아니라 빈 자리를 쓴다.
+class QuietFigma extends FigmaLink {
+  QuietFigma(super.library, {super.appPath}) : super(port: 0);
+
+  @override
+  Future<void> probeRelay() async {}
+}
+
 /// 시계를 옮길 수 있는 흉내 엔진과 라이브러리.
 class Rig {
   Rig({String? outDir}) {
@@ -65,6 +75,7 @@ class Rig {
         return true;
       },
       outDir: outDir,
+      figma: QuietFigma.new,
     );
   }
 
@@ -978,7 +989,7 @@ void main() {
       tester,
       AppRoute.settings,
       sizes[1],
-      library: Library(rig.fake, dir, now: () => today),
+      library: Library(rig.fake, dir, now: () => today, figma: QuietFigma.new),
     );
     // 스위치는 구역 차례로 시선 기록(켠 값)과 입력하면서 자동 서식(켬) 둘이다. 연락처 가리기는 끌 수 없고, 엔진이 가리는 것을 그대로 알린다.
     final switches = <bool>[];

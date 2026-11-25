@@ -27,7 +27,9 @@ class Library extends ChangeNotifier {
     this.quit = quitApp,
     this.service,
     String? outDir,
+    FigmaLink Function(Library)? figma,
   }) : _now = now ?? DateTime.now,
+       _figma = figma ?? FigmaLink.new,
        outDir = outDir ?? '${Directory.systemTemp.path}/kari-share';
 
   final EngineApi engine;
@@ -96,8 +98,10 @@ class Library extends ChangeNotifier {
   GazeCamera? camera;
   late final gaze = GazeRecorder(this);
 
-  /// Figma 연결(중계 서버, 플러그인 파일, 채널). 설정 화면에서 켜기 전에는 아무것도 열지 않는다.
-  late final figma = FigmaLink(this);
+  /// Figma 연결(중계 서버, 플러그인 파일, 채널). 설정 화면에서 켜기 전에는 아무것도 열지 않는다(Figma 구역을 열 때
+  /// 중계 자리가 쓰이는지만 본다). 시험은 바꿔 끼운다(이 맥의 중계 자리를 살피지 않게).
+  late final figma = _figma(this);
+  final FigmaLink Function(Library) _figma;
 
   static const keepTrash = Duration(days: 30);
 
