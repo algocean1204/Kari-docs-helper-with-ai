@@ -405,6 +405,8 @@ pub struct Summary {
     pub chars: usize,
     /// (단계, 글): 제목 0, 부제와 제목 1이 1, 제목 2~6이 2~6. 앞 200개.
     pub headings: Vec<(u8, String)>,
+    /// 표마다(문서 차례) 열 비율: 각 열 폭 ÷ 표 폭 × 100을 정수로 반올림.
+    pub table_cols: Vec<Vec<u32>>,
 }
 
 pub fn summary(f: &Fragment) -> Summary {
@@ -443,12 +445,28 @@ pub fn summary(f: &Fragment) -> Summary {
         })
         .take(200)
         .collect();
+    let table_cols = f
+        .paras
+        .iter()
+        .filter_map(|p| p.table.as_ref())
+        .map(|t| {
+            let w: Vec<f64> = t
+                .props
+                .get("cols")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_f64).collect())
+                .unwrap_or_default();
+            let sum: f64 = w.iter().sum();
+            w.iter().map(|x| (x / sum * 100.0).round() as u32).collect()
+        })
+        .collect();
     Summary {
         paras: f.paras.iter().filter(|p| p.table.is_none()).count(),
         tables: f.paras.iter().filter(|p| p.table.is_some()).count(),
         images,
         chars,
         headings,
+        table_cols,
     }
 }
 

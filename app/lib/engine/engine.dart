@@ -875,7 +875,8 @@ abstract class EngineApi {
       await call('doc.exportTxt', {'id': id, 'path': path}) as Json;
 
   /// 다른 앱의 파일(DOCX, HWPX, HTML, 웹 페이지 꾸러미 zip, PDF)을 읽어 본다. 문서를 만들지 않는다.
-  /// {hash: 읽은 바이트의 SHA-256, paras, tables, images, chars, headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
+  /// {hash: 읽은 바이트의 SHA-256, paras, tables, images, chars, tableCols: 표마다 열 비율(정수 %)의 목록,
+  /// headings: [{level, text}], lost: 옮기지 못한 것의 한 줄들}.
   /// [ticket]을 주면 [importCancel]로 이 미리 보기만 멈출 수 있다.
   /// [canvas]면 PDF를 캔버스로 가져올 때의 요약이다: {canvas: true, hash, pages, boxes: 글 상자 수, chars, textPages,
   /// keptPages, ocrPages: 글자를 읽을 쪽 수, korean: 이 macOS가 한국어를 읽는가(읽을 쪽이 없으면 null), lost}.

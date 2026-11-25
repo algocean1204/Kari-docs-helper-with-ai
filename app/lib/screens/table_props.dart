@@ -7,7 +7,15 @@ import '../editing/session.dart';
 import '../engine/engine.dart';
 import 'dialogs.dart';
 import 'format_dialogs.dart'
-    show ColorField, HexField, Palette, mmError, mmOf, numText, ptInRange;
+    show
+        ColorField,
+        HexField,
+        Palette,
+        mmError,
+        mmOf,
+        numText,
+        ptInRange,
+        ptPerMm;
 
 /// 셀 세로 맞춤. 문단 정렬의 '가운데'와 헷갈리지 않게 '중간'이라 부른다.
 const _alignsV = [('top', '위'), ('center', '중간'), ('bottom', '아래')];
@@ -439,8 +447,9 @@ double? _same(Iterable<double?> xs) {
   return xs.every((x) => x == first) ? first : null;
 }
 
-/// `표 속성…` 창: 표(맞춤, 기본 선 굵기와 색, 머리 행 수), 열(고른 열의 폭 mm, 열 폭 같게), 행(고른 행의 최소 높이
-/// mm, 행 높이 같게), 칸(안쪽 여백 넷 mm, 세로 맞춤). 섞인 값은 빈칸이고, 고친 값만 한 번에(되돌리기 한 단위) 보낸다.
+/// `표 속성…` 창: 표(맞춤, 기본 선 굵기와 색, 머리 행 수), 열(고른 열의 폭 mm와 본문 폭의 %, 열 폭 같게), 행(고른 행의
+/// 최소 높이 mm, 행 높이 같게), 칸(안쪽 여백 넷 mm, 세로 맞춤). 섞인 값은 빈칸이고, 고친 값만 한 번에(되돌리기 한 단위)
+/// 보낸다.
 class TablePropsDialog extends StatefulWidget {
   const TablePropsDialog({super.key, required this.session});
 
@@ -459,6 +468,9 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
   late final _color = _Field(_t.border.color.substring(1, 7));
   late final _header = _Field('${_t.headerRows}');
   late final _colW = _Field(mmOf(_same(_r?.colW ?? const [])));
+
+  /// 열 폭을 본문 폭의 %로 적는 칸. mm 칸과 서로 따라 바뀌고, 보내는 값은 mm 칸의 것이다.
+  late final _colP = _Field(_pctOf(_same(_r?.colW ?? const [])));
   late final _rowH = _Field(mmOf(_same(_r?.rowH ?? const [])));
   late final _pads = [for (var i = 0; i < 4; i++) _Field(mmOf(_r?.pad[i]))];
   late final String? _alignV0 = _r == null ? _t.alignV : _r.alignV;
@@ -471,7 +483,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
 
   @override
   void dispose() {
-    for (final f in [_weight, _color, _header, _colW, _rowH, ..._pads]) {
+    for (final f in [_weight, _color, _header, _colW, _colP, _rowH, ..._pads]) {
       f.t.dispose();
     }
     super.dispose();
@@ -500,6 +512,25 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
   String? _mm(_Field f, double lo, double hi) =>
       f.touched ? mmError(f.t.text, lo, hi) : null;
   String? _colError() => _mm(_colW, minColumn, _body);
+
+  /// pt 폭을 본문 폭의 % 글로(소수 한 자리). 섞였으면(null) 빈칸.
+  String _pctOf(double? pt) => pt == null ? '' : numText(pt / _body * 100, 1);
+
+  /// 적은 %를 mm로. 수가 아니면 null.
+  double? _pctMm(String text) {
+    final v = _read(text);
+    return v == null ? null : v / 100 * _body / ptPerMm;
+  }
+
+  /// % 칸의 범위는 mm 칸의 범위(가장 작은 열 폭~본문 폭)를 %로 바꾼 것이고, 판정도 mm 칸과 같다.
+  String? _pctError() {
+    if (!_colP.touched) return null;
+    final mm = _pctMm(_colP.t.text);
+    return mm != null && ptInRange(mm, minColumn, _body) != null
+        ? null
+        : '${_pctOf(minColumn)}~${_pctOf(_body)}%로 적습니다';
+  }
+
   String? _rowError() => _rowsEven ? null : _mm(_rowH, 0, _maxRow);
   String? _padError(int i) => _mm(_pads[i], 0, _maxPad);
 
@@ -508,6 +539,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     _colorError(),
     _headerError(),
     _colError(),
+    _pctError(),
     _rowError(),
     for (var i = 0; i < 4; i++) _padError(i),
   ].every((e) => e == null);
@@ -518,7 +550,11 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     _allCols = picked.length <= 1;
     final w = _allCols ? _t.cols : picked;
     if (w.isEmpty) return;
-    setState(() => _colW.t.text = mmOf(w.reduce((a, b) => a + b) / w.length));
+    final avg = w.reduce((a, b) => a + b) / w.length;
+    setState(() {
+      _colW.t.text = mmOf(avg);
+      _colP.t.text = _pctOf(avg);
+    });
   }
 
   void _apply() {
@@ -559,7 +595,13 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     Navigator.of(context).pop();
   }
 
-  Widget _field(_Field f, String label, String? error, {String? suffix}) {
+  Widget _field(
+    _Field f,
+    String label,
+    String? error, {
+    String? suffix,
+    ValueChanged<String>? onEdit,
+  }) {
     final c = AppColors.of(context);
     return TextField(
       controller: f.t,
@@ -572,7 +614,7 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
         suffixText: suffix,
         errorText: error,
       ),
-      onChanged: (_) => setState(() {}),
+      onChanged: (v) => setState(() => onEdit?.call(v)),
       onSubmitted: (_) => _apply(),
     );
   }
@@ -591,7 +633,8 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
     return Sheet(
       title: '표 속성',
       subtitle: '빈칸은 고른 칸들에서 값이 섞인 것입니다. 고친 값만 바꿉니다.',
-      maxWidth: 640,
+      // 열과 행의 칸 셋과 단추 둘이 한 줄에 들어가는 폭.
+      maxWidth: 760,
       actions: [
         AppButton('취소', onPressed: () => Navigator.of(context).pop()),
         AppButton('적용', kind: ButtonKind.primary, onPressed: _apply),
@@ -639,7 +682,35 @@ class _TablePropsDialogState extends State<TablePropsDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: _field(_colW, '고른 열의 폭', _colError(), suffix: 'mm'),
+              child: Semantics(
+                label: '열 폭 mm',
+                child: _field(
+                  _colW,
+                  '고른 열의 폭',
+                  _colError(),
+                  suffix: 'mm',
+                  onEdit: (v) {
+                    final mm = _read(v);
+                    _colP.t.text = mm == null ? '' : _pctOf(mm * ptPerMm);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(width: Space.x2),
+            Expanded(
+              child: Semantics(
+                label: '열 폭 %',
+                child: _field(
+                  _colP,
+                  '본문 폭의',
+                  _pctError(),
+                  suffix: '%',
+                  onEdit: (v) {
+                    final mm = _pctMm(v);
+                    _colW.t.text = mm == null ? '' : numText(mm, 1);
+                  },
+                ),
+              ),
             ),
             const SizedBox(width: Space.x2),
             AppButton('열 폭 같게', kind: ButtonKind.quiet, onPressed: _evenCols),

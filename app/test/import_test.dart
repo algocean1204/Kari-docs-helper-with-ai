@@ -20,6 +20,9 @@ final _preview = <String, Object?>{
   'tables': 1,
   'images': 1,
   'chars': 840,
+  'tableCols': [
+    [20, 80],
+  ],
   'headings': [
     {'level': 0, 'text': '홍길동'},
     {'level': 1, 'text': '경력'},
@@ -51,6 +54,7 @@ void main() {
     expect(find.byType(ImportDialog), findsOneWidget);
     expect(find.textContaining(keepAll('"홍길동 이력서" 글 문서를')), findsOneWidget);
     expect(find.text('문단 12개 · 표 1개 · 그림 1개 · 글자 840자'), findsOneWidget);
+    expect(find.text('표 1: 20 · 80%'), findsOneWidget);
     for (final h in ['홍길동', '경력', '견본상사']) {
       expect(find.text(h), findsOneWidget, reason: h);
     }
@@ -128,6 +132,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(rig.fake.importCalls.single['path'], pdf);
     expect(rig.fake.docs.values.single['name'], '홍길동 이력서');
+  });
+
+  testWidgets('표의 열 비율은 앞 세 표까지 보이고 나머지는 개수로, 표가 없으면 줄이 없다', (tester) async {
+    const many = '/tmp/kari-test/받은 파일/표 많은 이력서.docx';
+    const none = '/tmp/kari-test/받은 파일/표 없는 이력서.docx';
+    final rig = await pumpReal(tester, seed: false);
+    rig.fake.imports[many] = {
+      ..._preview,
+      'tables': 5,
+      'tableCols': [
+        [20, 80],
+        [50, 50],
+        [33, 33, 33],
+        [25, 75],
+        [100],
+      ],
+    };
+    rig.fake.imports[none] = {..._preview, 'tables': 0, 'tableCols': []};
+    for (final (path, line) in [
+      (many, '표 1: 20 · 80%, 표 2: 50 · 50%, 표 3: 33 · 33 · 33% 외 2개'),
+      (none, null),
+    ]) {
+      rig.importPath = () async => path;
+      await tester.tap(find.text('가져오기…'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ImportDialog), findsOneWidget);
+      expect(
+        find.textContaining('표 1:'),
+        line == null ? findsNothing : findsOneWidget,
+      );
+      if (line != null) expect(find.text(line), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, '취소'));
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('읽는 중에 취소하면 엔진의 읽기도 멈추고, 다 읽은 뒤의 취소는 멈추지 않는다', (tester) async {
@@ -360,6 +398,8 @@ void main() {
       expect(rig.fake.aiRuns.single['hash'], 'h0');
       expect(find.text('AI가 잡은 제목'), findsOneWidget);
       expect(find.text('문단 1개 · 표 0개 · 그림 0개 · 글자 9자'), findsOneWidget);
+      // 열 비율도 AI가 잡은 구조의 것이다(표가 없다).
+      expect(find.textContaining('표 1:'), findsNothing);
       await tester.tap(find.widgetWithText(TextButton, '가져오기'));
       await tester.pumpAndSettle();
       expect(rig.fake.importCalls.single['structure'], {'blocks': []});

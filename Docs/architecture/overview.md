@@ -89,7 +89,7 @@ flowchart BT
 | `doc.exportPdf` | `app/engine/ffi/src/pdf.rs` | PDF 내보내기. 흐름 문서는 쪽마다, 캔버스 문서는 대지마다 쪽 하나 |
 | `doc.exportDocx`, `doc.exportTxt` | `app/engine/ffi/src/docx.rs` | Word 문서·텍스트 내보내기(옮기지 못한 것의 목록을 돌려준다) |
 | `import.aiPlan`, `import.aiRun` | `app/engine/ffi/src/structure.rs` | 가져오기의 AI 구조 잡기. 보낼 내용(가린 덩어리 글)과, 보내고 확인한 구조 또는 규칙으로 물러난 까닭 → [ai-connection.md](ai-connection.md#가져오기의-구조-잡기) |
-| `import.preview`, `import.apply`, `import.progress` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다. `as: "canvas"`면 PDF를 쪽마다 페이지 하나인 새 캔버스 문서로 넣는다: 명령 잠금은 쪽 그림을 에셋으로 넣을 때와 마지막 커밋에서만 잡고, `import.progress {ticket}`가 끝낸 쪽 수를, `import.cancel`이 멈추기를 받는다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
+| `import.preview`, `import.apply`, `import.progress` | `app/engine/ffi/src/import.rs` | 가져오기. 미리 보기는 명령 잠금 없이 파일을 읽어 요약(문단·표·그림·글자 수, 제목, 표마다의 열 비율)과 옮기지 못한 것을 돌려준다(그림은 검사만). 가져오기는 새 흐름 문서를 만들고 조각을 붙이는 op들을 `stage` 사본에 5,000개씩 적용해 검사한 뒤 `commit_staged`로 묶음 하나, 되돌리기 단위 하나로 커밋한다(작성자 `user`). 실패하면 만든 문서와 넣은 그림을 지운다. `as: "canvas"`면 PDF를 쪽마다 페이지 하나인 새 캔버스 문서로 넣는다: 명령 잠금은 쪽 그림을 에셋으로 넣을 때와 마지막 커밋에서만 잡고, `import.progress {ticket}`가 끝낸 쪽 수를, `import.cancel`이 멈추기를 받는다 → [layout-and-editing.md](layout-and-editing.md#가져오기) |
 | `ai.*` | `app/engine/ffi/src/ai.rs` | 제공사, 키, 모델 목록 → [ai-connection.md](ai-connection.md) |
 | `ai.chatgpt*` | `app/engine/ffi/src/chatgpt.rs` | ChatGPT로 계속하기(OpenAI의 ChatGPT 플랜) → [ai-connection.md](ai-connection.md#chatgpt-플랜-사용) |
 | `ai.tasks`, `ai.setTask`, `ai.resetTasks` | `app/engine/ffi/src/task.rs` | 일마다의 모델 |

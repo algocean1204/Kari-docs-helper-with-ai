@@ -89,6 +89,7 @@ class FakeEngine extends EngineApi {
     'tables': 0,
     'images': 0,
     'chars': 9,
+    'tableCols': [],
     'headings': [
       {'level': 1, 'text': '홍길동'},
     ],

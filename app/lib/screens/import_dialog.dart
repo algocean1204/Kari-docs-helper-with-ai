@@ -23,6 +23,9 @@ class ImportDialog extends StatefulWidget {
   /// 보이는 제목의 수. 나머지는 개수만 적는다.
   static const shownHeadings = 12;
 
+  /// 열 비율을 보이는 표의 수. 나머지는 개수만 적는다.
+  static const shownTables = 3;
+
   @override
   State<ImportDialog> createState() => _ImportDialogState();
 }
@@ -267,6 +270,13 @@ class _ImportDialogState extends State<ImportDialog> {
         ];
         final lost = [for (final l in (p?['lost'] as List?) ?? const []) '$l'];
         final more = headings.length - ImportDialog.shownHeadings;
+        // 표마다 열 비율(%): "표 1: 20 · 80%, 표 2: …".
+        final cols = (p?['tableCols'] as List?) ?? const [];
+        final ratios = [
+          for (final (i, t) in cols.take(ImportDialog.shownTables).indexed)
+            '표 ${i + 1}: ${(t as List).join(' · ')}%',
+        ].join(', ');
+        final moreTables = cols.length - ImportDialog.shownTables;
         final waiting = _aiTicket != null;
         final pdf = _pdfName || read?['pages'] != null;
         // 가져오는 동안은 Esc나 바깥 누르기로 닫히지 않는다(만든 문서를 열지 못하고 창만 사라진다).
@@ -362,6 +372,14 @@ class _ImportDialogState extends State<ImportDialog> {
                     fontFeatures: AppText.tabular,
                   ),
                 ),
+                if (cols.isNotEmpty)
+                  Text(
+                    '$ratios${moreTables > 0 ? ' 외 $moreTables개' : ''}',
+                    style: AppText.body.copyWith(
+                      color: c.textMuted,
+                      fontFeatures: AppText.tabular,
+                    ),
+                  ),
                 _aiRow(context, read!, waiting),
                 if (headings.isNotEmpty) ...[
                   label(_ai == null ? '제목' : 'AI가 잡은 제목'),
