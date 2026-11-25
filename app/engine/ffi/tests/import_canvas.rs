@@ -365,6 +365,8 @@ fn 캔버스로_가져오는_중에_엔진이_멈춰도_문서와_그림을_남�
 fn pdf를_글_문서로_가져온_결과는_그대로다() {
     let case = Case::new("import-canvas-flow");
     let id = new_session();
+    // 기대값을 잰 엔진처럼 스타일 표 없는 문서로 쓰고 가져온다(새 문서의 제목 크기가 PDF와 해시를 바꾸지 않게).
+    drop_styles(id);
     insert(id, "홍길동");
     cmd(id, json!({"k": "setStyle", "name": "title"}));
     cmd(id, json!({"k": "enter"}));
@@ -380,7 +382,9 @@ fn pdf를_글_문서로_가져온_결과는_그대로다() {
     let mut got = Vec::new();
     for p in [&resume, &mixed_path] {
         let r = ok("import.apply", json!({"path": p, "name": "가져온"}));
-        got.push((back_hash(r["id"].as_i64().unwrap()), r["lost"].clone()));
+        let made = r["id"].as_i64().unwrap();
+        drop_styles(made);
+        got.push((back_hash(made), r["lost"].clone()));
     }
     // 상태 해시는 캔버스 가져오기를 더하기 전(develop 2503534)의 엔진으로 잰 값이다. 스캔 쪽 알림 글만 바뀌었다.
     let want = [

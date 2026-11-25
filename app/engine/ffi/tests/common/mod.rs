@@ -99,6 +99,24 @@ pub fn back_hash(id: i64) -> Value {
     ok("doc.open", json!({"id": id}))["hash"].clone()
 }
 
+/// 루트의 스타일 표를 뺀다. 새 문서가 첫 스냅샷에 스타일 표를 넣기 전의 엔진으로 잰 해시와 견줄 때 쓴다.
+/// 빼기 전에 그 표가 새 문서의 표 그대로인지 본다(빼는 것이 해시에서 다른 변화를 가리지 않게).
+pub fn drop_styles(id: i64) {
+    let nodes = ok("doc.nodes", json!({"id": id}));
+    let root = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "root")
+        .unwrap();
+    assert_eq!(
+        root["props"]["styles"],
+        Value::Object(kari_doc::new_flow_styles())
+    );
+    let ops = json!([{"op": "set", "id": "root", "props": {"styles": null}}]);
+    ok("doc.commit", json!({"id": id, "label": "시험", "ops": ops}));
+}
+
 /// 문단 글을 문서 순서로(뒤 사본).
 pub fn texts(id: i64) -> Vec<String> {
     let nodes = ok("doc.nodes", json!({"id": id}));

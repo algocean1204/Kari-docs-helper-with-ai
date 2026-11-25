@@ -190,7 +190,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(filledLabels(tester, within: find.byType(Dialog)), ['적용']);
       // 자기 값은 칸에, 바탕 값은 빈칸에 옅게.
-      expect(fieldText(tester, '크기'), '13');
+      expect(fieldText(tester, '크기'), '16');
       expect(fieldText(tester, '글자색'), '');
       expect(hintOf(tester, '글자색'), '1E1E1E');
       expect(hintOf(tester, '문단 뒤'), '4');

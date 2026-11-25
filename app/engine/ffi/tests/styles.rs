@@ -36,7 +36,7 @@ fn 상태의_스타일_목록과_점_표시와_테두리_값() {
     assert_eq!(
         style(&s, "h1"),
         &json!({"id": "h1", "name": "제목 1", "based": "body", "next": "body", "builtin": true,
-                "modified": false, "size": 13.0, "weight": 700.0})
+                "modified": false, "size": 16.0, "weight": 700.0})
     );
     assert_eq!(s["styleDirty"], false);
     assert_eq!(
@@ -226,7 +226,11 @@ fn 다른_문서로_붙이면_스타일을_들여오고_같은_이름이면_그�
     let s = cmd(b, json!({"k": "paste", "text": text}));
     assert_eq!(ids(&s).last().unwrap(), "u1");
     assert_eq!(style(&s, "u1")["name"], "구역 제목");
-    assert_eq!(style(&s, "u1")["size"], 13.0);
+    assert_eq!(
+        style(&s, "u1")["size"],
+        16.0,
+        "바탕인 제목 1(새 문서의 값)을 따른다"
+    );
     assert_eq!(texts(b), ["앞", "구역", "뒤"]);
     assert_eq!(s["hash"], back_hash(b));
     // 같은 이름이 다른 id로 있는 문서: 그것을 쓰고 새로 만들지 않는다.
@@ -294,4 +298,34 @@ fn 새_문서는_준_스타일로_시작하고_복제는_원본을_따른다() {
         "docs.create",
         json!({"kind": "flow", "name": "틀림", "styles": {"body": {"cs": {"size": -1}}}}),
     );
+}
+
+#[test]
+fn 새_문서와_가져온_문서의_제목은_16_13_11_5pt이고_기본값으로도_그_값이다() {
+    let case = Case::new("styles-new-headings");
+    let size = |s: &Value, k: &str| style(s, k)["size"].as_f64().unwrap();
+    let id = new_session();
+    let s = insert(id, "가");
+    assert_eq!(
+        ["body", "title", "subtitle", "h1", "h2", "h3", "h4", "h5", "h6"].map(|k| size(&s, k)),
+        [10.5, 20.0, 14.0, 16.0, 13.0, 11.5, 10.5, 10.5, 10.5]
+    );
+    assert_eq!(style(&s, "h1")["modified"], false);
+    // 기본값으로: 고친 제목 1이 새 문서의 값으로 돌아간다.
+    cmd(
+        id,
+        json!({"k": "styleSet", "style": "h1", "patch": {"char": {"size": 30}}}),
+    );
+    let s = cmd(id, json!({"k": "styleReset", "style": "h1"}));
+    assert_eq!(size(&s, "h1"), 16.0);
+    assert_eq!(style(&s, "h1")["modified"], false);
+    // 가져오기로 만든 새 문서도 같다.
+    let path = case.dir.join("제목.html");
+    std::fs::write(&path, "<h1>홍길동</h1><h2>경력</h2><h3>견본상사</h3>").unwrap();
+    let made = ok("import.apply", json!({"path": path, "name": "가져옴"}))["id"]
+        .as_i64()
+        .unwrap();
+    ok("doc.open", json!({"id": made}));
+    let s = ok("edit.open", json!({"id": made}));
+    assert_eq!(["h1", "h2", "h3"].map(|k| size(&s, k)), [16.0, 13.0, 11.5]);
 }
