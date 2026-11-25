@@ -47,6 +47,8 @@ pub(crate) struct CFront {
     lay: Layouter,
     ed: CanvasEditor,
     view: CanvasView,
+    /// `fitAll`이 만든 보기. `op`가 있는 다른 보기 동작이 지운다(크기·색만 바꾸는 것은 그대로 둔다).
+    all_view: Option<CanvasView>,
     /// 보이는 영역(논리 화소).
     size: (f64, f64),
     bg: [u8; 4],
@@ -233,6 +235,7 @@ fn open(id: DocId, back: &Document, assets: PathBuf) -> Option<Arc<CSession>> {
         lay: Layouter::new(session::fonts(&files)),
         ed: CanvasEditor::new(),
         view: CanvasView::default(),
+        all_view: None,
         size: (0.0, 0.0),
         bg: [0xF5, 0xF5, 0xF5, 0xFF],
         scene: Scene::default(),
@@ -499,7 +502,8 @@ fn view(f: &mut CFront, a: &Args) -> Result<(), Fail> {
     );
     let margin = n("margin")?.unwrap_or(FIT_MARGIN).max(0.0);
     let (w, h) = f.size;
-    match a.maybe("op", Value::as_str)? {
+    let op = a.maybe("op", Value::as_str)?;
+    match op {
         None => {}
         Some("pan") => f.view.pan(a.num("dx")?.into(), a.num("dy")?.into()),
         Some("zoom") => {
@@ -516,6 +520,9 @@ fn view(f: &mut CFront, a: &Args) -> Result<(), Fail> {
             None => f.view = CanvasView::default(),
         },
         // 대지 사이 이동: 보이는 영역의 가운데가 든(없으면 가장 가까운) 대지의 다음·앞 대지(문서 차례, 끝에서 돈다)에 맞춘다.
+        // 여러 대지를 한눈에 보고 있으면 다음은 첫 대지, 앞은 끝 대지. 한눈에 보는 것은 `fitAll`이 만든 보기 그대로이거나,
+        // 통째로 든 대지가 둘 이상이고 가운데 대지에 맞춘 배율보다 작을 때다. `fitAll`을 기억하는 까닭: 배치에 따라 모두 보기가
+        // 가운데 대지에 맞춘 보기와 같은 배율(보기까지 같을 수도)이 된다. 배율을 보는 까닭: 좁은 대지 하나에 맞춘 보기에도 이웃 대지가 통째로 들 수 있다.
         Some("board") => {
             let list = boards(&f.doc);
             let step: isize = match a.str("to")? {
@@ -536,8 +543,25 @@ fn view(f: &mut CFront, a: &Args) -> Result<(), Fail> {
                 .map(|(i, _)| i as isize);
             if let Some(cur) = cur {
                 let n = list.len() as isize;
-                let b = &list[(cur + step).rem_euclid(n) as usize];
-                f.view.fit([b.x, b.y, b.w, b.h], w, h, margin);
+                let fit = |b: &kari_edit::BoardRect| {
+                    let mut v = f.view;
+                    v.fit([b.x, b.y, b.w, b.h], w, h, margin);
+                    v
+                };
+                let (x0, y0) = f.view.to_board(0.0, 0.0);
+                let (x1, y1) = f.view.to_board(w, h);
+                let whole = list
+                    .iter()
+                    .filter(|b| b.x >= x0 && b.y >= y0 && b.x + b.w <= x1 && b.y + b.h <= y1)
+                    .count();
+                let overview = f.all_view == Some(f.view)
+                    || (whole >= 2 && f.view.zoom < fit(&list[cur as usize]).zoom);
+                let to = match (overview, step > 0) {
+                    (true, true) => 0,
+                    (true, false) => n - 1,
+                    _ => (cur + step).rem_euclid(n),
+                };
+                f.view = fit(&list[to as usize]);
             }
         }
         Some("fitSelection") => {
@@ -546,6 +570,9 @@ fn view(f: &mut CFront, a: &Args) -> Result<(), Fail> {
             }
         }
         Some(op) => return Err(bad(format!("모르는 op입니다: {op}"))),
+    }
+    if let Some(op) = op {
+        f.all_view = (op == "fitAll").then_some(f.view);
     }
     Ok(())
 }

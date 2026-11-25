@@ -303,6 +303,158 @@ fn 대지를_더하고_크기를_고르고_대지_사이를_옮겨_다닌다() {
 }
 
 #[test]
+fn 여러_대지를_한눈에_볼_때_다음은_첫_대지_앞은_끝_대지() {
+    let _c = Case::new("canvas-board-overview");
+    let id = new_canvas();
+    let view = |s: &Value| {
+        (
+            num(&s["view"]["x"]),
+            num(&s["view"]["y"]),
+            num(&s["view"]["zoom"]),
+        )
+    };
+    // 보이는 영역에 통째로 든 대지의 수.
+    let whole = |s: &Value| {
+        let v = &s["view"];
+        let (x0, y0, z) = (num(&v["x"]), num(&v["y"]), num(&v["zoom"]));
+        let (x1, y1) = (x0 + num(&v["width"]) / z, y0 + num(&v["height"]) / z);
+        s["boards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| {
+                let (x, y) = (num(&b["x"]), num(&b["y"]));
+                x >= x0 && y >= y0 && x + num(&b["w"]) <= x1 && y + num(&b["h"]) <= y1
+            })
+            .count()
+    };
+    let go = |op: &str, to: &str| ok("canvas.view", json!({"id": id, "op": op, "to": to}));
+    let fit = |b: &str| {
+        cmd(id, "select", json!({"ids": [b]}));
+        view(&ok("canvas.view", json!({"id": id, "op": "fitSelection"})))
+    };
+    // 대지 하나뿐이면 지금처럼 그 대지.
+    let at_n1 = fit("n1");
+    go("fitAll", "");
+    assert_eq!(view(&go("board", "next")), at_n1);
+    go("fitAll", "");
+    assert_eq!(view(&go("board", "prev")), at_n1);
+    // 1920×1080 하나와 좁은 대지 다섯. 모두 보기의 가운데는 둘째 대지에 든다.
+    let mut ids = vec!["n1".to_string()];
+    for _ in 0..5 {
+        ids.push(sel(&cmd(id, "addBoard", json!({"preset": "IPHONE_16"})))[0].clone());
+    }
+    let at: Vec<_> = ids.iter().map(|b| fit(b)).collect();
+    let s = go("fitAll", "");
+    assert_eq!(whole(&s), 6);
+    assert_eq!(
+        view(&go("board", "next")),
+        at[0],
+        "모두 보기에서 다음은 첫 대지"
+    );
+    assert_eq!(view(&go("board", "next")), at[1], "그다음은 차례대로");
+    let s = go("board", "next");
+    assert_eq!(view(&s), at[2]);
+    assert!(
+        whole(&s) >= 2,
+        "좁은 대지 하나에 맞춰도 이웃이 통째로 보인다"
+    );
+    assert_eq!(
+        view(&go("board", "next")),
+        at[3],
+        "대지 하나에 맞춘 보기에서는 그 다음"
+    );
+    assert_eq!(view(&go("board", "prev")), at[2]);
+    go("fitAll", "");
+    assert_eq!(
+        view(&go("board", "prev")),
+        at[5],
+        "모두 보기에서 앞은 끝 대지"
+    );
+    assert_eq!(view(&go("board", "prev")), at[4]);
+}
+
+/// 모두 보기의 배율이 가운데 대지에 맞춘 배율과 같은 배치(보기까지 같을 수 있다)에서도
+/// 모두 보기 뒤 다음은 첫 대지, 앞은 끝 대지이고, 그대로 누르면 모든 대지를 한 번씩 지나 돈다.
+#[test]
+fn 모두_보기에서_다음과_앞은_모든_대지를_한_바퀴_돈다() {
+    let view = |s: &Value| {
+        (
+            num(&s["view"]["x"]),
+            num(&s["view"]["y"]),
+            num(&s["view"]["zoom"]),
+        )
+    };
+    // (이름, 보이는 영역, 첫 대지의 속성, 더할 대지의 크기, 더할 수)
+    let layouts = [
+        (
+            "iphone2",
+            (1000, 700),
+            json!({"preset": "IPHONE_16"}),
+            "IPHONE_16",
+            1,
+        ),
+        ("a4x2", (1400, 800), json!({"preset": "A4"}), "A4", 1),
+        (
+            "iphone3",
+            (1600, 700),
+            json!({"preset": "IPHONE_16"}),
+            "IPHONE_16",
+            2,
+        ),
+        (
+            "big",
+            (1000, 700),
+            json!({"w": 20000, "h": 20000}),
+            "IPHONE_16",
+            4,
+        ),
+    ];
+    for (name, (w, h), first, preset, more) in layouts {
+        let _c = Case::new(&format!("canvas-board-cycle-{name}"));
+        let id = new_canvas();
+        ok("canvas.view", json!({"id": id, "width": w, "height": h}));
+        cmd(id, "select", json!({"ids": ["n1"]}));
+        cmd(id, "set", json!({"props": first}));
+        let mut ids = vec!["n1".to_string()];
+        for _ in 0..more {
+            ids.push(sel(&cmd(id, "addBoard", json!({"preset": preset})))[0].clone());
+        }
+        let fit = |b: &str| {
+            cmd(id, "select", json!({"ids": [b]}));
+            view(&ok("canvas.view", json!({"id": id, "op": "fitSelection"})))
+        };
+        let at: Vec<_> = ids.iter().map(|b| fit(b)).collect();
+        let n = at.len();
+        let all = || view(&ok("canvas.view", json!({"id": id, "op": "fitAll"})));
+        let go = |to: &str| {
+            view(&ok(
+                "canvas.view",
+                json!({"id": id, "op": "board", "to": to}),
+            ))
+        };
+        if name == "iphone3" {
+            assert_eq!(all(), at[1], "모두 보기가 가운데 대지에 맞춘 보기와 같다");
+        }
+        all();
+        let got: Vec<_> = (0..=n).map(|_| go("next")).collect();
+        let want: Vec<_> = (0..=n).map(|i| at[i % n]).collect();
+        assert_eq!(got, want, "{name}: 모두 보기 → 다음");
+        all();
+        let got: Vec<_> = (0..=n).map(|_| go("prev")).collect();
+        let want: Vec<_> = (0..=n).map(|i| at[(2 * n - 1 - i) % n]).collect();
+        assert_eq!(got, want, "{name}: 모두 보기 → 앞");
+        // 대지 하나에 맞춘 보기에서는 차례대로.
+        for k in 0..n {
+            fit(&ids[k]);
+            assert_eq!(go("next"), at[(k + 1) % n], "{name}: {k}의 다음");
+            fit(&ids[k]);
+            assert_eq!(go("prev"), at[(k + n - 1) % n], "{name}: {k}의 앞");
+        }
+    }
+}
+
+#[test]
 fn 숨긴_노드와_숨긴_대지는_pdf에_들어가지_않는다() {
     let case = Case::new("canvas-hidden-pdf");
     let id = new_canvas();
