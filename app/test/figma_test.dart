@@ -3245,6 +3245,42 @@ void main() {
       });
     }
 
+    testWidgets('한도를 넘는 페이지면 가져오기 단추가 꺼지고, 손쉬운 사용에도 꺼짐으로 알린다', (tester) async {
+      final link = await pump(tester);
+      link.figma = page([
+        figmaNode(
+          '1:1',
+          'FRAME',
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 10,
+          children: [
+            for (var i = 0; i < maxImportNodes; i++)
+              figmaNode('r$i', 'RECTANGLE', x: 0, y: 0, w: 1, h: 1),
+          ],
+        ),
+      ]);
+      await tester.tap(find.byKey(const Key('figma-import-page')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('디자인').last);
+      await tester.pumpAndSettle();
+      expect(link.read, ['0:1', '5:1']);
+      await tester.tap(find.text('가져오기'));
+      await tester.pumpAndSettle();
+      expect(link.imported, isEmpty);
+      expect(
+        tester.getSemantics(find.widgetWithText(TextButton, '가져오기')),
+        containsSemantics(
+          label: '가져오기',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: false,
+          hasTapAction: false,
+        ),
+      );
+    });
+
     testWidgets('가져오는 사이 Figma 페이지가 바뀌었으면 다시 미리 보고 그 까닭을 보인다', (tester) async {
       final link = await pump(tester);
       link.changedOnce = true;
@@ -3580,6 +3616,9 @@ class _ImportLink extends FigmaLink {
   /// 참이면 다음 가져오기가 "페이지가 바뀜"으로 끝난다.
   bool changedOnce = false;
 
+  /// 있으면 페이지를 읽을 때 견본 대신 이 페이지를 돌려준다.
+  Json? figma;
+
   @override
   Future<List<FigmaPage>> pages() async => [
     (id: '0:1', name: 'Page 1'),
@@ -3593,6 +3632,7 @@ class _ImportLink extends FigmaLink {
     Duration total = maxCommandTime,
   }) async {
     read.add(pageId);
+    if (figma != null) return fromFigma(figma!);
     return fromFigma({
       ...samplePage(),
       'children': [
