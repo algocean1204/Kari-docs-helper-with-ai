@@ -50,6 +50,42 @@ const PARA_RUNS: usize = 9_000;
 /// 열 폭의 가장 작은 값(pt).
 const MIN_COL: f64 = 12.0;
 
+/// 열 폭 힌트(pt) → 열 폭. 값이 없는 열은 남은 폭을 고르게 나눈 몫(`MIN_COL` 이상)을 받는다.
+/// 그 뒤 합이 본문 폭이 되게 비율로 맞추고, `MIN_COL`보다 좁아진 열은 `MIN_COL`에 두고 나머지 열로 다시 나눈다
+/// (본문이 `MIN_COL` × 열 수보다 좁으면 모든 열이 `MIN_COL`). 값이 하나도 없으면 고르게 나눈다.
+fn fit_cols(hints: &[Option<f64>], body_w: f64) -> Vec<f64> {
+    let n = hints.len();
+    let round = |w: f64| (w.max(MIN_COL) * 100.0).round() / 100.0;
+    if hints.iter().all(Option::is_none) {
+        return vec![round(body_w / n as f64); n];
+    }
+    let free = hints.iter().filter(|h| h.is_none()).count();
+    // `max`는 NaN과 음수도 `MIN_COL`로 둔다.
+    let rest = ((body_w - hints.iter().flatten().sum::<f64>()) / free.max(1) as f64).max(MIN_COL);
+    let mut w: Vec<f64> = hints.iter().map(|h| h.unwrap_or(rest)).collect();
+    let mut low = vec![false; n];
+    loop {
+        let fixed = low.iter().filter(|&&l| l).count() as f64 * MIN_COL;
+        let sum: f64 = w
+            .iter()
+            .zip(&low)
+            .filter(|(_, &l)| !l)
+            .map(|(x, _)| x)
+            .sum();
+        let k = (body_w - fixed) / sum;
+        let mut again = false;
+        for (x, l) in w.iter_mut().zip(&mut low).filter(|(_, l)| !**l) {
+            *x *= k;
+            if x.is_nan() || *x < MIN_COL {
+                (*x, *l, again) = (MIN_COL, true, true);
+            }
+        }
+        if !again {
+            return w.into_iter().map(round).collect();
+        }
+    }
+}
+
 /// 노드. 요소는 `name`이 있고 글은 `text`가 있다. 문서와 주석은 둘 다 없다.
 #[derive(Default)]
 struct Node {
@@ -75,9 +111,9 @@ fn overrun() -> ! {
 const COCOA: &str = "Cocoa HTML Writer";
 
 /// 읽는 속성. 이 밖의 속성은 버린다.
-const KEEP: [&str; 12] = [
+const KEEP: [&str; 13] = [
     "class", "style", "href", "colspan", "rowspan", "start", "hidden", "align", "src", "width",
-    "height", "alt",
+    "height", "alt", "span",
 ];
 
 /// 가져오기에서 HTML을 읽는 쪽이 받는 일.
@@ -805,6 +841,29 @@ impl Conv<'_, '_> {
             .is_some_and(|c| c.split_whitespace().any(|t| t.eq_ignore_ascii_case(name)))
     }
 
+    /// 열 폭 힌트(pt): 인라인 스타일의 `width`, 없으면 `width` 속성. %는 본문 폭에 대한 비율, 단위 없는 수는 px.
+    /// 읽지 못하는 값(em, auto 등)과 0 이하는 `None`.
+    fn col_hint(&self, i: usize) -> Option<f64> {
+        let style = self.attr(i, "style").and_then(|s| {
+            s.split(';')
+                .filter_map(|d| d.split_once(':'))
+                .rfind(|(k, _)| k.trim().eq_ignore_ascii_case("width"))
+                .map(|(_, v)| v)
+        });
+        let v = style.or(self.attr(i, "width"))?;
+        let v = v.split('!').next()?.trim().to_ascii_lowercase();
+        let (n, k) = if let Some(n) = v.strip_suffix('%') {
+            (n, self.body_w / 100.0)
+        } else if let Some(n) = v.strip_suffix("pt") {
+            (n, 1.0)
+        } else {
+            (v.strip_suffix("px").unwrap_or(&v), self.px)
+        };
+        let w = n.trim().parse::<f64>().ok()? * k;
+        // 아주 큰 값은 열 폭의 합이 넘치지 않게 버린다.
+        (w.is_finite() && w > 0.0 && w <= 1e6).then_some(w)
+    }
+
     /// 표 요소 → 표 조각. 크기가 상한을 넘거나 비면 `None`(글로 풀어 붙인다).
     fn table(&self, t: usize) -> Result<Option<FragTable>, Refusal> {
         // 행(`tr`)을 모은다. 표 바로 아래나 thead·tbody·tfoot 아래의 것만.
@@ -826,16 +885,16 @@ impl Conv<'_, '_> {
         if rows.is_empty() || rows.len() > MAX_ROWS {
             return Ok(None);
         }
+        let span = |c: usize, k: &str, max: usize| {
+            self.attr(c, k)
+                .and_then(|v| v.trim().parse::<usize>().ok())
+                .unwrap_or(1)
+                .clamp(1, max)
+        };
         let specs: Vec<Vec<(usize, usize, usize)>> = rows
             .iter()
             .enumerate()
             .map(|(r, &tr)| {
-                let span = |c: usize, k: &str, max: usize| {
-                    self.attr(c, k)
-                        .and_then(|v| v.trim().parse::<usize>().ok())
-                        .unwrap_or(1)
-                        .clamp(1, max)
-                };
                 self.dom[tr]
                     .kids
                     .iter()
@@ -897,7 +956,36 @@ impl Conv<'_, '_> {
         if ncols == 0 {
             return Ok(None);
         }
-        let width = ((self.body_w / ncols as f64).max(MIN_COL) * 100.0).round() / 100.0;
+        // 열 폭 힌트: `<col>`(`span`만큼, 속이 빈 `<colgroup>`은 그 자신), 없으면 위 행부터 합치지 않은 칸의 것.
+        let mut hints: Vec<Option<f64>> = self.dom[t]
+            .kids
+            .iter()
+            .filter(|&&g| self.tag(g) == "colgroup")
+            .flat_map(|&g| {
+                let cols: Vec<usize> = self.dom[g]
+                    .kids
+                    .iter()
+                    .copied()
+                    .filter(|&c| self.tag(c) == "col")
+                    .collect();
+                if cols.is_empty() {
+                    vec![g]
+                } else {
+                    cols
+                }
+            })
+            .flat_map(|c| std::iter::repeat_n(self.col_hint(c), span(c, "span", MAX_COLS)))
+            .take(ncols)
+            .collect();
+        hints.resize(ncols, None);
+        for row in &grid {
+            for (x, slot) in row.iter().enumerate() {
+                if let (Slot::Cell(cell, _, 1), None) = (slot, hints[x]) {
+                    hints[x] = self.col_hint(*cell);
+                }
+            }
+        }
+        let cols = fit_cols(&hints, self.body_w);
         let mut out: Vec<FragRow> = Vec::new();
         for row in grid {
             let mut cells: Vec<Option<FragCell>> = Vec::new();
@@ -919,7 +1007,7 @@ impl Conv<'_, '_> {
             out.push((Map::new(), cells));
         }
         let mut props = Map::new();
-        props.insert("cols".into(), json!(vec![width; ncols]));
+        props.insert("cols".into(), json!(cols));
         if head > 0 {
             props.insert("headerRows".into(), json!(head.min(out.len())));
         }
