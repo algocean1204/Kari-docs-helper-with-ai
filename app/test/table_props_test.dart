@@ -209,6 +209,75 @@ void main() {
     expect(rig.fake.cmds.length, n);
   });
 
+  testWidgets('표 속성 창: 열 폭 %는 mm와 함께 바뀌고 mm 칸과 같은 명령을 보낸다', (tester) async {
+    final (rig, _) = await withTable(tester);
+    // 흉내 엔진의 본문 폭은 481.89pt(170mm)다.
+    const body = 481.89;
+    final mixed = mixedTable();
+    rig.fake.stateOverride = {'table': mixed};
+    await tester.tap(find.text('중간'));
+    await tester.pumpAndSettle();
+    String text(String label) =>
+        tester.widget<TextField>(field(label)).controller!.text;
+    await tapIt(tester, find.text('표 속성…'));
+    expect(text('본문 폭의'), '', reason: '열 폭이 섞였다');
+    expect(find.bySemanticsLabel(RegExp('열 폭 %')), findsOneWidget);
+    // %를 고치면 mm가, mm를 고치면 %가 따라 바뀐다.
+    await tester.enterText(field('본문 폭의'), '20');
+    await tester.pumpAndSettle();
+    expect(text('고른 열의 폭'), mmOf(body * 0.2));
+    await tester.enterText(field('고른 열의 폭'), '85');
+    await tester.pumpAndSettle();
+    expect(text('본문 폭의'), '50');
+    // 범위 밖과 수가 아닌 것은 % 칸 아래에 % 범위로 알리고 적용하지 않는다.
+    final before = rig.fake.cmds.length;
+    for (final bad in ['150', '1', '스물']) {
+      await tester.enterText(field('본문 폭의'), bad);
+      await tester.pumpAndSettle();
+      expect(find.text('2.5~100%로 적습니다'), findsOneWidget, reason: bad);
+      await tapIt(tester, inDialog('적용'));
+      expect(rig.fake.cmds.length, before, reason: bad);
+    }
+    expect(text('고른 열의 폭'), '', reason: '수가 아니면 mm도 빈칸');
+    // 20%로 적용한 명령은 같은 값을 mm로 적어 적용한 명령과 같다.
+    await tester.enterText(field('본문 폭의'), '20');
+    await tester.pumpAndSettle();
+    await tapIt(tester, inDialog('적용'));
+    final byPct = lastCmd(rig);
+    final w = double.parse(mmOf(body * 0.2)) * ptPerMm;
+    expect(byPct, {
+      'k': 'tableProps',
+      'cols': [w, w, 261.89],
+    });
+    await tapIt(tester, find.text('표 속성…'));
+    await tester.enterText(field('고른 열의 폭'), mmOf(body * 0.2));
+    await tapIt(tester, inDialog('적용'));
+    expect(lastCmd(rig), byPct);
+    expect(rig.fake.cmds.length, before + 2);
+    // 고른 열의 폭이 같으면 두 칸 모두 값이 있고, 열 폭 같게는 %도 바꾼다.
+    rig.fake.stateOverride = {
+      'table': {
+        ...mixed,
+        'range': {
+          ...(mixed['range'] as Json),
+          'colW': [120.0, 120.0],
+        },
+      },
+    };
+    await tester.tap(find.text('중간'));
+    await tester.pumpAndSettle();
+    await tapIt(tester, find.text('표 속성…'));
+    expect(text('고른 열의 폭'), mmOf(120));
+    expect(text('본문 폭의'), '24.9');
+    await tapIt(tester, inDialog('열 폭 같게'));
+    expect(text('본문 폭의'), '24.9');
+    await tester.enterText(field('본문 폭의'), '30');
+    await tapIt(tester, inDialog('열 폭 같게'));
+    expect(text('고른 열의 폭'), mmOf(120));
+    expect(text('본문 폭의'), '24.9');
+    await tapIt(tester, inDialog('취소'));
+  });
+
   testWidgets('표 눈금선 보기: ⋯ 메뉴로 끄고 켜고, 앱 설정에 남아 다시 열 때 따른다', (tester) async {
     final (rig, id) = await openCv(tester);
     await insertTable(tester, '2', '2');

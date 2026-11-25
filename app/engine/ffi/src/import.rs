@@ -92,6 +92,7 @@ pub(crate) fn summary_json(f: &Fragment) -> Value {
     json!({
         "paras": s.paras, "tables": s.tables, "images": s.images, "chars": s.chars,
         "headings": s.headings.iter().map(|(l, t)| json!({"level": l, "text": t})).collect::<Vec<_>>(),
+        "tableCols": s.table_cols,
     })
 }
 

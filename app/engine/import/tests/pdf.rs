@@ -403,6 +403,13 @@ fn 표가_있는_이력서의_표를_칸과_머리_행으로_옮긴다() {
         .filter_map(|p| p.table.as_ref())
         .collect();
     assert_eq!(tables.len(), 2);
+    // 미리 보기의 열 비율은 표마다 하나, 열 수만큼이고 합이 100 언저리다.
+    let ratios = summary(&got.fragment).table_cols;
+    assert_eq!(ratios.iter().map(Vec::len).collect::<Vec<_>>(), [2, 4]);
+    for r in &ratios {
+        let sum: u32 = r.iter().sum();
+        assert!((98..=102).contains(&sum), "{ratios:?}");
+    }
     for t in tables {
         assert_eq!(t.props["headerRows"], json!(1));
         let cols: f64 = t.props["cols"]

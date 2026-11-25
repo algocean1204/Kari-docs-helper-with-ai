@@ -132,6 +132,50 @@ fn html을_가져오면_새_문서가_되고_되돌리기_한_번이다() {
     assert_eq!(ok("doc.verify", json!({"id": id})), json!([]));
 }
 
+/// 미리 보기는 표마다 열 비율(각 열 폭 ÷ 표 폭 × 100, 정수 반올림)을 문서 차례로 돌려준다. 표가 없으면 빈 목록이다.
+#[test]
+fn 미리_보기는_표마다_열_비율을_돌려준다() {
+    let case = Case::new("import-ratios");
+    let preview = |name: &str, bytes: &[u8]| {
+        let path = case.dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        ok("import.preview", json!({"path": path}))
+    };
+    let table = |a: u32, b: u32| {
+        format!("<table><col width=\"{a}%\"><col width=\"{b}%\"><tr><td>기간<td>내용</table>")
+    };
+    let p = preview("표.html", table(20, 80).as_bytes());
+    assert_eq!(p["tableCols"], json!([[20, 80]]), "{p}");
+
+    let four = format!(
+        "{}<p>사이</p>{}<table><tr><td>가<td>나<td>다</table>{}",
+        table(20, 80),
+        table(50, 50),
+        table(25, 75)
+    );
+    let p = preview("표 넷.html", four.as_bytes());
+    assert_eq!(p["tables"], json!(4), "{p}");
+    assert_eq!(
+        p["tableCols"],
+        json!([[20, 80], [50, 50], [33, 33, 33], [25, 75]])
+    );
+
+    let p = preview("글.html", "<h1>홍길동</h1><p>견본상사</p>".as_bytes());
+    assert_eq!(
+        (p["tables"].clone(), p["tableCols"].clone()),
+        (json!(0), json!([]))
+    );
+
+    // DOCX: 격자 열 폭 2000·8000 twip.
+    let doc = r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="8000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>기간</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>내용</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:sectPr/></w:body></w:document>"#;
+    let docx = stored_zip(&[
+        ("[Content_Types].xml", b"<Types/>"),
+        ("word/document.xml", doc.as_bytes()),
+    ]);
+    let p = preview("표.docx", &docx);
+    assert_eq!(p["tableCols"], json!([[20, 80]]), "{p}");
+}
+
 #[test]
 fn docx로_내보낸_문서를_가져오면_제목과_표가_남는다() {
     let case = Case::new("import-docx");
@@ -206,6 +250,7 @@ fn hwpx를_가져오면_제목_표_그림이_남고_옛_hwp는_안내만_한다(
         (json!(2), json!(1), json!(1)),
         "{p}"
     );
+    assert_eq!(p["tableCols"], json!([[50, 50]]));
     assert_eq!(p["headings"], json!([{"level": 1, "text": "홍길동"}]));
     assert_eq!(doc_count(), before);
     assert!(walk(&case.dir.join("assets")).is_empty());
