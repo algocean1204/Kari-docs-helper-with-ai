@@ -215,6 +215,51 @@ void main() {
       expect(layer('r1'), findsOneWidget);
     });
 
+    testWidgets('줄은 이름을 한 번, 페이지 크기는 값으로 읽고, 접기와 눈·자물쇠는 따로 읽고 누른다', (
+      tester,
+    ) async {
+      final o = await openLayers(
+        tester,
+        rows: [
+          ...tree.take(3),
+          row('t1', 'text', 1, parent: 'p1', label: '안녕', visible: false),
+        ],
+      );
+      (String, String) read(String id) {
+        final d = tester
+            .getSemantics(
+              find
+                  .descendant(
+                    of: layer(id),
+                    matching: find.byType(GestureDetector),
+                  )
+                  .first,
+            )
+            .getSemanticsData();
+        return (d.label, d.value);
+      }
+
+      expect(read('p1'), ('페이지 1', '1920×1080'));
+      expect(read('t1'), ('안녕', ''));
+      expect(
+        find.semantics.byPredicate((n) => n.label.contains('1920×1080')),
+        findsNothing,
+        reason: '크기 글이 이름에 붙지 않는다',
+      );
+      for (final (name, key) in [('안녕 보이기', 'visible'), ('안녕 잠그기', 'locked')]) {
+        tester.semantics.tap(find.semantics.byLabel(name));
+        await tester.pumpAndSettle();
+        expect(
+          lastCmd(o, 'toggle'),
+          allOf(containsPair('key', key), containsPair('ids', ['t1'])),
+        );
+      }
+      tester.semantics.tap(find.semantics.byLabel('프레임 접기'));
+      await tester.pumpAndSettle();
+      expect(layer('r1'), findsNothing);
+      expect(find.semantics.byLabel('프레임 펴기'), findsOne);
+    });
+
     testWidgets('판에서 고르면 패널이 조상을 펴고 그 줄을 칠한다', (tester) async {
       final o = await openLayers(tester);
       await tester.tap(find.byKey(const Key('layer-fold-f1')));

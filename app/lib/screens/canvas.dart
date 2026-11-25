@@ -578,6 +578,7 @@ class _ToolBar extends StatelessWidget {
           for (final (name, label, key) in canvasTools)
             _ToolButton(
               label: label,
+              semanticLabel: '$label 도구',
               keyLabel: key,
               icon: _toolIcons[name]!,
               selected: tool == name,
@@ -590,6 +591,7 @@ class _ToolBar extends StatelessWidget {
             ),
           _ToolButton(
             label: '그림',
+            semanticLabel: '그림 도구',
             keyLabel: null,
             icon: Icons.image_outlined,
             selected: tool == 'image',
@@ -637,9 +639,13 @@ class _ToolButton extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onPressed,
+    this.semanticLabel,
   });
 
   final String label;
+
+  /// 읽어 주는 이름. 레이어 줄은 이름 없는 요소를 종류 이름("사각형")으로 읽으므로, 도구는 "사각형 도구"로 가른다.
+  final String? semanticLabel;
   final String? keyLabel;
   final IconData icon;
   final bool selected;
@@ -663,7 +669,7 @@ class _ToolButton extends StatelessWidget {
             onTap: onPressed,
             selected: selected,
             enabled: onPressed != null,
-            label: label,
+            label: semanticLabel ?? label,
             child: ExcludeSemantics(
               child: Material(
                 // 쉬는 단추도 옅은 바탕을 둔다(문서 편집기의 아이콘 단추와 같다).
