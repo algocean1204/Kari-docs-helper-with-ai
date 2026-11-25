@@ -25,7 +25,7 @@ use kari_store::{stage, Actor, DocId, Error, Meta};
 use sha2::{Digest, Sha256};
 
 use crate::fail::{bad, fail, Args, Fail, Res};
-use crate::library::{now_ms, on, Engine};
+use crate::library::{flow_root, now_ms, on, Engine};
 
 /// 사본 하나에 한 번에 적용하는 op 수(밖에서 들어온 묶음의 상한).
 const CHUNK: usize = 5000;
@@ -271,11 +271,9 @@ pub(crate) fn apply(state: &mut Option<Engine>, a: &Args) -> Res {
         ));
     }
     let e = on(state)?;
-    let root = match a.maybe("styles", Value::as_object)? {
-        Some(s) => std::iter::once(("styles".to_string(), Value::Object(s.clone()))).collect(),
-        None => Default::default(),
-    };
-    let id = e.lib.create_doc_with(Kind::Flow, a.str("name")?, root)?;
+    let id = e
+        .lib
+        .create_doc_with(Kind::Flow, a.str("name")?, flow_root(a)?)?;
     let mut stored = BTreeSet::new();
     // 엔진 안에서 멈춰도 만든 문서를 남기지 않게 여기서 받는다(위로 풀려 올라가면 명령 잠금이 상하고 문서가 남는다).
     let res = catch_unwind(AssertUnwindSafe(|| fill(e, id, &bytes, &mut stored, a)))

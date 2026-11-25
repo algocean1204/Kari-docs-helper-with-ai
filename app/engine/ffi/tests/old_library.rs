@@ -86,6 +86,19 @@ fn 옛_판의_라이브러리가_열리고_해시와_기록이_같다() {
             // 견본의 되돌리기 기록도 지금 판에서 되돌린다.
             ok("doc.undo", json!({"id": id, "actor": "user"}));
             assert_eq!(ok("doc.verify", json!({"id": id})), json!([]), "{tag}");
+            // 스타일 표를 저장하지 않은 옛 흐름 문서는 제목 크기가 만든 판의 값 그대로다.
+            if open["kind"] == "flow" {
+                let s = ok("edit.open", json!({"id": id}));
+                let size = |k: &str| {
+                    let all = s["styles"].as_array().unwrap();
+                    all.iter().find(|x| x["id"] == k).unwrap()["size"].clone()
+                };
+                assert_eq!(
+                    ["h1", "h2", "h3"].map(size),
+                    [json!(13.0), json!(11.0), json!(10.5)],
+                    "{tag}"
+                );
+            }
         }
     }
 }

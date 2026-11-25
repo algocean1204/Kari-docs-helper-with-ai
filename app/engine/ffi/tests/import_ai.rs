@@ -58,6 +58,7 @@ fn 규칙만으로_가져온_결과는_그대로다() {
     assert_eq!(p["ai"], json!({"chunks": 37, "blocked": null}), "{p}");
     let r = ok("import.apply", json!({"path": path, "name": "이력서"}));
     let id = r["id"].as_i64().unwrap();
+    drop_styles(id);
     assert_eq!(
         back_hash(id),
         "25661f558cca1ae67c2c11f785e853883bd6d19a839b7515c0fe30576f6fbd0f"

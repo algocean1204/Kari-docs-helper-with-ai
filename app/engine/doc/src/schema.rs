@@ -67,6 +67,24 @@ pub fn prop_paths(kind: Kind) -> Vec<String> {
     out
 }
 
+/// 새 흐름 문서의 제목 1~3 크기(pt). 스키마의 `styles` 기본값(13, 11, 10.5)은 스타일 표를 저장하지 않은 문서가
+/// 읽는 값이라 그대로 둔다(바꾸면 이미 있는 문서의 모양이 바뀐다).
+const NEW_HEADINGS: [(&str, f64); 3] = [("h1", 16.0), ("h2", 13.0), ("h3", 11.5)];
+
+/// 새 흐름 문서가 첫 스냅샷에 저장하는 스타일 표: 스키마 기본값에서 제목 1~3만 키운 것. `기본값으로`도 이 값이다.
+pub fn new_flow_styles() -> Map<String, Value> {
+    let mut all = schema(Kind::Flow).defaults["flow"]["styles"]
+        .as_object()
+        .cloned()
+        .expect("흐름 스키마의 styles 기본값");
+    for (id, size) in NEW_HEADINGS {
+        all[id]["cs"]["size"] = size.into();
+        // 저장된 문서와 같은 꼴(16.0 → 16)이라야 `modified`가 값을 바로 견준다.
+        crate::canon::normalize(&mut all[id]);
+    }
+    all
+}
+
 fn opt_f64(field: &Value, key: &str) -> Option<f64> {
     field.get(key).and_then(Value::as_f64)
 }

@@ -29,17 +29,11 @@ fn rgb([r, g, b, _]: [u8; 4]) -> String {
     format!("#{r:02X}{g:02X}{b:02X}")
 }
 
-fn builtin(doc: &Document) -> Map<String, Value> {
-    doc.default_prop("flow", "styles")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default()
-}
-
 /// 상태 보고의 `styles`: 메뉴 차례(기본 스타일, 그다음 사용자 스타일을 만든 차례)의 목록.
 pub(crate) fn list(doc: &Document) -> Value {
     let all = doc_styles(doc);
-    let base = builtin(doc);
+    // `modified`는 `기본값으로`가 돌릴 값(새 문서의 값)과 견준다.
+    let base = kari_doc::new_flow_styles();
     let mut ids: Vec<&String> = all.keys().collect();
     let rank = |id: &str| {
         ORDER.iter().position(|o| *o == id).map_or_else(
@@ -201,7 +195,7 @@ pub(crate) fn detail(doc: &Document, id: Option<&str>) -> Res {
         "name": s("name").unwrap_or(id),
         "based": s("based"),
         "next": s("next"),
-        "builtin": builtin(doc).contains_key(id),
+        "builtin": kari_doc::new_flow_styles().contains_key(id),
         "own": own_json(def),
         "base": {"char": char_json(&char_style(&cs, None)), "para": para_json(&pf_values(&pf))},
     }))

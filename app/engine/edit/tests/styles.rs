@@ -9,7 +9,7 @@ use kari_doc::Document;
 use kari_edit::{
     BorderSide, CharPatch, Command, Motion, ParaPatch, Pos, Refusal, StyleFrom, StylePatch,
 };
-use kari_layout::{char_style, doc_styles, para_cs, para_values};
+use kari_layout::{char_style, doc_styles, para_cs, para_values, style_chain};
 
 fn styles(t: &T) -> Value {
     Value::Object(doc_styles(&t.doc))
@@ -359,7 +359,10 @@ fn 새_스타일_지우기_기본값으로() {
         t.run(Command::StyleReset { style: "u2".into() }).refused,
         Some(Refusal::StyleBuiltin)
     );
-    // 기본값으로.
+    // 사용자 스타일을 모두 지우고 기본값만 남으면 저장된 표도 지운다.
+    t.run(Command::StyleDelete { style: "u2".into() });
+    assert!(t.doc.node("root").unwrap().props.get("styles").is_none());
+    // 기본값으로: 새 문서의 값(제목 1은 16pt)으로 돌린다. 스키마 기본값(13pt)과 다르니 표를 저장한다.
     t.run(set(
         "h1",
         StylePatch {
@@ -371,10 +374,43 @@ fn 새_스타일_지우기_기본값으로() {
         },
     ));
     t.run(Command::StyleReset { style: "h1".into() });
-    assert_eq!(size_of(&t, "p0"), 13.0);
-    // 사용자 스타일을 모두 지우고 기본값만 남으면 저장된 표도 지운다.
-    t.run(Command::StyleDelete { style: "u2".into() });
-    assert!(t.doc.node("root").unwrap().props.get("styles").is_none());
+    assert_eq!(size_of(&t, "p0"), 16.0);
+    assert_eq!(styles(&t)["h2"]["cs"]["size"], 11.0, "다른 제목은 그대로");
+    assert!(t.doc.node("root").unwrap().props.get("styles").is_some());
+}
+
+#[test]
+fn 새_문서의_스타일_표는_제목_1_3만_키우고_표가_없거나_일부인_문서는_옛_크기다() {
+    let heads =
+        |t: &T| ["h1", "h2", "h3"].map(|k| char_style(&style_chain(&t.doc, Some(k)).0, None).size);
+    // 스타일 표를 저장하지 않은 문서(옛 판이 만든 문서).
+    let old = T::new(&["가|"]);
+    assert_eq!(heads(&old), [13.0, 11.0, 10.5]);
+    // 일부만 가진 문서: 빠진 제목은 스키마 기본값으로 채운다.
+    let mut d = doc_of(&[json!({"runs": [{"t": "가"}]})]);
+    let part =
+        json!({"h1": {"name": "제목 1", "based": "body", "cs": {"size": 14, "weight": 700}}});
+    d.apply_trusted(&json!([{"op": "set", "id": "root", "props": {"styles": part}}]))
+        .unwrap();
+    assert_eq!(heads(&T::from_doc(d)), [14.0, 11.0, 10.5]);
+    // 새 문서의 표: 제목 1~3의 크기만 다르다.
+    let fresh = kari_doc::new_flow_styles();
+    let mut d = doc_of(&[json!({"runs": [{"t": "가"}]})]);
+    d.apply_trusted(&json!([{"op": "set", "id": "root", "props": {"styles": fresh}}]))
+        .unwrap();
+    let t = T::from_doc(d);
+    assert_eq!(heads(&t), [16.0, 13.0, 11.5]);
+    let schema = doc_styles(&old.doc);
+    assert_eq!(fresh.len(), schema.len());
+    // 저장된 문서와 같은 꼴(정수인 크기는 정수)이다.
+    let sizes = [json!(16), json!(13), json!(11.5)];
+    for (id, def) in &fresh {
+        let mut want = schema[id].clone();
+        if let Some(i) = ["h1", "h2", "h3"].iter().position(|h| h == id) {
+            want["cs"]["size"] = sizes[i].clone();
+        }
+        assert_eq!(def, &want, "{id}");
+    }
 }
 
 #[test]

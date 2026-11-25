@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use kari_doc::serde_json::{json, Value};
+use kari_doc::serde_json::{json, Map, Value};
 use kari_doc::{Kind, Node};
 use kari_store::{
     Actor, DocId, Error as StoreError, Library, Meta, OpenDoc, Outcome, Reason, VersionInfo,
@@ -29,6 +29,16 @@ pub(crate) struct Engine {
 
 /// 이 잠금이 명령 잠금이다. `kari_call` 하나를 처음부터 끝까지 감싼다.
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
+
+/// 새 흐름 문서의 루트 속성. 앱이 저장해 둔 스타일 표(`styles`, 내 기본 스타일)를 주면 그 표로, 아니면 새 문서의
+/// 스타일 표로 시작한다. 어느 쪽이든 첫 스냅샷에 넣어, 뒤에 스키마 기본값이 바뀌어도 문서가 그대로 보이게 한다.
+pub(crate) fn flow_root(a: &Args) -> Result<Map<String, Value>, Fail> {
+    let styles = a
+        .maybe("styles", Value::as_object)?
+        .cloned()
+        .unwrap_or_else(kari_doc::new_flow_styles);
+    Ok(std::iter::once(("styles".to_string(), Value::Object(styles))).collect())
+}
 
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
@@ -227,12 +237,9 @@ pub(crate) fn dispatch(state: &mut Option<Engine>, m: &str, a: &Args) -> Res {
                 "canvas" => Some(Kind::Canvas),
                 _ => None,
             })?;
-            // 내 기본 스타일: 앱이 저장해 둔 스타일 표를 주면 새 문서가 그 값으로 시작한다(첫 스냅샷에 넣는다).
-            let root = match a.maybe("styles", Value::as_object)? {
-                Some(s) if kind == Kind::Flow => {
-                    std::iter::once(("styles".to_string(), Value::Object(s.clone()))).collect()
-                }
-                _ => Default::default(),
+            let root = match kind {
+                Kind::Flow => flow_root(a)?,
+                Kind::Canvas => Default::default(),
             };
             Ok(json!({"id": e.lib.create_doc_with(kind, a.str("name")?, root)?}))
         }

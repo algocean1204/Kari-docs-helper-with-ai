@@ -426,8 +426,9 @@ impl Cx<'_> {
         self.put_styles(all)
     }
 
+    /// 기본 스타일을 새 문서의 값으로 돌린다(스타일 표가 없는 옛 문서가 읽는 스키마 기본값이 아니다).
     pub fn style_reset(&mut self, id: &str) -> Option<()> {
-        let Some(def) = builtin(self.d.doc).get(id).cloned() else {
+        let Some(def) = kari_doc::new_flow_styles().get(id).cloned() else {
             return self.refuse(Refusal::StyleBuiltin);
         };
         let mut all = doc_styles(self.d.doc);
