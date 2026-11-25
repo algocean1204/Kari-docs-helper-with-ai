@@ -67,8 +67,14 @@ class FigmaLink extends ChangeNotifier {
   /// 연결된 파일에서 지금 보이는 페이지의 이름(플러그인이 파일 이름은 주지 않는다).
   String? pageName;
 
+  /// 그 페이지의 id. 플러그인이 주지 않으면 null이다.
+  String? pageId;
+
   /// 연결된 파일의 키. 플러그인이 주지 않으면 null이다.
   String? fileKey;
+
+  /// [pages]가 마지막으로 읽은, Figma에서 지금 보는 페이지의 id. 플러그인이 주지 않으면 null이다.
+  String? currentPageId;
   FigmaClient? _client;
 
   bool get connected => status == LinkStatus.connected && _client != null;
@@ -99,6 +105,18 @@ class FigmaLink extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 화면을 열 때: 다른 프로그램이 그 자리에 켜 둔 중계가 있으면 그것을 쓴다고, 없어졌으면 꺼졌다고 보인다. 중계를 켜거나
+  /// 채널에 들지는 않는다. 앱이 켠 중계와 켜지 못한 상태는 그대로 둔다.
+  Future<void> probeRelay() async {
+    final was = relay;
+    if (was != RelayKind.off && was != RelayKind.external) return;
+    final now = await portBusy(port) ? RelayKind.external : RelayKind.off;
+    // 살피는 사이 앱이 중계를 켰으면 그 자리는 앱의 것이다.
+    if (relay != was || now == was) return;
+    relay = now;
+    notifyListeners();
+  }
+
   /// 플러그인 파일을 자료 폴더에 쓰고 manifest의 경로를 돌려준다. 늘 앱에 든 판으로 덮어쓴다.
   Future<String> writePlugin() async {
     await Directory(pluginDir).create(recursive: true);
@@ -117,7 +135,7 @@ class FigmaLink extends ChangeNotifier {
     final ch = channel.trim();
     if (!channelPattern.hasMatch(ch)) {
       status = LinkStatus.failed;
-      error = '채널 ID는 영문, 숫자, -, _로 된 64자까지입니다';
+      error = ch.isEmpty ? '채널 ID를 넣어 주세요' : '채널 ID는 영문, 숫자, -, _로 된 64자까지입니다';
       notifyListeners();
       return;
     }
@@ -134,6 +152,8 @@ class FigmaLink extends ChangeNotifier {
       await c.join(ch);
       final info = await c.send('get_document_info', const {});
       pageName = info is Map ? info['name'] as String? : null;
+      final id = info is Map ? info['id'] : null;
+      pageId = id is String ? id : null;
       final key = info is Map ? info['fileKey'] : null;
       fileKey = key is String && key.length <= 200 ? key : null;
       final mine = c;
@@ -143,6 +163,7 @@ class FigmaLink extends ChangeNotifier {
         status = LinkStatus.idle;
         error = '$why. Figma에서 플러그인을 다시 실행하고 연결합니다';
         pageName = null;
+        pageId = null;
         notifyListeners();
       };
       _client = c;
@@ -178,6 +199,7 @@ class FigmaLink extends ChangeNotifier {
     status = LinkStatus.idle;
     error = null;
     pageName = null;
+    pageId = null;
     notifyListeners();
   }
 
@@ -194,10 +216,12 @@ class FigmaLink extends ChangeNotifier {
       ? _client!
       : throw const FigmaError('Figma에 연결되지 않았습니다. 설정 → Figma에서 연결합니다');
 
-  /// 연결된 파일의 페이지들.
+  /// 연결된 파일의 페이지들. 플러그인이 함께 주는 지금 페이지의 id는 [currentPageId]에 둔다.
   Future<List<FigmaPage>> pages() async {
     final r = await _c.send('get_pages', const {});
     final list = r is Map ? r['pages'] : null;
+    final now = r is Map ? r['currentPageId'] : null;
+    currentPageId = now is String ? now : null;
     return [
       if (list is List)
         for (final p in list)
@@ -383,7 +407,8 @@ class FigmaLink extends ChangeNotifier {
     return (
       id: id,
       line: [
-        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개',
+        'Figma에서 가져왔습니다 · 페이지 ${plan.boards}개, 요소 ${plan.count}개, '
+            '그림 ${plan.images.length}개',
         if (plan.skippedCount > 0) '옮기지 못한 것 ${plan.skippedText}',
         if (missed > 0) '그림 $missed개는 받지 못해 빈 사각형으로 두었습니다',
         if (plan.fonts > 0) '글 상자 ${plan.fonts}개의 글꼴을 Pretendard로 바꿨습니다',

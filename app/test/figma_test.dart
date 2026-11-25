@@ -16,6 +16,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kari/design/components.dart' show AppButton;
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/engine/engine.dart';
@@ -27,6 +28,8 @@ import 'package:kari/figma/receive.dart';
 import 'package:kari/figma/relay.dart';
 import 'package:kari/library.dart';
 import 'package:kari/screens/figma.dart';
+
+import 'library_test.dart' show QuietFigma;
 
 /// 플러그인 흉내: 채널에 들고, 받은 명령마다 [answer]로 답한다. [answer]가 [hold]를 돌려주면 답하지 않는다.
 class FakePlugin {
@@ -992,6 +995,7 @@ void main() {
         expect(link.relay, RelayKind.external);
         expect(link.status, LinkStatus.connected, reason: link.error);
         expect(link.pageName, 'Page 1');
+        expect(link.pageId, '0:1');
         expect(lib.get<String>(Setting.figmaChannel), 'abc12345');
         final pages = await link.pages();
         expect(pages.map((p) => p.name), ['Page 1', '디자인']);
@@ -1118,6 +1122,56 @@ void main() {
       expect(link.error, contains('채널 ID'));
       await relay.stop();
     });
+
+    test('채널 ID가 비면(공백뿐 포함) 넣어 달라고 하고 중계를 켜지 않는다', () async {
+      final link = FigmaLink(lib, port: await freePort());
+      for (final ch in ['', '   ']) {
+        await link.connect(ch);
+        expect(link.status, LinkStatus.failed, reason: ch);
+        expect(link.error, '채널 ID를 넣어 주세요', reason: ch);
+      }
+      expect(link.relay, RelayKind.off);
+    });
+
+    test(
+      '살펴보기: 다른 프로그램이 그 자리를 쓰고 있으면 이미 켜진 중계로 보고, 그것이 꺼지면 앱이 중계를 켠다',
+      () async {
+        final idle = FigmaLink(lib, port: await freePort());
+        await idle.probeRelay();
+        expect(idle.relay, RelayKind.off);
+
+        final other = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final link = FigmaLink(lib, port: other.port);
+        await link.probeRelay();
+        expect(link.relay, RelayKind.external);
+        expect(link.status, LinkStatus.idle);
+        await other.close();
+        // 살펴보기는 중계를 켜지 않는다: 그 프로그램이 끄면 자리가 빈다.
+        expect(await portBusy(link.port), isFalse);
+        await link.startRelay();
+        expect(link.relay, RelayKind.builtin);
+        expect(await portBusy(link.port), isTrue);
+        // 앱이 켠 중계를 다시 살펴도 이미 켜진 것으로 바꾸지 않는다.
+        await link.probeRelay();
+        expect(link.relay, RelayKind.builtin);
+        await link.stop();
+      },
+    );
+
+    test('살펴보기: 이미 켜진 중계로 본 뒤 그것이 꺼지면 다시 살필 때 꺼짐으로 되돌린다', () async {
+      final other = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final link = FigmaLink(lib, port: other.port);
+      var told = 0;
+      link.addListener(() => told++);
+      await link.probeRelay();
+      expect((link.relay, told), (RelayKind.external, 1));
+      await other.close();
+      await link.probeRelay();
+      expect((link.relay, told), (RelayKind.off, 2));
+      // 그대로면 알리지 않는다.
+      await link.probeRelay();
+      expect((link.relay, told), (RelayKind.off, 2));
+    });
   });
 
   group('위젯', () {
@@ -1125,9 +1179,14 @@ void main() {
       WidgetTester tester,
       Widget Function(FigmaLink) build, {
       String? appPath,
+      FigmaLink? link,
     }) async {
-      final lib = Library(FakeEngine(), '/tmp/kari-test');
-      final link = FigmaLink(lib, appPath: appPath ?? '/nonexistent/Figma.app');
+      final l =
+          link ??
+          QuietFigma(
+            Library(FakeEngine(), '/tmp/kari-test'),
+            appPath: appPath ?? '/nonexistent/Figma.app',
+          );
       tester.view.physicalSize = const Size(900, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -1136,13 +1195,13 @@ void main() {
           theme: buildTheme(Brightness.light),
           home: Scaffold(
             body: ListenableBuilder(
-              listenable: link,
-              builder: (_, _) => SingleChildScrollView(child: build(link)),
+              listenable: l,
+              builder: (_, _) => SingleChildScrollView(child: build(l)),
             ),
           ),
         ),
       );
-      return link;
+      return l;
     }
 
     testWidgets('설정의 Figma 구역: 앱 없음, 중계 꺼짐, 연결 안 됨 → 연결됨 · 페이지 → 실패와 까닭', (
@@ -1182,6 +1241,53 @@ void main() {
       expect(find.text('실패'), findsOneWidget);
       expect(find.text(keepAll('3055 자리를 열지 못했습니다')), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('채널: 칸이 비면 연결 단추가 꺼지고, 빈 칸에서 들이면 넣어 달라고 한다', (tester) async {
+      await pump(tester, (l) => ChannelRow(link: l));
+      VoidCallback? press() => tester
+          .widget<AppButton>(find.widgetWithText(AppButton, '연결'))
+          .onPressed;
+      expect(press(), isNull);
+      await tester.enterText(find.byKey(const Key('figma-channel')), '   ');
+      await tester.pump();
+      expect(press(), isNull);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(find.text('실패 · 채널 ID를 넣어 주세요'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('figma-channel')),
+        'abc12345',
+      );
+      await tester.pump();
+      expect(press(), isNotNull);
+    });
+
+    testWidgets('중계: 다른 프로그램이 그 자리를 쓰고 있으면 구역을 열 때 켜짐으로 보인다', (tester) async {
+      final other = (await tester.runAsync(
+        () => ServerSocket.bind(InternetAddress.loopbackIPv4, 0),
+      ))!;
+      final link = await pump(
+        tester,
+        (l) => Column(children: figmaRows(l)),
+        link: FigmaLink(
+          Library(FakeEngine(), '/tmp/kari-test'),
+          port: other.port,
+          appPath: '/nonexistent/Figma.app',
+        ),
+      );
+      // 살펴보기는 실제 소켓으로 붙어 본다: 실제 시간을 조금씩 주고, 그 뒤를 잇는 일은 pump에서 돈다.
+      for (var i = 0; i < 300 && link.relay == RelayKind.off; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(link.relay, RelayKind.external);
+      expect(find.text('켜짐'), findsOneWidget);
+      expect(find.text('중계 켜기'), findsNothing);
+      expect(link.status, LinkStatus.idle);
+      await tester.runAsync(other.close);
     });
 
     testWidgets('Figma 앱이 있으면 설치됨이고 받기 단추가 없다', (tester) async {
@@ -2093,6 +2199,31 @@ void main() {
       return (link, plugin);
     }
 
+    test('페이지 목록을 읽으면 Figma에서 지금 보는 페이지의 id도 받아 두고, 주지 않으면 비운다', () async {
+      Object? current = '5:1';
+      final (link, plugin) = await connect(
+        (command, _) => command == 'get_pages'
+            ? {
+                'pages': [
+                  {'id': '0:1', 'name': 'Page 1'},
+                  {'id': '5:1', 'name': '디자인'},
+                ],
+                'currentPageId': ?current,
+              }
+            : null,
+      );
+      await link.pages();
+      expect(link.currentPageId, '5:1');
+      current = null;
+      await link.pages();
+      expect(link.currentPageId, isNull);
+      current = 7;
+      await link.pages();
+      expect(link.currentPageId, isNull);
+      await link.stop();
+      await plugin.close();
+    });
+
     test('왕복: 보낸 캔버스를 다시 받으면 자리, 크기, 각도, 칠, 선, 모서리, 불투명도, 글이 같다', () async {
       final source = [
         board({'name': '대지', 'w': 800, 'h': 600}),
@@ -2317,7 +2448,7 @@ void main() {
         );
         expect(progress, [(1, 2), (2, 2)]);
         expect(fake.docs.length, before + 1);
-        expect(r.line, startsWith('Figma에서 가져왔습니다 · 페이지 1개, 요소 4개'));
+        expect(r.line, startsWith('Figma에서 가져왔습니다 · 페이지 1개, 요소 4개, 그림 2개 · '));
         expect(r.line, contains('그림 1개는 받지 못해'));
         expect(fake.assetsPut, hasLength(1));
         // Figma에 보낸 것은 읽기뿐이다.
@@ -3174,11 +3305,13 @@ void main() {
     Future<_ImportLink> pump(
       WidgetTester tester, {
       bool connected = true,
+      void Function(_ImportLink)? prepare,
     }) async {
       final link = _ImportLink(
         Library(FakeEngine(), '/tmp/kari-test'),
         connected: connected,
       );
+      prepare?.call(link);
       tester.view.physicalSize = const Size(900, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -3244,6 +3377,46 @@ void main() {
         expect(link.result, isNull);
       });
     }
+
+    testWidgets(
+      '처음 고른 페이지는 Figma에서 지금 보는 페이지다(목록과 함께 받은 id, 없으면 연결할 때의 id, 하나뿐인 같은 이름, 첫 페이지)',
+      (tester) async {
+        final cases = <(String?, String?, String?, List<FigmaPage>?, String)>[
+          ('5:1', null, null, null, '5:1'),
+          ('5:1', '0:1', 'Page 1', null, '5:1'),
+          ('없는 id', '5:1', 'Page 1', null, '5:1'),
+          (null, '5:1', 'Page 1', null, '5:1'),
+          (null, null, '디자인', null, '5:1'),
+          (null, '없는 id', '디자인', null, '5:1'),
+          (null, null, '없는 이름', null, '0:1'),
+          (
+            null,
+            null,
+            '디자인',
+            [
+              (id: '0:1', name: 'Page 1'),
+              (id: '5:1', name: '디자인'),
+              (id: '6:1', name: '디자인'),
+            ],
+            '0:1',
+          ),
+        ];
+        for (final (current, id, name, list, want) in cases) {
+          final link = await pump(
+            tester,
+            prepare: (l) {
+              l.current = current;
+              l.pageId = id;
+              l.pageName = name;
+              if (list != null) l.pageList = list;
+            },
+          );
+          expect(link.read, [want], reason: '$current $id $name');
+          await tester.tapAt(const Offset(5, 5));
+          await tester.pumpAndSettle();
+        }
+      },
+    );
 
     testWidgets('가져오는 사이 Figma 페이지가 바뀌었으면 다시 미리 보고 그 까닭을 보인다', (tester) async {
       final link = await pump(tester);
@@ -3580,11 +3753,19 @@ class _ImportLink extends FigmaLink {
   /// 참이면 다음 가져오기가 "페이지가 바뀜"으로 끝난다.
   bool changedOnce = false;
 
-  @override
-  Future<List<FigmaPage>> pages() async => [
+  List<FigmaPage> pageList = [
     (id: '0:1', name: 'Page 1'),
     (id: '5:1', name: '디자인'),
   ];
+
+  /// [pages]가 받아 두는 지금 페이지의 id(플러그인의 `currentPageId`).
+  String? current;
+
+  @override
+  Future<List<FigmaPage>> pages() async {
+    currentPageId = current;
+    return pageList;
+  }
 
   @override
   Future<FigmaImport> readPage(
