@@ -54,7 +54,16 @@ typedef FigmaImage = ({String figmaId, Json props});
 
 /// Figma 페이지 하나를 Kari 캔버스의 노드로 옮긴 것. [ops]는 부모가 먼저 오는 `add` 연산들이다.
 class FigmaImport {
-  FigmaImport._();
+  FigmaImport._(this.source, this.unpackSections);
+
+  /// 읽은 Figma 페이지(JSON). 섹션 풀기를 바꿔 다시 옮길 때 다시 읽지 않고 쓴다([again]).
+  final Object? source;
+
+  /// 참이면 맨 위 섹션을 풀어 그 안의 프레임을 각각 대지로 옮겼다. 다시 맞추기도 같은 풀기로 읽는다.
+  final bool unpackSections;
+
+  /// 페이지의 맨 위에 섹션이 있다(섹션 풀기를 고를 수 있다).
+  bool hasSections = false;
 
   final ops = <Json>[];
 
@@ -86,6 +95,12 @@ class FigmaImport {
   String? tooBig;
 
   int get count => ops.length;
+
+  /// 같은 읽은 자료를 섹션 풀기만 바꿔 다시 옮긴다.
+  FigmaImport again({required bool unpackSections}) =>
+      fromFigma(source, unpackSections: unpackSections)
+        ..pageId = pageId
+        ..fileKey = fileKey;
 
   int get skippedCount => skipped.values.fold(0, (a, b) => a + b);
 
@@ -362,10 +377,14 @@ String? _name(Object? v) {
 /// Figma의 페이지 노드(`get_node_info`의 JSON_REST_V1, 플러그인이 더한 변환과 크기 포함) → Kari 노드.
 /// 페이지의 최상위 프레임(컴포넌트, 인스턴스, 구역 포함)이 Kari의 페이지(대지)가 되고, 그 안의 프레임·묶음·사각형·
 /// 타원·선·글·그림이 각 요소가 된다. 컴포넌트와 인스턴스는 떼어 낸 프레임이 된다. 숨긴 것은 숨긴 채로 온다.
+///
+/// [unpackSections]면 맨 위 섹션(안쪽 섹션도)은 대지가 되지 않고, 그 안의 프레임이 저마다 Figma에서의 자리 그대로
+/// 대지가 된다(플러그인이 주는 변환이 절대 좌표라 섹션의 자리를 더하지 않는다). 섹션의 칠·이름은 버리고, 섹션 안의
+/// 프레임이 아닌 것은 맨 위의 것처럼 프레임 밖의 요소로 센다. 숨긴 섹션 안의 대지는 숨긴 채로 온다.
 // 한계: 벡터(곧은 선 하나는 선으로), 불리언, 별·다각형, 그라디언트, 효과, 글자별 모양, 자동 배치, 제약은 옮기지 않는다.
 // 글꼴은 늘 Pretendard다. 돌린 최상위 프레임은 그 경계 상자의 대지가 된다.
-FigmaImport fromFigma(Object? page) {
-  final out = FigmaImport._();
+FigmaImport fromFigma(Object? page, {bool unpackSections = false}) {
+  final out = FigmaImport._(page, unpackSections);
   var read = 0, next = 0;
   final seen = <String>{};
   String newId() => 'fg${(next++).toRadixString(36)}';
@@ -561,10 +580,18 @@ FigmaImport fromFigma(Object? page) {
     }
   }
 
-  final kids = page is Map ? page['children'] : null;
-  for (final k in kids is List ? kids : const []) {
-    if (k is! Map) continue;
-    if (++read > maxReadNodes) break;
+  // 맨 위의 것 하나(섹션을 풀면 섹션 안의 것도): 프레임이면 대지가 된다. [hidden]은 숨긴 섹션 안이다.
+  void top(Map k, int depth, bool hidden) {
+    if (unpackSections && k['type'] == 'SECTION') {
+      if (depth > _maxDepth) return out._skip(skipDeep);
+      final kids = k['children'];
+      for (final c in kids is List ? kids : const []) {
+        if (c is! Map) continue;
+        if (++read > maxReadNodes) return;
+        top(c, depth + 1, hidden || k['visible'] == false);
+      }
+      return;
+    }
     const frames = {
       'FRAME',
       'COMPONENT',
@@ -574,7 +601,7 @@ FigmaImport fromFigma(Object? page) {
     };
     if (!frames.contains(k['type'])) {
       if (k['type'] != 'SLICE') out._skip(skipOutside);
-      continue;
+      return;
     }
     final g = _geo(k);
     final figmaId = k['id'];
@@ -583,13 +610,9 @@ FigmaImport fromFigma(Object? page) {
         g.h <= 0 ||
         figmaId is! String ||
         figmaId.length > 200) {
-      out._skip(skipBad);
-      continue;
+      return out._skip(skipBad);
     }
-    if (!seen.add(figmaId)) {
-      out._skip(skipDup);
-      continue;
-    }
+    if (!seen.add(figmaId)) return out._skip(skipDup);
     if (const {'HORIZONTAL', 'VERTICAL', 'GRID'}.contains(k['layoutMode'])) {
       out._skip(skipAutoLayout);
     }
@@ -612,6 +635,7 @@ FigmaImport fromFigma(Object? page) {
     if (fills.image) out._skip(skipImageFill);
     add('page', null, {
       ...common(k),
+      if (hidden) 'visible': false,
       'cx': _r3(a[4]),
       'cy': _r3(a[5]),
       'w': _r3(w),
@@ -629,6 +653,14 @@ FigmaImport fromFigma(Object? page) {
     for (final c in children is List ? children : const []) {
       if (c is Map) walk(c, id, a, 1);
     }
+  }
+
+  final kids = page is Map ? page['children'] : null;
+  for (final k in kids is List ? kids : const []) {
+    if (k is! Map) continue;
+    if (k['type'] == 'SECTION') out.hasSections = true;
+    if (++read > maxReadNodes) break;
+    top(k, 0, false);
   }
   out.fingerprint = fingerprintOf({
     'ops': out.ops,

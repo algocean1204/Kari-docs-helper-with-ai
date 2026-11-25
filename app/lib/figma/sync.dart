@@ -9,10 +9,12 @@ import 'receive.dart';
 ///   Kari에서 지운 것), 그사이 Figma에서 고쳤는지(지문이 다름), 노드의 맞춘 때의 부모가 무엇인지 여기서 안다.
 /// - `~boards`: 대지마다 그 페이지의 모든 대지의 지문(최상위의 `~kids`).
 /// - `~page`, `~file`: 읽은 Figma 페이지 id와 파일 키(플러그인이 주면).
+/// - `~sections`: 섹션을 풀어 가져왔다(참일 때만 둔다). 다시 맞추기도 같은 풀기로 읽는다.
 const metaKids = '~kids',
     metaBoards = '~boards',
     metaPage = '~page',
-    metaFile = '~file';
+    metaFile = '~file',
+    metaSections = '~sections';
 
 /// 다른 Figma 파일에서 가져온 문서를 맞추려 할 때.
 const otherFile = '이 문서는 다른 Figma 파일에서 가져왔습니다. 그 파일에서 플러그인을 실행해 연결한 뒤 맞춥니다';
@@ -118,6 +120,13 @@ String? linkedPage(List<Json> nodes) {
   return null;
 }
 
+/// 문서를 섹션을 풀어 가져왔는가(대지의 기준값에 있으면). 다시 맞추기는 같은 풀기로 읽어야 대지가 그대로 맞는다.
+bool linkedSections(List<Json> nodes) => nodes.any((n) {
+  final figma = (n['props'] as Map?)?['figma'];
+  final base = figma is Map ? figma['base'] : null;
+  return base is Map && base[metaSections] == true;
+});
+
 /// Figma에서 읽은 노드 하나(가져오기의 옮기기를 거친 Kari 모양의 속성).
 class _F {
   _F(this.fid, this.type, this.parent, this.props, this.image);
@@ -130,7 +139,10 @@ class _F {
 
 /// 옮긴 Figma 페이지를 Figma id로 찾는 나무. 가져오기와 맞추기가 같은 기준값을 만든다.
 class FigmaTree {
-  FigmaTree(FigmaImport plan) : page = plan.pageId, file = plan.fileKey {
+  FigmaTree(FigmaImport plan)
+    : page = plan.pageId,
+      file = plan.fileKey,
+      sections = plan.unpackSections {
     final images = {for (final i in plan.images) i.figmaId};
     for (final op in plan.ops) {
       final n = op['node'] as Json;
@@ -148,6 +160,7 @@ class FigmaTree {
   }
 
   final String? page;
+  final bool sections;
 
   /// 기준값에 새길 파일 키. 맞추기는 파일을 확인하지 못했으면 문서에 있던 값을 둔다([planSync]).
   String? file;
@@ -183,6 +196,7 @@ class FigmaTree {
           metaBoards: _boards ??= {for (final b in _boardIds) b: hashOf(b)},
         metaPage: ?page,
         metaFile: ?file,
+        if (sections) metaSections: true,
       },
     };
     final kids = {for (final k in f.kids) k: hashOf(k)};
@@ -329,7 +343,8 @@ String _nameOf(Map props, String type) {
       type;
 }
 
-/// 대응표의 모양이 맞는가: `{id: 글, base?: {…, ~kids?: {id: 글}, ~boards?: …, ~page?: 글, ~file?: 글}}`.
+/// 대응표의 모양이 맞는가: `{id: 글, base?: {…, ~kids?: {id: 글}, ~boards?: …, ~page?: 글, ~file?: 글,
+/// ~sections?: 참거짓}}`.
 bool _okMap(Object? m) {
   if (m is! Map || m['id'] is! String) return false;
   final base = m['base'];
@@ -344,6 +359,7 @@ bool _okMap(Object? m) {
   for (final k in [metaPage, metaFile]) {
     if (base[k] != null && base[k] is! String) return false;
   }
+  if (base[metaSections] != null && base[metaSections] is! bool) return false;
   return true;
 }
 

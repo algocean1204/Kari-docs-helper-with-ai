@@ -16,7 +16,13 @@ import 'sync.dart';
 export 'client.dart' show FigmaError;
 export 'receive.dart' show FigmaImport;
 export 'sync.dart'
-    show SyncPlan, SyncConflict, planSync, linkedPage, hasFigmaMap;
+    show
+        SyncPlan,
+        SyncConflict,
+        planSync,
+        linkedPage,
+        linkedSections,
+        hasFigmaMap;
 
 /// 중계 서버의 상태: 아직 켜지 않음, 이미 켜진 것(다른 앱)을 씀, 앱이 켬, 켜지 못함.
 enum RelayKind { off, external, builtin, failed }
@@ -347,12 +353,14 @@ class FigmaLink extends ChangeNotifier {
     ].join(' · ');
   }
 
-  /// 고른 Figma 페이지를 읽어 무엇을 가져올지 셈한다. 문서는 아직 만들지 않는다.
+  /// 고른 Figma 페이지를 읽어 무엇을 가져올지 셈한다. 문서는 아직 만들지 않는다. [unpackSections]면 맨 위
+  /// 섹션 안의 프레임을 각각 대지로 옮긴다([fromFigma]).
   /// 큰 페이지는 플러그인이 내보내는 데 오래 걸려 시간 한도를 넉넉히 둔다.
   Future<FigmaImport> readPage(
     String pageId, {
     Duration timeout = const Duration(seconds: 120),
     Duration total = maxCommandTime,
+    bool unpackSections = false,
   }) async =>
       fromFigma(
           await _c.send(
@@ -361,6 +369,7 @@ class FigmaLink extends ChangeNotifier {
             timeout: timeout,
             total: total,
           ),
+          unpackSections: unpackSections,
         )
         ..pageId = pageId
         ..fileKey = fileKey;
@@ -425,7 +434,8 @@ class FigmaLink extends ChangeNotifier {
         'nodeId': pageId,
       }, timeout: const Duration(seconds: 120)),
     );
-    if (fromFigma(now).fingerprint != plan.fingerprint) {
+    if (fromFigma(now, unpackSections: plan.unpackSections).fingerprint !=
+        plan.fingerprint) {
       throw const FigmaChanged();
     }
   }

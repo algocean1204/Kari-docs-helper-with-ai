@@ -502,6 +502,9 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
   List<FigmaPage>? _pages;
   FigmaPage? _page;
   FigmaImport? _plan;
+
+  /// 섹션 안의 프레임을 각각 페이지로(페이지를 바꾸면 끈다).
+  bool _unpack = false;
   bool _reading = false;
   bool _importing = false;
   Completer<void> _stop = Completer<void>();
@@ -543,7 +546,7 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
       _error = null;
     });
     try {
-      final plan = await widget.link.readPage(page.id);
+      final plan = await widget.link.readPage(page.id, unpackSections: _unpack);
       if (mounted && _page == page) setState(() => _plan = plan);
     } on FigmaError catch (e) {
       if (mounted && _page == page) setState(() => _error = e.message);
@@ -673,7 +676,9 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
                     (
                       p.name,
                       () {
-                        if (!_importing && done == null) _read(p);
+                        if (_importing || done != null) return;
+                        if (p != _page) _unpack = false;
+                        _read(p);
                       },
                     ),
                 ],
@@ -682,6 +687,25 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
             const SizedBox(height: Space.x4),
             if (_reading) line('페이지를 읽는 중', color: c.textMuted),
             if (plan != null) ...[
+              if (plan.hasSections) ...[
+                SwitchRow(
+                  key: const Key('figma-import-sections'),
+                  label: '섹션 안의 프레임을 각각 페이지로',
+                  caption:
+                      '끄면 맨 위 섹션 하나가 페이지 하나가 됩니다. 켜면 섹션 안의 프레임이 Figma에서의 자리 그대로 '
+                      '저마다 페이지가 되고, 섹션의 칠과 이름은 오지 않습니다.',
+                  value: plan.unpackSections,
+                  onChanged: (v) {
+                    if (_importing || done != null) return;
+                    // 이미 읽은 자료로 다시 옮긴다(Figma를 다시 읽지 않는다).
+                    setState(() {
+                      _unpack = v;
+                      _plan = plan.again(unpackSections: v);
+                    });
+                  },
+                ),
+                const SizedBox(height: Space.x4),
+              ],
               line(
                 'Kari로 오는 것: 페이지 ${plan.boards}개, 요소 ${plan.count}개, '
                 '그림 ${plan.images.length}개',
@@ -789,7 +813,11 @@ class _FigmaSyncDialogState extends State<FigmaSyncDialog> {
       _error = null;
     });
     try {
-      final fresh = await widget.link.readPage(page.id);
+      // 섹션을 풀어 가져온 문서는 같은 풀기로 읽어야 대지가 그대로 맞는다.
+      final fresh = await widget.link.readPage(
+        page.id,
+        unpackSections: linkedSections(_nodes!),
+      );
       if (mounted && _page == page) {
         setState(() {
           _fresh = fresh;
