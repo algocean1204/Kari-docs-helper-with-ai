@@ -16,7 +16,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kari/design/components.dart' show AppButton;
+import 'package:kari/design/components.dart' show AppButton, MoreMenu;
 import 'package:kari/design/theme.dart';
 import 'package:kari/design/tokens.dart' show keepAll;
 import 'package:kari/engine/engine.dart';
@@ -1380,6 +1380,116 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining(keepAll('AI로 가는 것: 없음')), findsOneWidget);
     });
+
+    testWidgets(
+      '채널: 붙여넣기는 클립보드의 글을 다듬어 칸에 넣고(연결은 하지 않음), 글이 없으면 칸을 두며, 연결 중에는 꺼진다',
+      (tester) async {
+        String? clip;
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (c) async => c.method == 'Clipboard.getData' && clip != null
+              ? <String, Object?>{'text': clip}
+              : null,
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        final link = await pump(tester, (l) => ChannelRow(link: l));
+        String field() => tester
+            .widget<TextField>(find.byKey(const Key('figma-channel')))
+            .controller!
+            .text;
+        VoidCallback? press(String label) => tester
+            .widget<AppButton>(find.widgetWithText(AppButton, label))
+            .onPressed;
+        Future<void> paste() async {
+          await tester.tap(find.widgetWithText(AppButton, '붙여넣기'));
+          await tester.pump();
+        }
+
+        expect(find.bySemanticsLabel('채널 ID 붙여넣기'), findsOneWidget);
+        await paste();
+        expect(field(), '');
+        clip = ' \n ';
+        await paste();
+        expect(field(), '');
+        expect(press('연결'), isNull);
+
+        clip = '  abc123  ';
+        await paste();
+        expect(field(), 'abc123');
+        expect(press('연결'), isNotNull);
+        expect(link.status, LinkStatus.idle);
+
+        clip = null;
+        await paste();
+        expect(field(), 'abc123');
+
+        link.status = LinkStatus.connecting;
+        link.notifyListeners();
+        await tester.pump();
+        expect(press('붙여넣기'), isNull);
+      },
+    );
+
+    testWidgets(
+      '보내기 창: 처음 고른 페이지는 Figma에서 지금 보는 페이지다(목록과 함께 받은 id, 없으면 연결할 때의 id, 하나뿐인 같은 이름, 첫 페이지, 없으면 새 페이지)',
+      (tester) async {
+        tester.view.physicalSize = const Size(900, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        const twins = [
+          (id: '0:1', name: 'Page 1'),
+          (id: '5:1', name: '디자인'),
+          (id: '6:1', name: '디자인'),
+        ];
+        final cases = <(String?, String?, String?, List<FigmaPage>?, String)>[
+          ('5:1', null, null, null, '디자인'),
+          ('5:1', '0:1', 'Page 1', null, '디자인'),
+          ('없는 id', '5:1', 'Page 1', null, '디자인'),
+          (null, '5:1', 'Page 1', null, '디자인'),
+          (null, null, '디자인', null, '디자인'),
+          (null, '없는 id', '디자인', null, '디자인'),
+          (null, null, '없는 이름', null, 'Page 1'),
+          (null, null, '디자인', twins, 'Page 1'),
+          (null, null, null, const [], '새 페이지'),
+        ];
+        for (final (current, id, name, list, want) in cases) {
+          final link =
+              _ImportLink(
+                  Library(FakeEngine(), '/tmp/kari-test'),
+                  connected: true,
+                )
+                ..current = current
+                ..pageId = id
+                ..pageName = name;
+          if (list != null) link.pageList = list;
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildTheme(Brightness.light),
+              home: Scaffold(
+                body: FigmaSendDialog(
+                  key: ObjectKey(link),
+                  link: link,
+                  doc: _doc,
+                  hasKey: true,
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<MoreMenu>(find.byKey(const Key('figma-page'))).label,
+            want,
+            reason: '$current $id $name',
+          );
+        }
+        expect(find.byKey(const Key('figma-new-page')), findsOneWidget);
+      },
+    );
   });
 
   group('가져오기: 옮기기', () {
