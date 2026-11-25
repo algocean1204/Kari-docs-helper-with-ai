@@ -497,25 +497,33 @@ class _CanvasLayersState extends State<CanvasLayers> {
               widget.onDone?.call();
             },
           )
-        : Text(
-            r.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.body.copyWith(
-              color: fg,
-              fontWeight: r.type == 'page' ? FontWeight.w600 : null,
+        : ExcludeSemantics(
+            child: Text(
+              r.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body.copyWith(
+                color: fg,
+                fontWeight: r.type == 'page' ? FontWeight.w600 : null,
+              ),
             ),
           );
+    final size = r.type == 'page' && r.w != null && r.h != null
+        ? '${r.w!.round()}×${r.h!.round()}'
+        : null;
     return MouseRegion(
       key: ValueKey('layer-${r.id}'),
       onEnter: (_) => setState(() => _hover = r.id),
       onExit: (_) {
         if (_hover == r.id) setState(() => _hover = null);
       },
+      // 줄은 이름과 크기를 한 번씩 읽는다. 보이는 글은 빼 두어 이름에 다시 붙지 않게 하고, 접기·눈·자물쇠는
+      // 제 이름으로 따로 읽힌다.
       child: Semantics(
         button: true,
         selected: selected,
         label: r.label,
+        value: size,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => _tap(r, byId, rows),
@@ -561,14 +569,16 @@ class _CanvasLayersState extends State<CanvasLayers> {
                 ),
                 const SizedBox(width: Space.x2),
                 Expanded(child: label),
-                if (r.type == 'page' && r.w != null && r.h != null)
+                if (size != null)
                   Padding(
                     padding: const EdgeInsets.only(left: Space.x1),
-                    child: Text(
-                      '${r.w!.round()}×${r.h!.round()}',
-                      style: AppText.caption.copyWith(
-                        color: c.textMuted,
-                        fontFeatures: AppText.tabular,
+                    child: ExcludeSemantics(
+                      child: Text(
+                        size,
+                        style: AppText.caption.copyWith(
+                          color: c.textMuted,
+                          fontFeatures: AppText.tabular,
+                        ),
                       ),
                     ),
                   ),

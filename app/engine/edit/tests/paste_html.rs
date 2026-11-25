@@ -266,6 +266,116 @@ fn 표는_합친_칸과_머리_행을_살리고_표_안에_붙이면_글로_푼�
     assert_eq!(in_cell, ["a\tb", "c\td"]);
 }
 
+/// 본문 폭 480pt에서 읽은 첫 표의 열 폭과 칸의 합친 크기.
+fn cols_of(html: &str) -> (Vec<f64>, Vec<Value>) {
+    let f = html_fragment(html, 480.0, true).unwrap().expect(html);
+    let t = f.paras.iter().find_map(|p| p.table.as_ref()).expect(html);
+    let cols = t.props["cols"].as_array().unwrap();
+    let spans = t.rows.iter().flat_map(|(_, cells)| cells.iter().flatten());
+    (
+        cols.iter().map(|v| v.as_f64().unwrap()).collect(),
+        spans.filter_map(|(p, _)| p.get("span").cloned()).collect(),
+    )
+}
+
+#[test]
+fn 표의_열_폭은_col과_칸의_width를_읽어_본문_폭에_비율로_맞춘다() {
+    let w = |html: &str| cols_of(html).0;
+    // <col>의 %.
+    assert_eq!(
+        w("<table><col width=\"20%\"><col width=\"80%\"><tr><td>a<td>b</table>"),
+        [96.0, 384.0]
+    );
+    // 칸의 px(단위 없는 수)는 서로의 비율로 본문 폭을 채운다.
+    assert_eq!(
+        w("<table><tr><td width=\"120\">a<td width=\"480\">b</table>"),
+        [96.0, 384.0]
+    );
+    assert_eq!(
+        w("<table><tr><td style=\"width: 36pt\">a<td style=\"width:108pt\">b</table>"),
+        [120.0, 360.0]
+    );
+    // 인라인 스타일은 속성보다 앞서고, `span`만큼의 열에 쓴다.
+    assert_eq!(
+        w("<table><colgroup><col span=2 style=\"width:30%\" width=\"10%\"><col style=\"width: 40%\"></colgroup>\
+           <tr><td>a<td>b<td>c</table>"),
+        [144.0, 144.0, 192.0]
+    );
+    // 일부 열만 값이 있으면 남은 폭을 값 없는 열에 고르게 나눈다.
+    assert_eq!(
+        w("<table><tr><td style=\"width:50%\">a<td>b<td>c</table>"),
+        [240.0, 120.0, 120.0]
+    );
+    // 남은 폭이 최소 폭보다 좁으면 값 없는 열은 최소 폭(12pt)을 받고, 값 있는 열이 줄어 본문 폭에 맞춘다.
+    assert_eq!(
+        w("<table><tr><td width=\"100%\">a<td>b</table>"),
+        [468.0, 12.0]
+    );
+    for p in [95, 96, 100] {
+        assert_eq!(
+            w(&format!(
+                "<table><tr><td width=\"{p}%\">a<td>b<td>c</table>"
+            )),
+            [456.0, 12.0, 12.0],
+            "{p}%"
+        );
+    }
+    // 첫 열을 키우면 첫 열은 줄지 않고, 값 없는 열은 max(남은 폭 / 값 없는 열 수, 12pt)를 받는다.
+    let mut last = 0.0;
+    for p in 90..=100 {
+        let cols = w(&format!(
+            "<table><tr><td width=\"{p}%\">a<td>b<td>c</table>"
+        ));
+        let rest = ((480.0 - 4.8 * f64::from(p)) / 2.0).max(12.0);
+        assert!(cols[0] >= last, "{p}%: {cols:?}");
+        assert!(
+            cols[1..].iter().all(|c| (c - rest).abs() < 0.006),
+            "{p}%: {cols:?}"
+        );
+        last = cols[0];
+    }
+    // 값이 없으면 고르게 나눈다.
+    assert_eq!(
+        w("<table><tr><td>a<td>b<td>c</table>"),
+        [160.0, 160.0, 160.0]
+    );
+    // 합친 칸의 값은 열 하나의 폭으로 쓰지 않는다. 합친 칸은 두 열을 덮는다(폭은 두 열의 합).
+    let (cols, spans) =
+        cols_of("<table><tr><td colspan=2 width=\"600\">a<tr><td width=\"75%\">b<td>c</table>");
+    assert_eq!(cols, [360.0, 120.0]);
+    assert_eq!(spans, [json!({"rows": 1, "cols": 2})]);
+}
+
+#[test]
+fn 터무니없는_열_폭은_멈추지_않고_모든_열을_최소_폭_이상으로_본문_폭에_맞춘다() {
+    let bad = [
+        "0", "-50", "100000%", "abc", "1e308", "NaN", "inf", "10em", "auto", "", "50%%", "-0%",
+    ];
+    for v in bad {
+        for n in [1usize, 2, 3, 20] {
+            let cells: String = (0..n)
+                .map(|i| {
+                    if i == 0 {
+                        format!("<td width=\"{v}\">x")
+                    } else {
+                        "<td>x".into()
+                    }
+                })
+                .collect();
+            for html in [
+                format!("<table><tr>{cells}</table>"),
+                format!("<table><col style=\"width:{v}\"><col width=\"1\"><tr>{cells}</table>"),
+            ] {
+                let cols = cols_of(&html).0;
+                assert_eq!(cols.len(), n, "{html}");
+                assert!(cols.iter().all(|c| *c >= 12.0), "{html}: {cols:?}");
+                let sum: f64 = cols.iter().sum();
+                assert!((sum - 480.0).abs() <= 0.01 * n as f64, "{html}: {cols:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn 줄바꿈과_공백은_브라우저처럼_줄이고_pre는_그대로_두며_글_앞뒤의_빈_줄은_버린다() {
     let t = fresh(

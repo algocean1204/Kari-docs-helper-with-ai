@@ -117,6 +117,59 @@ pub(crate) fn widow(fit: usize, rest: usize, para: bool, empty: bool) -> usize {
     }
 }
 
+/// keepNext 묶음이 `y`에서 시작해 한 쪽에 함께 놓이는지. `bi`의 블록을 다 놓고, 그 뒤로 keepNext이면서 다
+/// 들어가는 블록을 묶음에 넣는다(`chain`이 거짓이면 넣지 않는다). 묶음 뒤 블록은 외톨이 줄 규칙을 적용한 뒤
+/// 이 쪽에 놓일 첫 조각(표면 머리 행들과 첫 본문 행)이 들어가야 한다. 다 들어가지 않는 keepNext 블록은
+/// 쪼개지므로 묶음 뒤 블록으로 본다. `break_before`인 블록에서 묶음이 끊겨 볼 것이 없다.
+/// 들어가면 묶음의 마지막 블록 번호. 높이는 실제로 놓는 차례대로 더한다.
+fn keeps(
+    blocks: &[Block],
+    bi: usize,
+    mut y: f32,
+    empty: bool,
+    chain: bool,
+    limit: f32,
+) -> Option<usize> {
+    let mut j = bi;
+    loop {
+        let b = &blocks[j];
+        if !(empty && j == bi) {
+            y += b.before;
+        }
+        for &h in b.heights {
+            y += h;
+        }
+        y += b.after;
+        let Some(n) = blocks.get(j + 1) else {
+            return Some(j);
+        };
+        if n.break_before {
+            return Some(j);
+        }
+        let lines: f32 = n.heights.iter().sum();
+        if chain && n.keep_next && y + n.before + lines <= limit {
+            j += 1;
+            continue;
+        }
+        y += n.before;
+        let fit = n
+            .heights
+            .iter()
+            .take_while(|&&h| {
+                y += h;
+                y <= limit
+            })
+            .count();
+        let need = if n.table.is_some() {
+            (n.header + 1).min(n.heights.len())
+        } else {
+            1
+        };
+        let placed = widow(fit, n.heights.len(), n.para.is_some(), false);
+        return (placed > 0 && placed >= need).then_some(j);
+    }
+}
+
 /// 블록들을 쪽에 놓는다. 쪽마다 놓인 것의 목록. 빈 문서도 쪽 하나.
 pub(crate) fn paginate(blocks: &[Block], body_h: f32) -> Vec<Vec<Entry>> {
     let mut f = Flow {
@@ -124,6 +177,13 @@ pub(crate) fn paginate(blocks: &[Block], body_h: f32) -> Vec<Vec<Entry>> {
         y: 0.0,
     };
     let limit = body_h + EPS;
+    // 지금 keepNext 묶음의 남은 블록이 빈 쪽 하나에 들어가는지. 묶음의 첫 블록과 두 쪽에 나뉜 블록 바로
+    // 뒤에서 정하고, 들어가지 않는다고 본 뒤로는 다음에 정할 때까지 바꾸지 않는다(블록마다 다시 걷지 않게).
+    let mut chain = false;
+    // 이 번호 앞의 블록은 앞에서 본 묶음 안에 들어 이 쪽에 함께 놓인다. 다시 보지 않는다(두 번 넘기지 않게).
+    let mut held = 0;
+    // 앞 블록이 두 쪽에 나뉘었다.
+    let mut split = false;
     for (bi, b) in blocks.iter().enumerate() {
         if b.break_before && !f.empty() {
             f.new_page();
@@ -133,28 +193,24 @@ pub(crate) fn paginate(blocks: &[Block], body_h: f32) -> Vec<Vec<Entry>> {
         if b.keep_lines && !f.empty() && !fits_here(&f) && lines <= limit {
             f.new_page();
         }
-        // keepNext: 이 문단이 쪽에 다 들어가고, 다음 블록에 외톨이 줄 규칙을 적용한 뒤 이 쪽에 놓일 줄이
-        // 0이면 함께 넘긴다. 다음 블록이 문단이 아니면 그 첫 조각이 들어가는지로 본다. 쪼개지는 문단은 보지 않는다.
-        if b.keep_next && !f.empty() && fits_here(&f) {
-            if let Some(n) = blocks.get(bi + 1) {
-                let mut y = f.y + b.before + lines + b.after + n.before;
-                let fit = n
-                    .heights
-                    .iter()
-                    .take_while(|&&h| {
-                        y += h;
-                        y <= limit
-                    })
-                    .count();
-                // 다음 블록이 표면 머리 행들과 첫 본문 행이 이 쪽에 들어가야 한다.
-                let need = if n.table.is_some() {
-                    (n.header + 1).min(n.heights.len())
-                } else {
-                    1
-                };
-                let placed = widow(fit, n.heights.len(), n.para.is_some(), false);
-                if placed == 0 || placed < need {
+        // keepNext: 이 문단이 쪽에 다 들어가는데 이어진 keepNext 묶음과 그 뒤 블록의 첫 조각이 이 쪽에 함께
+        // 들어가지 않으면 넘긴다(Word의 다음 문단과 함께 연쇄). 묶음이 빈 쪽 하나에도 들어가지 않으면 바로 다음
+        // 블록만 본다. 쪼개지는 문단은 보지 않는다.
+        if b.keep_next && (bi == 0 || !blocks[bi - 1].keep_next || b.break_before || split) {
+            chain = keeps(blocks, bi, 0.0, true, true, limit).is_some();
+        }
+        split = false;
+        if b.keep_next && bi >= held && !f.empty() && fits_here(&f) {
+            // 넘길 때 함께 놓일 블록을 알고, 여기서부터의 묶음도 빈 쪽에 들어가는지 본다.
+            let fresh = chain
+                .then(|| keeps(blocks, bi, 0.0, true, true, limit))
+                .flatten();
+            chain = fresh.is_some();
+            match keeps(blocks, bi, f.y, false, chain, limit) {
+                Some(j) => held = j + 1,
+                None => {
                     f.new_page();
+                    held = fresh.map_or(bi, |j| j + 1);
                 }
             }
         }
@@ -197,6 +253,7 @@ pub(crate) fn paginate(blocks: &[Block], body_h: f32) -> Vec<Vec<Entry>> {
             li += fit;
             if li < n_all {
                 f.new_page();
+                split = true;
             }
         }
         f.y += b.after;
@@ -316,7 +373,7 @@ pub(crate) fn shift(item: &Item, dx: f32, dy: f32) -> Item {
 
 #[cfg(test)]
 mod tests {
-    use super::widow;
+    use super::{paginate, widow, Block};
 
     /// 위 세 규칙을 그대로 적은 정답.
     fn want(fit: usize, rest: usize, empty: bool) -> usize {
@@ -375,5 +432,38 @@ mod tests {
         // 빈 쪽에서는 0이 되지 않는다.
         assert_eq!(widow(2, 3, true, true), 1);
         assert_eq!(widow(0, 4, true, true), 1);
+    }
+
+    fn blk(i: usize, heights: &[f32], keep_next: bool) -> Block<'_> {
+        Block {
+            para: Some(i),
+            table: None,
+            header: 0,
+            heights,
+            before: 0.0,
+            after: 0.0,
+            keep_next,
+            keep_lines: false,
+            break_before: false,
+        }
+    }
+
+    /// 높이 0인 keepNext 블록이 아주 많아도 블록마다 묶음을 다시 걷지 않는다. 줄 간격 0으로 문서에서
+    /// 만들 수 있다. 배치기를 거치면 문단마다 드는 일이 커서 여기서 쪽 나눔만 잰다.
+    #[test]
+    fn 높이_0인_keep_next_블록이_많아도_쪽_나눔은_선형이다() {
+        let (first, zero, ten, end) = ([150.0], [0.0], [20.0; 10], [120.0]);
+        let k = 40_000;
+        let mut blocks = vec![blk(0, &first, true)];
+        blocks.extend((1..=k).map(|i| blk(i, &zero, true)));
+        blocks.push(blk(k + 1, &ten, true));
+        blocks.push(blk(k + 2, &end, false));
+        let t = std::time::Instant::now();
+        let pages = paginate(&blocks, 300.0);
+        let took = t.elapsed();
+        // 열 줄 문단이 7/3으로 나뉘고 마지막 줄이 둘째 쪽에 놓인다.
+        assert_eq!(pages.len(), 2);
+        // 넉넉한 한도(디버그 빌드, 다른 빌드와 함께 돌 때). 블록마다 묶음을 다시 걸으면 이보다 훨씬 크다.
+        assert!(took.as_millis() < 500, "{took:?}");
     }
 }

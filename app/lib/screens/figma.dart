@@ -90,13 +90,25 @@ Future<void> openFigmaDownload() async {
   }
 }
 
-class _RelayRow extends StatelessWidget {
+class _RelayRow extends StatefulWidget {
   const _RelayRow({required this.link});
   final FigmaLink? link;
 
   @override
+  State<_RelayRow> createState() => _RelayRowState();
+}
+
+class _RelayRowState extends State<_RelayRow> {
+  @override
+  void initState() {
+    super.initState();
+    // 다른 프로그램이 켠 중계가 켜졌는지 꺼졌는지 연결하기 전에도 맞게 보이게.
+    widget.link?.probeRelay();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final l = link;
+    final l = widget.link;
     final kind = l?.relay ?? RelayKind.off;
     return _Row(
       label: '중계',
@@ -193,6 +205,12 @@ class _ChannelRowState extends State<ChannelRow> {
   );
 
   @override
+  void initState() {
+    super.initState();
+    _text.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
     _text.dispose();
     super.dispose();
@@ -247,7 +265,7 @@ class _ChannelRowState extends State<ChannelRow> {
               AppButton(
                 '연결',
                 loading: busy,
-                onPressed: busy || l == null
+                onPressed: busy || l == null || _text.text.trim().isEmpty
                     ? null
                     : () => l.connect(_text.text),
               ),
@@ -499,10 +517,19 @@ class _FigmaImportDialogState extends State<FigmaImportDialog> {
 
   Future<void> _load() async {
     try {
-      final pages = await widget.link.pages();
+      final link = widget.link;
+      final pages = await link.pages();
       if (!mounted) return;
       setState(() => _pages = pages);
-      if (pages.isNotEmpty) await _read(pages.first);
+      // Figma에서 지금 보는 페이지: 목록과 함께 받은 id, 없으면 연결할 때 받은 id, 이름이 하나만 맞는 페이지,
+      // 아니면 첫 페이지.
+      FigmaPage? byId(String? id) => pages.where((p) => p.id == id).firstOrNull;
+      final named = pages.where((p) => p.name == link.pageName);
+      final now =
+          byId(link.currentPageId) ??
+          byId(link.pageId) ??
+          (named.length == 1 ? named.single : pages.firstOrNull);
+      if (now != null) await _read(now);
     } on FigmaError catch (e) {
       if (mounted) setState(() => _error = e.message);
     }
