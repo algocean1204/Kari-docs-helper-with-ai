@@ -359,7 +359,7 @@ void main() {
       // 문서 이름과 도구 줄이 보인다.
       expect(find.text('제목 없는 캔버스'), findsWidgets);
       for (final t in ['고르기', '프레임', '사각형', '타원', '선', '글', '그림']) {
-        expect(find.bySemanticsLabel(t), findsOneWidget, reason: t);
+        expect(find.bySemanticsLabel('$t 도구'), findsOneWidget, reason: t);
       }
     });
 
@@ -431,22 +431,22 @@ void main() {
           .flagsCollection
           .isSelected
           .toBoolOrNull()!;
-      expect(selected('고르기'), isTrue);
-      await tester.tap(find.bySemanticsLabel('사각형'));
+      expect(selected('고르기 도구'), isTrue);
+      await tester.tap(find.bySemanticsLabel('사각형 도구'));
       await tester.pumpAndSettle();
       expect(o.calls('canvas.cmd').last['name'], 'tool');
       expect(o.calls('canvas.cmd').last['tool'], 'rect');
-      expect(selected('사각형'), isTrue);
-      expect(selected('고르기'), isFalse);
+      expect(selected('사각형 도구'), isTrue);
+      expect(selected('고르기 도구'), isFalse);
       // 고르기를 다시 누르면 도구가 풀린다.
-      await tester.tap(find.bySemanticsLabel('고르기'));
+      await tester.tap(find.bySemanticsLabel('고르기 도구'));
       await tester.pumpAndSettle();
       expect(
         o.calls('canvas.cmd').last.containsKey('tool'),
         isFalse,
         reason: '고르기는 도구 없이',
       );
-      expect(selected('고르기'), isTrue);
+      expect(selected('고르기 도구'), isTrue);
     });
 
     testWidgets('단축키 V F R O L T와 Esc', (tester) async {
@@ -472,7 +472,7 @@ void main() {
     testWidgets('그림 도구는 파일을 고른 뒤 path로 건다', (tester) async {
       final o = await openCanvas(tester);
       o.rig.openPath = () async => '/그림/사진.png';
-      await tester.tap(find.bySemanticsLabel('그림'));
+      await tester.tap(find.bySemanticsLabel('그림 도구'));
       await tester.pumpAndSettle();
       final c = o.calls('canvas.cmd').last;
       expect(c['name'], 'tool');
@@ -481,7 +481,7 @@ void main() {
       // 취소하면 아무것도 보내지 않는다.
       final n = o.calls('canvas.cmd').length;
       o.rig.openPath = () async => null;
-      await tester.tap(find.bySemanticsLabel('그림'));
+      await tester.tap(find.bySemanticsLabel('그림 도구'));
       await tester.pumpAndSettle();
       expect(o.calls('canvas.cmd'), hasLength(n));
     });
