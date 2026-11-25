@@ -2046,6 +2046,58 @@ void main() {
       );
     });
 
+    test('섹션 풀기: 끄면 섹션마다 페이지, 켜면 섹션 안의 프레임마다 Figma에서의 자리 그대로 페이지', () {
+      String? fid(FigmaImport p, Json op) =>
+          p.figmaOf[(op['node'] as Json)['id']];
+      Json props(FigmaImport p, String id) =>
+          (p.ops.firstWhere((op) => fid(p, op) == id)['node'] as Json)['props']
+              as Json;
+      List<String?> boards(FigmaImport p) => [
+        for (final op in p.ops)
+          if ((op['node'] as Json)['parent'] == null) fid(p, op),
+      ];
+
+      final off = fromFigma(sectionsPage());
+      expect(off.hasSections, isTrue);
+      expect(off.unpackSections, isFalse);
+      expect(boards(off), ['10:1', '20:1']);
+      expect(off.count, 13);
+      expect(off.skipped, isNot(contains(skipOutside)));
+      expect(props(off, '10:1')['name'], '프로젝트 가');
+
+      final on = fromFigma(sectionsPage(), unpackSections: true);
+      expect(on.unpackSections, isTrue);
+      expect(boards(on), ['11:1', '11:3', '12:2', '21:1', '21:3', '22:2']);
+      expect(on.boards, 6);
+      for (final (id, x, y) in [
+        ('11:1', 40, 60),
+        ('11:3', 400, 60),
+        ('12:2', 60, 420),
+        ('21:1', 1250, 60),
+        ('21:3', 1600, 60),
+        ('22:2', 1270, 420),
+      ]) {
+        expect((props(on, id)['cx'], props(on, id)['cy']), (x, y), reason: id);
+      }
+      // 대지 안의 것은 대지 기준이다.
+      expect((props(on, '11:2')['x'], props(on, '11:2')['y']), (10, 10));
+      // 섹션은 오지 않고(칠·이름도), 섹션 안의 프레임이 아닌 것은 맨 위의 것처럼 센다.
+      expect(
+        on.figmaOf.values,
+        isNot(anyOf(contains('10:1'), contains('12:1'))),
+      );
+      expect(on.count, 7);
+      expect(on.skipped, {skipOutside: 2});
+      // 숨긴 섹션 안의 것은 숨긴 채로 온다.
+      expect(props(on, '22:2')['visible'], isFalse);
+      expect(props(on, '12:2'), isNot(contains('visible')));
+
+      // 이미 읽은 자료로 다시 옮기면 처음부터 그 풀기로 읽은 것과 같다.
+      expect(off.again(unpackSections: true).fingerprint, on.fingerprint);
+      expect(on.again(unpackSections: false).fingerprint, off.fingerprint);
+      expect(fromFigma(samplePage()).hasSections, isFalse);
+    });
+
     test('이상한 답(F1~F7, F14)과 마스크·자동 배치·글자별 모양은 세고, 이름과 글은 다듬는다', () {
       Json deep(int n) => n == 0
           ? figmaNode('z', 'RECTANGLE', x: 0, y: 0, w: 1, h: 1)
@@ -2824,6 +2876,22 @@ void main() {
       await c.close();
       await server.close(force: true);
     });
+    test('섹션을 풀어 미리 본 것은 같은 풀기로 다시 읽어 견주고, 그 선택을 지닌 문서로 가져온다', () async {
+      final (link, plugin) = await connect(
+        (command, _) => command == 'get_node_info' ? sectionsPage() : null,
+      );
+      final plan = await link.readPage('0:1', unpackSections: true);
+      expect(plan.boards, 6);
+      final r = await link.importPage(plan, name: 'Page 1');
+      expect(plugin.names.where((c) => c == 'get_node_info'), hasLength(2));
+      expect(r.line, contains('페이지 6개'));
+      final nodes = await fake.docNodes(r.id);
+      expect(nodes.where((n) => n['parent'] == null), hasLength(6));
+      expect(linkedSections(nodes), isTrue);
+      await link.stop();
+      await plugin.close();
+    });
+
     test('미리 본 뒤 Figma 페이지가 바뀌면 그림을 받지 않고 아무것도 만들지 않는다', () async {
       var reads = 0;
       final (link, plugin) = await connect(
@@ -3576,6 +3644,53 @@ void main() {
       expect(link.result, isNull);
     });
 
+    testWidgets(
+      '섹션 풀기: 맨 위에 섹션이 있을 때만 보이고, 바꾸면 다시 읽지 않고 미리 보기가 바뀌며 그 선택으로 가져온다',
+      (tester) async {
+        final link = await pump(tester);
+        final toggle = find.byKey(const Key('figma-import-sections'));
+        final knob = find.descendant(of: toggle, matching: find.byType(Switch));
+        Future<void> pick(String name) async {
+          await tester.tap(find.byKey(const Key('figma-import-page')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(name).last);
+          await tester.pumpAndSettle();
+        }
+
+        Finder preview(String counts) =>
+            find.textContaining(keepAll('Kari로 오는 것: $counts'));
+
+        expect(link.read, ['0:1']);
+        expect(toggle, findsNothing);
+        link.figma = sectionsPage();
+        await pick('디자인');
+        expect(tester.widget<Switch>(knob).value, isFalse);
+        expect(preview('페이지 2개, 요소 13개, 그림 0개'), findsOneWidget);
+        expect(find.textContaining(keepAll('프레임 밖의 요소')), findsNothing);
+
+        await tester.tap(knob);
+        await tester.pumpAndSettle();
+        expect(link.read, ['0:1', '5:1']);
+        expect(tester.widget<Switch>(knob).value, isTrue);
+        expect(preview('페이지 6개, 요소 7개, 그림 0개'), findsOneWidget);
+        expect(find.textContaining(keepAll('프레임 밖의 요소 2')), findsOneWidget);
+
+        // 다른 페이지를 고르면 다시 꺼진다.
+        await pick('Page 1');
+        expect(link.read, ['0:1', '5:1', '0:1']);
+        expect(tester.widget<Switch>(knob).value, isFalse);
+        expect(preview('페이지 2개, 요소 13개, 그림 0개'), findsOneWidget);
+
+        await tester.tap(knob);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('가져오기'));
+        await tester.pumpAndSettle();
+        expect(link.plan!.unpackSections, isTrue);
+        expect(link.plan!.boards, 6);
+        expect(find.textContaining('Figma에서 가져왔습니다'), findsOneWidget);
+      },
+    );
+
     testWidgets('페이지를 고르면 오는 것과 옮기지 못하는 것을 보이고, 가져온 뒤 열기로 그 문서를 돌려준다', (
       tester,
     ) async {
@@ -3685,6 +3800,83 @@ Json samplePage() => page([
             ],
           },
         ),
+    ],
+  ),
+]);
+
+/// 섹션 둘(10:1, 20:1). 저마다 프레임 둘, 프레임이 아닌 것 하나, 안쪽 섹션 하나(그 안에 프레임 하나)가 들었다.
+/// 좌표는 Figma처럼 절대 좌표다. 둘째 섹션의 안쪽 섹션(22:1)은 숨겼다.
+Json sectionsPage() => page([
+  figmaNode(
+    '10:1',
+    'SECTION',
+    x: 0,
+    y: 0,
+    w: 1000,
+    h: 800,
+    extra: {
+      'name': '프로젝트 가',
+      'fills': [solid(0.9, 0.9, 0.9)],
+    },
+    children: [
+      figmaNode(
+        '11:1',
+        'FRAME',
+        x: 40,
+        y: 60,
+        w: 300,
+        h: 200,
+        children: [figmaNode('11:2', 'RECTANGLE', x: 50, y: 70, w: 20, h: 10)],
+      ),
+      figmaNode('11:3', 'FRAME', x: 400, y: 60, w: 300, h: 200),
+      figmaNode('11:4', 'RECTANGLE', x: 800, y: 60, w: 50, h: 50),
+      figmaNode(
+        '12:1',
+        'SECTION',
+        x: 40,
+        y: 400,
+        w: 600,
+        h: 300,
+        children: [figmaNode('12:2', 'FRAME', x: 60, y: 420, w: 200, h: 100)],
+      ),
+    ],
+  ),
+  figmaNode(
+    '20:1',
+    'SECTION',
+    x: 1200,
+    y: 0,
+    w: 1000,
+    h: 800,
+    extra: {
+      'name': '프로젝트 나',
+      'fills': [solid(0.8, 0.9, 1)],
+    },
+    children: [
+      figmaNode('21:1', 'FRAME', x: 1250, y: 60, w: 300, h: 200),
+      figmaNode('21:3', 'COMPONENT', x: 1600, y: 60, w: 300, h: 200),
+      figmaNode(
+        '21:4',
+        'TEXT',
+        x: 2000,
+        y: 60,
+        w: 80,
+        h: 20,
+        extra: {
+          'characters': '메모',
+          'style': {'fontFamily': 'Pretendard', 'fontSize': 16},
+        },
+      ),
+      figmaNode(
+        '22:1',
+        'SECTION',
+        x: 1250,
+        y: 400,
+        w: 600,
+        h: 300,
+        extra: {'visible': false},
+        children: [figmaNode('22:2', 'FRAME', x: 1270, y: 420, w: 200, h: 100)],
+      ),
     ],
   ),
 ]);
@@ -3916,14 +4108,20 @@ class _ImportLink extends FigmaLink {
     return pageList;
   }
 
+  /// 가져오기에 넘긴 미리 보기.
+  FigmaImport? plan;
+
   @override
   Future<FigmaImport> readPage(
     String pageId, {
     Duration timeout = const Duration(seconds: 120),
     Duration total = maxCommandTime,
+    bool unpackSections = false,
   }) async {
     read.add(pageId);
-    if (figma != null) return fromFigma(figma!);
+    if (figma != null) {
+      return fromFigma(figma!, unpackSections: unpackSections);
+    }
     return fromFigma({
       ...samplePage(),
       'children': [
@@ -3942,6 +4140,7 @@ class _ImportLink extends FigmaLink {
     Duration imageTimeout = const Duration(seconds: 60),
   }) async {
     imported.add(name);
+    this.plan = plan;
     if (changedOnce) {
       changedOnce = false;
       throw const FigmaChanged();

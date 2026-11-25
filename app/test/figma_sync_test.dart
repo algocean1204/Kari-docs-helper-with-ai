@@ -21,7 +21,14 @@ import 'package:kari/library.dart';
 import 'package:kari/screens/figma.dart';
 
 import 'figma_test.dart'
-    show FakePlugin, expectReadOnly, figmaNode, page, paint, solid;
+    show
+        FakePlugin,
+        expectReadOnly,
+        figmaNode,
+        page,
+        paint,
+        sectionsPage,
+        solid;
 
 /// 견본 페이지: 대지(1:1) 안에 사각형(1:2), 글(1:3), 안쪽 프레임(1:4)과 그 안의 타원(1:5). 대지 하나 더(2:1).
 Json basePage() => page([
@@ -70,16 +77,17 @@ Json basePage() => page([
   figmaNode('2:1', 'FRAME', x: 500, y: 0, w: 200, h: 200),
 ]);
 
-/// [p]를 읽어 옮긴 것(페이지와 파일 키를 붙인다. 키는 기본으로 같은 파일의 것).
-FigmaImport fig(Json p, {String? file = 'fileA'}) => fromFigma(p)
-  ..pageId = '0:1'
-  ..fileKey = file;
+/// [p]를 읽어 옮긴 것(페이지와 파일 키를 붙인다. 키는 기본으로 같은 파일의 것). [unpack]이면 섹션을 푼다.
+FigmaImport fig(Json p, {String? file = 'fileA', bool unpack = false}) =>
+    fromFigma(p, unpackSections: unpack)
+      ..pageId = '0:1'
+      ..fileKey = file;
 
 /// [p]를 가져온 Kari 노드들(`doc.nodes` 꼴, 저장을 흉내 내 JSON으로 한 번 오간다).
-List<Json> imported(Json p, {String? file = 'fileA'}) {
+List<Json> imported(Json p, {String? file = 'fileA', bool unpack = false}) {
   var born = 1;
   return [
-    for (final op in fig(p, file: file).withMap())
+    for (final op in fig(p, file: file, unpack: unpack).withMap())
       {
         ...jsonDecode(jsonEncode(op['node'])) as Json,
         'z': 'a0',
@@ -459,6 +467,41 @@ void main() {
 
   group('닫은 결정', () {
     final b = basePage();
+
+    test('섹션을 풀어 가져온 문서: 그 풀기를 지니고, 같은 풀기로 읽으면 바뀐 것이 없다', () {
+      final p = sectionsPage();
+      final k = imported(p, unpack: true);
+      expect(linkedSections(k), isTrue);
+      expect(linkedSections(imported(p)), isFalse);
+      final same = planSync(k, fig(p, unpack: true));
+      expect(same.refused, isNull);
+      expect(same.ops, isEmpty);
+      expect(same.conflicts, isEmpty);
+      // Figma에서 섹션 안의 프레임을 옮기면 그 페이지의 자리만 바뀐다.
+      final moved = planSync(
+        k,
+        fig(
+          editF(
+            p,
+            '21:1',
+            (n) => {
+              ...n,
+              'absoluteTransform': [
+                [1, 0, 1300],
+                [0, 1, 60],
+              ],
+            },
+          ),
+          unpack: true,
+        ),
+      );
+      expect(moved.conflicts, isEmpty);
+      expect(propSets(moved).single['props'], containsPair('cx', 1300));
+      // 풀지 않고 읽으면 섹션이 새 페이지로, 풀어 가져온 페이지는 종류가 바뀐 것으로 잡힌다.
+      final wrong = planSync(k, fig(p));
+      expect(wrong.added, greaterThan(0));
+      expect(wrong.deleted, greaterThan(0));
+    });
 
     test('Figma에서 종류가 바뀜: 고치지 않았으면 지우고 새로 넣고, 고쳤으면 남기고 충돌', () {
       final f = fig(editF(b, '1:2', (n) => {...n, 'type': 'ELLIPSE'}));
@@ -1371,6 +1414,39 @@ void main() {
       expect(find.text('Figma와 다시 맞추기'), findsNothing);
     });
 
+    testWidgets('섹션을 풀어 가져온 문서는 같은 풀기로 읽어 바뀐 것이 없다고 보인다', (tester) async {
+      final p = sectionsPage();
+      final k = imported(p, unpack: true);
+      final fake = FakeEngine();
+      final tmp = Directory.systemTemp.createTempSync('kari-sync-ui-');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final lib = Library(fake, tmp.path);
+      await tester.runAsync(() async {
+        await fake.libOpen(tmp.path);
+        await lib.open();
+      });
+      final docId = await tester.runAsync(
+        () => fake.docsCreate('canvas', 'Page 1'),
+      );
+      fake.docs[docId]!['nodes'] = k;
+      final link = _SyncLink(lib, k, fig(p));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Brightness.light),
+          home: Scaffold(
+            body: FigmaSyncDialog(
+              link: link,
+              docId: docId!,
+              commit: (_) async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(link.unpacked, [true]);
+      expect(find.textContaining(keepAll('바뀐 것이 없습니다')), findsOneWidget);
+    });
+
     testWidgets('연결되지 않았으면 맞추기가 꺼지고 설정으로 안내한다', (tester) async {
       final fake = FakeEngine();
       final tmp = Directory.systemTemp.createTempSync('kari-sync-ui-');
@@ -1597,6 +1673,9 @@ class _SyncLink extends FigmaLink {
   final FigmaImport fresh;
   Set<String>? picked;
 
+  /// 페이지를 읽을 때 받은 섹션 풀기.
+  final unpacked = <bool>[];
+
   @override
   bool get connected => true;
 
@@ -1608,7 +1687,11 @@ class _SyncLink extends FigmaLink {
     String pageId, {
     Duration timeout = const Duration(seconds: 120),
     Duration total = const Duration(minutes: 10),
-  }) async => fresh;
+    bool unpackSections = false,
+  }) async {
+    unpacked.add(unpackSections);
+    return fresh.again(unpackSections: unpackSections);
+  }
 
   @override
   Future<String> applySync(
