@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: 3.38.2
+  FLUTTER_VERSION: 3.50.1
   # 러너의 디스크가 작다. 증분 빌드 자료와 시험 빌드의 디버그 정보를 만들지 않는다.
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0

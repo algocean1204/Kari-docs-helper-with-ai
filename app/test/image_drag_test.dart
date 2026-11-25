@@ -2,6 +2,7 @@
 // 흉내 엔진으로 돈다. 흉내 엔진의 그림 상자는 (200, 300)에서 시작하고 크기는 pt의 4/3배다(150×100pt → 200×133.3).
 
 import 'package:flutter/gestures.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

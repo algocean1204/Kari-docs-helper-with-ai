@@ -191,7 +191,7 @@ xattr -dr com.apple.quarantine /Applications/Kari.app
 
 ### 소스로 실행하기
 
-Flutter 3.38.2, Rust 1.97.1(`app/engine/rust-toolchain.toml`로 고정), Xcode 26 이상, CocoaPods, poppler, qpdf가 필요하다.
+Flutter 3.50.1, Rust 1.97.1(`app/engine/rust-toolchain.toml`로 고정), Xcode 26 이상, CocoaPods, poppler, qpdf가 필요하다.
 
 ```bash
 brew install poppler qpdf cocoapods

@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart'
     show kDoubleTapTimeout, kPrimaryMouseButton, kTouchSlop;
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 

@@ -1,6 +1,7 @@
 // 캔버스 레이어 패널, 묶기·순서·숨기기·잠그기 키, 페이지 크기, 색 판, 도구 단추의 시험(흉내 엔진).
 
 import 'package:flutter/gestures.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -272,7 +273,7 @@ void main() {
             .descendant(of: layer('r1'), matching: find.byType(GestureDetector))
             .first,
       );
-      expect(sem, containsSemantics(isSelected: true));
+      expect(sem, isSemantics(isSelected: true));
     });
 
     testWidgets('새로 고른 것의 줄이 늦게 와도 조상을 편다', (tester) async {

@@ -8,6 +8,7 @@
 // 같은 호출이고, 판에 입력 채널이 붙어 있어야 닿는다). 자료 폴더는 새 임시 폴더이고 끝나면 지운다.
 import 'dart:io';
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

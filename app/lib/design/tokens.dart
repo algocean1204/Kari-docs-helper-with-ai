@@ -1,3 +1,4 @@
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 /// 색 역할. 부품과 화면은 이 역할만 쓰고 색 값을 직접 적지 않는다.

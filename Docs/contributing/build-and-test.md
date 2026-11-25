@@ -4,7 +4,7 @@
 
 | 도구 | 판 | 쓰는 곳 |
 |---|---|---|
-| Flutter | 3.38.2 (stable) | 앱 |
+| Flutter | 3.50.1 (stable) | 앱 |
 | Rust | 1.97.1 | 엔진(`app/engine`). 판과 구성 요소(`rustfmt`, `clippy`)는 `app/engine/rust-toolchain.toml`이 정하고, rustup이 그 판을 받아 쓴다. 앱 빌드 훅도 `app/engine`에서 `cargo`를 불러 같은 판을 쓴다. 판을 올릴 때는 이 파일의 `channel`만 바꾼다 |
 | Xcode | 26 이상 | macOS 앱 빌드 |
 | CocoaPods(`pod`) | 최신 | macOS 앱 빌드(`integration_test` 플러그인을 묶는다. 릴리스 앱에는 들어가지 않는다) |

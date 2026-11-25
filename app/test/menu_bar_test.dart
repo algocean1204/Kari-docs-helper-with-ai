@@ -7,6 +7,7 @@
 // 1024×640과 1280×800, 두 테마에서 넘침 없음, 채운 단추 0개, Tab으로 닿음.
 // SHOT_DIR을 주면 화면 그림을 design19-*.png로 쓴다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

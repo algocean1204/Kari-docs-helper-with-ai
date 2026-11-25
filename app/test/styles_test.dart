@@ -1,6 +1,7 @@
 // 스타일 메뉴, 스타일 고치기·새 스타일 창, 문단 모양 창의 테두리와 바탕, 가로줄, 스타일 단축키, 새 문서의 스타일 설정.
 // 흉내 엔진으로 돈다. SHOT_DIR을 주면 화면 그림을 styles-*.png로 쓴다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

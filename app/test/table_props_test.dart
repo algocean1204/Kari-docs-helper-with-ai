@@ -3,6 +3,7 @@
 // SHOT_DIR을 주면 화면 그림을 design17-*.png로 쓴다.
 
 import 'package:flutter/gestures.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

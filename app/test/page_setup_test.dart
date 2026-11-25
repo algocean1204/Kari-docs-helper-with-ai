@@ -1,5 +1,6 @@
 // 쪽 설정의 화면: 쪽 설정 창과 위쪽 줄. 흉내 엔진으로 돈다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/engine/engine.dart';

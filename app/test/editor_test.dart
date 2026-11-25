@@ -8,6 +8,7 @@
 import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show SemanticsProperties;
 import 'package:flutter/services.dart';
@@ -584,7 +585,7 @@ void main() {
       final handle = tester.ensureSemantics();
       expect(
         tester.getSemantics(button()),
-        containsSemantics(label: 'PDF로 내보내기', isButton: true),
+        isSemantics(label: 'PDF로 내보내기', isButton: true),
       );
       handle.dispose();
     });
@@ -669,11 +670,7 @@ void main() {
       final handle = tester.ensureSemantics();
       expect(
         tester.getSemantics(button()),
-        containsSemantics(
-          isButton: true,
-          hasEnabledState: true,
-          isEnabled: false,
-        ),
+        isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
       );
       handle.dispose();
       await tester.tap(button(), warnIfMissed: false);

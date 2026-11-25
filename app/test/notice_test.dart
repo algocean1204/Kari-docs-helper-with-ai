@@ -4,6 +4,7 @@
 // - 단추가 있는 알림도 정해진 시간 뒤 닫히고, 화면을 옮기면 걷힌다.
 // - 사용자가 행동해야 하는 업데이트 띠는 화면을 옮겨도 남는다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

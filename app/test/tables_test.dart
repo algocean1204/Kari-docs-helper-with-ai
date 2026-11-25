@@ -1,5 +1,6 @@
 // 표의 화면: 표 넣기 창과 표 도구 줄. 흉내 엔진으로 돈다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

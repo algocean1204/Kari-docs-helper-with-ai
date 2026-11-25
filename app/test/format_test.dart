@@ -2,6 +2,7 @@
 // 사용자 지정 용지, 단축키, 넘침·채운 단추·Tab. 흉내 엔진으로 돈다.
 // SHOT_DIR을 주면 화면 그림을 format-*.png로 쓴다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

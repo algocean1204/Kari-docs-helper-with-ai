@@ -1,6 +1,7 @@
 // ⓘ 설명(InfoTip)과 고르기 줄의 선택지 설명.
 
 import 'package:flutter/gestures.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

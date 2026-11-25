@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 env:
-  FLUTTER_VERSION: 3.38.2
+  FLUTTER_VERSION: 3.50.1
 
 jobs:
   release:

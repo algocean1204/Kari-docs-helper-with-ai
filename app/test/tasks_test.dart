@@ -1,6 +1,7 @@
 // 일마다 쓰는 모델: 설정에서 일마다 제공사, 계열, 생각 깊이를 고르고 지금 정해진 판을 본다. FakeEngine으로 돈다.
 // 보내는 내용 창의 일마다의 판은 interview_test의 첫 전송 전 보여 주기에서 본다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kari/design/components.dart';

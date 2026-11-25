@@ -1,3 +1,4 @@
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 
 import '../design/components.dart';
@@ -789,8 +790,8 @@ class _Defended extends StatelessWidget {
             // 막대는 "설명함"과 같은 색이다. 강조색은 채운 단추에만 쓴다.
             color: c.success,
             backgroundColor: c.surface2,
+            // 값은 Flutter가 0~100의 백분율 숫자로 알린다. 진행 막대의 값은 숫자여야 하고, "m개 중 n개"는 위 줄이 읽는다.
             semanticsLabel: '설명한 문장',
-            semanticsValue: '$defended/$total',
           ),
         ),
       ],

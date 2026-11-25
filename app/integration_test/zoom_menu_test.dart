@@ -6,6 +6,7 @@
 // 보는 것: 150%에서 실제 크기와 축소를 고르면 앱이 끝나지 않고 그 배율이 된다. 글을 조금 친 문서, 긴 문서,
 // 가로 스크롤이 있는 배율(200%, 300%)의 끝에서 내려오는 경우, 메뉴가 배율을 바꾸는 사이에 수정 키 없는 글자 키가
 // 입력기를 거쳐 들어오는 경우.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

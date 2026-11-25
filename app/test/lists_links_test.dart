@@ -1,5 +1,6 @@
 // 목록·탭·링크·찾기의 화면: 도구 막대 단추, 탭 창, 링크 창, 찾기 막대, 상태 줄. 흉내 엔진으로 돈다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -235,28 +236,24 @@ void main() {
 
   // 실제 앱 시험에서 찾은 결함: macOS에서는 글 칸 밖을 누르면 그 칸의 초점이 풀린다. 막대의 단추를 누른 뒤
   // 초점이 어디에도 없어 Esc가 막대를 닫지 못했다.
-  testWidgets(
-    '찾기 막대: macOS에서 막대의 단추를 눌러도 초점이 막대에 남아 Esc로 닫힌다',
-    (tester) async {
-      final (rig, id) = await openCv(tester, size: sizes[0]);
-      tester.testTextInput.enterText('김서연 kari Kari');
-      await tester.pumpAndSettle();
-      await shortcut(tester, LogicalKeyboardKey.keyF);
-      await typeIn(tester, find.widgetWithText(TextField, '찾을 글'), 'kari');
-      await tapTip(tester, '다음 일치 ⏎');
-      expect(FocusManager.instance.primaryFocus?.debugLabel, '찾을 글');
-      await tapTip(tester, '바꾸기 펼치기');
-      await typeIn(tester, find.widgetWithText(TextField, '바꿀 글'), '카리');
-      await tester.tap(find.text('바꾸기'));
-      await tester.pumpAndSettle();
-      expect(firstPara(rig, id), '김서연 카리 Kari');
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(find.byType(FindBar), findsNothing);
-      expect(FocusManager.instance.primaryFocus?.debugLabel, '문서 본문');
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
-  );
+  testWidgets('찾기 막대: macOS에서 막대의 단추를 눌러도 초점이 막대에 남아 Esc로 닫힌다', (tester) async {
+    final (rig, id) = await openCv(tester, size: sizes[0]);
+    tester.testTextInput.enterText('김서연 kari Kari');
+    await tester.pumpAndSettle();
+    await shortcut(tester, LogicalKeyboardKey.keyF);
+    await typeIn(tester, find.widgetWithText(TextField, '찾을 글'), 'kari');
+    await tapTip(tester, '다음 일치 ⏎');
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '찾을 글');
+    await tapTip(tester, '바꾸기 펼치기');
+    await typeIn(tester, find.widgetWithText(TextField, '바꿀 글'), '카리');
+    await tester.tap(find.text('바꾸기'));
+    await tester.pumpAndSettle();
+    expect(firstPara(rig, id), '김서연 카리 Kari');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(FindBar), findsNothing);
+    expect(FocusManager.instance.primaryFocus?.debugLabel, '문서 본문');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('상태 줄은 편집 뒤 150ms 조용하면 다시 센다', (tester) async {
     await openCv(tester);

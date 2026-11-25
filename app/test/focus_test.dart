@@ -9,6 +9,7 @@
 
 import 'dart:io';
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,6 +151,11 @@ void main() {
       expect(
         find.bySemanticsLabel('면접에서 물을 문장 3개 중 1개를 설명했습니다'),
         findsOneWidget,
+      );
+      // 진행 막대의 값은 숫자여야 한다("1/3"이면 손쉬운 사용이 받지 못한다). 백분율로 알린다.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('설명한 문장')),
+        isSemantics(label: '설명한 문장', value: '33'),
       );
       expect(find.text('먼저 준비할 문장'), findsOneWidget);
       expect(

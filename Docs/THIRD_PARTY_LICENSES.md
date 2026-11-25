@@ -22,10 +22,10 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | 라이선스 표현 | 개수 |
 |---|---|
 | MIT OR Apache-2.0 | 97 |
+| BSD-3-Clause | 22 |
 | MIT | 22 |
 | Unicode-3.0 | 22 |
 | Apache-2.0 OR MIT | 21 |
-| BSD-3-Clause | 21 |
 | MIT/Apache-2.0 | 5 |
 | (MIT OR Apache-2.0) AND Unicode-3.0 | 3 |
 | Zlib | 3 |
@@ -245,16 +245,17 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 
 | 이름 | 판 | 라이선스 | 출처 | 비고 | 전문 |
 |---|---|---|---|---|---|
-| characters | 1.4.0 | BSD-3-Clause | https://pub.dev/packages/characters |  | [f7864e97fa](#t-f7864e97fa) |
+| characters | 1.4.1 | BSD-3-Clause | https://pub.dev/packages/characters |  | [f7864e97fa](#t-f7864e97fa) |
 | code_assets | 1.0.0 | BSD-3-Clause | https://pub.dev/packages/code_assets | 빌드 때만 씀(앱에 들어가지 않음) | [00c09d79dd](#t-00c09d79dd) |
 | collection | 1.19.1 | BSD-3-Clause | https://pub.dev/packages/collection |  | [4f31d21986](#t-4f31d21986) |
 | crypto | 3.0.7 | BSD-3-Clause | https://pub.dev/packages/crypto | 빌드 때만 씀(앱에 들어가지 않음) | [4f31d21986](#t-4f31d21986) |
 | ffi | 2.2.0 | BSD-3-Clause | https://pub.dev/packages/ffi |  | [f7864e97fa](#t-f7864e97fa) |
 | flutter | Flutter SDK | BSD-3-Clause | https://github.com/flutter/flutter |  | [d16501fab7](#t-d16501fab7) |
 | hooks | 1.0.2 | BSD-3-Clause | https://pub.dev/packages/hooks | 빌드 때만 씀(앱에 들어가지 않음) | [00c09d79dd](#t-00c09d79dd) |
+| listen | 1.0.1 | BSD-3-Clause | https://pub.dev/packages/listen |  | [1c16df050b](#t-1c16df050b) |
 | logging | 1.3.0 | BSD-3-Clause | https://pub.dev/packages/logging | 빌드 때만 씀(앱에 들어가지 않음) | [df29899a60](#t-df29899a60) |
-| material_color_utilities | 0.11.1 | Apache-2.0 | https://pub.dev/packages/material_color_utilities |  | [33d0d686f3](#t-33d0d686f3) |
-| meta | 1.17.0 | BSD-3-Clause | https://pub.dev/packages/meta |  | [38dd2067d2](#t-38dd2067d2) |
+| material_color_utilities | 0.13.0 | Apache-2.0 | https://pub.dev/packages/material_color_utilities |  | [33d0d686f3](#t-33d0d686f3) |
+| meta | 1.19.0 | BSD-3-Clause | https://pub.dev/packages/meta |  | [38dd2067d2](#t-38dd2067d2) |
 | path | 1.9.1 | BSD-3-Clause | https://pub.dev/packages/path | 빌드 때만 씀(앱에 들어가지 않음) | [5f14aa861a](#t-5f14aa861a) |
 | pub_semver | 2.2.0 | BSD-3-Clause | https://pub.dev/packages/pub_semver | 빌드 때만 씀(앱에 들어가지 않음) | [5f14aa861a](#t-5f14aa861a) |
 | sky_engine | Flutter SDK | BSD-3-Clause 외 여럿 | https://github.com/flutter/flutter | Flutter 엔진과 그 안의 Skia 등. 전문: Flutter SDK의 bin/cache/pkg/sky_engine/LICENSE, 앱 안의 Kari.app/Contents/Frameworks/App.framework/Resources/flutter_assets/NOTICES.Z |  |
@@ -262,7 +263,7 @@ MIT와 함께 배포하기 어렵거나(GPL, AGPL, LGPL, MPL, SSPL 등) 라이�
 | string_scanner | 1.4.1 | BSD-3-Clause | https://pub.dev/packages/string_scanner | 빌드 때만 씀(앱에 들어가지 않음) | [5f14aa861a](#t-5f14aa861a) |
 | term_glyph | 1.2.2 | BSD-3-Clause | https://pub.dev/packages/term_glyph | 빌드 때만 씀(앱에 들어가지 않음) | [d17b393b9f](#t-d17b393b9f) |
 | typed_data | 1.4.0 | BSD-3-Clause | https://pub.dev/packages/typed_data | 빌드 때만 씀(앱에 들어가지 않음) | [4f31d21986](#t-4f31d21986) |
-| vector_math | 2.2.0 | BSD-3-Clause | https://pub.dev/packages/vector_math |  | [bc8b6422a4](#t-bc8b6422a4) |
+| vector_math | 2.4.4 | BSD-3-Clause | https://pub.dev/packages/vector_math |  | [1c16df050b](#t-1c16df050b) |
 | yaml | 3.1.3 | MIT | https://pub.dev/packages/yaml | 빌드 때만 씀(앱에 들어가지 않음) | [3de2669358](#t-3de2669358) |
 
 ## 글꼴, Skia와 그 안의 라이브러리, Sparkle, Figma 플러그인
@@ -8283,7 +8284,7 @@ freely, subject to the following restrictions:
 
 ### f7864e97fa
 
-쓰는 곳: characters 1.4.0 (LICENSE), ffi 2.2.0 (LICENSE)
+쓰는 곳: characters 1.4.1 (LICENSE), ffi 2.2.0 (LICENSE)
 
 ```text
 Copyright 2019, the Dart project authors. 
@@ -8421,6 +8422,40 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+<a id="t-1c16df050b"></a>
+
+### 1c16df050b
+
+쓰는 곳: listen 1.0.1 (LICENSE), vector_math 2.4.4 (LICENSE)
+
+```text
+Copyright 2013 The Flutter Authors
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+      copyright notice, this list of conditions and the following
+      disclaimer in the documentation and/or other materials provided
+      with the distribution.
+    * Neither the name of Google Inc. nor the names of its
+      contributors may be used to endorse or promote products derived
+      from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 <a id="t-df29899a60"></a>
 
 ### df29899a60
@@ -8461,7 +8496,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### 33d0d686f3
 
-쓰는 곳: material_color_utilities 0.11.1 (LICENSE)
+쓰는 곳: material_color_utilities 0.13.0 (LICENSE)
 
 ```text
 Apache License
@@ -8671,7 +8706,7 @@ Apache License
 
 ### 38dd2067d2
 
-쓰는 곳: meta 1.17.0 (LICENSE)
+쓰는 곳: meta 1.19.0 (LICENSE)
 
 ```text
 Copyright 2016, the Dart project authors.
@@ -8773,61 +8808,6 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
-<a id="t-bc8b6422a4"></a>
-
-### bc8b6422a4
-
-쓰는 곳: vector_math 2.2.0 (LICENSE)
-
-```text
-Copyright 2015, Google Inc. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-
-   * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-Copyright (C) 2013 Andrew Magill
-
-This software is provided 'as-is', without any express or implied
-warranty.  In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required.
-2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
-3. This notice may not be removed or altered from any source distribution.
 ```
 
 <a id="t-3de2669358"></a>

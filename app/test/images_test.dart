@@ -1,5 +1,6 @@
 // 그림의 화면: 넣기 메뉴의 그림, 열기 취소, 거절 메시지, 그림 크기 창. 흉내 엔진으로 돈다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

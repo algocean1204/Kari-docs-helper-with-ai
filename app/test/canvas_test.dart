@@ -6,6 +6,7 @@
 // 끌기 중 수정 키, 오른쪽 누름 메뉴.
 
 import 'package:flutter/gestures.dart';
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

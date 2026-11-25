@@ -1,5 +1,6 @@
 // 시선 기록 시험: 판정, 구간 만들기, 화면, 카메라 없이 진행. 카메라는 흉내다. 실제 카메라 채널은 부르지 않는다.
 
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
