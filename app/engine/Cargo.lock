@@ -1115,7 +1115,7 @@ dependencies = [
 name = "kari-ai"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "getrandom",
  "keyring",
  "num-bigint 0.5.1",
@@ -1158,7 +1158,7 @@ dependencies = [
 name = "kari-ffi"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "kari-ai",
  "kari-doc",
  "kari-docx",
